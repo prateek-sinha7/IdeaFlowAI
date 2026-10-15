@@ -1,0 +1,4 @@
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+ERROR tests/unit/test_iss401_reset_password_message.py::test_reset_password_409_does_not_claim_credentials_are_managed_externally
+1 warning, 1 error in 1.08s

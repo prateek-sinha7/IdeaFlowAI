@@ -1,0 +1,14 @@
+# QA-KB-059 fix: ORIGINAL iss919 test file, PRE-FIX IdeaInputPage.tsx (2026-10-07)
+# cmd (frontend/): ./node_modules/.bin/vitest --run src/components/workflow/IdeaInputPage.iss919.test.tsx
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - ESM syntax in a file loaded as CommonJS (vitest.config.ts:1:1). Use a `.mjs` extension or set `"type": "module"` in the closest package.json
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+
+ RUN  v4.1.11 /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/frontend
+
+
+ Test Files  1 passed (1)
+      Tests  4 expected fail (4)
+   Start at  18:04:52
+   Duration  1.70s (transform 222ms, setup 71ms, import 586ms, tests 339ms, environment 610ms)
+

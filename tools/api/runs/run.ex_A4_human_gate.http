@@ -2,15 +2,16 @@
 #
 # INTERACTIVE. This runner deliberately does NOT answer the gate — it launches the run,
 # waits at the human pause, and prints what to do. YOU choose the language in the UI (or
-# with the curl it prints), and the assertions then check that the branch the engine took
-# matches the choice YOU made.
+# with the curl it prints), and the assertions then check that the gate routed it to
+# exactly one branch.
 #
 #   ask            "(awaiting language choice)"      ← the slot you overwrite
 #     |
 #   pick-language  gates:[human, conditional]
 #     |   PRE  human      -> RUN PAUSES HERE, waiting for you
-#     |   generates       -> consumes human_choice, emits {"decision": ...}
-#     |   POST conditional-> routes on that line
+#     |   generates       -> consumes route_decision, emits {"decision": ...}
+#     |   POST conditional-> routes on YOUR answer in ask (condition_agent: ask), not
+#     |                      on that line; the answer must be {"decision": ...}
 #     |
 #     |__ english -> say-hello   "Hello, world!"
 #     |__ spanish -> say-hola    "Hola, mundo!"
@@ -18,9 +19,10 @@
 #
 # Same 3-way branch as ex_A2_branch on purpose: the ONLY difference is who decides.
 #
-# Assertions are choice-AGNOSTIC — they read the decision the engine actually recorded
-# and check the branch matches it, so any of the three answers passes. A wrong-branch
-# bug fails regardless of what you typed.
+# Assertions are choice-AGNOSTIC, so any of the three answers passes: exactly one
+# branch ran, the other two were skipped, no gate_blocked, and the branch's line
+# reached the output. A routed gate publishes nothing on the stream, so branch-vs-answer
+# is checked by the auto twin, which knows the answer it sent.
 #
 # For the headless/regression twin that answers the gate itself, see
 # run.ex_A4_human_gate_auto.http.
@@ -89,10 +91,10 @@ Event: message
 				apiLine('│  showing:  "' + String(d.output || '').trim() + '"');
 				apiLine('│  gate_key: ' + d.gate_key);
 				apiLine('│');
-				apiLine('│  Answer in the UI, or paste this (swap the language):');
+				apiLine('│  Answer in the UI, or paste this (swap the language; keep the {"decision": ...} object, a bare word blocks the gate):');
 				apiLine('│    curl -s -X POST ' + '{{apiRoot}}' + '/api/runs/' + '{{runId}}' + '/gate \\');
 				apiLine('│      -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \\');
-				apiLine('│      -d \'{"gate_key":"' + d.gate_key + '","action":"approve","edited_content":"spanish"}\'');
+				apiLine(String.raw`│      -d '{"gate_key":"${d.gate_key}","action":"approve","edited_content":"{\"decision\":\"spanish\"}"}'`);
 				apiLine('└─────────────────────────────────────────────────────────');
 				apiLine('');
 			}
@@ -148,19 +150,7 @@ Authorization: Bearer {{jwt}}
 		apiLine('✓ exactly one branch ran: ' + taken[0][0] + ' (' + taken[0][1].id + ')');
 	}
 
-	// 3. It must match what pick-language actually decided — the whole point of A4.
-	//    Read the decision from the step's own output rather than trusting the branch.
-	const decisionText = textOf('pick-language') || '';
-	let decided = null;
-	try { decided = JSON.parse(decisionText.trim()).decision; } catch { /* left null */ }
-	apiLine('pick-language decided: ' + JSON.stringify(decided) + '  (from "' + decisionText.slice(0, 60) + '")');
-	if (taken.length === 1 && decided && decided === taken[0][0]) {
-		apiLine('✓ branch matches the recorded decision');
-	} else if (taken.length === 1) {
-		apiLine('✗ branch ' + taken[0][0] + ' does not match decision ' + JSON.stringify(decided), 'error');
-	}
-
-	// 4. ask ran once; the two untaken branches are reported skipped.
+	// 3. ask ran once; the two untaken branches are reported skipped.
 	if (dispatches('ask') === 1 && dispatches('pick-language') === 1) apiLine('✓ ask and pick-language each ran once');
 	else apiLine('✗ ask/pick-language dispatch counts wrong', 'error');
 
@@ -173,18 +163,15 @@ Authorization: Bearer {{jwt}}
 		else apiLine('✗ untaken branch(es) NOT reported skipped: ' + missing.map(b => b.id).join(', '), 'error');
 	}
 
-	// A blocked conditional gate does NOT halt the run (§8b: the terminate-on-block
-	// fix covered only the PRE-step loop), so the cursor just advances to the next
-	// step in sequence — which looks exactly like a correct forward branch and still
-	// reports pipeline_complete. Without this check a run where the gate never matched
-	// scored green: seen live when a model emitted
-	// '{"decision":"english"}Hello! How can I help you today?' and strict JSON parsing
-	// discarded it. If this fires, the branch below did NOT route — it fell through.
+	// A blocked conditional gate ends the run as pipeline_failed (ISS-170), so the
+	// pipeline_complete check below fails too; this line names WHERE it blocked. The
+	// gate reads ask's artifact (condition_agent: ask), i.e. YOUR answer, and blocks
+	// unless that answer is a {"decision": ...} object naming an outcome.
 	const blocked = events.filter(e => e.type === 'gate_blocked').map(e => payloadOf(e).step || '?');
 	if (blocked.length === 0) apiLine('✓ no gate_blocked — the conditional gate actually routed');
-	else apiLine('✗ conditional gate BLOCKED at ' + blocked.join(', ') + ' — the run fell through instead of routing', 'error');
+	else apiLine('✗ conditional gate BLOCKED at ' + blocked.join(', ') + ' — the run FAILED at the gate instead of routing', 'error');
 
-	// 5. Terminal + the chosen branch's exact line reached the output.
+	// 4. Terminal + the chosen branch's exact line reached the output.
 	if (events.some(e => e.type === 'pipeline_complete')) apiLine('✓ pipeline_complete');
 	else apiLine('✗ pipeline_complete not found', 'error');
 

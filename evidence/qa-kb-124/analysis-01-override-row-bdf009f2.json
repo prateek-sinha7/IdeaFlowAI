@@ -1,0 +1,94 @@
+{
+ "query": "SELECT w.id, w.name, w.description, w.override_enabled, w.overrides_pipeline_type, w.created_at, u.email, w.manifest_json FROM workflows w LEFT JOIN users u ON u.id=w.owner_id WHERE w.id='bdf009f2-8545-4579-81a3-96391402b713'",
+ "captured": "2026-10-09 (dev DB, SELECT only)",
+ "row": {
+  "id": "bdf009f2-8545-4579-81a3-96391402b713",
+  "name": "My ex_A1_loop",
+  "description": "Test brief for ex_A1_loop save",
+  "override_enabled": true,
+  "overrides_pipeline_type": "ex_A1_loop",
+  "created_at": "2026-10-09 07:39:03.582163",
+  "owner_email": "admin@velocity.ai"
+ },
+ "manifest_json": {
+  "steps": [
+   {
+    "agent": "custom-agent",
+    "instance_id": "emoji",
+    "name": "Emoji Picker",
+    "prompt": "Pick a random emoji.",
+    "tools": {
+     "read_files": true,
+     "write_files": true,
+     "exec": false
+    },
+    "gates": [],
+    "strategy": "single_shot",
+    "depends_on": []
+   },
+   {
+    "agent": "custom-agent",
+    "instance_id": "greet",
+    "name": "Greet",
+    "prompt": "Greet the user in one short sentence.\n",
+    "tools": {
+     "read_files": true,
+     "write_files": true,
+     "exec": false
+    },
+    "gates": [],
+    "strategy": "single_shot",
+    "depends_on": []
+   },
+   {
+    "agent": "custom-agent",
+    "instance_id": "check",
+    "name": "Check",
+    "prompt": "Look at the greeting above. Respond with exactly one line, no markdown, no code\nfences, no explanation.\n\nIf the greeting contains a joke, respond with exactly:\n{\"decision\": \"ok\"}\n\nIf the greeting does not contain a joke, respond with exactly:\n{\"decision\": \"retry\"}\n",
+    "route": {
+     "outcomes": {
+      "ok": {
+       "trigger": "step",
+       "target": "custom-agent:done"
+      },
+      "retry": {
+       "trigger": "step",
+       "target": "custom-agent:greet",
+       "feedback": "The greeting had no joke. Greet the user again in one short sentence and include a \"why did X cross the road?\" joke this time."
+      }
+     },
+     "loop_max_iterations": 3
+    },
+    "tools": {
+     "read_files": true,
+     "write_files": true,
+     "exec": false
+    },
+    "gates": [
+     "conditional"
+    ],
+    "strategy": "single_shot",
+    "depends_on": [
+     "custom-agent:greet"
+    ],
+    "produces": [
+     "route_decision"
+    ]
+   },
+   {
+    "agent": "custom-agent",
+    "instance_id": "done",
+    "name": "Done",
+    "prompt": "Respond with the greeting above, exactly as written, and nothing else. No\npreamble, no commentary, no extra lines.\n",
+    "tools": {
+     "read_files": true,
+     "write_files": true,
+     "exec": false
+    },
+    "gates": [],
+    "strategy": "single_shot",
+    "depends_on": []
+   }
+  ]
+ }
+}

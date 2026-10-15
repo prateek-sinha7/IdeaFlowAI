@@ -1,0 +1,12 @@
+# QA-KB-099 fix 02: the citation guard that reads test_shutdown_reachability.py, after the fix. 2026-10-08T12:32:50Z
+# Before the fix, same command: 15 passed, 1 warning in 2.04s
+$ .venv/bin/python -m pytest tests/unit/test_run_shutdown_stale_citations.py -q -p no:cacheprovider
+...............                                                          [100%]
+=============================== warnings summary ===============================
+app/core/config.py:94
+  /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/app/core/config.py:94: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+    class Settings(BaseSettings):
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+15 passed, 1 warning in 2.00s
+exit=0

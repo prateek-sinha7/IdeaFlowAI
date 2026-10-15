@@ -1,27 +1,29 @@
 # UNREPRODUCIBLE
 <!-- STATE -->
-
-| Bug | Ledger status | Updated |
-|---|---|---|
-| [QA-PS-001](#qa-ps-001) | UNREPRODUCIBLE | 2026-09-17 |
-| [QA-PS-011](#qa-ps-011) | UNREPRODUCIBLE | 2026-09-22 |
-| [QA-PS-015](#qa-ps-015) | UNREPRODUCIBLE | 2026-09-22 |
-| [QA-PS-016](#qa-ps-016) | UNREPRODUCIBLE | 2026-09-22 |
-| [QA-PS-017](#qa-ps-017) | UNREPRODUCIBLE | 2026-09-22 |
-| [QA-PS-018](#qa-ps-018) | UNREPRODUCIBLE | 2026-09-22 |
-| [QA-PS-029](#qa-ps-029) | UNREPRODUCIBLE | 2026-09-22 |
-| [QA-PS-033](#qa-ps-033) | UNREPRODUCIBLE | 2026-09-22 |
-| [QA-SG-005](#qa-sg-005) | UNREPRODUCIBLE | 2026-09-22 |
-| [QA-SG-008](#qa-sg-008) | UNREPRODUCIBLE | 2026-09-22 |
-| [QA-SG-009](#qa-sg-009) | UNREPRODUCIBLE | 2026-09-22 |
-| [QA-SG-010](#qa-sg-010) | UNREPRODUCIBLE | 2026-09-22 |
-| [QA-SG-011](#qa-sg-011) | UNREPRODUCIBLE | 2026-09-22 |
-| [QA-SG-012](#qa-sg-012) | UNREPRODUCIBLE | 2026-09-22 |
-
-Last synced: 2026-09-23T00:48:22Z
-
+| Bug | Ledger status | Updated | Evidence |
+|---|---|---|---|
+| QA-PS-001 | UNREPRODUCIBLE | 2026-09-17 | ok |
+| QA-PS-011 | UNREPRODUCIBLE | 2026-09-22 | ok |
+| QA-PS-015 | UNREPRODUCIBLE | 2026-09-22 | ok |
+| QA-PS-017 | UNREPRODUCIBLE | 2026-09-22 | ok |
+| QA-PS-016 | UNREPRODUCIBLE | 2026-09-22 | ok |
+| QA-PS-018 | UNREPRODUCIBLE | 2026-09-22 | ok |
+| QA-PS-033 | UNREPRODUCIBLE | 2026-09-22 | ok |
+| QA-PS-029 | UNREPRODUCIBLE | 2026-09-22 | missing |
+| QA-SG-011 | UNREPRODUCIBLE | 2026-09-22 | missing |
+| QA-SG-010 | UNREPRODUCIBLE | 2026-09-22 | ok |
+| QA-SG-009 | UNREPRODUCIBLE | 2026-09-22 | ok |
+| QA-SG-008 | UNREPRODUCIBLE | 2026-09-22 | ok |
+| QA-SG-012 | UNREPRODUCIBLE | 2026-09-22 | ok |
+| QA-SG-005 | UNREPRODUCIBLE | 2026-09-22 | ok |
+| QA-KB-023 | UNREPRODUCIBLE | 2026-10-01 | ok |
+| QA-KB-031 | UNREPRODUCIBLE | 2026-10-01 | ok |
+| QA-KB-113 | UNREPRODUCIBLE | 2026-10-09 | ok |
+| QA-KB-115 | UNREPRODUCIBLE | 2026-10-09 | ok |
+| QA-KB-118 | UNREPRODUCIBLE | 2026-10-09 | ok |
+| QA-KB-111 | UNREPRODUCIBLE | 2026-10-12 | ok |
+Last synced: 2026-10-12T08:20:13Z
 <!-- /STATE -->
-
 
 ## QA-PS-001
 
@@ -295,15 +297,11 @@ The report's root cause names `handleVersionMenuSelect`'s tag-lookup fallback (`
 ## QA-PS-029
 > **Evidence missing** — claims below are unproven.
 
-
-
 **Title:** Selecting an older version shows "Loading v{n}…" indefinitely — 404 on deliverable file fetch for any workflow type · **Route:** /runs/{id} · **Validated:** 2026-09-22 · **Verdict:** UNREPRODUCIBLE
 **Report:** [BUGS.md#qa-ps-029](BUGS.md#qa-ps-029)
 
 ## QA-SG-011
 > **Evidence missing** — claims below are unproven.
-
-
 
 **Title:** Version 1 prototype shows no content in preview, preview area is blank when viewing v1 · **Route:** /runs/{id} · **Validated:** 2026-09-22 · **Verdict:** UNREPRODUCIBLE
 **Report:** [BUGS.md#qa-sg-011](BUGS.md#qa-sg-011)
@@ -448,7 +446,6 @@ In all 5 attempts (3 required + 2 supplementary covering the report's own named 
 - None.
 
 ## QA-SG-005
-> **Evidence missing** — claims below are unproven.
 
 **Title:** UI event rendering and notification ringing becomes very slow with 8 parallel workflows running · **Route:** Any (affects all pages) · **Validated:** 2026-09-22 · **Verdict:** UNREPRODUCIBLE
 **Report:** [BUGS.md#qa-sg-005](BUGS.md#qa-sg-005) · **Tree:** /Users/bilala/Developer/Projects/VELOCITY-AI, branch feat/git-versioning, commit 049a8c3a4
@@ -487,3 +484,176 @@ No literal "ringing" (audio) mechanism exists in the frontend to test in the fir
 ### Side observations
 - `BUGS.md`'s heading/body alignment is broken across `## QA-PS-019` through at least `## QA-SG-006` (see the Note above) — worth a human pass to re-pair headings with their intended bodies; this validation only recovered QA-SG-005's real body by cross-reading neighboring sections, not by fixing the file.
 - The dashboard's "Jump back in" recent-activity cards render raw backend status strings like `waiting_for_user` verbatim instead of a humanized label, visible in several attempts here — a real find, but out of scope for this bug and not filed as a card by this pass.
+
+## QA-KB-023
+
+**Title:** Mechanical step without engine dispatch branch silently runs model on empty prompt · **Route:** n/a (code-level) · **Validated:** 2026-10-01 · **Verdict:** UNREPRODUCIBLE (already fixed for all current kinds)
+**Report:** [BUGS.md#qa-kb-023](BUGS.md#qa-kb-023) · **Tree:** /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2, branch feat/user-stories-v2
+
+### Steps followed
+1. Ran the stated test `tests/unit/test_execution_engine.py::test_mechanical_engine_parity` (file does not exist; the report itself says "will fail—test does not exist yet").
+2. Static check: registry `_KNOWN` mechanical names vs `compiler._ALLOWED_MECHANICAL_KINDS` vs `== "<name>"` in engine.py source.
+
+### Attempts
+| # | Check | Symptom seen? | Evidence |
+|---|---|---|---|
+| 1 | registry.discover() vs compiler vs engine.py grep | No: all 4 kinds present everywhere, missing=[] | evidence/qa-kb-023/01-validate-attempts1-3-static-parity.txt |
+| 2 | same, cold process | No | same file |
+| 3 | same, cold process | No | same file |
+
+### Axes swept
+- Test vs Static mode only (no browser by contract).
+
+### Why it was not seen
+- Report claims assemble_backlog / extract_prototype_ui have no engine branch and are absent from registry._KNOWN. Now false: engine.py:6463 `elif getattr(step, "mechanical", None) == "assemble_backlog":` and engine.py:6476 `elif getattr(step, "mechanical", None) == "extract_prototype_ui":` dispatch them; backlog_assemble.py:1966 `@register("mechanical", "assemble_backlog", ...)` and prototype_ui_extract.py:346 `@register("mechanical", "extract_prototype_ui", ...)` add them to _KNOWN.
+- Registry/compiler parity test covers all 4 kinds: test_compiler.py:576 test_mechanical_kinds_match_registry passes (1 passed), asserting `_ALLOWED_MECHANICAL_KINDS == {mechanical names in _KNOWN}`; compiler.py:206 set is {publish, assemble_prototype, assemble_backlog, extract_prototype_ui}.
+- No kind currently falls through: compiler.py:917 rejects any other `mechanical:` value, so the engine `else: strategy = _registry.resolve("strategy", strategy_name)` (engine.py:6489) is unreachable for a mechanical step today.
+
+### What the reporter could add
+- Nothing for current code. Residual (latent, not reproducible): engine.py has no guard raising for a future 5th kind, and no source-grep engine-parity test exists (test_execution_engine.py absent). Hardening only; fires when someone adds a kind to compiler+registry without an engine branch.
+
+### Side observations
+- None.
+
+## QA-KB-031
+
+**Title:** Test marked xfail(strict=True) will XPASS now that ISS-228 code fix is in place · **Route:** n/a (code-level, browser e2e test) · **Validated:** 2026-10-01 · **Verdict:** UNREPRODUCIBLE (test stays XFAIL; fixture override absent in this DB)
+**Report:** [BUGS.md#qa-kb-031](BUGS.md#qa-kb-031) · **Tree:** /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2, branch feat/user-stories-v2
+
+### Steps followed
+1. Built tests/integration/e2e/.venv (python3.11, requirements.txt); no `playwright install`, pytest.ini uses `--browser-channel chrome`.
+2. Ran `tests/integration/e2e/.venv/bin/pytest suites/05_saved_workflows/test_iss228_launch_panel_override_binding.py::test_cold_launch_panel_shows_the_saved_overrides_own_name -rxX` from tests/integration/e2e (the report's `cd backend` path does not exist for this test). The test only navigates and reads; it launches no run.
+
+### Attempts
+| # | What was done | Expected symptom (XPASS) seen? | Evidence |
+|---|---|---|---|
+| 1 | cold pytest process, fresh Chrome | No: `1 xfailed` | tests/integration/test-runs/2026-10-01T22-09-local |
+| 2 | same | No: `1 xfailed` | tests/integration/test-runs/2026-10-01T22-10-local |
+| 3 | same | No: `1 xfailed`; screenshot taken | evidence/qa-kb-031/01-validate-attempt3-cold-launch-saved-workflow-not-found.png |
+
+### Axes swept
+- Ran again with `--runxfail`: fails at test file :46 `expect(page.get_by_text("Configure your prototype")).to_be_visible()` with "element(s) not found" (not at the name assertion).
+
+### Why it was not seen
+- Every attempt logs `cold-mount workflow-run fetch failed: 656ca387-e69c-474d-b7ff-5fd9eb017cc0 ApiError: Saved workflow not found` (404), emitted by frontend/src/app/[...view]/page.tsx:4006 `console.error("cold-mount workflow-run fetch failed:", workflowId, err);`. The test's hardcoded fixture override (test file :31 PROTO_ID) does not exist for the signed-in account in this DB, so the launch panel never renders and the test fails (strict xfail -> XFAIL), never XPASS.
+- So the reporter's premise (XPASS because the fix landed) is not observable here. Whether the ISS-228 code fix is in place cannot be judged from this run.
+
+### What the reporter could add
+- A DB where the "My prototype" override 656ca387-... exists for the e2e login account (or a test that creates its own fixture); the proposed edit at :41/:48 also needs that fixture. Note the :48 wait the report cites is not in this test (its wait is at :46 for "Configure your prototype").
+
+## QA-KB-113
+
+**Title:** Composer agent config sub-tabs missing (no "Agent · step 1 of N") · **Route:** /workflows/ppt/canvas · **Validated:** 2026-10-09 · **Verdict:** UNREPRODUCIBLE (as reported; the failing e2e is stale against intentional UI wording)
+**Report:** [BUGS.md#qa-kb-113](BUGS.md#qa-kb-113) · **Tree:** /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2, feat/stale-bug-fixes, 473375c7c
+
+### Steps followed
+1. Cold navigation /dashboard then /workflows/ppt/canvas (the test's route), wait for canvas nodes, click rail button "Agent" (locator RAIL_AGENT = button:text-is("Agent")), read the rail DOM.
+
+### Attempts
+| # | Run / page id | What was done | Expected symptom seen? | Evidence |
+|---|---|---|---|---|
+| 1 | /workflows/ppt/canvas | cold nav, click rail Agent | No. input[name=agent-name] present; 5 [role=tab]: Overview, Skills, Data, Tools, Config; caption "AI agent · step 1 of 3" | evidence/qa-kb-113/01-validate-attempt1-rail-agent-tab-open.png |
+| 2 | same | same | No, identical | evidence/qa-kb-113/02-validate-attempt2-rail-agent-tab-open.png |
+| 3 | same | same | No, identical | evidence/qa-kb-113/03-validate-attempt3-rail-agent-tab-open.png |
+
+### Axes swept
+- Entry path: dashboard then deep link (cold) x3. Tier: admin only (the sub-tabs are not tier-gated in CanvasConfigRail.tsx).
+
+### Why it was not seen
+The sub-tabs render (attempts 1-3: five tabs). What differs from the test is wording. The caption is `{kind.label} · step {index+1} of {total}` (frontend/src/components/workflow/composer/CanvasConfigRail.tsx:557) and stepKind.ts:20 returns label "AI agent", so the page shows "AI agent · step 1 of 3". The test regex /Agent · step 1 of \d/ (tests/integration/e2e/suites/04_composer_canvas/test_composer_canvas.py:271) is case-sensitive and cannot match "AI agent". The tabs are Overview/Skills/Data/Tools/Config (CanvasConfigRail.tsx:~570-576) while AGENT_SUBTABS = ["Overview","Skills","Hooks","Tools","Config"] (tests/integration/e2e/framework/locators/composer.py:52); "Hooks" no longer exists. Both wordings come from commit 911547c7d (2026-09-29), and CanvasConfigRail.dataTab.test.tsx:98/106 already asserts "AI agent · step 1 of 1" in the unit tier. This is a stale e2e test, not an app defect.
+
+### What the reporter could add
+- The correct finding is "test_composer_canvas.py:271 and composer.py:52 pin pre-911547c7d wording": a test-only fix (regex /AI agent · step 1 of \d/, "Data" instead of "Hooks").
+
+### Side observations
+- none
+
+## QA-KB-115
+
+**Title:** Composer fetches capabilities twice · **Route:** /workflows/ppt/canvas · **Validated:** 2026-10-09 · **Verdict:** UNREPRODUCIBLE (the failing e2e is a stale xfail(strict) marker; the fetch is already deduplicated)
+**Report:** [BUGS.md#qa-kb-115](BUGS.md#qa-kb-115) · **Tree:** /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2, feat/stale-bug-fixes, 473375c7c
+
+### Steps followed
+1. Signed in as admin@velocity.ai (already authenticated on :3000), navigated cold to /dashboard, then /workflows/ppt/canvas, with a `request` listener counting URLs containing `/api/capabilities`.
+2. Waited 6s for the canvas to settle (count on mount), clicked the rail tab "Agent" (the exact action in test_iss796_capabilities_double_fetch.py), waited 4s, counted again.
+
+### Attempts
+| # | Run / page id | What was done (timing, entry path, data) | Expected symptom seen? | Evidence |
+|---|---|---|---|---|
+| 1 | lane3, /workflows/ppt/canvas | cold /dashboard -> deep link, 6s settle, click Agent tab, 4s | No: 1 request on mount, 1 after tab open | evidence/qa-kb-115/01-validate-attempt1-canvas-loaded.png, 02-validate-attempt1-agent-config-tab-open.png |
+| 2 | same | same | No: 1 / 1 | 03-validate-attempt2-canvas-loaded.png, 04-validate-attempt2-agent-config-tab-open.png |
+| 3 | same | same | No: 1 / 1 | 05-validate-attempt3-canvas-loaded.png, 06-validate-attempt3-agent-config-tab-open.png |
+
+### Axes swept
+- Visit: cold deep link after /dashboard, three times (a fresh page load each time resets the in-memory cache). Account, theme and viewport left default: the claim is a request count, not tier- or theme-specific.
+
+### Why it was not seen
+- Attempts 1-3: `/api/capabilities` fired exactly once (on mount) and zero additional times after the Agent tab opened; the screenshots show the Agent config panel ("Presentation Strategist Agent", step 1 of 3) rendered, so the action under test did happen.
+- The reporter's own log says the same thing: /private/tmp/.../scratchpad/e2e/rerun/04_composer_canvas.log:365 `[XPASS(strict)] ISS-796 unfixed`. XPASS means the assertion `after == before` PASSED; strict mode turns that into a failure. The test is `@pytest.mark.xfail(reason="ISS-796 unfixed", strict=True)` at tests/integration/e2e/suites/04_composer_canvas/test_iss796_capabilities_double_fetch.py:22 although ISS-796 is `status: resolved` (FIX-617 cachedGet shared-GET cache; LEDGER.md rows QA-PS-036 / QA-PS-046 record the same stale-marker note).
+- The "Actual: duplicate capabilities fetch" line in BUGS.md misreads a strict-XPASS failure as an app defect.
+
+### What the reporter could add
+- The correct finding is a test-only one: remove the stale `xfail(strict=True)` marker at test_iss796_capabilities_double_fetch.py:22 (the app already passes the assertion).
+
+### Side observations
+- The same log shows the ISS-1137 xfail markers also XPASS(strict) (lines 363, 367, 369): same stale-marker class.
+
+## QA-KB-118
+
+**Title:** Opening an agent in the Steps tab fetches artifacts twice · **Route:** /runs/{id} (Steps tab) · **Validated:** 2026-10-09 · **Verdict:** UNREPRODUCIBLE
+**Report:** [BUGS.md#qa-kb-118](BUGS.md#qa-kb-118) · **Tree:** /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2, feat/stale-bug-fixes, d0e42cdfa
+
+### Steps followed
+1. Signed in as admin@velocity.ai on :3000 (lane1), took completed run 41f50ae1-3f6a-4d6e-9a6d-acb416af320e, agent custom-agent:emoji.
+2. Per each attempt: fresh goto /dashboard, then cold goto /runs/{id}/steps/{agent}, recorded every request containing /artifacts for 3s.
+   The report names only the e2e test test_opening_an_agent_in_steps_tab_fetches_artifacts_once (07_run_detail/test_iss802_...py:49), so I ran its exact recipe.
+
+### Attempts
+| # | Run id | What was done | Expected symptom (two identical list fetches) seen? | Evidence |
+|---|---|---|---|---|
+| 1 | 41f50ae1-... | cold goto steps/{agent} | No: 2 requests, but different URLs: `.../artifacts?kind=clarifications&include=content` and `.../artifacts` | evidence/qa-kb-118/01-validate-attempt1-steps-agent-detail-open.png |
+| 2 | same | same | No, same pair | evidence/qa-kb-118/02-validate-attempt2-steps-agent-detail-open.png |
+| 3 | same | same | No, same pair | evidence/qa-kb-118/03-validate-attempt3-steps-agent-detail-open.png |
+
+### Axes swept
+- Entry path: /steps with no agent and /audit cold loads each issue only the `?kind=clarifications&include=content` request (the version-list `/artifacts` call is absent); a soft click on the agent row timed out (documented stepsTabRowBlocked quirk), evidence/qa-kb-118/04-validate-sweep-softclick-agent-open.png.
+
+### Why it was not seen
+The original defect (ISS-802, resolved by FIX-636: two identical `GET /artifacts` from ArtifactVersionPicker under StrictMode) is gone: the version-list request is sent exactly once per attempt (frontend/src/components/results/ArtifactVersionPicker.tsx:123-127, `if (cancelled) return;` before `getRunArtifacts`). The second request is a different call, the clarify-rounds read from PreviewPanel.tsx:618 `getRunArtifacts(token, runId, { kind: "clarifications", includeContent: true })` (added by QA-KB-066 / ISS-1006). The e2e test counts every URL containing `/api/runs/{id}/artifacts` (test line `if f"/api/runs/{run_id}/artifacts" in u`), so it counts both and fails on a query-string difference. Not a duplicate fetch.
+
+### What the reporter could add
+- The correct finding is a test-only one: tighten the test filter to exclude `?kind=clarifications` (or assert on the bare list URL). If the owner also wants the two reads merged into one request, that is a separate product/perf decision, not this report.
+
+### Side observations
+- Clarifications read also fires on /steps and /audit with no agent open (once each), so it is page-level, not agent-open-level.
+
+## QA-KB-111
+
+**Title:** Version pinning: the tabs and picker never fetch the pinned revision's run id · **Route:** /runs/{id}/versions/N · **Validated:** 2026-10-12 · **Verdict:** UNREPRODUCIBLE
+**Report:** [BUGS.md#qa-kb-111](BUGS.md#qa-kb-111) · **Tree:** /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2, branch feat/stale-bug-fixes, commit 76f336e92 (+ uncommitted knowledge files; no frontend changes)
+
+### Steps followed
+1. Signed in as admin@velocity.ai (session had expired, signed in again). Family root 78e185fb-c032-4154-8552-774781b6e5df, v2 = 80054fbc-71cc-42de-adeb-ae2db82eb2f2 (confirmed live via GET /api/runs/78e185fb.../family: member revision_index 2, git_tag v2).
+2. Cold `page.goto` of /runs/78e185fb.../versions/2/{steps,audit,files}, recording every /api/runs/* request and the rendered text, per the "Reopened 2026-10-09" repro.
+3. The original fixture family 2708dbf1 / 23bd9c67 was not retried: it already returns 404 (evidence/qa-kb-111/07-validate-probe-stale-fixture-family-not-found.png), owned by QA-KB-122.
+
+### Attempts
+| # | Run / page id | What was done | Expected symptom seen? | Evidence |
+|---|---|---|---|---|
+| 1 | 78e185fb v2=80054fbc | cold goto steps, audit, files, 25 s each, request capture | No: every tab requested /api/runs/80054fbc... (run, artifacts, sandbox/refs, sandbox?ref=v2, plus gate-events on steps/audit and validation-results, exec-runs, hook-runs on audit). Steps shows "Revision Locator", Audit shows "Run 80054f...2f2" | evidence/qa-kb-111/10-validate-attempt1-steps-pinned-v2-after-25s.png, 10-...-audit-..., 10-...-files-... |
+| 2 | same | cold goto steps then audit (about:blank between), screenshot at 4 s and 20 s | No: first /api/runs/80054fbc request at 664 ms (steps) and 765 ms (audit); v2 content rendered | evidence/qa-kb-111/12-validate-attempt2-{steps,audit}-pinned-v2-after-{4s,20s}.png |
+| 3 | same | same as 2 | No: first v2 request at 832 ms (steps) and 923 ms (audit); v2 content rendered | evidence/qa-kb-111/13-validate-attempt3-{steps,audit}-pinned-v2-after-{4s,20s}.png |
+
+### Axes swept
+- Entry path: cold deep link (attempts 1-3) vs soft tab click from files to steps to audit under /versions/2 (v2 requests 5 and 3, root-only requests 1 and 0, Steps still shows "Revision Locator"); evidence/qa-kb-111/16-...softnav-files-to-steps-v2.png, 17-...softnav-steps-to-audit-v2.png.
+- Timing: 4 s, 20 s and 25 s after load.
+- Contrast: unpinned /runs/78e185fb.../steps does NOT contain "Revision Locator", so the v2 content seen on the pinned URL is genuinely v2's, not v1's.
+
+### Why it was not seen
+On the current tree and the running :3000 the pin is honoured on all three tabs, in the network layer (first v2 request under 1 s) and in the rendered content (v2 agent list on Steps, run 80054f...2f2 header on Audit). The "root-only requests" in the 2026-10-09 reopen note are not present in any of 3 cold attempts plus the soft-nav sweep. No frontend commit has landed since 2026-10-09 16:44 (a48aa3b4b, QA-KB-125), so the reopen observation was most likely taken against a stale/pre-reload dev server or a loaded-system timing window; it cannot be reproduced now. The e2e failures that opened this report use fixture 2708dbf1 which 404s (QA-KB-122).
+
+### What the reporter could add
+- The :3000 build/commit and the load time at which the root-only observation was made, plus the Steps/Audit rendered text (v1 vs v2) at that moment.
+
+### Side observations
+- On a cold load the page also pages the ROOT run's events 22 times (after=0..105000) before the revision's own events; heavy but unrelated to pinning.

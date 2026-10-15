@@ -1,0 +1,4 @@
+TypeError: write_text() got an unexpected keyword argument 'newline'
+TypeError: write_text() got an unexpected keyword argument 'newline'
+TypeError: write_text() got an unexpected keyword argument 'newline'
+    OUT_PATH.write_text(body, encoding='utf-8', newline='\n')

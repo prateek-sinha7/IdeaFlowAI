@@ -23,8 +23,10 @@ import { useEffect } from "react";
 import { createPortal } from "react-dom";
 import { motion } from "motion/react";
 import { CreditCard } from "lucide-react";
-import { TIER_LABELS, TIER_PIPELINES, UPGRADE_PATH } from "@/lib/entitlements";
+import { TIER_LABELS, TIER_PIPELINES, UPGRADE_PATH, canRunPipeline, catalogAccess } from "@/lib/entitlements";
 import type { Tier } from "@/lib/entitlements";
+import type { WorkflowSummary } from "@/store/api/workflows";
+import { useAppSelector } from "@/store/hooks";
 
 interface UpgradePlanModalProps {
   /** The account's real tier, as loaded by the surface that opens this modal. */
@@ -32,17 +34,24 @@ interface UpgradePlanModalProps {
   onClose: () => void;
 }
 
-// Base deliverables (revision variants excluded, same rule as the Usage & Limits
-// deliverable-access grid) that `next` adds over `current`.
-function unlockedCount(current: Tier, next: Tier): number {
-  return Array.from(TIER_PIPELINES[next]).filter(
-    p => !p.endsWith("_revision") && !TIER_PIPELINES[current].has(p),
-  ).length;
+// Deliverables `next` adds over `current`, by the Usage & Limits
+// deliverable-access grid's rule: the catalog rows each tier can run
+// (catalogAccess, ISS-1198). Until the catalog has loaded, the base
+// entitlements (revision variants excluded), as before.
+function unlockedCount(workflows: WorkflowSummary[], current: Tier, next: Tier): number {
+  if (workflows.length === 0) {
+    return Array.from(TIER_PIPELINES[next]).filter(
+      p => !p.endsWith("_revision") && !TIER_PIPELINES[current].has(p),
+    ).length;
+  }
+  const { productRows, exampleRows } = catalogAccess(workflows, next);
+  return [...productRows, ...exampleRows].filter(w => !canRunPipeline(current, w.id)).length;
 }
 
 export function UpgradePlanModal({ tier, onClose }: UpgradePlanModalProps) {
+  const workflows = useAppSelector((state) => state.global.workflows);
   const next = UPGRADE_PATH[tier];
-  const unlocks = next ? unlockedCount(tier, next) : 0;
+  const unlocks = next ? unlockedCount(workflows, tier, next) : 0;
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };

@@ -1,0 +1,5 @@
+file_analyst: no-plan(compile fails) reg=['file-analyst'] plan=None
+prototype_v2_feature_revision: STRICT-SUBSET reg=['prototype-revision-analyzer'] plan=['prototype-revision-analyzer', 'custom-agent:v2-specify', 'custom-agent:v2-plan', 'custom-agent:v2-build', 'custom-agent:v2-validate']
+prototype_v2_revision: STRICT-SUBSET reg=['prototype-revision-analyzer'] plan=['prototype-revision-analyzer', 'custom-agent:v2-fix', 'custom-agent:v2-validate']
+spec_kit: no-plan(compile fails) reg=['deep-planner', 'constitution-agent', 'specify-agent', 'clarify-agent', 'research-agent', 'plan-agent', 'tasks-agent', 'analyze-agent'] plan=None
+{'equal': 18, 'empty-roster': 19, 'no-plan(compile fails)': 2, 'STRICT-SUBSET': 2} total 41

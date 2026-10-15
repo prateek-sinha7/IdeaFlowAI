@@ -1,0 +1,39 @@
+=== attempt 1 (2026-10-01T18:54:52Z) ===
+frontend/src/store/api/runs.ts:45:  task_id: string;
+frontend/src/store/api/runs.ts:51:  derived_from: string[];
+frontend/src/store/api/runs.ts:52:  children: string[];
+frontend/src/lib/api.ts:1502:  task_id: string;
+frontend/src/lib/api.ts:1508:  derived_from: string[];
+frontend/src/lib/api.ts:1509:  children: string[];
+1383:            "task_id": r.task_id,
+1390:            "derived_from": r.derived_from,
+1391:            "children": [],
+39:    task_id = Column(String, nullable=True)
+45:    derived_from = Column(String, ForeignKey("artifact_refs.id"), nullable=True)
+1451:            nodes[chosen_parent]["children"].append(nodes[r.id])
+=== attempt 2 (2026-10-01T18:54:52Z) ===
+frontend/src/store/api/runs.ts:45:  task_id: string;
+frontend/src/store/api/runs.ts:51:  derived_from: string[];
+frontend/src/store/api/runs.ts:52:  children: string[];
+frontend/src/lib/api.ts:1502:  task_id: string;
+frontend/src/lib/api.ts:1508:  derived_from: string[];
+frontend/src/lib/api.ts:1509:  children: string[];
+1383:            "task_id": r.task_id,
+1390:            "derived_from": r.derived_from,
+1391:            "children": [],
+39:    task_id = Column(String, nullable=True)
+45:    derived_from = Column(String, ForeignKey("artifact_refs.id"), nullable=True)
+1451:            nodes[chosen_parent]["children"].append(nodes[r.id])
+=== attempt 3 (2026-10-01T18:54:52Z) ===
+frontend/src/store/api/runs.ts:45:  task_id: string;
+frontend/src/store/api/runs.ts:51:  derived_from: string[];
+frontend/src/store/api/runs.ts:52:  children: string[];
+frontend/src/lib/api.ts:1502:  task_id: string;
+frontend/src/lib/api.ts:1508:  derived_from: string[];
+frontend/src/lib/api.ts:1509:  children: string[];
+1383:            "task_id": r.task_id,
+1390:            "derived_from": r.derived_from,
+1391:            "children": [],
+39:    task_id = Column(String, nullable=True)
+45:    derived_from = Column(String, ForeignKey("artifact_refs.id"), nullable=True)
+1451:            nodes[chosen_parent]["children"].append(nodes[r.id])

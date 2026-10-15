@@ -1,0 +1,41 @@
+# QA-KB-087 5-fixer probe for ISS-1041, 2026-10-07 20:24:25 CEST, repo HEAD cec17f2f7
+# legacy_marker_off_* = HEAD's ArtifactVersionPicker.iss802.test.tsx with it.fails -> it; network_* = HEAD's .network test, unedited
+# *_real = shipped component (FIX-636 bail at :126); *_prefix = the same component without that bail (the ISS-802 double fetch)
+# A guard is sound when it passes on _real and FAILS on _prefix.
+
+### legacy_marker_off_real
+ × legacy_marker_off_real.test.tsx > ArtifactVersionPicker list-fetch effect under StrictMode (QA-PS-049 / ISS-802) > fires getRunArtifacts exactly once per agent selection, not twice 1018ms
+   → expected "vi.fn()" to be called at least once
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+AssertionError: expected "vi.fn()" to be called at least once
+ ❯ legacy_marker_off_real.test.tsx:48:31
+      Tests  1 failed (1)
+
+### legacy_marker_off_prefix
+ ✓ legacy_marker_off_prefix.test.tsx > ArtifactVersionPicker list-fetch effect under StrictMode (QA-PS-049 / ISS-802) > fires getRunArtifacts exactly once per agent selection, not twice 60ms
+      Tests  1 passed (1)
+
+### network_real
+ ✓ network_real.test.tsx > requests the run's artifact list once per agent selection under StrictMode 1012ms
+      Tests  1 passed (1)
+
+### network_prefix
+ × network_prefix.test.tsx > requests the run's artifact list once per agent selection under StrictMode 1015ms
+   → ["http://localhost:8000/api/runs/r1/artifacts","http://localhost:8000/api/runs/r1/artifacts"]: expected [ …(2) ] to have a length of 1 but got 2
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+AssertionError: ["http://localhost:8000/api/runs/r1/artifacts","http://localhost:8000/api/runs/r1/artifacts"]: expected [ …(2) ] to have a length of 1 but got 2
+ ❯ network_prefix.test.tsx:42:90
+      Tests  1 failed (1)
+
+## The legacy file AS SHIPPED (it.fails kept), 20:24:58 CEST
+
+### legacy_asshipped_real
+ ✓ legacy_asshipped_real.test.tsx > ArtifactVersionPicker list-fetch effect under StrictMode (QA-PS-049 / ISS-802) > fires getRunArtifacts exactly once per agent selection, not twice 1017ms
+      Tests  1 expected fail (1)
+
+### legacy_asshipped_prefix
+ × legacy_asshipped_prefix.test.tsx > ArtifactVersionPicker list-fetch effect under StrictMode (QA-PS-049 / ISS-802) > fires getRunArtifacts exactly once per agent selection, not twice 67ms
+   → Expect test to fail
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+Error: Expect test to fail
+      Tests  1 failed (1)

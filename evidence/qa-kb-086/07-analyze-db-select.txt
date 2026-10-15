@@ -1,0 +1,29 @@
+# QA-KB-086 analyze 2026-10-02 - SELECT only (SET TRANSACTION READ ONLY), local DB velocity-local-db (backend/.env DATABASE_URL, password not recorded).
+# Corroboration only: a row cannot say which launch surface produced it, so this does NOT prove the real-UI behaviour; the offline probes (03-/04-/05-) do.
+# Column semantics: backend/app/models/workflow.py:140-147 - NULL => static AGENT.md defaults, [] => this run has no gates, non-empty => exactly these.
+
+QUERY1: select case when gate_agent_ids_json is null then 'NULL' when gate_agent_ids_json::text = 'null' then 'json-null' when gate_agent_ids_json::text = '[]' then '[]' else 'non-empty' end as gate_shape, count(*) as n, min(created_at)::date as first_day, max(created_at)::date as last_day from workflow_runs group by 1 order by 1
+('NULL', 19, datetime.date(2026, 9, 28), datetime.date(2026, 10, 1))
+('json-null', 36, datetime.date(2026, 9, 24), datetime.date(2026, 10, 2))
+
+QUERY2: select id, type, status, created_at::date as day, gate_agent_ids_json::text as gate from workflow_runs where gate_agent_ids_json is not null and gate_agent_ids_json::text not in ('null') order by created_at desc limit 15
+(no rows)
+
+QUERY3 (since FIX-323 landed, by workflow type): select type, case ... end as gate_shape, count(*) as n, min(created_at)::date, max(created_at)::date from workflow_runs where created_at >= '2026-08-29' group by 1,2 order by 1,2
+('backlog', 'json-null', 9, 2026-09-25, 2026-09-30)
+('backlog_revision', 'NULL', 7, 2026-10-01, 2026-10-01)
+('ex_A1_loop', 'json-null', 2, 2026-10-02, 2026-10-02)
+('ex_A2_branch', 'json-null', 4, 2026-09-24, 2026-10-02)
+('ex_A3_c_dutch', 'json-null', 1, 2026-09-24, 2026-09-24)
+('ex_A4_human_divert', 'json-null', 1, 2026-09-24, 2026-09-24)
+('ex_A4_human_gate', 'json-null', 1, 2026-10-02, 2026-10-02)
+('prototype_large_revision', 'NULL', 1, 2026-09-28, 2026-09-28)
+('prototype_revision', 'NULL', 6, 2026-09-28, 2026-09-29)
+('prototype_v2', 'json-null', 16, 2026-09-24, 2026-09-28)
+('prototype_v2_feature_revision', 'NULL', 3, 2026-10-01, 2026-10-01)
+('prototype_v2_revision', 'NULL', 2, 2026-10-01, 2026-10-01)
+('user_stories_v2', 'json-null', 2, 2026-09-25, 2026-09-25)
+
+# Reading: 55 runs, none with an explicit [] or a non-empty list. IdeaInputPage.designPicker.test.tsx:1-8 documents prototype_v2 as launched
+# through IdeaInputPage (16 rows, all json-null); the launch surface of the other types was NOT verified, so they are listed, not claimed.
+# No prototype/ppt (LaunchWizard) run exists after 2026-08-29 in this DB, so the wizard has no row-level corroboration.

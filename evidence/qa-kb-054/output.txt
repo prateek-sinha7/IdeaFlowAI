@@ -1,0 +1,48 @@
+# QA-KB-054 / ISS-687 probe output — generated 2026-10-02 04:04 CEST on branch feat/user-stories-v2 @ 024c03ef8 (working tree, uncommitted edits present)
+
+## 1. probe_registry.py  (backend/.venv/bin/python evidence/qa-kb-054/probe_registry.py)
+workflow.yaml files: 39   with a custom-agent step: 17
+
+workflow                         steps custom reg  PIPELINE_AGENTS  allowed_custom_agent_ids  _own_manifest_step_agents
+backlog                             20     20   0               0                         0  ['custom-agent']
+backlog_revision                     5      5   0               0                         0  ['custom-agent']
+ex_A1_loop                           4      4   0               0                         0  ['custom-agent']
+ex_A2_branch                         5      5   0               0                         0  ['custom-agent']
+ex_A3_b_spanish                      1      1   0               0                         0  ['custom-agent']
+ex_A3_c_dutch                        1      1   0               0                         0  ['custom-agent']
+ex_A3_divert                         3      3   0               0                         0  ['custom-agent']
+ex_A4_human_divert                   3      3   0               0                         0  ['custom-agent']
+ex_A4_human_gate                     5      5   0               0                         0  ['custom-agent']
+ex_publish_step                      2      2   0               0                         0  ['custom-agent']
+ex_test_loop_reachable_skip          5      5   0               0                         0  ['custom-agent']
+ex_test_transitive_skip              5      5   0               0                         0  ['custom-agent']
+ex_validation_retry                  2      2   0               0                         0  ['custom-agent']
+prototype_v2                        11     11   0               0                         0  ['custom-agent']
+prototype_v2_feature_revision        5      4   1               0                         0  ['custom-agent', 'prototype-revision-analyzer']
+prototype_v2_revision                3      2   1               0                         0  ['custom-agent', 'prototype-revision-analyzer']
+sample_subagents_parallel            4      4   0               0                         0  ['custom-agent']
+
+prototype_v2 compiled ids: ['custom-agent:fi-planner', 'custom-agent:fi-readers', 'custom-agent:fi-synth', 'custom-agent:fi-gaps', 'custom-agent:fi-close', 'custom-agent:pb-spec', 'custom-agent:pb-design', 'custom-agent:pb-build', 'custom-agent:pb-assemble', 'custom-agent:pb-validate', 'custom-agent:pb-present']
+load_agent_spec('custom-agent:fi-planner') -> custom-agent:fi-planner
+
+## test_probe_launch.py  (cd backend; .venv/bin/python -m pytest ../evidence/qa-kb-054/test_probe_launch.py -s -q -p no:cacheprovider --rootdir=. -o addopts="")
+PROBE-WITH-IDS prototype_v2 400 {"detail": {"error": "Invalid agent_ids for 'prototype_v2': ['custom-agent:fi-planner', 'custom-agent:fi-readers']. ['custom-agent:fi-planner', 'custom-agent:fi-readers'] came from a blank custom-agent step in your saved override of 'prototype_v2' \u2014 it has no agent file to run. Open the workflow in Advanced, remove or replace that step, and save.", "code": "invalid_agent_ids", "recoverable": false, "rejected_agent_ids": ["custom-agent:fi-planner", "custom-agent:fi-readers"]}} runs_minted: 0
+PROBE-WITH-IDS backlog 400 {"detail": {"error": "Invalid agent_ids for 'backlog': ['custom-agent:us-planner']. ['custom-agent:us-planner'] came from a blank custom-agent step in your saved override of 'backlog' \u2014 it has no agent file to run. Open the workflow in Advanced, remove or replace that step, and save.", "code": "invalid_agent_ids", "recoverable": false, "rejected_agent_ids": ["custom-agent:us-planner"]}} runs_minted: 0
+PROBE-CONTROL-NO-IDS prototype_v2 200 {"run_id": "2fc7fe46-6244-4126-aa0e-0b9d4e59d448"} runs_minted: 1
+PROBE-CONTROL-NO-IDS backlog 200 {"run_id": "b05058e1-7235-4282-a0ab-0bcd4a4e4c3f"} runs_minted: 1
+4 passed, 4 warnings in 1.29s
+
+## test_probe_save_side.py  (cd backend; .venv/bin/python -m pytest ../evidence/qa-kb-054/test_probe_save_side.py -s -q -p no:cacheprovider --rootdir=. -o addopts="")
+PROBE-SAVE-FLAT prototype_v2 422 {"detail": "agent_ids not allowed for 'prototype_v2': ['custom-agent:fi-planner', 'custom-agent:fi-readers']"}
+PROBE-SAVE-FLAT backlog 422 {"detail": "agent_ids not allowed for 'backlog': ['custom-agent:us-planner']"}
+2 passed, 5 warnings in 0.76s
+
+## test_probe_iss182_guard_behaviour.py  (cd backend; .venv/bin/python -m pytest ../evidence/qa-kb-054/test_probe_iss182_guard_behaviour.py -s -q -p no:cacheprovider --rootdir=. -o addopts="")
+PROBE-ISS182 400 invalid_agent_ids | override sentence present: True | rejected: ['custom-agent:legacy-stale-1'] | runs: 0
+1 passed, 4 warnings in 0.69s
+
+## ISS-182 test collection  (cd backend; .venv/bin/python -m pytest tests/unit/test_iss182_stale_override_agent_ids.py --collect-only -q -p no:cacheprovider)
+ImportError while importing test module '/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/tests/unit/test_iss182_stale_override_agent_ids.py'.
+E   ImportError: cannot import name '_post_launch' from 'tests.unit.api.test_rest_run_launch' (/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/tests/unit/api/test_rest_run_launch.py)
+!!!!!!!!!!!!!!!!!!!! Interrupted: 1 error during collection !!!!!!!!!!!!!!!!!!!!
+no tests collected, 1 error in 0.20s

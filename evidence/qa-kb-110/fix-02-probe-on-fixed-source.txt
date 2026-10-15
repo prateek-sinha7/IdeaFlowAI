@@ -1,0 +1,53 @@
+QA-KB-110 analysis probe re-run against the FIXED source. Observed 2026-10-09T14:49Z at HEAD 9cd0d6c5a + the working-tree DashboardLayout.tsx fix.
+Scratch copy of analysis-plugins/qa-kb-110.probe.test.tsx with ONE line changed: 'const FIXED = true;' (the [G]/[H] cases only run when FIXED). NO transform: QA_KB_110_MUTATE is unset, so the real fixed DashboardLayout.tsx is what runs.
+Command: cd <scratch> && QA_KB_110_FRONTEND=<repo>/frontend ./node_modules/.bin/vitest run --config vitest.probe.config.ts --reporter=verbose
+Reading: [C] every non-wizard type and [E] every revision type now reach the remounted composer; [D] wizard rows unchanged; [F] empty input stays empty; [G] one-shot, key gone after first mount, later visit empty; [H] survives StrictMode.
+The 3 red cases are [E] ppt_revision / prototype_revision / prototype_v2_revision, whose FIXED branch asserted the analysis MUTATION's partial shape (wizard-base revisions still staging ppt.draft/prototype.draft). That staging is the ISS-1171 defect, which this fix also removes.
+------------------------------------------------------------------------------------------------
+ ✓ qa-kb-110.probe.test.tsx > QA-KB-110 probe > [A] in-place (no remount): the same DashboardLayout instance DOES hand the brief to the composer 37ms
+ ✓ qa-kb-110.probe.test.tsx > QA-KB-110 probe > [B] after the remount page.tsx causes: the brief is gone and the panel type comes from the URL 11ms
+ ✓ qa-kb-110.probe.test.tsx > QA-KB-110 probe > [C] non-wizard type backlog: nothing is staged for the destination, and the remounted composer is empty 10ms
+ ✓ qa-kb-110.probe.test.tsx > QA-KB-110 probe > [C] non-wizard type user_stories: nothing is staged for the destination, and the remounted composer is empty 8ms
+ ✓ qa-kb-110.probe.test.tsx > QA-KB-110 probe > [C] non-wizard type app_builder: nothing is staged for the destination, and the remounted composer is empty 8ms
+ ✓ qa-kb-110.probe.test.tsx > QA-KB-110 probe > [C] non-wizard type custom: nothing is staged for the destination, and the remounted composer is empty 7ms
+ ✓ qa-kb-110.probe.test.tsx > QA-KB-110 probe > [C] non-wizard type ex_A2_branch: nothing is staged for the destination, and the remounted composer is empty 7ms
+ ✓ qa-kb-110.probe.test.tsx > QA-KB-110 probe > [D] wizard type ppt: the brief is staged in sessionStorage[ppt.draft] and the push lands on the wizard 7ms
+[A] in-place   push=/create/ex_A1_loop  textarea="Greet the team with a short emoji hello."  workflowType=user_stories
+[B] remounted   push=/create/ex_A1_loop  textarea="Greet the team with a short emoji hello."  workflowType=ex_A1_loop
+[C] backlog       push=/create/backlog  staged=["idea.draft"]  remounted textarea="Greet the team with a short emoji hello."
+[C] user_stories  push=/create/user-stories  staged=["idea.draft"]  remounted textarea="Greet the team with a short emoji hello."
+[C] app_builder   push=/create/app  staged=["idea.draft"]  remounted textarea="Greet the team with a short emoji hello."
+[C] custom        push=/create/custom  staged=["idea.draft"]  remounted textarea="Greet the team with a short emoji hello."
+[C] ex_A2_branch  push=/create/ex_A2_branch  staged=["idea.draft"]  remounted textarea="Greet the team with a short emoji hello."
+[D] ppt           push=/create/ppt  staged={"ppt.draft":"{\"brief\":\"Greet the team with a short emoji hello.\"}"}  wizardModeFor=ppt
+[D] ppt_v2        push=/create/ppt_v2  staged={"ppt.draft":"{\"brief\":\"Greet the team with a short emoji hello.\"}"}  wizardModeFor=ppt_v2
+[D] prototype     push=/create/prototype  staged={"prototype.draft":"{\"brief\":\"Greet the team with a short emoji hello.\"}"}  wizardModeFor=prototype
+[D] prototype_v2  push=/create/prototype_v2  staged={"prototype.draft":"{\"brief\":\"Greet the team with a short emoji hello.\"}"}  wizardModeFor=prototype_v2
+[E] ppt_revision                   push=/create/ppt_revision  staged=["idea.draft"]  wizardModeFor=undefined  remounted textarea="Greet the team with a short emoji hello."
+[E] prototype_revision             push=/create/prototype_revision  staged=["idea.draft"]  wizardModeFor=undefined  remounted textarea="Greet the team with a short emoji hello."
+[E] prototype_v2_revision          push=/create/prototype_v2_revision  staged=["idea.draft"]  wizardModeFor=undefined  remounted textarea="Greet the team with a short emoji hello."
+[E] prototype_v2_feature_revision  push=/create/prototype_v2_feature_revision  staged=["idea.draft"]  wizardModeFor=undefined  remounted textarea="Greet the team with a short emoji hello."
+[E] backlog_revision               push=/create/backlog_revision  staged=["idea.draft"]  wizardModeFor=undefined  remounted textarea="Greet the team with a short emoji hello."
+[E] user_stories_revision          push=/create/user_stories_revision  staged=["idea.draft"]  wizardModeFor=undefined  remounted textarea="Greet the team with a short emoji hello."
+[F] empty input push=/create/ex_A1_loop remounted textarea=""
+[G] one-shot  first="Greet the team with a short emoji hello."  keyAfterFirstMount=null  secondVisit=""
+[H] StrictMode  push=/create/backlog  remounted textarea="Greet the team with a short emoji hello."  keyAfterMount=null
+ ✓ qa-kb-110.probe.test.tsx > QA-KB-110 probe > [D] wizard type ppt_v2: the brief is staged in sessionStorage[ppt.draft] and the push lands on the wizard 6ms
+ ✓ qa-kb-110.probe.test.tsx > QA-KB-110 probe > [D] wizard type prototype: the brief is staged in sessionStorage[prototype.draft] and the push lands on the wizard 6ms
+ ✓ qa-kb-110.probe.test.tsx > QA-KB-110 probe > [D] wizard type prototype_v2: the brief is staged in sessionStorage[prototype.draft] and the push lands on the wizard 5ms
+ × qa-kb-110.probe.test.tsx > QA-KB-110 probe > [E] revision type ppt_revision: draft key ppt.draft is staged for a destination that is not the wizard 10ms
+   → "undefined" is not valid JSON
+ × qa-kb-110.probe.test.tsx > QA-KB-110 probe > [E] revision type prototype_revision: draft key prototype.draft is staged for a destination that is not the wizard 7ms
+   → "undefined" is not valid JSON
+ × qa-kb-110.probe.test.tsx > QA-KB-110 probe > [E] revision type prototype_v2_revision: draft key prototype.draft is staged for a destination that is not the wizard 6ms
+   → "undefined" is not valid JSON
+ ✓ qa-kb-110.probe.test.tsx > QA-KB-110 probe > [E] revision type prototype_v2_feature_revision: draft key null is staged for a destination that is not the wizard 7ms
+ ✓ qa-kb-110.probe.test.tsx > QA-KB-110 probe > [E] revision type backlog_revision: draft key null is staged for a destination that is not the wizard 8ms
+ ✓ qa-kb-110.probe.test.tsx > QA-KB-110 probe > [E] revision type user_stories_revision: draft key null is staged for a destination that is not the wizard 6ms
+ ✓ qa-kb-110.probe.test.tsx > QA-KB-110 probe > [F] empty input: a run with no input opens an empty composer without throwing 6ms
+ ✓ qa-kb-110.probe.test.tsx > QA-KB-110 probe > [G] one-shot: the staged brief is consumed by the composer that shows it, so a later fresh visit is not pre-filled 8ms
+ ✓ qa-kb-110.probe.test.tsx > QA-KB-110 probe > [H] StrictMode (the dev default): a read-only initializer plus a clearing effect survives the double invoke 7ms
+ ✓ qa-kb-110.probe.test.tsx > QA-KB-110 probe > [Z] summary 1ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+ Test Files  1 failed (1)
+      Tests  3 failed | 18 passed (21)

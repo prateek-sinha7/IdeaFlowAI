@@ -1,0 +1,94 @@
+QA-KB-120 fix phase, re-dispatch, 2026-10-09 (HEAD 179239efa), from backend/, ./.venv/bin/python -m pytest <file> -q -p no:cacheprovider, one file per process
+BEFORE = engine.py exec'd from HEAD source via fix-00-run-with-head-engine.py (working tree untouched); AFTER = working tree
+
+== red test tests/agents/test_flat_payload_unmaterialized_output.py
+BEFORE: 3 xfailed, 4 warnings in 19.87s
+AFTER:  3 x [XPASS(strict)] ISS-1159 unfixed -> '3 failed, 5 warnings in 31.73s' (pass signal; xfail marker left for 6-verifier)
+AFTER:  only WARNING record = 'build_flat_payload: failed to copy output file' (the copy_raises case's patched copy2); no 'stage_exact failed'
+
+== tests/agents/test_finalizer_v2.py AFTER: 47 passed, 45 warnings in 75.24s
+
+== the three FakeSandbox tests ISS-1179 names (TestBuildFlatPayload::test_payload_materialized_false_when_output_absent,
+   TestMetadataOnlySnapshot::test_c2_output_unmaterializable_yields_metadata_only, ::test_c5_prior_run_stale_chain_path_untracked_tree_clean), -rP --log-level=WARNING
+BEFORE: 'stage_exact failed' lines = 3; 3 passed, 6 warnings in 3.67s
+AFTER:  'stage_exact failed' lines = 0; 3 passed, 7 warnings in 5.62s
+
+== regression sweep AFTER, one file per process (every file under tests/agents and tests/unit that names build_flat_payload,
+   finalize_terminal_run or the test_finalizer_v2 double; tests/integration skipped: Postgres-gated)
+tests/agents/test_cancel_paths_v3.py: rc=0 :: 4 passed, 6 warnings in 5.42s
+tests/agents/test_phase3_wip_commit.py: rc=0 :: 12 passed, 10 warnings in 6.09s
+tests/agents/test_phase4_tagging.py: rc=0 :: 41 passed, 6 warnings in 5.20s
+tests/agents/test_family_lock.py: rc=1 :: 1 failed, 25 passed, 2 warnings in 5.14s
+    FAILED tests/agents/test_family_lock.py::TestRestoreLockTimeout::test_upload_handler_timeout_returns_409
+tests/agents/test_disk_metrics_v3.py: rc=0 :: 8 passed, 7 warnings in 2.34s
+tests/agents/test_pipeline_complete_status_v3.py: rc=0 :: 4 passed, 2 warnings in 9.07s
+tests/agents/test_defect_characterization_v2.py: rc=1 :: 1 failed, 12 passed, 2 warnings in 2.66s
+    FAILED tests/agents/test_defect_characterization_v2.py::TestD1FindChainRootWalksSourceRunId::test_d1_canonical_resolver_walks_parent_run_id_FIXME
+tests/agents/test_engine_cancel.py: rc=1 :: 1 failed, 6 passed, 13 warnings in 13.87s
+    FAILED tests/agents/test_engine_cancel.py::test_genuine_cancel_still_raises_and_releases
+tests/agents/test_event_contract.py: rc=0 :: 24 passed, 2 warnings in 1.91s
+tests/agents/test_qa_ps_021_downstream_no_upstream_artifacts.py: rc=0 :: 5 passed, 2 warnings in 8.59s
+tests/agents/test_qa_ps_027_placeholder_completion.py: rc=0 :: 5 passed, 2 warnings in 12.02s
+tests/agents/test_qa_ps_028_compiler_content_drop.py: rc=0 :: 3 passed, 2 warnings in 4.86s
+tests/agents/test_nameless_deliverable_v3.py: rc=0 :: 3 passed, 6 warnings in 3.04s
+tests/agents/test_revision_ordinal_v3.py: rc=0 :: 8 passed, 12 warnings in 21.97s
+tests/agents/test_serialized_sandbox_payload_v3.py: rc=0 :: 3 passed, 6 warnings in 3.05s
+tests/agents/test_streamed_text_payload_parity.py: rc=0 :: 3 passed, 6 warnings in 2.78s
+tests/agents/test_streamed_text_payload_v3.py: rc=0 :: 8 passed, 12 warnings in 8.75s
+tests/agents/test_version_family_v5.py: rc=0 :: 2 passed, 14 warnings in 28.98s
+tests/unit/agents/test_phase3_cutover_verify.py: rc=0 :: 4 passed, 2 warnings in 2.54s
+tests/unit/app/test_binary_deliverable.py: rc=0 :: 8 passed, 6 warnings in 2.02s
+tests/agents/test_rollback_safety.py: rc=1 :: 4 failed, 19 passed, 3 warnings in 7.11s
+    FAILED tests/agents/test_rollback_safety.py::TestR1IgnoresUnknownChainFiles::test_legacy_payload_selection_ignores_flat_chain_files
+    FAILED tests/agents/test_rollback_safety.py::TestR4FeatureDetectionNoBooleanFlag::test_summary_md_carries_schema_version_field
+    FAILED tests/agents/test_rollback_safety.py::TestR6LegacySelectDoesNotConfuseV2Layout::test_flat_chain_files_not_selected_as_legacy_payload
+    FAILED tests/agents/test_rollback_safety.py::TestR6LegacySelectDoesNotConfuseV2Layout::test_chain_legacy_dir_selected_not_chain_flat
+
+== the non-rollback reds, BEFORE (HEAD engine source): identical node ids
+BEFORE tests/agents/test_engine_cancel.py :: 1 failed, 6 passed, 12 warnings in 14.04s
+    FAILED tests/agents/test_engine_cancel.py::test_genuine_cancel_still_raises_and_releases
+BEFORE tests/agents/test_defect_characterization_v2.py :: 1 failed, 12 passed, 1 warning in 2.52s
+    FAILED tests/agents/test_defect_characterization_v2.py::TestD1FindChainRootWalksSourceRunId::test_d1_canonical_resolver_walks_parent_run_id_FIXME
+BEFORE tests/agents/test_family_lock.py :: 1 failed, 25 passed, 1 warning in 5.70s
+    FAILED tests/agents/test_family_lock.py::TestRestoreLockTimeout::test_upload_handler_timeout_returns_409
+test_engine_cancel red, --tb=short: test_engine_cancel.py:224 'cancelled_ev = await gen.athrow(asyncio.CancelledError())' -> 'E   asyncio.exceptions.CancelledError'
+test_family_lock red is ISS-1057 (open); test_d1_..._FIXME is recorded pre-existing on FIX-774/776/778; test_rollback_safety's 4 are ISS-1184
+
+== lint-imports AFTER (backend/.venv/bin/lint-imports, from backend/)
+kernel imports only capability ports (scaffold) BROKEN
+agents.workflows must not import the execution kernel or the web layer KEPT
+agents.capabilities must not import the execution kernel or the web layer BROKEN
+agents.runtime must not import the execution kernel or the web layer KEPT
+shipped code must not import the build-time tooling package KEPT
+Contracts: 3 kept, 2 broken.
+engine.py diff adds no import line: git diff -U0 engine.py | grep -E '^\+\s*(import|from) ' -> no match
+
+== the other two per-path stage_exact doubles (not the shared FakeSandbox; not changed)
+backend/tests/agents/test_phase3_wip_commit.py:169:    def stage_exact(self, paths: list[str]) -> None:
+backend/tests/agents/test_phase3_wip_commit.py-170-        """Stage exact paths."""
+backend/tests/agents/test_phase3_wip_commit.py-171-        for p in paths:
+backend/tests/agents/test_phase3_wip_commit.py-172-            _run_git("add", "--force", "--", p, cwd=self.root)
+backend/tests/agents/test_cancel_paths_v3.py:250:    def stage_exact(self, paths: list[str]) -> None:
+backend/tests/agents/test_cancel_paths_v3.py-251-        """Force-stage exactly these paths (used for the `.chain/` allowlist)."""
+backend/tests/agents/test_cancel_paths_v3.py-252-        for p in paths:
+backend/tests/agents/test_cancel_paths_v3.py-253-            _run_git("add", "--force", "--", p, cwd=self.root)
+
+== red test AFTER, one process per PYTHONHASHSEED (count of XPASS(strict) lines, -rX)
+AFTER PYTHONHASHSEED=0: XPASS(strict) count=3
+AFTER PYTHONHASHSEED=1: XPASS(strict) count=3
+AFTER PYTHONHASHSEED=2: XPASS(strict) count=3
+AFTER PYTHONHASHSEED=3: XPASS(strict) count=3
+AFTER PYTHONHASHSEED=4: XPASS(strict) count=3
+AFTER PYTHONHASHSEED=5: XPASS(strict) count=3
+AFTER PYTHONHASHSEED=6: XPASS(strict) count=3
+AFTER PYTHONHASHSEED=7: XPASS(strict) count=3
+
+== probe fix-02-probe-after-fix.py AFTER (it spawns one child per seed 0-7), ./.venv/bin/python -I
+PYTHONHASHSEED=0: [1] double over 6 orders with one missing path: [(True, ())] | [2] materialized=False output_allowlisted=False staged=['.chain/logs.jsonl', '.chain/summary.md'] stage_exact_warnings=0 | [3] real sandbox, greeting.md tracked earlier: output_allowlisted=False index=['A\t.chain/logs.jsonl', 'A\t.chain/summary.md', 'D\t.chain/greeting.md'] stage_exact_warnings=0
+PYTHONHASHSEED=1: [1] double over 6 orders with one missing path: [(True, ())] | [2] materialized=False output_allowlisted=False staged=['.chain/logs.jsonl', '.chain/summary.md'] stage_exact_warnings=0 | [3] real sandbox, greeting.md tracked earlier: output_allowlisted=False index=['A\t.chain/logs.jsonl', 'A\t.chain/summary.md', 'D\t.chain/greeting.md'] stage_exact_warnings=0
+PYTHONHASHSEED=2: [1] double over 6 orders with one missing path: [(True, ())] | [2] materialized=False output_allowlisted=False staged=['.chain/logs.jsonl', '.chain/summary.md'] stage_exact_warnings=0 | [3] real sandbox, greeting.md tracked earlier: output_allowlisted=False index=['A\t.chain/logs.jsonl', 'A\t.chain/summary.md', 'D\t.chain/greeting.md'] stage_exact_warnings=0
+PYTHONHASHSEED=3: [1] double over 6 orders with one missing path: [(True, ())] | [2] materialized=False output_allowlisted=False staged=['.chain/logs.jsonl', '.chain/summary.md'] stage_exact_warnings=0 | [3] real sandbox, greeting.md tracked earlier: output_allowlisted=False index=['A\t.chain/logs.jsonl', 'A\t.chain/summary.md', 'D\t.chain/greeting.md'] stage_exact_warnings=0
+PYTHONHASHSEED=4: [1] double over 6 orders with one missing path: [(True, ())] | [2] materialized=False output_allowlisted=False staged=['.chain/logs.jsonl', '.chain/summary.md'] stage_exact_warnings=0 | [3] real sandbox, greeting.md tracked earlier: output_allowlisted=False index=['A\t.chain/logs.jsonl', 'A\t.chain/summary.md', 'D\t.chain/greeting.md'] stage_exact_warnings=0
+PYTHONHASHSEED=5: [1] double over 6 orders with one missing path: [(True, ())] | [2] materialized=False output_allowlisted=False staged=['.chain/logs.jsonl', '.chain/summary.md'] stage_exact_warnings=0 | [3] real sandbox, greeting.md tracked earlier: output_allowlisted=False index=['A\t.chain/logs.jsonl', 'A\t.chain/summary.md', 'D\t.chain/greeting.md'] stage_exact_warnings=0
+PYTHONHASHSEED=6: [1] double over 6 orders with one missing path: [(True, ())] | [2] materialized=False output_allowlisted=False staged=['.chain/logs.jsonl', '.chain/summary.md'] stage_exact_warnings=0 | [3] real sandbox, greeting.md tracked earlier: output_allowlisted=False index=['A\t.chain/logs.jsonl', 'A\t.chain/summary.md', 'D\t.chain/greeting.md'] stage_exact_warnings=0
+PYTHONHASHSEED=7: [1] double over 6 orders with one missing path: [(True, ())] | [2] materialized=False output_allowlisted=False staged=['.chain/logs.jsonl', '.chain/summary.md'] stage_exact_warnings=0 | [3] real sandbox, greeting.md tracked earlier: output_allowlisted=False index=['A\t.chain/logs.jsonl', 'A\t.chain/summary.md', 'D\t.chain/greeting.md'] stage_exact_warnings=0

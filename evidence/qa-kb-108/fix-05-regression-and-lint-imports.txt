@@ -1,0 +1,40 @@
+# QA-KB-108 fix: regression files, one pytest invocation per file, after the change (2026-10-09T11:10Z)
+# cmd (from backend/): .venv/bin/python -m pytest <file> -q -p no:cacheprovider
+tests/unit/api/test_login_provider_outage.py :: 1 failed, 2 passed, 3 warnings in 1.98s
+tests/security/test_cognito_client_boundary.py :: 3 passed, 1 warning in 0.92s
+tests/security/test_no_projection_reads.py :: 2 passed, 1 warning in 1.48s
+tests/unit/api/test_email_mfa.py :: 28 passed, 1 warning in 1.56s
+tests/unit/api/test_totp_enrollment.py :: 6 passed, 1 warning in 1.87s
+tests/unit/api/test_cognito_refresh_secret_hash.py :: 4 passed, 1 warning in 1.03s
+tests/unit/api/test_jit_provisioning.py :: 4 passed, 1 warning in 1.28s
+tests/unit/api/test_cognito_verifier.py :: 26 passed, 1 warning in 3.31s
+tests/unit/app/test_refresh_token_continuity.py :: 3 passed, 1 warning in 0.91s
+tests/unit/app/test_main.py :: 1 passed, 3 warnings in 1.26s
+tests/unit/test_admin_privilege_race.py :: 2 xfailed, 1 warning in 1.30s
+tests/unit/test_admin_create_user_email_validation.py :: 1 passed, 1 warning in 0.88s
+tests/integration/api/test_admin_privilege_atomicity_api.py :: 6 passed, 1 warning in 0.98s
+tests/integration/api/test_delete_user_ordering_api.py :: 7 passed, 1 warning in 1.03s
+tests/integration/api/test_login_timing_api.py :: 2 passed, 3 warnings in 1.11s
+tests/integration/api/test_logout_api.py :: 8 passed, 3 warnings in 7.01s
+tests/integration/api/test_admin_authorization_matrix.py :: 37 passed, 3 warnings in 16.28s
+# note: test_login_provider_outage '1 failed' is [XPASS(strict)] ISS-1144 unfixed (see fix-01); test_admin_privilege_race '2 xfailed' are pre-existing ISS-471 strict xfails
+
+# lint-imports (from backend/): .venv/bin/lint-imports
+kernel imports only capability ports (scaffold) BROKEN
+agents.workflows must not import the execution kernel or the web layer KEPT
+agents.capabilities must not import the execution kernel or the web layer BROKEN
+agents.runtime must not import the execution kernel or the web layer KEPT
+shipped code must not import the build-time tooling package KEPT
+Contracts: 3 kept, 2 broken.
+-   agents.execution_engine.engine -> agents.execution_engine.kernel_services (l.5818)
+    agents.execution_engine.kernel_services -> app.api.composition_order (l.1661)
+-   agents.execution_engine.engine -> app.api.launch_context (l.4577, l.4590, l.4987, l.15738)
+-   agents.execution_engine.engine -> app.api.runs (l.3577)
+-   agents.capabilities.prototype_ui_extract -> app.agents.tools.html_extract (l.333)
+
+# live :8000 (--reload, *.py): /private/tmp/velocity-8000.log after the edits
+1389:WARNING:  StatReload detected changes in 'app/main.py'. Reloading...
+1407:INFO:     Application startup complete.
+1410:WARNING:  StatReload detected changes in 'app/main.py'. Reloading...
+1428:INFO:     Application startup complete.
+GET http://localhost:8000/docs -> 200

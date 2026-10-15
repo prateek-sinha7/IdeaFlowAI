@@ -59,6 +59,11 @@ const PIPELINE_LABELS: Record<string, string> = {
   user_stories: "User Stories", user_stories_revision: "User Stories",
   ppt: "Presentation", ppt_revision: "Presentation",
   prototype: "Prototype", prototype_revision: "Prototype",
+  // ISS-289: v1 and v2 prototype pipelines group under the one "Prototype" label.
+  // Keys are POST-normalizeType (it strips a trailing _revision), so
+  // prototype_v2_revision → prototype_v2 and prototype_v2_feature_revision →
+  // prototype_v2_feature; both base forms map here.
+  prototype_v2: "Prototype", prototype_v2_feature: "Prototype",
   app_builder: "App Builder", app_builder_revision: "App Builder",
   custom: "Custom", mulesoft_to_springboot: "Mulesoft Migration",
   dotnet_to_azure: ".NET Migration",
@@ -314,14 +319,23 @@ export function AnalyticsPage({ onBack }: AnalyticsPageProps) {
   const dailyHasTokens = dailyData.some((d) => d.value > 0);
   const dailyEmpty = dailyData.every((d) => d.value === 0 && d.runs === 0);
 
-  const pipelineRows = (summary?.pipelines ?? [])
-    .map((p) => ({
-      label: PIPELINE_LABELS[normalizeType(p.type)] ?? normalizeType(p.type),
-      runs: p.count,
-      tokens: p.total_tokens,
-      cost: p.cost,
-    }))
-    .sort((a, b) => (b.tokens !== a.tokens ? b.tokens - a.tokens : b.runs - a.runs));
+  // D-11: the server rolls up on the generic ``type`` column, so variants that
+  // share one display label (v1/v2 and their revisions → "Prototype") arrive as
+  // separate rows. Collapse rows that share a label into one — summing runs,
+  // tokens and cost — so a family is counted once. Rows whose labels DIFFER are
+  // never merged, and an unmapped type keeps its own raw label (e.g. PPT_V2).
+  const pipelineRows = Object.values(
+    (summary?.pipelines ?? []).reduce<
+      Record<string, { label: string; runs: number; tokens: number; cost: number }>
+    >((acc, p) => {
+      const label = PIPELINE_LABELS[normalizeType(p.type)] ?? normalizeType(p.type);
+      const row = acc[label] ?? (acc[label] = { label, runs: 0, tokens: 0, cost: 0 });
+      row.runs += p.count;
+      row.tokens += p.total_tokens;
+      row.cost += p.cost;
+      return acc;
+    }, {}),
+  ).sort((a, b) => (b.tokens !== a.tokens ? b.tokens - a.tokens : b.runs - a.runs));
   const pipelineHasTokens = pipelineRows.some((p) => p.tokens > 0);
   const pipelineMax = pipelineHasTokens
     ? Math.max(...pipelineRows.map((p) => p.tokens), 1)

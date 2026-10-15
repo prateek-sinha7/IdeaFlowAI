@@ -1,0 +1,32 @@
+== HEAD engine.py copy (/private/tmp/claude-502/-Users-bilala-Developer-Projects-VELOCITY-AI-worktrees-feat-user-stories-v2/2d1a1575-310a-48fd-8155-2763a084604d/scratchpad/headcopy/backend): tests/unit/agents/test_banned_patterns.py
+FAILED tests/unit/agents/test_banned_patterns.py::test_capabilities_do_not_import_kernel_or_web_layer
+FAILED tests/unit/agents/test_banned_patterns.py::TestSC001RevisionPipelineCompliance::test_no_revision_pipeline_names_in_kernel
+2 failed, 16 passed, 1 warning in 1.95s
+== worktree (ISS-684 guard PRESENT): tests/unit/agents/test_banned_patterns.py
+FAILED tests/unit/agents/test_banned_patterns.py::test_capabilities_do_not_import_kernel_or_web_layer
+FAILED tests/unit/agents/test_banned_patterns.py::TestSC001RevisionPipelineCompliance::test_no_revision_pipeline_names_in_kernel
+2 failed, 16 passed, 1 warning in 1.75s
+== lint-imports, HEAD copy
+kernel imports only capability ports (scaffold) BROKEN
+agents.workflows must not import the execution kernel or the web layer KEPT
+agents.capabilities must not import the execution kernel or the web layer BROKEN
+agents.runtime must not import the execution kernel or the web layer KEPT
+shipped code must not import the build-time tooling package KEPT
+Contracts: 3 kept, 2 broken.
+-   agents.execution_engine.engine -> agents.execution_engine.kernel_services (l.5818)
+    agents.execution_engine.kernel_services -> app.api.runs (l.1857)
+-   agents.execution_engine.engine -> app.api.launch_context (l.4577, l.4590, l.4987, l.15656)
+-   agents.execution_engine.engine -> app.api.runs (l.3577)
+-   agents.capabilities.prototype_ui_extract -> app.agents.tools.html_extract (l.333)
+== lint-imports, worktree
+kernel imports only capability ports (scaffold) BROKEN
+agents.workflows must not import the execution kernel or the web layer KEPT
+agents.capabilities must not import the execution kernel or the web layer BROKEN
+agents.runtime must not import the execution kernel or the web layer KEPT
+shipped code must not import the build-time tooling package KEPT
+Contracts: 3 kept, 2 broken.
+-   agents.execution_engine.engine -> agents.execution_engine.kernel_services (l.5818)
+    agents.execution_engine.kernel_services -> app.api.run_engine (l.1603, l.1856)
+-   agents.execution_engine.engine -> app.api.launch_context (l.4577, l.4590, l.4987, l.15668)
+-   agents.execution_engine.engine -> app.api.runs (l.3577)
+-   agents.capabilities.prototype_ui_extract -> app.agents.tools.html_extract (l.333)

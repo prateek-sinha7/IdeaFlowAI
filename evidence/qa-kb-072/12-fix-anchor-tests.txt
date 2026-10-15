@@ -1,0 +1,8 @@
+== tests/agents/test_redoable_eligibility_fence.py
+4 passed, 2 warnings in 1.14s
+== tests/unit/agents/test_update_specs_enforcement.py
+5 passed, 1 warning in 1.66s
+== tests/integration/test_gate_redo_enforcement.py
+2 passed, 3 warnings in 0.98s
+== tests/unit/agents/test_redo_gate_safety.py
+7 passed, 1 warning in 5.50s

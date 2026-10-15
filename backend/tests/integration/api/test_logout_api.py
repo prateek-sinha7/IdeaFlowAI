@@ -111,8 +111,8 @@ def _register(
     """Create a Cognito-linked user directly in the test DB, then log in and
     return the parsed AuthResponse JSON.
 
-    ``POST /api/auth/register`` is a permanent 403 (self-registration is
-    admin-only by design), so this helper can no longer exercise it. It
+    ``POST /api/auth/register`` was removed by the Cognito-only migration
+    (self-registration is admin-only by design), so this helper cannot use it. It
     inserts directly instead, with a ``cognito_sub`` that matches what
     ``FakeCognitoAuth`` will mint for this email — see
     ``tests/factories/user_factory.py``.

@@ -1,0 +1,70 @@
+# QA-KB-076 analyze: which cite shapes each candidate pattern flags (guard semantics: per physical line)
+# tree: /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2   HEAD: 8a0128685   date: 2026-10-07 22:06 CEST
+# CUR = _LINE_CITE at test_run_shutdown_stale_citations.py:25-28; SKETCH = BUGS.md QA-KB-076 triage sketch; +yaml = SKETCH with yaml; GENERAL = any 1-5 letter extension
+
+########## shape_corpus.py
+import re
+CURRENT = re.compile(
+    r"\b(?:run_commands|engine|model_factory|run_engine|run_stream|run_shutdown|"
+    r"authz|websocket|checkpointer|docker-compose)\.(?:py|yml):\d+")
+SKETCH = re.compile(r"[\w./-]+\.(?:py|yml|sh) ?:\d+|(?<![\w/.]):\d{3,}")
+SKETCH_YAML = re.compile(r"[\w./-]+\.(?:py|yml|yaml|sh) ?:\d+|(?<![\w/.]):\d{3,}")
+GENERAL = re.compile(r"[\w./-]+\.[A-Za-z]{1,5} ?:\d+|(?<![\w/.]):\d{3,}")
+# (text, should_flag) - should_flag True = a real file-line cite shape
+corpus = [
+ ("restore_non_terminal_runs() (main.py:238)", True),
+ ("see test_run_stream_pool_leak.py:196-238", True),
+ ("(run_commands.py :399/:421, :991/:1003)", True),
+ ("registers the queue at :1734", True),
+ ("per-chunk (:2514/:3621), pre-agent (:2287)", True),
+ ("outcome is deterministic: ``:2473`` revision", True),
+ ("capture_signals (server.py:326-330)", True),
+ ("uvicorn/protocols/http/h11_impl.py:328-337", True),
+ ("docker-compose.yml:138", True),
+ ("agents/workflows/prototype/workflow.yaml:12", True),
+ ("see backend/pyproject.toml:174", True),
+ ("scripts/start.sh:27", True),
+ ("forever (uvicorn/server.py:294-310), and `await self.lifespan.shutdown()` on line", True),
+ ("on line 292 is never reached", True),   # prose shape
+ ("run_engine.py\n:399", True),            # wrapped shape (single string with newline)
+ # must NOT flag
+ ("http://localhost:3000 and 127.0.0.1:53650", False),
+ ("host 0.0.0.0:8000", False),
+ ("timestamp 12:30:45", False),
+ ("symbol-style cite: _drain_then_cancel first wait", False),
+ ("ISS-104: see FIX-690", False),
+ ("key: 100", False),
+]
+def flag(rx, text):
+    # guard semantics: per physical line
+    return any(rx.search(l) for l in text.splitlines())
+print(f"{'shape':<62} want  CUR  SKETCH  +yaml  GENERAL")
+for text, want in corpus:
+    row = [flag(rx, text) for rx in (CURRENT, SKETCH, SKETCH_YAML, GENERAL)]
+    mark = lambda b: "FLAG" if b else " -- "
+    t = text.replace("\n", "\\n")[:60]
+    print(f"{t:<62} {'Y' if want else 'n':^4}  " + "  ".join(mark(b) for b in row))
+
+########## output
+shape                                                          want  CUR  SKETCH  +yaml  GENERAL
+restore_non_terminal_runs() (main.py:238)                       Y     --   FLAG  FLAG  FLAG
+see test_run_stream_pool_leak.py:196-238                        Y     --   FLAG  FLAG  FLAG
+(run_commands.py :399/:421, :991/:1003)                         Y     --   FLAG  FLAG  FLAG
+registers the queue at :1734                                    Y     --   FLAG  FLAG  FLAG
+per-chunk (:2514/:3621), pre-agent (:2287)                      Y     --   FLAG  FLAG  FLAG
+outcome is deterministic: ``:2473`` revision                    Y     --   FLAG  FLAG  FLAG
+capture_signals (server.py:326-330)                             Y     --   FLAG  FLAG  FLAG
+uvicorn/protocols/http/h11_impl.py:328-337                      Y     --   FLAG  FLAG  FLAG
+docker-compose.yml:138                                          Y    FLAG  FLAG  FLAG  FLAG
+agents/workflows/prototype/workflow.yaml:12                     Y     --    --   FLAG  FLAG
+see backend/pyproject.toml:174                                  Y     --    --    --   FLAG
+scripts/start.sh:27                                             Y     --   FLAG  FLAG  FLAG
+forever (uvicorn/server.py:294-310), and `await self.lifespa    Y     --   FLAG  FLAG  FLAG
+on line 292 is never reached                                    Y     --    --    --    -- 
+run_engine.py\n:399                                             Y     --   FLAG  FLAG  FLAG
+http://localhost:3000 and 127.0.0.1:53650                       n     --    --    --    -- 
+host 0.0.0.0:8000                                               n     --    --    --    -- 
+timestamp 12:30:45                                              n     --    --    --    -- 
+symbol-style cite: _drain_then_cancel first wait                n     --    --    --    -- 
+ISS-104: see FIX-690                                            n     --    --    --    -- 
+key: 100                                                        n     --    --    --    -- 

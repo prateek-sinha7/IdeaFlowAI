@@ -1,0 +1,51 @@
+import re, pathlib
+FE = "/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/frontend"
+SETTINGS = FE + "/src/components/settings"
+src = pathlib.Path(SETTINGS + "/AccountSettings.iss372.test.tsx").read_text()
+
+def base(s, comp="@/components/settings/AccountSettings"):
+    s = s.replace('import { AccountSettings } from "./AccountSettings";', f'import {{ AccountSettings }} from "{comp}";')
+    s = s.replace("__dirname", f'"{SETTINGS}"')
+    s = s.replace("it.fails(", "it(")
+    return s
+
+WAIT = "    await waitFor(() => expect(fetch).toHaveBeenCalled());\n"
+assert WAIT in src
+
+# A: as-is behaviour, marker removed only (reproduces BUGS.md step 2 on a scratch copy)
+a = base(src)
+pathlib.Path("a1_asis.test.tsx").write_text(a)
+
+# B: proposed fix = delete :83 (+ drop the now-unused waitFor import)
+b = a.replace(WAIT, "")
+b = b.replace("import { render, screen, waitFor } from", "import { render, screen } from")
+pathlib.Path("b1_fixed.test.tsx").write_text(b)
+
+# C: alternative = keep :83, make :16 honour it by delegating getConstitution to fetch (as AccountSettings.render.test.tsx:53-56 does)
+c = a.replace('getConstitution: () => Promise.resolve({ content: "" }),',
+ 'getConstitution: (t: string) => fetch("http://localhost:8000/api/settings/constitution", { headers: { Authorization: `Bearer ${t}` } }).then((r: Response) => r.json()),')
+assert c != a
+pathlib.Path("c1_delegated.test.tsx").write_text(c)
+
+# D: non-empty saved constitution on the fixed case
+d = b.replace('getConstitution: () => Promise.resolve({ content: "" }),', 'getConstitution: () => Promise.resolve({ content: "saved rules" }),')
+assert d != b
+pathlib.Path("d1_nonempty.test.tsx").write_text(d)
+
+# Mutant app: the Constitution load forgets setLoadedValue(loaded)
+app = pathlib.Path(SETTINGS + "/AccountSettings.tsx").read_text()
+line = "        setLoadedValue(loaded);\n"
+assert app.count(line) == 1, app.count(line)
+pathlib.Path("AccountSettingsMutant.tsx").write_text(app.replace(line, ""))
+e = base(src, "./AccountSettingsMutant").replace(WAIT, "").replace("import { render, screen, waitFor } from", "import { render, screen } from")
+pathlib.Path("e1_mutant_empty.test.tsx").write_text(e)
+f = e.replace('getConstitution: () => Promise.resolve({ content: "" }),', 'getConstitution: () => Promise.resolve({ content: "saved rules" }),')
+assert f != e
+pathlib.Path("f1_mutant_nonempty.test.tsx").write_text(f)
+
+srcs = pathlib.Path(SETTINGS + "/AccountSettings.iss372.sources.test.tsx").read_text()
+g = srcs.replace('from "./AccountSettings";', 'from "./AccountSettingsMutant";'); assert g != srcs
+pathlib.Path("g1_mutant_sources.test.tsx").write_text(g)
+h = srcs.replace('from "./AccountSettings";', 'from "@/components/settings/AccountSettings";'); assert h != srcs
+pathlib.Path("h1_real_sources.test.tsx").write_text(h)
+print("ok")

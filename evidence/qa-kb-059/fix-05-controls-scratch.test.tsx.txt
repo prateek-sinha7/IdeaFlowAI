@@ -1,0 +1,185 @@
+// QA-KB-059 fix: scratch control tests (kept OUTSIDE the repo; config in the same scratch dir). The controls ISS-919's analysis lists, plus ISS-983's trigger guard, an override user's save, and migration.
+/**
+ * QA-KB-059 fix controls (scratch, OUTSIDE the repo). The controls ISS-919's analysis lists as
+ * "belong in the file" because a literal reading of the triage sketch would break them, plus the
+ * ISS-983 trigger guard and the positive end-to-end case (an override user's click sends the
+ * override roster). Plain `it`: every one should be green with the fix.
+ */
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import userEvent from "@testing-library/user-event";
+import { renderWithProviders, screen, waitFor } from "@/test/renderWithProviders";
+
+import { IdeaInputPage } from "@/components/workflow/IdeaInputPage";
+import type { AgentDef } from "@/types/index";
+
+vi.mock("@/hooks/useSpeechRecognition", () => ({
+  useSpeechRecognition: () => ({
+    isListening: false,
+    transcript: "",
+    startListening: vi.fn(),
+    stopListening: vi.fn(),
+    isSupported: false,
+  }),
+}));
+
+const mockGetWorkflowDetail = vi.fn();
+const mockCreateUserWorkflow = vi.fn();
+const mockIsNotFound = vi.fn((_e: unknown) => false);
+vi.mock("@/lib/api", () => ({
+  getToken: () => "test-token",
+  isNotFoundError: (e: unknown) => mockIsNotFound(e),
+  getWorkflowDetail: (t: string, id: string) => mockGetWorkflowDetail(t, id),
+  createUserWorkflow: (t: string, b: unknown) => mockCreateUserWorkflow(t, b),
+  setWorkflowOverrideEnabled: vi.fn(),
+  extractFileText: vi.fn(),
+  stageRunFile: vi.fn(),
+  getCapabilities: vi.fn().mockResolvedValue({ capabilities: [], model_catalog: [] }),
+}));
+vi.mock("@/components/workflow/AgentsPopup", () => ({ AgentsPopup: () => null }));
+vi.mock("@/components/workflow/ReviewGatesSection", () => ({ ReviewGatesSection: () => null }));
+
+const IDS = ["domain-analyst", "epic-architect", "story-estimator", "nfr-specialist"];
+const lib = (ids: string[], pipeline_type = "user_stories"): AgentDef[] =>
+  ids.map((id, i) => ({
+    id,
+    name: id,
+    role: "r",
+    description: "d",
+    pipeline_type,
+    order: i + 1,
+    icon: "zap",
+    estimated_duration: 60,
+    has_skill: false,
+  }));
+const preload = (list: AgentDef[]) => ({
+  agents: { agents: list, totalCount: list.length, pipelines: {}, status: "succeeded" as const, error: null },
+});
+
+const step = (agent_id: string, order: number) => ({
+  agent_id, name: agent_id, role: "r", order, skills: [], declared_gate: null,
+  strategy: null, gates: [], validators: [], compaction: null, task_source: null,
+});
+const detail = (over: Record<string, unknown> = {}) => ({
+  id: "user_stories", name: "User Stories", description: "", planner: "deep_planner",
+  clarify_mode: "auto", clarify_defaults: [], context_providers: [],
+  deliverable: { strategy: "single_file", name: "stories.md" },
+  steps: [], has_override: false, is_overridden: false, override_id: null,
+  ...over,
+});
+
+function render(
+  list: AgentDef[] = lib(IDS),
+  props: { workflowType?: string; workflowId?: string | undefined } = { workflowType: "user_stories", workflowId: "user_stories" },
+) {
+  return renderWithProviders(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    <IdeaInputPage workflowType={(props.workflowType ?? "user_stories") as any} workflowId={props.workflowId} onBack={vi.fn()} onRun={vi.fn()} />,
+    { preloadedState: preload(list) },
+  );
+}
+const saveAs = () => screen.queryByRole("button", { name: /Save as my version/ }) as HTMLButtonElement | null;
+const save = () => screen.getByRole("button", { name: /Save workflow/ }) as HTMLButtonElement;
+const advanced = () => screen.getByRole("button", { name: /Advanced/ }) as HTMLButtonElement;
+const flush = () => new Promise((r) => setTimeout(r, 60));
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  mockIsNotFound.mockImplementation(() => false);
+  mockCreateUserWorkflow.mockResolvedValue({ id: "wf-scratch" });
+});
+
+describe("QA-KB-059 fix controls", () => {
+  it("C1 resolved, no override: all three enabled", async () => {
+    mockGetWorkflowDetail.mockResolvedValue(detail());
+    render();
+    await waitFor(() => expect(saveAs()).toBeEnabled());
+    expect(save()).toBeEnabled();
+    expect(advanced()).toBeEnabled();
+    console.log("[C1] saveAs=%s save=%s advanced=%s", saveAs()!.disabled, save().disabled, advanced().disabled);
+  });
+
+  it("C2 rejected 503: Save as my version disabled with a reason, Save workflow and Advanced enabled", async () => {
+    mockGetWorkflowDetail.mockRejectedValue(new Error("503 upstream"));
+    render();
+    await waitFor(() => expect(save()).toBeEnabled());
+    expect(advanced()).toBeEnabled();
+    expect(saveAs()).toBeDisabled();
+    expect(saveAs()!.title).toMatch(/Couldn't check for your saved version/);
+    console.log("[C2] saveAs=%s save=%s advanced=%s title=%j", saveAs()!.disabled, save().disabled, advanced().disabled, saveAs()!.title);
+  });
+
+  it("C3 rejected 404 (the migration shape): same as C2", async () => {
+    mockIsNotFound.mockImplementation(() => true);
+    mockGetWorkflowDetail.mockRejectedValue(new Error("404"));
+    render();
+    await waitFor(() => expect(save()).toBeEnabled());
+    expect(advanced()).toBeEnabled();
+    expect(saveAs()).toBeDisabled();
+    console.log("[C3] saveAs=%s save=%s advanced=%s", saveAs()!.disabled, save().disabled, advanced().disabled);
+  });
+
+  it("C4 empty library, resolved steps []: both Save buttons stay disabled (length === 0 term kept)", async () => {
+    mockGetWorkflowDetail.mockResolvedValue(detail());
+    render([]);
+    await waitFor(() => expect(advanced()).toBeEnabled()); // settled
+    await flush();
+    expect(save()).toBeDisabled();
+    expect(saveAs()).toBeDisabled();
+    console.log("[C4] saveAs=%s save=%s advancedLabel=%j", saveAs()!.disabled, save().disabled, advanced().textContent);
+  });
+
+  it("C5 no workflowId: no fetch, Save workflow and Advanced enabled on first paint", async () => {
+    render(lib(IDS), { workflowType: "user_stories", workflowId: undefined });
+    expect(save()).toBeEnabled();
+    expect(advanced()).toBeEnabled();
+    expect(saveAs()).toBeNull();
+    expect(mockGetWorkflowDetail).not.toHaveBeenCalled();
+    console.log("[C5] save=%s advanced=%s saveAsRendered=%s", save().disabled, advanced().disabled, saveAs() !== null);
+  });
+
+  it("C6 ISS-983: Advanced disabled while pending, enabled once the detail resolves", async () => {
+    let resolve!: (d: unknown) => void;
+    mockGetWorkflowDetail.mockReturnValue(new Promise((r) => { resolve = r; }));
+    render();
+    await screen.findByRole("button", { name: /Save as my version/ });
+    expect(advanced()).toBeDisabled();
+    const pending = advanced().disabled;
+    resolve(detail());
+    await waitFor(() => expect(advanced()).toBeEnabled());
+    console.log("[C6] advanced pending=%s settled=%s", pending, advanced().disabled);
+  });
+
+  it("C7 override user: the click waits for the fetch and then saves the OVERRIDE roster, not the library's", async () => {
+    const user = userEvent.setup();
+    let resolve!: (d: unknown) => void;
+    mockGetWorkflowDetail.mockReturnValue(new Promise((r) => { resolve = r; }));
+    render();
+    await user.click(await screen.findByRole("button", { name: /Save as my version/ })); // disabled: no-op
+    expect(mockCreateUserWorkflow).not.toHaveBeenCalled();
+    resolve(detail({
+      has_override: true, is_overridden: true, override_id: "ov-1",
+      steps: [step("epic-architect", 1), step("story-estimator", 2)],
+    }));
+    await waitFor(() => expect(saveAs()).toBeEnabled());
+    await waitFor(() => expect(advanced().textContent).toMatch(/2 agents/));
+    await user.click(saveAs()!);
+    await waitFor(() => expect(mockCreateUserWorkflow).toHaveBeenCalledTimes(1));
+    const body = mockCreateUserWorkflow.mock.calls[0][1] as Record<string, unknown>;
+    console.log("[C7] POST body: %s", JSON.stringify({ overrides_pipeline_type: body.overrides_pipeline_type, agent_ids: body.agent_ids }));
+    expect(body.overrides_pipeline_type).toBe("user_stories");
+    expect(body.agent_ids).toEqual(["epic-architect", "story-estimator"]);
+  });
+
+  it("C8 migration: GET 404s by design; after a path is picked Save workflow enables, Save as my version stays disabled", async () => {
+    const user = userEvent.setup();
+    mockIsNotFound.mockImplementation(() => true);
+    mockGetWorkflowDetail.mockRejectedValue(new Error("404"));
+    render(lib(["mule-a", "mule-b"], "mulesoft_to_springboot"), { workflowType: "migration", workflowId: "migration" });
+    await flush();
+    await user.click(screen.getByRole("button", { name: /Mulesoft/ }));
+    await waitFor(() => expect(save()).toBeEnabled());
+    expect(saveAs()).toBeDisabled();
+    expect(advanced()).toBeEnabled();
+    console.log("[C8] after path pick: save=%s saveAs=%s advanced=%s", save().disabled, saveAs()!.disabled, advanced().disabled);
+  });
+});

@@ -1,0 +1,38 @@
+# QA-KB-109 5-fixer, post-fix runs, 2026-10-09 16:53 CEST, HEAD 9cd0d6c5a + working-tree change (fix-04-change.patch). One file per invocation, offline.
+
+## frontend: ./node_modules/.bin/vitest run src/app/admin/admin.iss1153.test.tsx
+     × ISS-1153: the own row has NO Delete control; other rows keep theirs 218ms
+     × ISS-1168: the own row offers no live Disable, role-demote, tier or Reset-password control 31ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+Error: Expect test to fail
+ Test Files  1 failed (1)
+      Tests  2 failed (2)
+
+## frontend: ./node_modules/.bin/vitest run src/app/admin/admin.iss1169.test.tsx
+     × ISS-1169: the badge returns to the server's tier when the tier change is refused 314ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+Error: Expect test to fail
+ Test Files  1 failed (1)
+      Tests  1 failed (1)
+
+## frontend: ./node_modules/.bin/vitest run src/app/admin/admin.actions.test.tsx
+ Test Files  1 passed (1)
+      Tests  7 passed (7)
+
+## frontend: ./node_modules/.bin/vitest run src/app/admin/admin.reskin.test.tsx
+ Test Files  1 passed (1)
+      Tests  8 passed (8)
+
+## frontend: ./node_modules/.bin/vitest run src/app/admin/admin.escape.test.tsx
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+
+## backend: .venv/bin/python -m pytest tests/integration/api/test_admin_authorization_matrix.py -q -p no:cacheprovider -rxXf
+[XPASS(strict)] ISS-1170 unfixed
+INFO     agents.execution_engine.engine:engine.py:12929 restore_non_terminal_runs: restored 0 resumable run(s), auto-resumed 0 in-flight run(s), marked 0 abandoned run(s) failed, in 0.00s
+FAILED tests/integration/api/test_admin_authorization_matrix.py::TestResetPasswordSelfAction::test_reset_password_cannot_target_self
+1 failed, 37 passed, 3 warnings in 18.01s
+
+## backend: .venv/bin/python -m pytest tests/integration/api/test_admin_privilege_atomicity_api.py -q -p no:cacheprovider -rxXf
+6 passed, 1 warning in 1.40s
+

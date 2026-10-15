@@ -1,0 +1,37 @@
+QA-KB-018 / ISS-410 fix-phase test runs, 2026-10-01, tree feat/user-stories-v2 @ 024c03ef8 (dirty)
+Each file run on its own from frontend/: npx vitest --run <file>
+
+BEFORE the ComposerPage.tsx change (observed 22:30:20):
+  src/components/workflow/composer/ComposerPage.iss410.test.tsx -> Tests  1 passed | 2 expected fail (3)
+  src/components/workflow/composer/ComposerPage.test.tsx -> Tests  16 passed (16)
+  src/components/workflow/composer/ComposerPage.manifestPersistence.test.tsx -> Tests  5 passed (5)
+  npx tsc --noEmit -p . -> 13 errors (7 unrelated test files)
+
+AFTER:
+=== src/components/workflow/composer/ComposerPage.iss410.test.tsx
+     × ISS-410: Save as copy is disabled when builtinCanvasType is set and no seed arrived 152ms
+     × ISS-410: clicking Save as copy with no seed never POSTs a blank copy 51ms
+Error: Expect test to fail
+Error: Expect test to fail
+ Test Files  1 failed (1)
+      Tests  2 failed | 1 passed (3)
+=== src/components/workflow/composer/ComposerPage.test.tsx
+ Test Files  1 passed (1)
+      Tests  16 passed (16)
+=== src/components/workflow/composer/ComposerPage.manifestPersistence.test.tsx
+ Test Files  1 passed (1)
+      Tests  5 passed (5)
+
+tsc AFTER: 13 errors; diff vs before:
+  IDENTICAL error set; none in ComposerPage.tsx
+
+Other files run AFTER (one at a time, observed in the fix session):
+  composer/: CanvasView 28/28, DesignPickerModal.defaultLabel 1/1, AgentRow 5/5, AgentRow.toolsVisibility 2/2,
+    AgentSkillsPicker 2/2, CanvasConfigRail.dataTab 14/14, CanvasConfigRail.effort 10/10, CanvasConfigRail.iss686 2 expected fail (another bug, untouched),
+    CanvasConfigRail.iss765 1/1, CanvasConfigRail 43/43, CanvasNode.kindIcon 5/5, routeTargetIdForms 7/7
+  ComposerPage referrers: contentSourceRunType.source 8/8, savedCompositionManifest.source 2/2, WorkflowDetailView 2/2,
+    IdeaInputPage.iss371 3 expected fail (another bug), IdeaInputPage.iss766 2/2, api.getWorkflowDetailDedup 1/1,
+    userWorkflows.roundtrip 12/12, pdfToPrototypeManifestRoundTrip 5/5
+  IdeaInputPage.designPicker.test.tsx: 1 failed | 1 passed -- 'expected { gate_agent_ids: [] } to be undefined' (:159).
+    NOT this change: its import graph (IdeaInputPage, renderWithProviders, SkillsHooksContext, DesignPickerModal) never
+    loads ComposerPage.tsx; only DashboardLayout.tsx imports ComposerPage (grep), and IdeaInputPage.tsx has no diff.

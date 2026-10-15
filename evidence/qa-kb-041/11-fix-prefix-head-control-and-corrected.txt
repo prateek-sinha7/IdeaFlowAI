@@ -1,0 +1,32 @@
+QA-KB-041 fixer — PRE-FIX components (git show HEAD:<file> copied to scratch, aliased in vitest.head.config.ts) .
+A = the working path the a11y tests certify (focused click, wrapper handler fires): state RIGHT AFTER Escape.
+B = the corrected escape-test bodies (unfocused click, waitFor on node removal): must FAIL on pre-fix code.
+
+[A bell] aria-expanded = false | dialog still in DOM = true
+[A admin] aria-expanded = false | menu still in DOM = true
+ ✓ prefix.test.tsx > A: pre-fix, FOCUSED click (working path) — state right after Escape > bell 111ms
+ ✓ prefix.test.tsx > A: pre-fix, FOCUSED click (working path) — state right after Escape > admin tier 79ms
+[A rowmenu] aria-expanded = false | menu still in DOM = false
+ ✓ prefix.test.tsx > A: pre-fix, FOCUSED click (working path) — state right after Escape > history RowMenu 24ms
+ × prefix.test.tsx > B: pre-fix, UNFOCUSED click — corrected test bodies (must FAIL here) > bell (corrected NotificationPanel.escape body) 1017ms
+   → expected <div role="dialog" …(3)>…(2)</div> to be null
+ × prefix.test.tsx > B: pre-fix, UNFOCUSED click — corrected test bodies (must FAIL here) > admin tier (corrected admin.escape body) 1034ms
+   → expected <div role="menu" …(2)>…(4)</div> to be null
+ × prefix.test.tsx > B: pre-fix, UNFOCUSED click — corrected test bodies (must FAIL here) > history RowMenu (corrected RevisionFamilyView.escape body) 14ms
+   → [2mexpect([22m[31melement[39m[2m).toHaveAttribute([22m[32m[32m"aria-expanded"[32m[39m[2m, [22m[32m[32m"false"[32m[39m[2m) // element.getAttribute("aria-expanded") === "false"[22m
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+ Test Files  1 failed (1)
+      Tests  3 failed | 3 passed (6)
+   Start at  01:46:44
+
+---- AppHeader (separate file, same config)
+[A header] aria-expanded = false | menu still in DOM = true
+ ✓ prefix-header.test.tsx > pre-fix AppHeader > A: focused click, state right after Escape 134ms
+ × prefix-header.test.tsx > pre-fix AppHeader > B: corrected AppHeader.escape body (unfocused click) — must FAIL 1035ms
+   → expected <div role="menu" …(2)>…(4)</div> to be null
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+ Test Files  1 failed (1)
+      Tests  1 failed | 1 passed (2)
+   Start at  01:48:49
+
+Note: an earlier run of the same prefix file at 01:46 printed [A rowmenu] menu still in DOM = true; this run printed false. Same race.

@@ -1,0 +1,65 @@
+# QA-KB-061 fix phase (FIX-722) — final-state runs, 2026-10-07 18:11 CEST, HEAD 0b5223f4c + uncommitted tree
+# cmd: cd backend && DATABASE_URL=sqlite:///:memory: .venv/bin/python -m pytest <file> -q -p no:cacheprovider -rxX
+
+## tests/integration/api/test_rest_run_launch_api.py
+[XPASS(strict)] ISS-949 unfixed
+1 failed, 26 passed, 5 warnings in 1.70s
+
+## tests/integration/api/test_rest_revisions_api.py
+25 passed, 3 warnings in 1.25s
+
+## tests/agents/test_phase5_chaining.py
+19 passed, 2 warnings in 1.61s
+
+## tests/agents/test_chain_context_v3.py
+15 passed, 2 warnings in 2.00s
+
+# Baseline, observed this session BEFORE any edit (HEAD 91a0b4279, same command)
+## tests/integration/api/test_rest_run_launch_api.py
+XFAIL test_owned_source_links_the_child - ISS-949 unfixed
+FAILED test_driver_persists_full_agent_history_like_ws        (C: json.loads(None) TypeError)
+FAILED test_foreign_source_drops_the_link_but_still_launches   (B: 404 where 200 expected)
+FAILED test_unknown_source_drops_the_link_but_still_launches   (B: 404 where 200 expected)
+FAILED test_driver_persists_model_id_and_prices_non_circular   (C: json.loads(None) TypeError)
+4 failed, 20 passed, 1 xfailed
+## after fix A only (app line), before the test repairs
+[XPASS(strict)] ISS-949 unfixed ; 5 failed, 20 passed  (the 4 above + the XPASS)
+## tests/integration/api/test_rest_revisions_api.py
+FAILED test_driver_happy_path_persists_output_columns ; 1 failed, 24 passed
+## tests/agents/test_phase5_chaining.py
+TypeError: _mint_revision_row() missing 1 required keyword-only argument: 'caller_tier' (x2) ; 2 failed, 17 passed
+## tests/agents/test_chain_context_v3.py
+TypeError: _mint_revision_row() missing 1 required keyword-only argument: 'caller_tier' ; 1 failed, 14 passed
+
+# Mutant: owner check removed (_resolve_owned_parent_run_id -> lambda db, cid, uid: cid), plugin in the
+# session scratchpad (lazy import in pytest_runtest_setup), launch file -k source
+[XPASS(strict)] ISS-949 unfixed
+FAILED test_owned_source_links_the_child   (XPASS strict)
+FAILED test_foreign_source_drops_the_link_but_still_launches
+FAILED test_unknown_source_drops_the_link_but_still_launches
+3 failed, 2 passed, 22 deselected
+=> the re-pointed revision-arm tests catch a missing owner check; the two 404 tests pin admission, not the resolver
+
+# Regression check after the fix, one file at a time (all green)
+tests/agents/test_conditional_divert_v4_validation.py       1 passed
+tests/agents/test_b3_saved_workflow_chain_launch.py          8 passed
+tests/integration/api/test_duplicate_context_guard_api.py    8 passed
+tests/integration/api/test_duplicate_context_guard_audit_api.py 2 passed
+tests/agents/test_chain_exact_ref.py                        28 passed
+tests/agents/test_conditional_trigger_budget_t33.py          1 passed
+tests/integration/agents/test_roster_seam_log.py             4 passed
+
+# lint-imports (cd backend && .venv/bin/lint-imports): Contracts: 3 kept, 2 broken.
+# The fix changed no import line: diff of `^\s*(from|import) ` lines, git show HEAD:backend/app/api/run_commands.py
+# vs the working tree -> identical (run_commands.py had no uncommitted edit before this fix).
+# Goldens (tests/contract/agents/): not run. grep -rln "_launch_run_core|launch_run|run_commands" tests/contract/ -> no file.
+
+# Re-run after a line-length-only reformat (the parent-resolver call split to one argument per line; the two
+# agent_thinking stub yields wrapped like their neighbours; one docstring phrase restored), 18:2x CEST
+## tests/integration/api/test_rest_run_launch_api.py
+[XPASS(strict)] ISS-949 unfixed
+1 failed, 26 passed
+## tests/integration/api/test_rest_revisions_api.py
+25 passed
+# ruff check (configured rules) on all five touched files: All checks passed!
+# E501 (not enforced here): the touched hunks add no line over 88; the files' other long lines predate this fix.

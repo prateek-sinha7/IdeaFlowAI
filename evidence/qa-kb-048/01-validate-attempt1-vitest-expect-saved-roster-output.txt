@@ -1,0 +1,66 @@
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - ESM syntax in a file loaded as CommonJS (vitest.config.ts:1:1). Use a `.mjs` extension or set `"type": "module"` in the closest package.json
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+
+ RUN  v4.1.11 /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/frontend
+
+ ❯ src/components/workflow/zz.qakb048.probe.test.tsx (2 tests | 2 failed) 285ms
+     × E (cold): library lands after the full plan -> launch agentIds 217ms
+     × F (warm, pre-existing path): library loaded first, full plan lands after restore -> launch agentIds 67ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/components/workflow/zz.qakb048.probe.test.tsx > fixer scratch 2 (QA-KB-011) — does plan completion replace a SHORTER restored saved roster? > E (cold): library lands after the full plan -> launch agentIds
+AssertionError: expected [ 'prototype-specify', …(4) ] to deeply equal [ 'prototype-plan' ]
+
+- Expected
++ Received
+
+  [
++   "prototype-specify",
+    "prototype-plan",
++   "prototype-analyze",
++   "prototype-build",
++   "prototype-validate",
+  ]
+
+ ❯ src/components/workflow/zz.qakb048.probe.test.tsx:172:28
+    170|     const draft = JSON.parse(sessionStorage.getItem("prototype.draft")…
+    171|     // OBSERVED 2026-10-02 (fixer, QA-KB-011): passes, i.e. the launch…
+    172|     expect(draft.agentIds).toEqual(["prototype-plan"]);
+       |                            ^
+    173|     getWorkflowDetailMock.mockImplementation(() => new Promise(() => {…
+    174|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  src/components/workflow/zz.qakb048.probe.test.tsx > fixer scratch 2 (QA-KB-011) — does plan completion replace a SHORTER restored saved roster? > F (warm, pre-existing path): library loaded first, full plan lands after restore -> launch agentIds
+AssertionError: expected [ 'prototype-specify', …(4) ] to deeply equal [ 'prototype-plan' ]
+
+- Expected
++ Received
+
+  [
++   "prototype-specify",
+    "prototype-plan",
++   "prototype-analyze",
++   "prototype-build",
++   "prototype-validate",
+  ]
+
+ ❯ src/components/workflow/zz.qakb048.probe.test.tsx:190:28
+    188|     const draft = JSON.parse(sessionStorage.getItem("prototype.draft")…
+    189|     // OBSERVED 2026-10-02 (fixer, QA-KB-011): passes, i.e. the launch…
+    190|     expect(draft.agentIds).toEqual(["prototype-plan"]);
+       |                            ^
+    191|     getWorkflowDetailMock.mockImplementation(() => new Promise(() => {…
+    192|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed (2)
+   Start at  03:02:20
+   Duration  2.20s (transform 323ms, setup 110ms, import 800ms, tests 285ms, environment 870ms)
+

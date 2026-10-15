@@ -1,0 +1,17 @@
+# QA-KB-060 fix phase, 2026-10-07: static checks (cwd frontend/)
+
+## npx tsc --noEmit (whole project), errors in the four changed files
+count: 0  (all tsc errors are pre-existing, in unrelated *.test.tsx files: AnalyticsPage, DashboardLayout.chain, WorkflowHistory.modelChip, PreviewPanel.liveVersion, AgentDetailPanel.waveWorkerStatus, useWorkflow.imagePayload, RunConnectionProvider)
+
+## eslint rule+message lists, HEAD (git show | eslint --stdin) vs working tree
+src/app/[...view]/page.tsx: before=33 after=33
+src/components/layout/DashboardLayout.tsx: before=30 after=30
+src/components/workflow/composer/ComposerPage.tsx: before=9 after=9
+    6c6
+    < react-hooks/exhaustive-deps | The 'defaultAgentIds' object construction makes the dependencies of useCallback Hook (at line 744) change on every render. To fix this, wrap
+    ---
+    > react-hooks/exhaustive-deps | The 'defaultAgentIds' object construction makes the dependencies of useCallback Hook (at line 748) change on every render. To fix this, wrap
+(only difference: a line number inside one pre-existing message, 744 -> 748, shifted by the 4 added lines above it)
+
+## npx eslint --max-warnings 0 src/components/workflow/composer/ComposerPage.iss923.test.tsx
+exit: 0

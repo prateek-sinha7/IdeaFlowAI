@@ -1,0 +1,313 @@
+diff --git a/frontend/src/app/[...view]/page.tsx b/frontend/src/app/[...view]/page.tsx
+index af48de673..359fa8c21 100644
+--- a/frontend/src/app/[...view]/page.tsx
++++ b/frontend/src/app/[...view]/page.tsx
+@@ -3,7 +3,7 @@
+ import { use, useCallback, useEffect, useRef, useState } from "react";
+ import { useRouter, usePathname, notFound } from "next/navigation";
+ import { buildLoginRedirect } from "@/lib/authRedirect";
+-import { getToken, getChat, addMessage, logout, deleteChat, createChat, getWorkflows, getWorkflow, getMe, postGate, getRunEvents, getRunFamily, ApiError, handleSessionExpiry } from "@/lib/api";
++import { getToken, getChat, addMessage, logout, deleteChat, createChat, getWorkflows, getWorkflow, getMe, postGate, getRunEvents, getRunFamily, ApiError, handleSessionExpiry, launchRefusalMessage } from "@/lib/api";
+ import { useAppDispatch } from "@/store/hooks";
+ import { signedIn, userLoaded, signedOut } from "@/store/slices/authSlice";
+ import type { ConnectionStatus } from "@/hooks/useHandoffSocket";
+@@ -815,6 +815,9 @@ export default function DashboardPage({
+   // pipelineState — prevents PPT/prototype agent frames from contaminating the
+   // next User Stories pipelineState during the async POST gap.
+   const launchPendingRef = useRef<boolean>(false);
++  // ISS-1137: why the last launch was refused. Set only by the onStartPipeline
++  // .catch, cleared by the next launch; DashboardLayout shows it as a banner.
++  const [launchError, setLaunchError] = useState<string | null>(null);
+   // BUG-015 — the provider's detachRun, reached through a ref so the empty-deps
+   // handleWebSocketMessage (a useCallback([])) can release a completed run's focus
+   // WITHOUT closing over `runConnection` (declared later, which would break the
+@@ -4343,6 +4346,8 @@ export default function DashboardPage({
+         setReopenedRunStatus(undefined);
+         setReopenedFailedAgents(undefined);
+         setReopenedAgentNameById(undefined);
++        // ISS-1137: and the previous launch's refusal banner.
++        setLaunchError(null);
+         if (!isRevision) {
+           // Fresh run — clear previous preview content
+           setUserStoryContent("");
+@@ -4381,9 +4386,12 @@ export default function DashboardPage({
+         // POST fires so that if two runs are launched in quick succession, the
+         // .then() that resolves LATER (out of click order) does NOT overwrite
+         // activelyBuildingRunIdRef with the earlier-clicked run's ID.
++        //
++        // ISS-1137: returned, so the caller learns the outcome — the run id, or
++        // null when the launch was refused. It never rejects (the .catch below).
+         launchCounterRef.current += 1;
+         const thisLaunchSeq = launchCounterRef.current;
+-        void Promise.resolve(
++        return Promise.resolve(
+           startPipeline(type, message, agentIds, attachedHooks, extraParams),
+         ).then((launchedRunId) => {
+           if (launchedRunId) {
+@@ -4447,26 +4455,38 @@ export default function DashboardPage({
+                 .then(({ runs }) => setRecentRuns(runs))
+                 .catch(() => {/* best-effort — stale list is recoverable on next terminal event */});
+             }
++            return launchedRunId;
+           }
+-          // Always clear launchPendingRef regardless of whether we got a run id
+-          // (failure case — launch failed or returned no id).
+-          else { launchPendingRef.current = false; }
++          // ISS-1137: no run id (no token, or a 2xx body without one) is a
++          // refusal too — the .catch below recovers and reports it.
++          throw new Error("POST /api/runs returned no run id");
+         }).catch((err: unknown) => {
+           // specs/014: sendCommand's launch branch (runId=null) now THROWS
+           // ApiError on a non-2xx POST /api/runs (previously silently returned
+           // null and left the UI stuck on "launching..."). A 503
+           // host_capacity_exhausted rejection is the ServiceBusyProvider's own
+           // detection seam (it subscribes independently and shows the busy
+-          // modal); this handler's only job is to recover the local UI state
+-          // that assumed the launch had already started.
++          // modal); this handler recovers the local UI state that assumed the
++          // launch had already started.
+           launchPendingRef.current = false;
+           resetPipeline();
++          // ISS-1137: warn, not error — the refusal is surfaced through
++          // setLaunchError below, and Next's dev overlay turns every
++          // console.error into an "Issue" that repeats the backend text.
+           if (process.env.NODE_ENV !== "production") {
+-            console.error("Pipeline launch failed:", err);
++            console.warn("Pipeline launch failed:", err);
+           }
++          // ISS-1137: every launch path ends here, so this is the one place
++          // that says why. Null tells the caller the launch was refused (the
++          // Composer and Input panels release their Run latch on it).
++          const reason = launchRefusalMessage(err);
++          if (reason) setLaunchError(reason);
++          return null;
+         });
+       }}
+       onResetPipeline={resetPipeline}
++      launchError={launchError}
++      onDismissLaunchError={() => setLaunchError(null)}
+       recentRuns={recentRuns}
+       recentRunsLoaded={recentRunsLoaded}
+       runAgentsCompletedMap={runAgentsCompletedMap}
+diff --git a/frontend/src/components/layout/DashboardLayout.tsx b/frontend/src/components/layout/DashboardLayout.tsx
+index 7fd97500e..254cd98bd 100644
+--- a/frontend/src/components/layout/DashboardLayout.tsx
++++ b/frontend/src/components/layout/DashboardLayout.tsx
+@@ -110,8 +110,12 @@ export interface DashboardLayoutProps {
+   chatTitleUpdate?: { chat_session_id: string; title: string } | null;
+   processSteps?: ProcessStep[];
+   pipelineState?: PipelineRunState;
+-  onStartPipeline?: (type: string, message: string, agentIds?: string[], attachedHooks?: import("@/types/index").AttachedHook[], extraParams?: Record<string, unknown>) => void;
++  /** Resolves to the new run's id, or null when the launch was refused (ISS-1137). Never rejects. */
++  onStartPipeline?: (type: string, message: string, agentIds?: string[], attachedHooks?: import("@/types/index").AttachedHook[], extraParams?: Record<string, unknown>) => Promise<string | null>;
+   onResetPipeline?: () => void;
++  /** ISS-1137: why the last launch was refused (page.tsx's onStartPipeline .catch), shown as a banner. */
++  launchError?: string | null;
++  onDismissLaunchError?: () => void;
+   recentRuns?: WorkflowRun[];
+   /** ISS-757: false until page.tsx's initial getWorkflows has settled. Lets the
+    *  header tell "still loading" from "confirmed zero runs" — an empty
+@@ -466,6 +470,8 @@ export function DashboardLayout({
+   isLoadingRunData,
+   onStartPipeline,
+   onResetPipeline,
++  launchError,
++  onDismissLaunchError,
+   recentRuns,
+   recentRunsLoaded,
+   homeWorkflows,
+@@ -1838,7 +1844,8 @@ export function DashboardLayout({
+         ? { ...(extraParams || {}), _display_title: notifTitle.slice(0, 60) }
+         : extraParams;
+       if (connectionStatus === "connected") {
+-        onStartPipeline(resolvedType, message, agentIds, attachedHooks, enrichedExtraParams);
++        // ISS-1137: hand the outcome back — IdeaInputPage releases its Run latch on a refusal.
++        return onStartPipeline(resolvedType, message, agentIds, attachedHooks, enrichedExtraParams);
+       } else {
+         pendingStartOnConnectRef.current = { type: resolvedType, message, agentIds, extraParams: enrichedExtraParams };
+       }
+@@ -2808,6 +2815,20 @@ export function DashboardLayout({
+             <button onClick={onReconnect} className="ml-1 underline hover:no-underline">Reconnect</button>
+           </motion.div>
+         )}
++        {/* ISS-1137: a refused launch says why, whichever of the launch paths sent it. */}
++        {launchError && (
++          <motion.div
++            key="launch-error"
++            role="status"
++            initial={{ y: -40, opacity: 0 }}
++            animate={{ y: 0, opacity: 1 }}
++            exit={{ y: -40, opacity: 0 }}
++            className="fixed top-0 left-0 right-0 z-50 flex items-center justify-center gap-2 bg-red-600/90 px-4 py-2 text-xs text-white backdrop-blur-sm"
++          >
++            {launchError}
++            <button onClick={onDismissLaunchError} className="ml-1 underline hover:no-underline">Dismiss</button>
++          </motion.div>
++        )}
+       </AnimatePresence>
+ 
+       {/* Global Header — visible on all pages */}
+@@ -3238,12 +3259,13 @@ export function DashboardLayout({
+                 // the revision launch sites (reset → onStartPipeline with the SAME arg
+                 // convention). `type` is the composer's fixed-at-entry base_pipeline_type
+                 // ("custom" for the compose entry, ND-AH) — the SAME value Save persists.
+-                // startPipeline flips pipelineState.isRunning → the surface auto-transitions
+-                // to mainView='execution'. No new contract / endpoint / fabricated cost (ND-AG).
++                // The surface leaves the canvas only once the run id arrives, so a refused
++                // launch leaves it mounted: the outcome is returned for ComposerPage to
++                // release its Run-once latch (ISS-1137). No new endpoint / fabricated cost (ND-AG).
+                 onRun={(type, brief, agentIds, extraParams) => {
+                   if (onResetPipeline) onResetPipeline();
+                   if (onStartPipeline) {
+-                    onStartPipeline(type, brief, agentIds, attachedHooks, extraParams);
++                    return onStartPipeline(type, brief, agentIds, attachedHooks, extraParams);
+                   }
+                 }}
+                 initialAgentIds={savedComposition?.agentIds}
+diff --git a/frontend/src/components/workflow/IdeaInputPage.tsx b/frontend/src/components/workflow/IdeaInputPage.tsx
+index 77f0dd019..06204e865 100644
+--- a/frontend/src/components/workflow/IdeaInputPage.tsx
++++ b/frontend/src/components/workflow/IdeaInputPage.tsx
+@@ -789,7 +789,9 @@ interface IdeaInputPageProps {
+   // run_pipeline payload by useWorkflow). Currently used only for the per-run
+   // `gate_agent_ids` toggle — present only when the user touches the Review-gates
+   // section; omitted otherwise so the backend uses its static default.
+-  onRun: (message: string, agentIds: string[], resolvedType: WorkflowType, extraParams?: Record<string, unknown>) => void;
++  // May return the launch's outcome: a run id, or null when it was refused,
++  // which releases the Run latch (ISS-1137).
++  onRun: (message: string, agentIds: string[], resolvedType: WorkflowType, extraParams?: Record<string, unknown>) => Promise<string | null> | void;
+   // Phase 21 (LAUNCH-EXISTING-PATH §4.6) — saved-workflow launch preload. When a
+   // saved row is launched, `DashboardLayout` threads its persisted composition in
+   // here so the composer mounts PRE-LOADED instead of re-deriving from the (empty
+@@ -1599,9 +1601,11 @@ export function IdeaInputPage({ workflowType, onBack, onUnsavedChange, userTier,
+     // ref latched at the top of the handler would never be released on a
+     // validation bail-out and would wedge the button permanently. Nothing clears
+     // it on the success path because there is no success path back to this
+-    // screen — `onRun` reaches startPipeline, which sets isRunning=true
+-    // synchronously and the surface switches to mainView="execution", unmounting
+-    // this page whether or not the POST itself succeeds.
++    // screen. ISS-1137: a refused launch is not one either — the URL stays on
++    // /create/<type> until a run id arrives, so the view returns to this panel —
++    // and the latch is released when `onRun`'s outcome is null (refused). Never
++    // in a `finally`: onRun returns before the POST settles, so that would
++    // reopen the double-click window.
+     if (submittingRef.current) return;
+     submittingRef.current = true;
+     setIsSubmitting(true);
+@@ -1695,12 +1699,16 @@ export function IdeaInputPage({ workflowType, onBack, onUnsavedChange, userTier,
+       manifestRoster !== null &&
+       manifestRoster.length === currentRoster.length &&
+       manifestRoster.every((id, i) => id === currentRoster[i]);
+-    onRun(
++    void onRun(
+       finalMessage,
+       isUnmodifiedManifestRoster ? [] : currentRoster,
+       dispatchType,
+       finalExtraParams,
+-    );
++    )?.then((runId) => {
++      if (runId) return;
++      submittingRef.current = false;
++      setIsSubmitting(false);
++    });
+   };
+ 
+   // Phase 21 (SAVE-FROM-BOTH composer entry) — "Save workflow" persists the
+diff --git a/frontend/src/components/workflow/composer/ComposerPage.tsx b/frontend/src/components/workflow/composer/ComposerPage.tsx
+index 0bf8d6bb0..764be0a2b 100644
+--- a/frontend/src/components/workflow/composer/ComposerPage.tsx
++++ b/frontend/src/components/workflow/composer/ComposerPage.tsx
+@@ -129,13 +129,15 @@ interface ComposerPageProps {
+    * sites use. `base_pipeline_type` is the composer's fixed-at-entry workflowType
+    * ("custom" for the compose entry, ND-AH) — the SAME value Save-to-catalogue
+    * persists, so Run + Save carry an identical base. Absent ⇒ Run-once stays inert.
++   * May return the launch's outcome: a run id, or null when it was refused, which
++   * releases the Run-once latch (ISS-1137).
+    */
+   onRun?: (
+     base_pipeline_type: WorkflowType,
+     brief: string,
+     agentIds: string[],
+     extraParams?: Record<string, unknown>,
+-  ) => void;
++  ) => Promise<string | null> | void;
+   /** Edit-from-My-Workflows: pre-load the saved composition (agents + selections + name). */
+   initialAgentIds?: string[];
+   /**
+@@ -1033,13 +1035,21 @@ export function ComposerPage({
+       return;
+     }
+     // ISS-767 — set AFTER the early returns above (FIX-345's placement rule), so
+-    // a bail-out never leaves the latch stuck. Nothing clears it: `onRun` reaches
+-    // startPipeline, which flips isRunning=true synchronously, and the surface
+-    // auto-transitions to mainView="execution" — this page unmounts whether or
+-    // not the POST itself succeeds.
++    // a bail-out never leaves the latch stuck. ISS-1137: the surface leaves the
++    // canvas only once the run id arrives, so a refused launch keeps this page
++    // mounted; the latch is released when `onRun`'s outcome is null (refused).
++    // Never in a `finally`: onRun returns before the POST settles, so that would
++    // reopen the double-click window.
+     if (submittingRef.current) return;
+     submittingRef.current = true;
+     setIsSubmitting(true);
++    const releaseIfRefused = (launch: Promise<string | null> | void) => {
++      void launch?.then((runId) => {
++        if (runId) return;
++        submittingRef.current = false;
++        setIsSubmitting(false);
++      });
++    };
+     // KAN-91: compose attached-file content into the message at send time —
+     // the EXACT same block format/behavior as IdeaInputPage.handleRun (the
+     // textarea itself stays clean; the extracted text only appears here).
+@@ -1210,21 +1220,21 @@ export function ComposerPage({
+         // so without them the launch reaches the loader with nothing picked.
+         ...designLaunchParams,
+       };
+-      onRun(
++      releaseIfRefused(onRun(
+         builtinCanvasType as typeof dispatchType,
+         brief,
+         [],
+         Object.keys(builtinExtras).length > 0 ? builtinExtras : undefined,
+-      );
++      ));
+       return;
+     }
+ 
+-    onRun(
++    releaseIfRefused(onRun(
+       dispatchType,
+       brief,
+       currentIds,
+       Object.keys(extraParams).length > 0 ? extraParams : undefined,
+-    );
++    ));
+   }, [
+     onRun,
+     pipelineAgents,
+diff --git a/frontend/src/lib/api.ts b/frontend/src/lib/api.ts
+index 437d6041f..f780892f7 100644
+--- a/frontend/src/lib/api.ts
++++ b/frontend/src/lib/api.ts
+@@ -322,6 +322,20 @@ export function isNotFoundError(e: unknown): boolean {
+   return e instanceof ApiError && e.status === 404;
+ }
+ 
++/**
++ * ISS-1137 — the text to show for a refused launch (POST /api/runs). A
++ * `_reject` body carries it in `detail.error`; `ApiError.message` would be the
++ * whole body as raw JSON, because errorMessageFromDetail declines objects.
++ * Null for a capacity refusal: ServiceBusyProvider already shows that one.
++ */
++export function launchRefusalMessage(err: unknown): string | null {
++  const detail = err instanceof ApiError ? err.detail : undefined;
++  if (isCapacityRejectionDetail(detail)) return null;
++  const text = (detail as { error?: unknown } | null | undefined)?.error;
++  if (typeof text === "string" && text) return text;
++  return errorMessageFromDetail(detail) ?? "The run could not be started. Please try again.";
++}
++
+ // BUG-013 Part B — fail-fast timeout for the REST client. When the browser's
+ // ~6-connections-per-origin pool is saturated (per-run SSE streams), a call can
+ // hang forever with no free socket → a silent idle screen. Wrap every request in

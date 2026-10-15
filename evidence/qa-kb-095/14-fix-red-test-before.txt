@@ -1,0 +1,16 @@
+# 14 — fix, ISS-1072 red test BEFORE the fix (2026-10-07, 5-fixer, cwd backend/, .venv/bin/python 3.13.14)
+# (a) observed on the untouched tree, before any edit:
+#     tests/integration/api/test_sandbox_ref_scoped_endpoints_api.py -> '10 passed, 2 xfailed' (ISS-1072 + ISS-697)
+#     --runxfail on the ISS-1072 test -> AssertionError: (400, '{"detail":"invalid ref"}'), assert (400 == 200)
+# (b) re-run now, with the pre-fix predicate (not root.is_dir()) patched back in-process by
+#     19-fix-prefix-expiry-plugin.py.txt, so the record is re-checkable without reverting the tree:
+
+$ PYTHONPATH=<scratch> python -m pytest -p prefix_expiry_plugin tests/integration/api/test_sandbox_ref_scoped_endpoints_api.py -q -rfEX
+.....x.....x                                                             [100%]
+10 passed, 2 xfailed in 5.05s
+
+$ PYTHONPATH=<scratch> python -m pytest -p prefix_expiry_plugin tests/integration/api/test_sandbox_ref_scoped_endpoints_api.py::test_empty_husk_sandbox_with_ref_is_expired_not_400 --runxfail -q
+E       AssertionError: (400, '{"detail":"invalid ref"}')
+E       assert (400 == 200)
+E        +  where 400 = <Response [400 Bad Request]>.status_code
+1 failed in 1.47s

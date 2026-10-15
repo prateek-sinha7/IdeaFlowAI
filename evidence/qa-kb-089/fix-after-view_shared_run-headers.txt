@@ -1,0 +1,4 @@
+### behavioural probe of main.view_shared_run, final tree (2026-10-07T18:27:58Z)
+text/html       status=200 CSP='sandbox allow-scripts' same-origin-with-scripts=False XFO='SAMEORIGIN'
+text/markdown   status=200 CSP='sandbox allow-scripts' same-origin-with-scripts=False XFO='SAMEORIGIN'
+image/svg+xml   status=200 CSP='sandbox allow-scripts' same-origin-with-scripts=False XFO='SAMEORIGIN'

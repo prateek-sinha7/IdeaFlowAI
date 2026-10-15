@@ -1,0 +1,37 @@
+# ISS-996 probe BEFORE the fix — 2026-10-07T16:28:59Z — backend/.venv/bin/python -m pytest <scratch probe> -s (probe source below)
+1. GET /sandbox       -> {'expired': True, 'files': []} dir exists: False
+2. GET /sandbox/refs  -> 200 [] dir exists: True | .latest exists: True
+3. GET /sandbox again -> {'expired': False, 'files': []}
+E       AssertionError: GET /sandbox/refs re-created the swept sandbox directory
+1 failed in 0.73s
+
+# probe source
+"""Probe, not committed: ISS-996 swept-run scenario, from the card's own test notes."""
+from pathlib import Path
+
+from tests.integration.api.test_run_files_ref_family_scope_api import (  # noqa: F401
+    _seed_run,
+    _seed_user,
+    env,
+)
+
+
+def test_iss996_refs_does_not_recreate_a_swept_sandbox(env):  # noqa: F811
+    user = _seed_user(env)
+    env["state"]["user"] = user
+    run_id = _seed_run(env, user_id=user.id)  # sandbox directory never created (TTL-swept)
+    sandbox_dir = Path(env["runs_root"]) / user.id / run_id
+    latest = Path(env["runs_root"]) / user.id / ".latest"
+
+    first = env["client"].get(f"/api/runs/{run_id}/sandbox").json()
+    print("1. GET /sandbox       ->", {k: first[k] for k in ("expired", "files")}, "dir exists:", sandbox_dir.exists())
+    refs = env["client"].get(f"/api/runs/{run_id}/sandbox/refs")
+    print("2. GET /sandbox/refs  ->", refs.status_code, refs.json()["refs"], "dir exists:", sandbox_dir.exists(), "| .latest exists:", latest.is_symlink())
+    again = env["client"].get(f"/api/runs/{run_id}/sandbox").json()
+    print("3. GET /sandbox again ->", {k: again[k] for k in ("expired", "files")})
+
+    assert first["expired"] is True
+    assert refs.status_code == 200 and refs.json()["refs"] == []
+    assert not sandbox_dir.exists(), "GET /sandbox/refs re-created the swept sandbox directory"
+    assert not latest.is_symlink(), ".latest was re-pointed at the dead run"
+    assert again["expired"] is True, "the 'Workspace expired' signal was lost"

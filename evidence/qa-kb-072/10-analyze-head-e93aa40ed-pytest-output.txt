@@ -1,0 +1,225 @@
+HEAD at run start: e93aa40ed; backend/ status: []
+.F                                                                       [100%]
+=================================== FAILURES ===================================
+__________ test_non_redoable_declared_gate_unaffected_by_redo_action ___________
+
+fut = <async_generator_asend object at 0x10b5d5180>, timeout = 60.0
+
+    async def wait_for(fut, timeout):
+        """Wait for the single Future or coroutine to complete, with timeout.
+    
+        Coroutine will be wrapped in Task.
+    
+        Returns result of the Future or coroutine.  When a timeout occurs,
+        it cancels the task and raises TimeoutError.  To avoid the task
+        cancellation, wrap it in shield().
+    
+        If the wait is cancelled, the task is also cancelled.
+    
+        If the task suppresses the cancellation and returns a value instead,
+        that value is returned.
+    
+        This function is a coroutine.
+        """
+        # The special case for timeout <= 0 is for the following case:
+        #
+        # async def test_waitfor():
+        #     func_started = False
+        #
+        #     async def func():
+        #         nonlocal func_started
+        #         func_started = True
+        #
+        #     try:
+        #         await asyncio.wait_for(func(), 0)
+        #     except asyncio.TimeoutError:
+        #         assert not func_started
+        #     else:
+        #         assert False
+        #
+        # asyncio.run(test_waitfor())
+    
+    
+        if timeout is not None and timeout <= 0:
+            fut = ensure_future(fut)
+    
+            if fut.done():
+                return fut.result()
+    
+            await _cancel_and_wait(fut)
+            try:
+                return fut.result()
+            except exceptions.CancelledError as exc:
+                raise TimeoutError from exc
+    
+        async with timeouts.timeout(timeout):
+>           return await fut
+                   ^^^^^^^^^
+
+/opt/homebrew/Cellar/python@3.13/3.13.14/Frameworks/Python.framework/Versions/3.13/lib/python3.13/asyncio/tasks.py:507: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+agents/execution_engine/engine.py:4158: in execute
+    async for event in self._execute_impl(
+agents/execution_engine/engine.py:6738: in _execute_impl
+    async for _ge, _outcome, _gdetail in self._evaluate_gates(
+agents/execution_engine/engine.py:11811: in _evaluate_gates
+    async for item in stream_fn(step, ectx):
+agents/capabilities/gates/human.py:140: in evaluate_stream
+    async for event in delegate(step, output=output):
+agents/execution_engine/kernel_services.py:1465: in run_human_gate
+    async for event in self._engine._run_review_gate(
+agents/execution_engine/engine.py:12503: in _run_review_gate
+    await event.wait()
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <asyncio.locks.Event object at 0x10db53f70 [unset]>
+
+    async def wait(self):
+        """Block until the internal flag is true.
+    
+        If the internal flag is true on entry, return True
+        immediately.  Otherwise, block until another task calls
+        set() to set the flag to true, then return True.
+        """
+        if self._value:
+            return True
+    
+        fut = self._get_loop().create_future()
+        self._waiters.append(fut)
+        try:
+>           await fut
+E           asyncio.exceptions.CancelledError
+
+/opt/homebrew/Cellar/python@3.13/3.13.14/Frameworks/Python.framework/Versions/3.13/lib/python3.13/asyncio/locks.py:213: CancelledError
+
+The above exception was the direct cause of the following exception:
+
+    @pytest.mark.asyncio
+    async def test_non_redoable_declared_gate_unaffected_by_redo_action() -> None:
+        """A step that does NOT opt in (``redoable`` absent/false, the manifest
+        default) keeps the pre-existing behaviour: a redo action does not re-run the
+        step or open a second gate (INV-3 — dormant unless a workflow opts in)."""
+        compiled = _build_compiled(redoable=False)
+        assert compiled.steps[0].redoable is False
+    
+        run_id = f"no-redo-gate-{uuid.uuid4().hex[:8]}"
+        readies: list[dict] = []
+    
+        async def _on_ready(ev):
+            readies.append(ev)
+            engine = harness.engine
+            gate_key = ev["data"]["gate_key"]
+            assert ev["data"]["redoable"] is False
+            await engine._store.set_review_response(
+                gate_key, approved=False, action="redo", instructions="ignored"
+            )
+    
+        with _Harness(["only pass output. "]) as harness:
+>           events = await _drive(harness.engine, compiled, run_id, _on_ready)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/agents/test_declared_gate_redo.py:214: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/agents/test_declared_gate_redo.py:125: in _drive
+    ev = await asyncio.wait_for(gen.__anext__(), timeout=_EVENT_TIMEOUT_S)
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/opt/homebrew/Cellar/python@3.13/3.13.14/Frameworks/Python.framework/Versions/3.13/lib/python3.13/asyncio/tasks.py:506: in wait_for
+    async with timeouts.timeout(timeout):
+               ^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <Timeout [expired]>
+exc_type = <class 'asyncio.exceptions.CancelledError'>
+exc_val = CancelledError(), exc_tb = <traceback object at 0x10dba5d40>
+
+    async def __aexit__(
+        self,
+        exc_type: Optional[Type[BaseException]],
+        exc_val: Optional[BaseException],
+        exc_tb: Optional[TracebackType],
+    ) -> Optional[bool]:
+        assert self._state in (_State.ENTERED, _State.EXPIRING)
+    
+        if self._timeout_handler is not None:
+            self._timeout_handler.cancel()
+            self._timeout_handler = None
+    
+        if self._state is _State.EXPIRING:
+            self._state = _State.EXPIRED
+    
+            if self._task.uncancel() <= self._cancelling and exc_type is not None:
+                # Since there are no new cancel requests, we're
+                # handling this.
+                if issubclass(exc_type, exceptions.CancelledError):
+>                   raise TimeoutError from exc_val
+E                   TimeoutError
+
+/opt/homebrew/Cellar/python@3.13/3.13.14/Frameworks/Python.framework/Versions/3.13/lib/python3.13/asyncio/timeouts.py:117: TimeoutError
+------------------------------ Captured log call -------------------------------
+WARNING  agents.execution_engine.engine:engine.py:3588 _resolve_root_id: unresolved for run=no-redo-gate-f827ae7e reason=missing_or_cross_owner visited=1 repeated=None — degrading to run_id
+WARNING  agents.execution_engine.engine:engine.py:3588 _resolve_root_id: unresolved for run=no-redo-gate-f827ae7e reason=missing_or_cross_owner visited=1 repeated=None — degrading to run_id
+WARNING  agents.execution_engine.engine:engine.py:4895 execute(): workspace/capabilities persist failed ((sqlite3.IntegrityError) FOREIGN KEY constraint failed
+[SQL: INSERT INTO run_capabilities (id, run_id, owner_id, workspace_id, runtime, model_overrides, skills, hooks, integrations, mcp_servers, versions, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)]
+[parameters: ('6d7633c9-ee36-49d6-8e47-4ab6ad0cdc88', 'no-redo-gate-f827ae7e', 'harness-user', 'ae382f85-10a0-47cc-b836-d21536a20ab2', 'langchain_deepagents', 'null', 'null', 'null', 'null', 'null', 'null', '2026-10-07 20:19:20.525614')]
+(Background on this error at: https://sqlalche.me/e/20/gkpj)) — proceeding (typed-substrate DB writes degrade; deliverable/events unaffected)
+WARNING  app.agents.checkpointer:checkpointer.py:61 Checkpointer: DATABASE_URL is not Postgres — using InMemorySaver. HITL pauses work within the process but do NOT survive a restart.
+WARNING  agents.execution_engine.engine:engine.py:3355 run_events persist failed for run no-redo-gate-f827ae7e seq 1 ((sqlite3.IntegrityError) FOREIGN KEY constraint failed
+[SQL: INSERT INTO run_events (id, run_id, owner_id, workspace_id, seq, event_id, type, payload_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)]
+[parameters: ('b9568c17-d2a1-41db-92de-35305b7583f3', 'no-redo-gate-f827ae7e', 'harness-user', 'ae382f85-10a0-47cc-b836-d21536a20ab2', 1, '919079a3-07fa-4612-bc70-c59b0591787d', 'workflow_validated', '{"pipeline_run_id": "no-redo-gate-f827ae7e", "satisfiable": true, "dag_edges": [], "unresolved_edges": [], "timestamp": "2026-10-07T20:19:20.526664+00:00", "seq": 1, "event_id": "919079a3-07fa-4612-bc70-c59b0591787d"}', '2026-10-07 20:19:20.526860')]
+(Background on this error at: https://sqlalche.me/e/20/gkpj)) — DB write degraded (offline harness / schema unavailable); stream unaffected (PERSIST-03 best-effort)
+WARNING  agents.execution_engine.engine:engine.py:3355 run_events persist failed for run no-redo-gate-f827ae7e seq 2 ((sqlite3.IntegrityError) FOREIGN KEY constraint failed
+[SQL: INSERT INTO run_events (id, run_id, owner_id, workspace_id, seq, event_id, type, payload_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)]
+[parameters: ('4ce6fa01-c629-4fad-9dc1-e9f088462858', 'no-redo-gate-f827ae7e', 'harness-user', 'ae382f85-10a0-47cc-b836-d21536a20ab2', 2, '542bf0f3-abbf-4447-8d68-25a730b8ad8b', 'pipeline_start', '{"pipeline_type": "custom", "pipeline_run_id": "no-redo-gate-f827ae7e", "agent_count": 1, "agents": [{"id": "domain-analyst", "name": "Domain Discove ... (40 characters truncated) ... earch", "icon": "\\ud83d\\udd0d", "order": 1}], "resume_offset": 0, "created_at": null, "seq": 2, "event_id": "542bf0f3-abbf-4447-8d68-25a730b8ad8b"}', '2026-10-07 20:19:20.531039')]
+(Background on this error at: https://sqlalche.me/e/20/gkpj)) — DB write degraded (offline harness / schema unavailable); stream unaffected (PERSIST-03 best-effort)
+WARNING  agents.execution_engine.kernel_services:kernel_services.py:480 record_hook_run(hook=audit_logger event=before_step outcome=continue) failed: (sqlite3.IntegrityError) FOREIGN KEY constraint failed
+[SQL: INSERT INTO hook_runs (id, run_id, owner_id, workspace_id, hook, event, outcome, detail, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)]
+[parameters: ('ba3c2d3f-0704-4260-8f36-b8e691fb2957', 'no-redo-gate-f827ae7e', 'harness-user', 'ae382f85-10a0-47cc-b836-d21536a20ab2', 'audit_logger', 'before_step', 'continue', '{"agent_id": "domain-analyst", "agent_name": "Domain Discovery Agent", "event": "before_step", "step_index": 0, "timestamp": "2026-10-07T20:19:20.531814+00:00", "outcome": "continue", "summary": "Domain Discovery Agent started", "severity": "info", "hook_type": "logging"}', '2026-10-07 20:19:20.531990')]
+(Background on this error at: https://sqlalche.me/e/20/gkpj)
+WARNING  agents.execution_engine.engine:engine.py:3355 run_events persist failed for run no-redo-gate-f827ae7e seq 3 ((sqlite3.IntegrityError) FOREIGN KEY constraint failed
+[SQL: INSERT INTO run_events (id, run_id, owner_id, workspace_id, seq, event_id, type, payload_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)]
+[parameters: ('d27607eb-27fc-4ce6-9ea9-b689ab0d0fea', 'no-redo-gate-f827ae7e', 'harness-user', 'ae382f85-10a0-47cc-b836-d21536a20ab2', 3, '1ee0b79f-9f4f-4ab2-99e3-a268ca2aa07a', 'agent_start', '{"agent_id": "domain-analyst", "name": "Domain Discovery Agent", "role": "Market & Persona Research", "icon": "\\ud83d\\udd0d", "index": 0, "total": 1, "model_id": "eu.anthropic.claude-haiku-4-5-20251001-v1:0", "seq": 3, "event_id": "1ee0b79f-9f4f-4ab2-99e3-a268ca2aa07a"}', '2026-10-07 20:19:20.532370')]
+(Background on this error at: https://sqlalche.me/e/20/gkpj)) — DB write degraded (offline harness / schema unavailable); stream unaffected (PERSIST-03 best-effort)
+WARNING  agents.execution_engine.engine:engine.py:3588 _resolve_root_id: unresolved for run=no-redo-gate-f827ae7e reason=missing_or_cross_owner visited=1 repeated=None — degrading to run_id
+WARNING  agents.execution_engine.engine:engine.py:3355 run_events persist failed for run no-redo-gate-f827ae7e seq 4 ((sqlite3.IntegrityError) FOREIGN KEY constraint failed
+[SQL: INSERT INTO run_events (id, run_id, owner_id, workspace_id, seq, event_id, type, payload_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)]
+[parameters: ('2158186a-4dc7-46d1-b0b1-d00a5b17f7c6', 'no-redo-gate-f827ae7e', 'harness-user', 'ae382f85-10a0-47cc-b836-d21536a20ab2', 4, '11166672-1447-4920-a604-d4cf2c285105', 'agent_input', '{"agent_id": "domain-analyst", "pipeline_run_id": "no-redo-gate-f827ae7e", "timestamp": "2026-10-07T20:19:20.545170+00:00", "context_message": "=== O ... (3973 characters truncated) ... e realistic details, not generic placeholders\\n- Keep total response under 400 words", "seq": 4, "event_id": "11166672-1447-4920-a604-d4cf2c285105"}', '2026-10-07 20:19:20.545422')]
+(Background on this error at: https://sqlalche.me/e/20/gkpj)) — DB write degraded (offline harness / schema unavailable); stream unaffected (PERSIST-03 best-effort)
+WARNING  agents.execution_engine.engine:engine.py:3355 run_events persist failed for run no-redo-gate-f827ae7e seq 5 ((sqlite3.IntegrityError) FOREIGN KEY constraint failed
+[SQL: INSERT INTO run_events (id, run_id, owner_id, workspace_id, seq, event_id, type, payload_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)]
+[parameters: ('711d32e2-02d6-4ca1-b311-104eea82e008', 'no-redo-gate-f827ae7e', 'harness-user', 'ae382f85-10a0-47cc-b836-d21536a20ab2', 5, '7a9b8a6a-0b0a-455d-accb-80af9498fe60', 'agent_skills', '{"agent_id": "domain-analyst", "attached_skills": [], "attached_hooks": [], "skills_load_errors": [], "estimated_tokens": 0, "seq": 5, "event_id": "7a9b8a6a-0b0a-455d-accb-80af9498fe60"}', '2026-10-07 20:19:20.546518')]
+(Background on this error at: https://sqlalche.me/e/20/gkpj)) — DB write degraded (offline harness / schema unavailable); stream unaffected (PERSIST-03 best-effort)
+WARNING  agents.execution_engine.engine:engine.py:3355 run_events persist failed for run no-redo-gate-f827ae7e seq 6 ((sqlite3.IntegrityError) FOREIGN KEY constraint failed
+[SQL: INSERT INTO run_events (id, run_id, owner_id, workspace_id, seq, event_id, type, payload_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)]
+[parameters: ('86cfb30f-71fb-4a0c-a03c-6e15608c590a', 'no-redo-gate-f827ae7e', 'harness-user', 'ae382f85-10a0-47cc-b836-d21536a20ab2', 6, '6936a0de-6e61-408e-84f7-537a7f2efd14', 'agent_chunk', '{"agent_id": "domain-analyst", "chunk": "only pass output. ", "seq": 6, "event_id": "6936a0de-6e61-408e-84f7-537a7f2efd14"}', '2026-10-07 20:19:20.569926')]
+(Background on this error at: https://sqlalche.me/e/20/gkpj)) — DB write degraded (offline harness / schema unavailable); stream unaffected (PERSIST-03 best-effort)
+WARNING  agents.execution_engine.kernel_services:kernel_services.py:480 record_hook_run(hook=secret_scan event=before_write outcome=continue) failed: (sqlite3.IntegrityError) FOREIGN KEY constraint failed
+[SQL: INSERT INTO hook_runs (id, run_id, owner_id, workspace_id, hook, event, outcome, detail, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)]
+[parameters: ('dbe67f4e-351d-4c2b-9baa-b19339b940b7', 'no-redo-gate-f827ae7e', 'harness-user', 'ae382f85-10a0-47cc-b836-d21536a20ab2', 'secret_scan', 'before_write', 'continue', '{"matched": false}', '2026-10-07 20:19:20.572982')]
+(Background on this error at: https://sqlalche.me/e/20/gkpj)
+WARNING  agents.execution_engine.engine:engine.py:13965 artifact_refs persist failed for run no-redo-gate-f827ae7e kind summary ((sqlite3.IntegrityError) FOREIGN KEY constraint failed
+[SQL: INSERT INTO artifact_refs (id, run_id, owner_id, workspace_id, kind, producer_step, producer_agent, task_id, content, content_hash, location, version, parents, derived_from, visibility, retention, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)]
+[parameters: ('58fa895d-c13e-4c9d-b4bc-05e91f201daf', 'no-redo-gate-f827ae7e', 'harness-user', 'ae382f85-10a0-47cc-b836-d21536a20ab2', 'summary', 'domain-analyst', 'domain-analyst', None, 'only pass output. ', '62551e5bb37aa4bb716e0319d788d8e644ad3fbd1b8e9246e705b99407856bfc', 'artifact_refs/domain-analyst', 1, '[]', None, 'private', 'run_ttl', '2026-10-07 20:19:20.573742')]
+(Background on this error at: https://sqlalche.me/e/20/gkpj)) — DB write degraded (offline harness / schema unavailable); typed graph unaffected (PERSIST-02 best-effort)
+WARNING  agents.artifacts.graph:graph.py:155 artifact kind 'domain-analyst' is outside ARTIFACT_KINDS — typed consumes routing and the FR-014 revision lookup match kinds EXACTLY, so a typo here is silently unroutable (IN-01 advisory; write proceeds)
+WARNING  agents.execution_engine.engine:engine.py:13965 artifact_refs persist failed for run no-redo-gate-f827ae7e kind domain-analyst ((sqlite3.IntegrityError) FOREIGN KEY constraint failed
+[SQL: INSERT INTO artifact_refs (id, run_id, owner_id, workspace_id, kind, producer_step, producer_agent, task_id, content, content_hash, location, version, parents, derived_from, visibility, retention, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)]
+[parameters: ('95d1d57a-1a15-48fd-8517-519468182bc2', 'no-redo-gate-f827ae7e', 'harness-user', 'ae382f85-10a0-47cc-b836-d21536a20ab2', 'domain-analyst', 'domain-analyst', 'domain-analyst', None, 'only pass output. ', '62551e5bb37aa4bb716e0319d788d8e644ad3fbd1b8e9246e705b99407856bfc', 'artifact_refs/domain-analyst', 1, '[]', None, 'workspace', 'run_ttl', '2026-10-07 20:19:20.574314')]
+(Background on this error at: https://sqlalche.me/e/20/gkpj)) — DB write degraded (offline harness / schema unavailable); typed graph unaffected (PERSIST-02 best-effort)
+WARNING  agents.execution_engine.engine:engine.py:3355 run_events persist failed for run no-redo-gate-f827ae7e seq 7 ((sqlite3.IntegrityError) FOREIGN KEY constraint failed
+[SQL: INSERT INTO run_events (id, run_id, owner_id, workspace_id, seq, event_id, type, payload_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)]
+[parameters: ('2321f3d0-64ed-4454-9962-58c448e9de28', 'no-redo-gate-f827ae7e', 'harness-user', 'ae382f85-10a0-47cc-b836-d21536a20ab2', 7, '2d838234-debe-48c1-a253-bf6f52ccba6c', 'agent_complete', '{"agent_id": "domain-analyst", "name": "Domain Discovery Agent", "duration": 0.04, "output_length": 18, "index": 0, "total": 1, "input_tokens": 5, "o ... (77 characters truncated) ... -5-20251001-v1:0", "cache_read_tokens": 0, "cache_write_tokens": 0, "usage_version": 2, "seq": 7, "event_id": "2d838234-debe-48c1-a253-bf6f52ccba6c"}', '2026-10-07 20:19:20.575264')]
+(Background on this error at: https://sqlalche.me/e/20/gkpj)) — DB write degraded (offline harness / schema unavailable); stream unaffected (PERSIST-03 best-effort)
+WARNING  agents.execution_engine.kernel_services:kernel_services.py:480 record_hook_run(hook=audit_logger event=after_step outcome=continue) failed: (sqlite3.IntegrityError) FOREIGN KEY constraint failed
+[SQL: INSERT INTO hook_runs (id, run_id, owner_id, workspace_id, hook, event, outcome, detail, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)]
+[parameters: ('1b1b1c75-fe8e-4332-9573-4680136cfdbe', 'no-redo-gate-f827ae7e', 'harness-user', 'ae382f85-10a0-47cc-b836-d21536a20ab2', 'audit_logger', 'after_step', 'continue', '{"agent_id": "domain-analyst", "agent_name": "Domain Discovery Agent", "event": "after_step", "step_index": 0, "timestamp": "2026-10-07T20:19:20.576000+00:00", "outcome": "continue", "summary": "Domain Discovery Agent completed", "severity": "info", "hook_type": "logging"}', '2026-10-07 20:19:20.576137')]
+(Background on this error at: https://sqlalche.me/e/20/gkpj)
+WARNING  agents.execution_engine.engine:engine.py:3355 run_events persist failed for run no-redo-gate-f827ae7e seq 8 ((sqlite3.IntegrityError) FOREIGN KEY constraint failed
+[SQL: INSERT INTO run_events (id, run_id, owner_id, workspace_id, seq, event_id, type, payload_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)]
+[parameters: ('e7ca6188-0204-4ebc-a448-a0a7ac4f5ee0', 'no-redo-gate-f827ae7e', 'harness-user', 'ae382f85-10a0-47cc-b836-d21536a20ab2', 8, 'f3920712-9f32-4135-8636-26dabd988f85', 'review_gate_ready', '{"pipeline_run_id": "no-redo-gate-f827ae7e", "agent_id": "domain-analyst", "agent_name": "Domain Discovery Agent", "gate_key": "no-redo-gate-f827ae7e ... (135 characters truncated) ... ycle": 0, "revision_in_flight": false, "timestamp": "2026-10-07T20:19:20.701406+00:00", "seq": 8, "event_id": "f3920712-9f32-4135-8636-26dabd988f85"}', '2026-10-07 20:19:20.701976')]
+(Background on this error at: https://sqlalche.me/e/20/gkpj)) — DB write degraded (offline harness / schema unavailable); stream unaffected (PERSIST-03 best-effort)
+WARNING  agents.execution_engine.engine:engine.py:12531 Review gate redo REFUSED: pipeline=no-redo-gate-f827ae7e agent=domain-analyst — this firing published redoable=False; gate stays open (ISS-090)
+ERROR    agents.execution_engine.engine:engine.py:2603 finalize_terminal_run: create_run_ref FAILED run=no-redo-gate-f827ae7e (run_id must be a UUID (hex digits and hyphens only): 'no-redo-gate-f827ae7e')
+=========================== short test summary info ============================
+FAILED tests/agents/test_declared_gate_redo.py::test_non_redoable_declared_gate_unaffected_by_redo_action
+1 failed, 1 passed in 63.14s (0:01:03)
+exit=1

@@ -1,0 +1,37 @@
+# QA-KB-099 analysis 03: once it can run, is the SIGTERM test a REAL guard? (fail-before check, scratch copies outside the repo)
+# HEAD 3af414bc6, 2026-10-08T11:50Z.
+# control = byte copy of the test with only REPO_ROOT made absolute (the copy sits outside tests/unit, so no guard applies).
+# mutant  = control minus the two argv lines '--timeout-graceful-shutdown', str(int(graceful)) - i.e. uvicorn launched the way it was before ISS-088.
+
+$ diff control mutant
+190,191d189
+<             "--timeout-graceful-shutdown",
+<             str(int(graceful)),
+
+$ (cd <scratchpad>/ctl && backend/.venv/bin/python -m pytest test_ctl_reachability.py -k sigterm --timeout=120 -p no:cacheprovider -q --tb=short)
+.                                                                        [100%]
+1 passed, 7 deselected in 6.94s
+
+$ (cd <scratchpad>/mut && backend/.venv/bin/python -m pytest test_mut_reachability.py -k sigterm --timeout=120 -p no:cacheprovider -q --tb=short)
+F                                                                        [100%]
+=================================== FAILURES ===================================
+____ test_sigterm_reaches_the_lifespan_shutdown_half_while_a_stream_is_live ____
+test_mut_reachability.py:210: in test_sigterm_reaches_the_lifespan_shutdown_half_while_a_stream_is_live
+    proc.wait(timeout=wait_budget)
+/opt/homebrew/Cellar/python@3.13/3.13.14/Frameworks/Python.framework/Versions/3.13/lib/python3.13/subprocess.py:1280: in wait
+    return self._wait(timeout=timeout)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/opt/homebrew/Cellar/python@3.13/3.13.14/Frameworks/Python.framework/Versions/3.13/lib/python3.13/subprocess.py:2077: in _wait
+    raise TimeoutExpired(self.args, timeout)
+E   subprocess.TimeoutExpired: Command '['/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/.venv/bin/python', '-m', 'uvicorn', 'reachability_probe_app:app', '--host', '127.0.0.1', '--port', '52138', '--log-level', 'error']' timed out after 25.0 seconds
+
+During handling of the above exception, another exception occurred:
+test_mut_reachability.py:212: in test_sigterm_reaches_the_lifespan_shutdown_half_while_a_stream_is_live
+    pytest.fail(
+E   Failed: uvicorn did not exit within 25.0s of SIGTERM while an SSE stream was live. Markers written: {"event": "startup_complete", "t": 1791460238.389921}
+=========================== short test summary info ============================
+FAILED test_mut_reachability.py::test_sigterm_reaches_the_lifespan_shutdown_half_while_a_stream_is_live
+1 failed, 7 deselected in 26.61s
+
+$ pgrep -fl reachability_probe_app   (leftover uvicorn children after both runs)
+(none)

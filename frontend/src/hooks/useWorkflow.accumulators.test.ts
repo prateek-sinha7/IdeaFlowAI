@@ -216,6 +216,19 @@ const ACCUMULATORS: AccumulatorCase[] = [
     read: (s) => s.agents[0]?.cumulativeDuration,
     expected: 60,
   },
+  ...(["priorPassInputTokens", "priorPassOutputTokens", "priorPassTotalTokens"] as const).map(
+    (key): AccumulatorCase => ({
+      stateKey: key,
+      label: `agents[].${key} — earlier passes' tokens a loop-back re-run banks (QA-KB-093)`,
+      driver: "frame",
+      body: [
+        stamped({ type: "agent_complete", agent_id: "a1", input_tokens: 100, output_tokens: 100, total_tokens: 100, ts: TS.complete }),
+        stamped({ type: "agent_start", agent_id: "a1", visit_count: 1, ts: TS.gateReady }),
+      ],
+      read: (s) => s.agents[0]?.[key],
+      expected: 100,
+    }),
+  ),
   {
     stateKey: "busySeconds",
     label: "busySeconds — the header's \"N working\", a UNION of agent intervals",
@@ -379,8 +392,8 @@ describe("GUARD-1 — an accumulator cannot be added without a registry row", ()
     expect([...found].filter((k) => !registered.has(k)).sort()).toEqual([]);
   });
 
-  it("the registry covers all eleven, ten of them frame-driven", () => {
-    expect(ACCUMULATORS).toHaveLength(11);
-    expect(FRAME_DRIVEN).toHaveLength(10);
+  it("the registry covers all fourteen, thirteen of them frame-driven", () => {
+    expect(ACCUMULATORS).toHaveLength(14);
+    expect(FRAME_DRIVEN).toHaveLength(13);
   });
 });

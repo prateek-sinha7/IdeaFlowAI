@@ -652,7 +652,7 @@ def _materialize_page(page: Any, render: Any, out_dir: Path) -> dict:
         image_names.append(name)
 
     text_md = "\n".join(md_parts)
-    (out_dir / "text.md").write_text(text_md)
+    (out_dir / "text.md").write_text(text_md, encoding="utf-8")
 
     return {
         "text_md": text_md,
@@ -793,6 +793,23 @@ _PARALLEL_PAGE_THRESHOLD = (
 )
 
 
+def _worker_utf8_init() -> None:
+    """Reconfigure stdout/stderr to UTF-8 in each worker process.
+
+    On Windows, spawned worker processes default to the system locale encoding
+    (cp1252 / charmap). pdfminer, pdfplumber, and Python's own logging can write
+    extracted text — including Unicode arrows, symbols, or accents — to stderr.
+    Any character outside cp1252 raises UnicodeEncodeError and kills the worker.
+    Reconfiguring the streams here prevents that without affecting file I/O,
+    which always uses an explicit encoding= argument.
+    """
+    import sys
+
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8", errors="replace")
+
+
 def _split_into_ranges(page_numbers: list[int], worker_count: int) -> list[list[int]]:
     """Split a sorted page-number list into up to `worker_count` contiguous chunks."""
     if not page_numbers:
@@ -858,7 +875,9 @@ def _materialize_parallel_sync(
     """
     ranges = _split_into_ranges(page_numbers, _PARALLEL_WORKER_COUNT)
     receipts: dict[int, dict] = {}
-    with ProcessPoolExecutor(max_workers=_PARALLEL_WORKER_COUNT) as executor:
+    with ProcessPoolExecutor(
+        max_workers=_PARALLEL_WORKER_COUNT, initializer=_worker_utf8_init
+    ) as executor:
         futures = [
             executor.submit(_materialize_page_range, pdf_bytes, rng, str(pages_dir))
             for rng in ranges
@@ -991,11 +1010,11 @@ def _write_if_changed(path: Path, content: str) -> None:
     """
     if path.is_file():
         try:
-            if path.read_text() == content:
+            if path.read_text(encoding="utf-8") == content:
                 return
         except OSError:
             pass
-    path.write_text(content)
+    path.write_text(content, encoding="utf-8")
 
 
 def _inline_text(relpath: str, filename: str, source_format: str) -> str:
@@ -1356,7 +1375,7 @@ def _extract_text_sync(path: str, pages: str = "", file_type: str = "") -> str:
     doc_parts = []
     for n in complete_pages:
         text_path = pages_dir / f"{n:02d}" / "text.md"
-        text = text_path.read_text() if text_path.is_file() else ""
+        text = text_path.read_text(encoding="utf-8") if text_path.is_file() else ""
         # Contract (contracts/on-disk-format.md): a ref inside document.md is
         # relative to {slug}/, not to a page directory — there is no single page
         # directory to be relative to here. Left page-relative, every page's
@@ -1612,7 +1631,7 @@ def file_find(query: str, path: str = "", limit: int = _FIND_DEFAULT_LIMIT) -> s
                 continue
 
             try:
-                text = text_path.read_text()
+                text = text_path.read_text(encoding="utf-8")
             except (OSError, IOError):
                 continue
 

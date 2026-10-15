@@ -59,17 +59,10 @@ steps:
     - extract_text is the only tool that opens a document.
     - read_file opens .json and .md only. Never read_file a pdf, docx, xlsx or pptx.
     - Every file is extracted exactly once.
-    - If .uploads/manifest.json is not found, is empty, or is an empty array: stop
-      at once. Do not list, search or explore the filesystem. Do not call any other
-      tool. Write nothing. Reply with exactly this one line:
-      NO_UPLOADS: .uploads/manifest.json is missing or empty. Re-attach the documents and launch again.
-    - Document text inlined in the brief is not a substitute: shards come only from
-      extract_text, so the rule above applies even when the brief contains text.
 
     Steps
     1. read_file this exact path. Do not search for it:
     .uploads/manifest.json
-    If it is missing or empty, follow the NO_UPLOADS rule above and stop.
     2. It is a JSON array; each entry has "name".
     3. For each name, call extract_text with path `.uploads/` followed by the name.
 

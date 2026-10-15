@@ -316,7 +316,8 @@ describe("WorkflowHistory detail — deliverable preview", () => {
 
       const frame = screen.getByTitle("Deliverable Preview");
       expect(frame).toHaveAttribute("sandbox", "allow-scripts");
-      expect(frame).toHaveAttribute("srcdoc", "<!doctype html><p>hi</p>");
+      // QA-KB-125: framed behind <base href="about:srcdoc"> (lib/agentHtml.ts).
+      expect(frame).toHaveAttribute("srcdoc", '<!doctype html><base href="about:srcdoc"><p>hi</p>');
     });
 
     it("routes presentation.html to the deck viewer", async () => {
@@ -529,8 +530,12 @@ describe("WorkflowHistory detail — presentation actions", () => {
 
     await user.click(screen.getByRole("button", { name: "Full Screen" }));
 
-    expect(await blobText()).toBe("<html>deck</html>");
-    expect(open).toHaveBeenCalledWith("blob:deck", "_blank");
+    // QA-KB-125: a script-free wrapper page around the sandboxed deck frame, opened noopener.
+    const wrapper = await blobText();
+    expect(wrapper).toContain('sandbox="allow-scripts"');
+    expect(wrapper).not.toContain("allow-same-origin");
+    expect(wrapper).toContain('srcdoc="<html><base href=&quot;about:srcdoc&quot;>deck</html>"');
+    expect(open).toHaveBeenCalledWith("blob:deck", "_blank", "noopener,noreferrer");
   });
 
   it("offers deck actions only on the Preview tab of a presentation with output", async () => {

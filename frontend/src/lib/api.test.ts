@@ -86,6 +86,54 @@ describe("getRunEvents — durable row mapping (BUG-018 Part A)", () => {
 });
 
 // ─────────────────────────────────────────────────────────────────
+// ISS-1155 (QA-KB-119) — GET /api/runs/{id}/events returns one bounded page
+// plus `has_more` / `next_after`. getRunEvents must still hand every caller
+// the WHOLE log, by following the cursor, and must stop on an envelope with
+// no `has_more` (an old backend, the mock catch-all `{}`).
+// ─────────────────────────────────────────────────────────────────
+
+describe("getRunEvents — follows the events cursor (ISS-1155)", () => {
+  const row = (seq: number) => ({
+    seq,
+    event_id: `e${seq}`,
+    type: "agent_chunk",
+    payload_json: {},
+  });
+
+  it("concatenates every page in order until has_more is false", async () => {
+    fetchMock
+      .mockResolvedValueOnce(
+        okJson({ workflow_id: "run-1", after: 0, events: [row(1), row(2)], has_more: true, next_after: 2 }),
+      )
+      .mockResolvedValueOnce(
+        okJson({ workflow_id: "run-1", after: 2, events: [row(3)], has_more: false, next_after: 3 }),
+      );
+
+    const frames = await getRunEvents("t.t.t", "run-1", 0);
+
+    expect(frames.map((f) => f.data.seq)).toEqual([1, 2, 3]);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(String(fetchMock.mock.calls[1][0])).toContain("after=2");
+  });
+
+  it("stops after one request when the envelope carries no has_more", async () => {
+    fetchMock.mockResolvedValue(okJson({ workflow_id: "run-1", after: 0, events: [row(1)] }));
+
+    const frames = await getRunEvents("t.t.t", "run-1", 0);
+
+    expect(frames).toHaveLength(1);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns [] for the mock catch-all {}", async () => {
+    fetchMock.mockResolvedValue(okJson({}));
+
+    expect(await getRunEvents("t.t.t", "run-1", 0)).toEqual([]);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────
 // specs/014 — the ApiError-constructor notification seam. Every 503
 // host_capacity_exhausted rejection, from ANY call site that throws an
 // ApiError (request()'s own throw, or a bespoke fetch+throw site like

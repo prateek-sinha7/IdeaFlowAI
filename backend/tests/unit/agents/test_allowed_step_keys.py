@@ -58,7 +58,6 @@ _VALID_PARSER = "heading_tasks"
 _DISPOSITIONS: dict[str, tuple[object, object]] = {
     "agent": ("step-x", lambda s, c: s.agent_id == "step-x"),
     "strategy": (_VALID_STRATEGY, lambda s, c: s.strategy == _VALID_STRATEGY),
-    "reply": ("last_message", lambda s, c: s.reply == "last_message"),
     # A10 — the no-model mechanical step kind (plan.py:Step.mechanical).
     "mechanical": ("publish", lambda s, c: s.mechanical == "publish"),
     "gates": ([_VALID_GATE], lambda s, c: s.gates == [_VALID_GATE]),
@@ -146,6 +145,8 @@ _DISPOSITIONS: dict[str, tuple[object, object]] = {
     # ── REDO-GATE follow-up: declared-gate redo opt-in ─────────────────────────
     # Consumed directly onto Step.redoable (bool coercion in _compile_step).
     "redoable": (True, lambda s, c: s.redoable is True),
+    # spec 022 §11: what the step's output is; consumed onto Step.reply.
+    "reply": ("last_message", lambda s, c: s.reply == "last_message"),
     # ── owned write surface: outputs + replaces (plan.py Step.outputs/replaces) ──
     "outputs": (["index.html"], lambda s, c: s.outputs == ["index.html"]),
     "replaces": (True, lambda s, c: s.replaces is True),

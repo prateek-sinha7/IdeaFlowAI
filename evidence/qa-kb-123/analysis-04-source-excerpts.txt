@@ -1,0 +1,494 @@
+
+== tests/integration/e2e/suites/07_run_detail/test_run_detail.py:841-848  (S-07-29: unconditional chip click at 843; the skip at 848 sits behind it)
+  841      page.goto("/runs")
+  842      expect(page.locator(RH.ROW).first).to_be_visible()
+  843      RH.chip(page, "Prototype").first.click()
+  844      page.wait_for_url("**type=prototype")
+  845      page.wait_for_timeout(settings.SETTLE_MS // 2)
+  846      done = [label for label in RH.rows(page) if RH.status_of(label) == "completed"]
+  847      if not done:
+  848          pytest.skip("no completed prototype run")
+
+== tests/integration/e2e/suites/07_run_detail/test_run_detail.py:875-882  (S-07-30: same shape at 877 / 882)
+  875      page.goto("/runs")
+  876      expect(page.locator(RH.ROW).first).to_be_visible()
+  877      RH.chip(page, "Prototype").first.click()
+  878      page.wait_for_url("**type=prototype")
+  879      page.wait_for_timeout(settings.SETTLE_MS // 2)
+  880      done = [label for label in RH.rows(page) if RH.status_of(label) == "completed"]
+  881      if not done:
+  882          pytest.skip("no completed prototype run")
+
+== tests/integration/e2e/suites/15_overlays/test_overlays.py:744-751  (S-15-28: same shape at 746 / 751)
+  744      page.goto("/runs")
+  745      expect(page.locator(RH.ROW).first).to_be_visible()
+  746      RH.chip(page, "Prototype").first.click()
+  747      page.wait_for_url("**type=prototype")
+  748      page.wait_for_timeout(settings.SETTLE_MS // 2)
+  749      done = [label for label in RH.rows(page) if RH.status_of(label) == "completed"]
+  750      if not done:
+  751          pytest.skip("no completed prototype run")
+
+== tests/integration/e2e/framework/locators/run_history.py:53-76  (chip(): matches '^Prototype\s*\d'; chip_count(): 'an absent chip IS a count of zero')
+   53  def chip(page, label: str):
+   54      """A type filter, matched on its label prefix — the count is in the label."""
+   55      return page.get_by_role("button", name=re.compile(rf"^{re.escape(label)}\s*\d"))
+   56  
+   57  
+   58  def chip_count(page, label: str) -> int:
+   59      """A type chip's count.
+   60  
+   61      **A chip with no families is not rendered at all** — `WorkflowHistory.tsx`
+   62      drops it (`if (type !== "all" && count === 0) return null`), so an absent
+   63      chip IS a count of zero, not a broken selector. Waiting on it instead just
+   64      spends the full locator timeout to learn there are no runs of that type.
+   65  
+   66      A chip that vanished while its families still exist is still caught: those
+   67      families keep being counted in the rows, so `sum(chips) == rows` fails.
+   68      """
+   69      c = chip(page, label)
+   70      if c.count() == 0:
+   71          return 0
+   72      text = c.first.inner_text().replace("\n", " ")
+   73      m = re.search(r"(\d+)\s*$", text.strip())
+   74      assert m, f"the {label!r} chip carries no count: {text!r}"
+   75      return int(m.group(1))
+   76  
+
+== tests/integration/e2e/suites/06_run_history/test_run_history.py:153-161  (S-06-05: the correct guard, inline (skip when chip_count == 0))
+  153  @pytest.mark.parametrize("label", list(L.TYPE_PARAMS))
+  154  def test_filtering_by_type_narrows_the_list(page, shot, label):
+  155      """Scenario: Filtering by type narrows the list"""
+  156      open_history(page)
+  157      expected = L.chip_count(page, label)
+  158      if expected == 0:
+  159          # WorkflowHistory.tsx drops the chip entirely when its count is zero
+  160          # (if (type !== "all" && count === 0) return null). Nothing to click.
+  161          pytest.skip(f"no {label!r} runs in this history; chip is not rendered")
+
+== tests/integration/e2e/suites/06_run_history/test_run_history.py:184-193  (S-06-07: clicks the User Stories chip with no guard)
+  184  @pytest.mark.scenario("S-06-07")
+  185  def test_the_chip_label_and_its_url_value_are_different_words(page, shot):
+  186      """Scenario: The chip label and its URL value are different words"""
+  187      open_history(page)
+  188  
+  189      with shot("chip-param", 'When I click the filter "User Stories"'):
+  190          L.chip(page, "User Stories").first.click()
+  191          page.wait_for_url("**type=user_stories")
+  192  
+  193      assert "type=user_stories" in page.url and "type=user stories" not in page.url
+
+== tests/integration/e2e/suites/06_run_history/test_run_history.py:348-354  (S-06-13: clicks the User Stories chip with no zero check)
+  348  @pytest.mark.scenario("S-06-13")
+  349  def test_refresh_re_reads_without_losing_filters(page, shot):
+  350      """Scenario: Refresh re-reads without losing filters"""
+  351      open_history(page)
+  352      expected = L.chip_count(page, "User Stories")
+  353      L.chip(page, "User Stories").first.click()
+  354      page.wait_for_url("**type=user_stories")
+
+== tests/integration/e2e/suites/06_run_history/test_run_history.py:173-182  (S-06-06: ?type=ppt, rows == chip_count('Presentation') (0 == 0 on today's data))
+  173  @pytest.mark.scenario("S-06-06")
+  174  def test_the_type_filter_is_addressable_by_url(page, shot):
+  175      """Scenario: The type filter is addressable by URL"""
+  176      with shot("type-cold", 'When I cold-load "/runs?type=ppt"'):
+  177          open_history(page, "?type=ppt")
+  178  
+  179      # The chip's own count, not the spec's literal 7 — every run the suite
+  180      # starts moves it.
+  181      assert len(L.rows(page)) == L.chip_count(page, "Presentation")
+  182  
+
+== frontend/src/components/history/RevisionFamilyView.tsx:83-104  (baseWorkflowType, KNOWN_FRAMEWORK_BASE_TYPES, filterBucketFor: v2 ids fall to custom)
+   83  // Normalize a run type to its base (strip _revision) — SHARED by both the
+   84  // family-count and the type-filter tabs. Same rule as WorkflowHistory.tsx
+   85  // (SC-001: generic suffix, never a workflow-name branch).
+   86  export function baseWorkflowType(type: string): string {
+   87    return type.replace("_revision", "");
+   88  }
+   89  
+   90  const KNOWN_FRAMEWORK_BASE_TYPES = new Set(["user_stories", "ppt", "prototype", "app_builder"]);
+   91  
+   92  // Which type-filter-tab bucket a run belongs to: one of the 4 fixed framework
+   93  // keys, or "custom" for everything else — including literal type "custom" AND
+   94  // any other non-framework pipeline id (a conditional-gate sample pipeline, a
+   95  // saved Composer workflow's own type, a retired/renamed sample_conditional_*
+   96  // id, ...). Every pipeline that isn't one of the 4 frameworks IS a custom
+   97  // pipeline by definition, whether or not FamilyGroupCard can also resolve it
+   98  // a specific catalog name to display. Without this, each distinct non-framework
+   99  // type string was bucketing (and counting) itself instead of folding into the
+  100  // "Custom" tab, so the tab underrepresented how many runs were actually custom.
+  101  export function filterBucketFor(type: string): string {
+  102    const base = baseWorkflowType(type);
+  103    return KNOWN_FRAMEWORK_BASE_TYPES.has(base) ? base : "custom";
+  104  }
+
+== frontend/src/components/history/RevisionFamilyView.tsx:183-192  (familyRootFor)
+  183  function familyRootFor(run: WorkflowRun, byId: Map<string, WorkflowRun>): string {
+  184    let cur = run;
+  185    while (cur.id !== cur.rootRunId) {
+  186      const parent = cur.parentRunId ? byId.get(cur.parentRunId) : undefined;
+  187      if (!parent) return cur.rootRunId;
+  188      if (parent.status === "diverted") return cur.id;
+  189      cur = parent;
+  190    }
+  191    return cur.id;
+  192  }
+
+== frontend/src/components/history/RevisionFamilyView.tsx:218-221  (root = the member whose id IS the rootRunId, else the earliest present)
+  218      // root = the member whose id IS the rootRunId; else the earliest present
+  219      // (legacy NULL-parent / a family whose root fell outside the fetch window).
+  220      const root = members.find((m) => m.id === rootRunId) ?? members[0];
+  221      const latest = members[members.length - 1];
+
+== frontend/src/components/history/WorkflowHistory.tsx:227-238  (the list is fetched with limit 50 and NO type (the chip never sends type= to the backend))
+  227    useEffect(() => {
+  228      const token = getToken();
+  229      if (!token) return;
+  230      setLoading(true);
+  231      getWorkflows(token, { limit: 50 })
+  232        .then(({ runs: data, total }) => {
+  233          setRuns(data);
+  234          setTotalRuns(total);
+  235        })
+  236        .catch(() => {})
+  237        .finally(() => setLoading(false));
+  238    }, [filterType]);
+
+== frontend/src/components/history/WorkflowHistory.tsx:488-493  (matchesFilter: the chip filters client-side by filterBucketFor)
+  488    const matchesFilter = useCallback((r: WorkflowRun) => {
+  489      const baseType = filterBucketFor(r.type);
+  490      const matchType = filterType === "all" || baseType === filterType || r.type === filterType;
+  491      const matchSearch = !searchQuery || (r.title || "").toLowerCase().includes(searchQuery.toLowerCase());
+  492      return matchType && matchSearch;
+  493    }, [filterType, searchQuery]);
+
+== frontend/src/components/history/WorkflowHistory.tsx:1193-1206  (typeGroups and typeCounts: one count per FAMILY, bucketed by the family ROOT's type)
+ 1193    const typeGroups = ["all", "user_stories", "ppt", "prototype", "app_builder", "custom"];
+ 1194    // ISS-198 + ISS-213: the "All" chip now shows the true total (totalRuns) from
+ 1195    // the server response, matching the header. Per-type chips still reflect the
+ 1196    // loaded families (family card counts, not raw run counts) — this is option 2
+ 1197    // from ISS-219: chips are in "family card" units, the header/All chip is in
+ 1198    // "total runs" units. The tension is documented in ISS-219; a future change
+ 1199    // can tighten the per-type counts once the backend grows per-bucket aggregates.
+ 1200    const typeCounts: Record<string, number> = { all: totalRuns };
+ 1201    families.forEach((g) => {
+ 1202      // Count the FAMILY once under its filter bucket (one of the 4 frameworks,
+ 1203      // or "custom" for every non-framework type — see filterBucketFor).
+ 1204      const base = filterBucketFor(g.root.type);
+ 1205      typeCounts[base] = (typeCounts[base] || 0) + 1;
+ 1206    });
+
+== frontend/src/components/history/WorkflowHistory.tsx:1282-1285  (a zero-count chip returns null)
+ 1282              {typeGroups.map((type) => {
+ 1283                const count = typeCounts[type] || 0;
+ 1284                if (type !== "all" && count === 0) return null;
+ 1285                const label = type === "all" ? "All" : (TYPE_META[type]?.label || type);
+
+== frontend/src/lib/api.ts:1214-1223  (getWorkflows(token, {type?, limit?, offset?}); History passes only limit)
+ 1214  export function getWorkflows(
+ 1215    token: string,
+ 1216    options?: { type?: WorkflowType; limit?: number; offset?: number }
+ 1217  ): Promise<{ runs: WorkflowRun[]; total: number }> {
+ 1218    let path = "/api/runs";
+ 1219    const params = new URLSearchParams();
+ 1220    if (options?.type) params.set("type", options.type);
+ 1221    if (options?.limit) params.set("limit", String(options.limit));
+ 1222    if (options?.offset) params.set("offset", String(options.offset));
+ 1223    const qs = params.toString();
+
+== backend/app/api/runs.py:777-792  (GET /api/runs: user-scoped, type is exact match, created_at desc)
+  777      query = db.query(*_LIST_COLS).filter(WorkflowRun.user_id == current_user.id)
+  778  
+  779      if type:
+  780          query = query.filter(WorkflowRun.type == type)
+  781      if status_filter:
+  782          query = query.filter(WorkflowRun.status == status_filter)
+  783  
+  784      # Count before applying limit/offset so the total reflects filters.
+  785      # Uses the same WHERE clause as the page query — no extra round trip on a
+  786      # cold query; SQLite/Postgres both plan it as a single index scan.
+  787      total = query.count()
+  788      response.headers["X-Total-Count"] = str(total)
+  789  
+  790      runs = (
+  791          query.order_by(WorkflowRun.created_at.desc()).offset(offset).limit(limit).all()
+  792      )
+
+== backend/app/api/analytics.py:524-529  (pipeline filter: type IN (pipeline, pipeline_revision))
+  524      if pipeline:
+  525          # Generic column equality, never a workflow-name branch (SC-001): the
+  526          # value is whatever ``type`` the caller was handed back. The revision
+  527          # variant rides along with its base type, mirroring the frontend's
+  528          # ``normalizeType`` so the breakdown keeps listing both rows.
+  529          query = query.filter(WorkflowRun.type.in_((pipeline, f"{pipeline}_revision")))
+
+== frontend/src/components/analytics/AnalyticsPage.tsx:58-70  (PIPELINE_LABELS has no v2 key; normalizeType)
+   58  const PIPELINE_LABELS: Record<string, string> = {
+   59    user_stories: "User Stories", user_stories_revision: "User Stories",
+   60    ppt: "Presentation", ppt_revision: "Presentation",
+   61    prototype: "Prototype", prototype_revision: "Prototype",
+   62    app_builder: "App Builder", app_builder_revision: "App Builder",
+   63    custom: "Custom", mulesoft_to_springboot: "Mulesoft Migration",
+   64    dotnet_to_azure: ".NET Migration",
+   65  };
+   66  
+   67  /** Normalise revision type variants onto their base type (display grouping). */
+   68  function normalizeType(type: string): string {
+   69    return type.replace("_revision", "");
+   70  }
+
+== frontend/src/components/analytics/AnalyticsPage.tsx:316-322  (pipelineRows: label = PIPELINE_LABELS[normalizeType(type)] ?? normalizeType(type))
+  316  
+  317    const pipelineRows = (summary?.pipelines ?? [])
+  318      .map((p) => ({
+  319        label: PIPELINE_LABELS[normalizeType(p.type)] ?? normalizeType(p.type),
+  320        runs: p.count,
+  321        tokens: p.total_tokens,
+  322        cost: p.cost,
+
+== frontend/src/components/analytics/AnalyticsPage.tsx:412-421  (the pipeline <select> has five hard-coded options)
+  412                name="pipeline-filter"
+  413                className="text-[12.5px] font-medium border border-line-control rounded-[9px] px-3 py-2 bg-surface-card text-ink-700 focus:outline-none focus:border-brand transition-colors">
+  414                <option value="all">All pipelines</option>
+  415                <option value="user_stories">User Stories</option>
+  416                <option value="ppt">Presentation</option>
+  417                <option value="prototype">Prototype</option>
+  418                <option value="app_builder">App Builder</option>
+  419                <option value="custom">Custom</option>
+  420              </select>
+  421              {/* Model select — each selection re-queries the server (SC-1). Shown
+
+== frontend/src/components/analytics/AnalyticsPage.tsx:425-427  (the model <select> renders only when more than one model is listed)
+  425              {(availableModelIds.length > 1 || modelFilter !== "all") && (
+  426                <select value={modelFilter} onChange={e => setModelFilter(e.target.value)}
+  427                  aria-label="Filter by model"
+
+== frontend/src/components/analytics/AnalyticsPage.tsx:555-570  (By Pipeline Type row: the label span comes BEFORE the figures)
+  555                        const pct = Math.max(Math.round((barVal / pipelineMax) * 100), barVal > 0 ? 3 : 0);
+  556                        return (
+  557                          <motion.div key={i} initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.05 }}>
+  558                            <div className="flex items-center justify-between mb-1.5">
+  559                              <span className="text-[9px] font-bold px-2 py-0.5 rounded-md bg-surface-warm text-ink-500 uppercase tracking-wide">{p.label}</span>
+  560                              <div className="flex items-center gap-2 text-[10.5px] text-ink-300 tabular-nums">
+  561                                <span>{p.runs} run{p.runs !== 1 ? "s" : ""}</span>
+  562                                {p.tokens > 0 && <><span>·</span><span className="font-semibold text-ink-700">{formatTokens(p.tokens)}</span><span>{formatCost(p.cost)}</span></>}
+  563                              </div>
+  564                            </div>
+  565                            <div className="h-1.5 bg-[var(--status-queued-fill)] rounded-full overflow-hidden">
+  566                              <motion.div className="h-full rounded-full"
+  567                                initial={{ width: 0 }}
+  568                                animate={{ width: `${pct}%` }}
+  569                                transition={{ duration: 0.6, delay: i * 0.05, ease: "easeOut" }}
+  570                                style={{ background: "var(--brand)" }}
+
+== tests/integration/e2e/framework/locators/analytics.py:103-130  (runs_by_pipeline: docstring says label follows its figures; the regex pairs a count with the next label)
+  103  def runs_by_pipeline(page) -> dict[str, float]:
+  104      """`{"PROTOTYPE": 41, ...}` — run counts per pipeline, deduplicated.
+  105  
+  106      The screen shows the same eight pipelines in three panels (by tokens, by
+  107      cost, by runs), so every count appears three times. Summing a flat sweep of
+  108      the page text therefore triples the real total and makes the breakdown look
+  109      inconsistent with its own headline.
+  110  
+  111      Rows read `<n> runs · <tokens> <cost> <TYPE>` — the label follows its
+  112      figures — and the first occurrence of each type is kept.
+  113      """
+  114      # Scoped to the "By Pipeline Type" CARD, not the whole body. Sweeping
+  115      # document.innerText matched every "<n> runs" on the screen — the By Model
+  116      # panel, the KPI tiles, the daily chart's tooltips — and paired each with
+  117      # whatever ALL-CAPS text followed, yielding 77 "pipelines" summing to 1,923
+  118      # against a real total of 220. Deduplication cannot repair that: the extra
+  119      # rows are different panels, not repeats.
+  120      card = page.locator("div").filter(
+  121          has=page.get_by_text("By Pipeline Type", exact=True)
+  122      ).last
+  123      text = card.inner_text() if card.count() else page.evaluate("() => document.body.innerText")
+  124      out: dict[str, float] = {}
+  125      for runs, label in re.findall(
+  126          r"(\d[\d,]*)\s+runs?\b[^\n]*\n(?:[^\n]*\n){0,3}?([A-Z][A-Z0-9 ._&-]{2,40})\n", text
+  127      ):
+  128          out.setdefault(label.strip(), number(runs))
+  129      return out
+  130  
+
+== tests/integration/e2e/suites/10_analytics/test_analytics.py:377-409  (ISS-289: assert pipeline_only; model filter skip; second read)
+  377  @pytest.mark.issue("ISS-289")
+  378  def test_pipeline_breakdown_respects_the_model_filter_too(page, shot):
+  379      """ISS-289 — "By Pipeline Type" must narrow further when a model is ALSO selected,
+  380      not just sit on its own single-axis filter.
+  381      """
+  382      open_analytics(page)
+  383      L.select_range(page, "All")
+  384  
+  385      with shot("iss-289-pipeline-only", 'When I select the pipeline "Prototype"'):
+  386          page.select_option(L.PIPELINE_FILTER, label="Prototype")
+  387          page.wait_for_timeout(500)
+  388      pipeline_only = L.runs_by_pipeline(page).get("PROTOTYPE")
+  389      assert pipeline_only, "Prototype not found in the By Pipeline Type breakdown"
+  390  
+  391      model_select = page.locator(L.MODEL_FILTER)
+  392      if model_select.count() == 0:
+  393          pytest.skip("only one model present in this range — the model filter is not rendered")
+  394      options = model_select.locator("option").all_inner_texts()
+  395      target = next(o for o in options if o != "All models")
+  396      target_total = L.model_runs(page, target)
+  397      assert target_total < pipeline_only, "picked a model that covers all of Prototype — not a useful probe"
+  398  
+  399      with shot("iss-289-pipeline-and-model", f'When I additionally select the model "{target}"'):
+  400          page.select_option(L.MODEL_FILTER, label=target)
+  401          page.wait_for_timeout(500)
+  402      pipeline_and_model = L.runs_by_pipeline(page).get("PROTOTYPE")
+  403  
+  404      assert pipeline_and_model != pipeline_only and pipeline_and_model <= target_total, (
+  405          f"By Pipeline Type still shows {pipeline_and_model} Prototype runs after also "
+  406          f"selecting model {target!r} (whose own total is only {target_total:,.0f}) — "
+  407          f"unchanged from the pipeline-only figure of {pipeline_only} — "
+  408          "the breakdown ignored the model filter"
+  409      )
+
+== tests/integration/e2e/suites/10_analytics/test_analytics.py:188-202  (S-10-10: only an upper bound on the sum)
+  188      open_analytics(page)
+  189  
+  190      with shot("breakdown", 'When I select the range "All"'):
+  191          L.select_range(page, "All")
+  192  
+  193      total = L.number(L.tile(page, "TOTAL RUNS"))
+  194      by_type = L.runs_by_pipeline(page)
+  195      assert by_type, "the By Pipeline Type breakdown lists no run counts"
+  196  
+  197      # Deduplicated by type before summing. The screen repeats the same eight
+  198      # pipelines across three panels — by tokens, by cost, by runs — so a naive
+  199      # sweep of every "<n> runs" in the page text totals three times the truth
+  200      # and reports the breakdown as wildly inconsistent with its own headline.
+  201      assert sum(by_type.values()) <= total * 1.05, (
+  202          f"the breakdown sums to {sum(by_type.values()):,.0f} "
+
+== frontend/src/components/preview/PreviewPanel.tsx:1082-1094  (renderType: revisions of v2 map to prototype; plain prototype_v2 does not)
+ 1082    const renderType = detectedType === "user_stories_revision" ? "user_stories"
+ 1083      : detectedType === "ppt_revision" ? "ppt"
+ 1084      // spec 017 — ppt_v2 renders the same HTML deck as ppt; it differs only in
+ 1085      // ALSO producing a .pptx. Without this it falls through to the default and
+ 1086      // the deck renders as raw text.
+ 1087      : detectedType === "ppt_v2" ? "ppt"
+ 1088      : detectedType === "prototype_revision" ? "prototype"
+ 1089      : detectedType === "prototype_large_revision" ? "prototype"
+ 1090      : detectedType === "prototype_feature_revision" ? "prototype"
+ 1091      : detectedType === "prototype_v2_revision" ? "prototype"
+ 1092      : detectedType === "prototype_v2_feature_revision" ? "prototype"
+ 1093      : detectedType === "app_builder_revision" ? "app_builder"
+ 1094      : detectedType;
+
+== frontend/src/components/preview/PreviewPanel.tsx:1633-1650  (FIRST_PARTY_RENDERERS: PrototypePreview only for renderType prototype)
+ 1633    const FIRST_PARTY_RENDERERS: Record<string, () => ReactNode | null> = {
+ 1634      user_stories: () =>
+ 1635        effUserStoryContent
+ 1636          ? <UserStoryPreview content={effUserStoryContent} onRevise={overrideActive ? undefined : onReviseUserStory} />
+ 1637          : null,
+ 1638      app_builder: () =>
+ 1639        effUserStoryContent
+ 1640          ? <AppBuilderIDEPreview content={effUserStoryContent} agentOutputs={effAgentOutputs} onRevise={overrideActive ? undefined : onReviseAppBuilder} />
+ 1641          : null,
+ 1642      ppt: () =>
+ 1643        (effPptContent || pptxCode)
+ 1644          ? <PPTPreview content={effPptContent} isStreaming={isStreaming} pptxCode={pptxCode} runId={activeRunId} onRevise={overrideActive ? undefined : onRevisePpt} pipelineType={rawPipelineType || workflowType} />
+ 1645          : null,
+ 1646      prototype: () =>
+ 1647        effPrototypeContent
+ 1648          ? <PrototypePreview content={effPrototypeContent} isStreaming={isStreaming} onRevise={overrideActive ? undefined : onRevisePrototype} />
+ 1649          : null,
+ 1650    };
+
+== frontend/src/app/[...view]/page.tsx:1719-1727  (live path: the six types that fill the prototype slot)
+ 1719                // so the "Auto" and "Slides" renderers had nothing to show while the
+ 1720                // "HTML" pill (which reads genericDeliverable) worked.
+ 1721                setPptContent(finalOutput);
+ 1722              } else if (pipelineType === "prototype" || pipelineType === "prototype_revision"
+ 1723                || pipelineType === "prototype_large_revision"
+ 1724                || pipelineType === "prototype_feature_revision"
+ 1725                || pipelineType === "prototype_v2_revision"
+ 1726                || pipelineType === "prototype_v2_feature_revision") {
+ 1727                setPrototypeContent(finalOutput);
+
+== frontend/src/app/[...view]/page.tsx:3303-3310  (reopen path: the same six types)
+ 3303              // reopens into the ppt slot, not the generic deliverable channel.
+ 3304              setPptContent(fullRun.output);
+ 3305            } else if (fullRun.type === "prototype" || fullRun.type === "prototype_revision"
+ 3306              || fullRun.type === "prototype_large_revision"
+ 3307              || fullRun.type === "prototype_feature_revision"
+ 3308              || fullRun.type === "prototype_v2_revision"
+ 3309              || fullRun.type === "prototype_v2_feature_revision") {
+ 3310              setPrototypeContent(fullRun.output);
+
+== tests/integration/e2e/suites/25_pipeline_smoke/test_pipeline_smoke.py:1-14  (the live tier leaves a real row in the history)
+    1  """Implements ../../../screens/25-pipeline-smoke.feature.md.
+    2  
+    3  The only tests in this suite that ask whether the PIPELINE works rather than
+    4  whether a SCREEN does. Each one launches a first-party workflow from its
+    5  catalogue card, answers whatever gates it stops at, and asserts the run
+    6  finished and left the deliverable its manifest declares.
+    7  
+    8  Every test here is `@live` and `@destructive`: it dispatches a real run
+    9  against a real model and leaves a real row in the history. The tier is
+   10  deselected by default (`pytest.ini` carries `-m "not live"`), so these only
+   11  execute under an explicit `-m live`.
+   12  
+   13  **Launched from the catalogue card, never from the API.** `POST /api/runs`
+   14  skips the launch assembly the wizard performs — template, design system, the
+
+== tests/integration/e2e/suites/25_pipeline_smoke/test_pipeline_smoke.py:38-41  (the prototype card: Build an interactive prototype (Fast) -> prototype.html)
+   38  PPT_V2 = ("Pitch an idea (Depth)", "presentation.html", r"PPT|PRESENTATION|Pitch")
+   39  USER_STORIES = ("Generate product requirements", "user_stories.md", r"USER[ _]STORIES|REQUIREMENTS")
+   40  PROTOTYPE = ("Build an interactive prototype (Fast)", "prototype.html", r"PROTOTYPE")
+   41  APP_BUILDER = ("Build an end-to-end application", None, r"APP[ _]BUILDER|APPLICATION")
+
+== tests/integration/e2e/pytest.ini:10-27  (addopts -m 'not live' is the default (line 12); the comment block explains the split)
+   10  # start reusing obvious names.
+   11  addopts =
+   12      -m "not live"
+   13      -q
+   14      --import-mode=importlib
+   15      --browser-channel chrome
+   16      --base-url http://localhost:3000
+   17  
+   18  # --browser-channel chrome drives /Applications/Google Chrome.app, NOT
+   19  # Playwright's bundled "Chrome for Testing": the screenshots should show the
+   20  # browser the product is actually used in.
+   21  #
+   22  # Skipping the live tier is the DEFAULT, not a flag anyone has to remember:
+   23  #   pytest                        offline only
+   24  #   pytest -m live                real Bedrock (a CLI -m overrides the one above)
+   25  #   pytest -m "live or not live"  everything
+   26  #   pytest suites/01_auth         one area
+   27  
+
+== backend/agents/workflows/prototype/workflow.yaml:1-8  (the v1 prototype manifest is user_launchable, not beta)
+    1  id: prototype
+    2  version: 1
+    3  user_launchable: true
+    4  is_beta: false
+    5  display_name: "Build an interactive prototype (Fast)"
+    6  short_name: Prototype
+    7  icon: Layout
+    8  chained_from:
+
+== tests/integration/screens/07-run-detail.feature.md:441-449  (S-07-29 says 'Given a completed prototype run', not 'via the chip')
+  441    @S-07-29
+  442    Scenario: A prototype run offers its own renderer mode
+  443      Given a completed prototype run
+  444      When I cold-load "/runs/{id}"
+  445      Then the renderer options are exactly "Auto" and "Prototype"
+  446      # A FIFTH mode not in the original manifest list. The mode set is per
+  447      # deliverable type, not global: a .md offers Auto/HTML/Markdown/Bundle, a
+  448      # prototype offers Auto/Prototype. Never assert a fixed list.
+  449  
+
+== tests/integration/screens/15-overlays.feature.md:359-366  (S-15-28 same)
+  359    @S-15-28
+  360    @defect
+  361    # D-18. PrototypePreview never mounts, so none of its controls exist.
+  362    Scenario: A prototype deliverable offers source and tweaks
+  363      Given a completed prototype run whose deliverable is validated HTML
+  364      When I cold-load "/runs/{id}" and select the "Prototype" renderer
+  365      Then the prototype renders in an iframe
+  366      And I see controls titled "View source", "Open tweaks panel" and "Open in new tab"

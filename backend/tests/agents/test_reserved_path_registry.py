@@ -174,17 +174,6 @@ class TestGitMetadataPathsEnforcement:
 
         assert not is_deliverable_relpath(".gitignore")
 
-    def test_listing_excluded_prefixes_excludes_git_prefix(self) -> None:
-        """The Workspace listing no longer has a hidden-prefix policy."""
-        import app.agents.sandbox as sandbox_module
-
-        assert not hasattr(sandbox_module, "_LISTING_EXCLUDED_PREFIXES")
-
-    def test_listing_excluded_exact_excludes_gitignore(self) -> None:
-        import app.agents.sandbox as sandbox_module
-
-        assert not hasattr(sandbox_module, "_LISTING_EXCLUDED_EXACT")
-
     def test_share_excluded_set_includes_git_metadata_paths(self) -> None:
         """_SHARE_EXCLUDED in runs.py must include all GIT_METADATA_PATHS entries."""
         runs = pytest.importorskip("app.api.runs", reason="fastapi not installed")
@@ -946,193 +935,72 @@ class TestIsDeliverableRelpathExcludesRegistry:
 
 
 # ---------------------------------------------------------------------------
-# 9.  list_files excludes all RESERVED_PATHS except .chain/, .context/, .agents/
+# 9.  list_files shows every file: RESERVED_PATHS entries and git metadata
 # ---------------------------------------------------------------------------
 
 
-class TestListFilesExcludesRegistry:
-    """RunSandbox.list_files must exclude the right reserved subset.
+class TestListFilesShowsEverything:
+    """RunSandbox.list_files (the Workspace tab) shows every file in the sandbox:
+    RESERVED_PATHS subtrees and git metadata included. The deliverable walk still
+    excludes all of them (section 8)."""
 
-    Visible in listing (kept):     .chain/, .context/, .agents/, .verify/
-    Not visible in listing (dropped): all other RESERVED_PATHS entries +
-                                      GIT_METADATA_PATHS
-
-    ``.verify/`` is visible for spec 017 viewable media: the Workspace tab
-    (frontend SandboxTab) renders render_pptx's PNG/PDF evidence from it.
-    """
-
-    _VISIBLE_IN_LISTING: frozenset[str] = frozenset(
-        {".chain/", ".context/", ".agents/", ".verify/"}
-    )
-
-    def test_listing_excluded_prefixes_excludes_hidden_reserved_entries(
-        self,
-    ) -> None:
-        import app.agents.sandbox as sandbox_module
-
-        assert not hasattr(sandbox_module, "_LISTING_EXCLUDED_PREFIXES")
-
-    def test_listing_excluded_prefixes_does_not_exclude_visible_entries(
-        self,
-    ) -> None:
-        import app.agents.sandbox as sandbox_module
-
-        assert not hasattr(sandbox_module, "_LISTING_EXCLUDED_PREFIXES")
-
-    def test_listing_excluded_exact_excludes_gitignore(self) -> None:
-        import app.agents.sandbox as sandbox_module
-
-        assert not hasattr(sandbox_module, "_LISTING_EXCLUDED_EXACT")
-
-    def test_listing_excluded_prefixes_excludes_git_prefix(self) -> None:
-        import app.agents.sandbox as sandbox_module
-
-        assert not hasattr(sandbox_module, "_LISTING_EXCLUDED_PREFIXES")
-
-    def test_list_files_excludes_uploads_and_logs(self, tmp_path: Path) -> None:
-        """Functional: .uploads/ and .logs/ must not appear in list_files()."""
-        from app.agents.sandbox import RunSandbox
+    def test_list_files_shows_every_reserved_subtree(self, tmp_path: Path) -> None:
+        from app.agents.sandbox import RESERVED_PATHS, RunSandbox
 
         sb = RunSandbox("testuser", "testrun", runs_root=str(tmp_path))
         sb.ensure()
-
         (sb.root / "prototype.html").write_text("<html/>", encoding="utf-8")
-        (sb.root / ".uploads").mkdir(exist_ok=True)
-        (sb.root / ".uploads" / "doc.pdf").write_bytes(b"%PDF")
-        (sb.root / ".logs").mkdir(exist_ok=True)
-        (sb.root / ".logs" / "run.jsonl").write_text("{}", encoding="utf-8")
-        (sb.root / "skills").mkdir(exist_ok=True)
-        (sb.root / "skills" / "writing.md").write_text("# skill", encoding="utf-8")
+        for entry in RESERVED_PATHS:
+            d = sb.root / entry.rstrip("/")
+            d.mkdir(parents=True, exist_ok=True)
+            (d / "f.txt").write_text("x", encoding="utf-8")
 
-        files, _ = sb.list_files()
-        paths = {f["path"] for f in files}
+        paths = {f["path"] for f in sb.list_files()[0]}
 
-        assert "prototype.html" in paths, "list_files must include regular files"
-        assert ".uploads/doc.pdf" in paths
-        assert ".logs/run.jsonl" in paths
-        assert "skills/writing.md" in paths
+        assert "prototype.html" in paths
+        for entry in RESERVED_PATHS:
+            assert f"{entry}f.txt" in paths, f"{entry} must be visible in list_files"
 
-    def test_list_files_excludes_chain_legacy(self, tmp_path: Path) -> None:
+    def test_list_files_shows_git_metadata(self, tmp_path: Path) -> None:
         from app.agents.sandbox import RunSandbox
 
-        sb = RunSandbox("testuser", "testrun_cl", runs_root=str(tmp_path))
+        sb = RunSandbox("testuser", "testrun_git", runs_root=str(tmp_path))
         sb.ensure()
-
-        (sb.root / ".chain-legacy").mkdir(exist_ok=True)
-        (sb.root / ".chain-legacy" / "old-run").mkdir(exist_ok=True)
-        (sb.root / ".chain-legacy" / "old-run" / "summary.md").write_text(
-            "old", encoding="utf-8"
+        (sb.root / ".git").mkdir(exist_ok=True)
+        (sb.root / ".git" / "HEAD").write_text(
+            "ref: refs/heads/main\n", encoding="utf-8"
         )
+        (sb.root / ".gitignore").write_text(".uploads/\n", encoding="utf-8")
 
-        files, _ = sb.list_files()
-        paths = {f["path"] for f in files}
+        paths = {f["path"] for f in sb.list_files()[0]}
 
-        assert ".chain-legacy/old-run/summary.md" in paths
+        assert ".git/HEAD" in paths
+        assert ".gitignore" in paths
 
-    def test_list_files_keeps_chain_context_agents_visible(
-        self, tmp_path: Path
+    def test_git_objects_never_crowd_run_files_out_of_the_cap(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """.chain/, .context/, .agents/ must be VISIBLE in list_files."""
+        """.git/ is walked last, so a history larger than _LIST_MAX_FILES can
+        only truncate git internals, never the run's own files."""
+        import app.agents.sandbox as sandbox_mod
         from app.agents.sandbox import RunSandbox
 
-        sb = RunSandbox("testuser", "testrun2", runs_root=str(tmp_path))
+        monkeypatch.setattr(sandbox_mod, "_LIST_MAX_FILES", 5)
+        sb = RunSandbox("testuser", "testrun_cap", runs_root=str(tmp_path))
         sb.ensure()
+        objects = sb.root / ".git" / "objects"
+        objects.mkdir(parents=True)
+        for i in range(10):
+            (objects / f"obj{i}").write_text("x", encoding="utf-8")
+        (sb.root / "build").mkdir()
+        (sb.root / "build" / "app.html").write_text("<html/>", encoding="utf-8")
+        (sb.root / "zeta.md").write_text("z", encoding="utf-8")
 
-        (sb.root / ".chain").mkdir(exist_ok=True)
-        (sb.root / ".chain" / "summary.md").write_text(
-            "schema_version: 2", encoding="utf-8"
-        )
-        (sb.root / ".context").mkdir(exist_ok=True)
-        (sb.root / ".context" / "selections.json").write_text("{}", encoding="utf-8")
-        (sb.root / ".agents").mkdir(exist_ok=True)
-        (sb.root / ".agents" / "01-build.md").write_text("# output", encoding="utf-8")
-
-        files, _ = sb.list_files()
+        files, truncated = sb.list_files()
         paths = {f["path"] for f in files}
 
-        assert ".chain/summary.md" in paths, ".chain/ must be visible in list_files"
-        assert (
-            ".context/selections.json" in paths
-        ), ".context/ must be visible in list_files"
-        assert ".agents/01-build.md" in paths, ".agents/ must be visible in list_files"
-
-
-# ---------------------------------------------------------------------------
-# 10. read_sandbox_file guard in run_files.py
-# ---------------------------------------------------------------------------
-
-
-class TestReadSandboxFileRefusesRegistry:
-    """_SANDBOX_READ_REFUSED must be derived from RESERVED_PATHS and include at
-    minimum .uploads/, .logs/, .chain-legacy/ (Requirement 18 AC 2)."""
-
-    @pytest.fixture(autouse=True)
-    def skip_without_fastapi(self) -> None:
-        pytest.importorskip("fastapi", reason="fastapi not installed")
-
-    def test_sandbox_read_refused_contains_uploads(self) -> None:
-        import app.api.run_files as run_files
-
-        assert not hasattr(run_files, "_SANDBOX_READ_REFUSED")
-
-    def test_sandbox_read_refused_contains_logs(self) -> None:
-        import app.api.run_files as run_files
-
-        assert not hasattr(run_files, "_SANDBOX_READ_REFUSED")
-
-    def test_sandbox_read_refused_contains_chain_legacy(self) -> None:
-        import app.api.run_files as run_files
-
-        assert not hasattr(run_files, "_SANDBOX_READ_REFUSED")
-
-    def test_sandbox_read_refused_is_subset_of_reserved_paths(self) -> None:
-        """_SANDBOX_READ_REFUSED must only contain entries from RESERVED_PATHS."""
-        import app.api.run_files as run_files
-
-        assert not hasattr(run_files, "_SANDBOX_READ_REFUSED")
-
-    def test_read_sandbox_file_guard_blocks_uploads_nested_path(self) -> None:
-        import app.api.run_files as run_files
-
-        assert not hasattr(run_files, "_SANDBOX_READ_REFUSED")
-
-    def test_read_sandbox_file_guard_blocks_logs_nested_path(self) -> None:
-        import app.api.run_files as run_files
-
-        assert not hasattr(run_files, "_SANDBOX_READ_REFUSED")
-
-    def test_read_sandbox_file_guard_blocks_chain_legacy_nested_path(self) -> None:
-        import app.api.run_files as run_files
-
-        assert not hasattr(run_files, "_SANDBOX_READ_REFUSED")
-
-
-# ---------------------------------------------------------------------------
-# 10b. read_sandbox_file guard — AST-based verification without fastapi import
-# ---------------------------------------------------------------------------
-
-
-class TestReadSandboxFileGuardSourceVerification:
-    """Verify run_files.py's _SANDBOX_READ_REFUSED constant without importing
-    the full module (which requires fastapi)."""
-
-    def _source(self) -> str:
-        path = BACKEND_ROOT / "app" / "api" / "run_files.py"
-        return path.read_text(encoding="utf-8")
-
-    def test_sandbox_read_refused_defined_from_reserved_paths_not_literals(
-        self,
-    ) -> None:
-        """The _SANDBOX_READ_REFUSED constant must reference RESERVED_PATHS,
-        not hard-code a literal frozenset of strings."""
-        src = self._source()
-        assert "_SANDBOX_READ_REFUSED" not in src
-
-    def test_sandbox_read_refused_contains_required_entries_in_source(self) -> None:
-        """The source must express refusal of .uploads/, .logs/, .chain-legacy/."""
-        src = self._source()
-        assert "_SANDBOX_READ_REFUSED" not in src
-        assert "def read_sandbox_file" in src
+        assert truncated
+        assert {"build/app.html", "zeta.md"} <= paths
 
 
 # ---------------------------------------------------------------------------

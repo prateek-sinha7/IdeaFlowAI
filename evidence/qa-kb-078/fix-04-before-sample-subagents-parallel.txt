@@ -1,0 +1,4 @@
+.x                                                                       [100%]
+=========================== short test summary info ============================
+XFAIL tests/agents/test_characterization_sample_subagents_parallel.py::test_sample_subagents_parallel_event_snapshot - ISS-1015 unfixed
+1 passed, 1 xfailed in 2.75s

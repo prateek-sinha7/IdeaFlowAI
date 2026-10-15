@@ -26,6 +26,7 @@ export async function exportFigmaZip(
   htmlContent: string,
   filename?: string,
   runId?: string | null,
+  ref?: string,
 ): Promise<void> {
   const stem = filename || "prototype";
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -37,8 +38,11 @@ export async function exportFigmaZip(
       const { authedFetch, getToken } = await import("@/lib/api");
       const token = getToken();
       console.log("[figmaExporter] calling backend for run:", runId);
+      // ISS-974 — rendered at this version tag; without one the server renders
+      // the live tree, which in a revision family is the NEWEST member's.
+      const query = ref ? `?ref=${encodeURIComponent(ref)}` : "";
       const res = await authedFetch(
-        `${ENV.API_URL}/api/runs/${encodeURIComponent(runId)}/figma-export`,
+        `${ENV.API_URL}/api/runs/${encodeURIComponent(runId)}/figma-export${query}`,
         { method: "POST", headers: { "Authorization": `Bearer ${token}` } },
       );
       console.log("[figmaExporter] backend status:", res.status);

@@ -5,13 +5,26 @@ bug, heading = the bug id. Answer the "Decision needed" question, then set the r
 status named under "After the decision".
 
 <!-- STATE -->
-
-| Bug | Ledger status | Updated |
-|---|---|---|
-| [QA-PS-007](#qa-ps-007) | CLOSED | 2026-09-23 |
-
-Last synced: 2026-09-23T00:48:22Z
-
+| Bug | Ledger status | Updated | Evidence |
+|---|---|---|---|
+| QA-PS-002 | CLOSED | 2026-09-17 | n/a |
+| QA-PS-009 | CLOSED | 2026-09-22 | n/a |
+| QA-PS-008 | CLOSED | 2026-09-22 | n/a |
+| QA-PS-006 | CLOSED | 2026-09-17 | n/a |
+| QA-PS-007 | CLOSED | 2026-09-23 | n/a |
+| QA-PS-021 | CLOSED | 2026-09-23 | n/a |
+| QA-PS-036 | CLOSED | 2026-09-23 | n/a |
+| QA-PS-035 | CLOSED | 2026-09-23 | n/a |
+| QA-PS-038 | CLOSED | 2026-09-23 | n/a |
+| QA-PS-041 | CLOSED | 2026-09-23 | n/a |
+| QA-PS-046 | CLOSED | 2026-09-23 | n/a |
+| QA-KB-032 | ESCALATED | 2026-10-01 | missing |
+| QA-KB-055 | CLOSED | 2026-10-09 | n/a |
+| QA-KB-112 | ANALYZED | 2026-10-12 | n/a |
+| QA-KB-114 | ESCALATED | 2026-10-09 | missing |
+| QA-KB-117 | CLOSED | 2026-10-12 | n/a |
+| QA-KB-121 | CLOSED | 2026-10-12 | n/a |
+Last synced: 2026-10-12T08:20:13Z
 <!-- /STATE -->
 
 
@@ -19,7 +32,6 @@ Last synced: 2026-09-23T00:48:22Z
 
 ## QA-PS-002
 > **Now CLOSED** (2026-09-17) — kept for the trace.
-
 
 **Title:** Notification panel shows 0 of N agents and 0% for all running pipelines · **Route:** (global) · **Stage:** 5-fixer · **Date:** 2026-09-17
 **Report:** [BUGS.md#qa-ps-002](BUGS.md#qa-ps-002) · **Cards:** [ISS-644](.knowledge/cards/20260917-0930-ISS-644.md), [ISS-648](.knowledge/cards/20260917-1100-ISS-648.md), [ISS-649](.knowledge/cards/20260917-1105-ISS-649.md), [ISS-658](.knowledge/cards/20260917-1302-ISS-658.md)
@@ -51,7 +63,6 @@ Set LEDGER.md Status to `ANALYZED` and LEDGER.md Route to the chosen option's pa
 
 ## QA-PS-009
 > **Now CLOSED** (2026-09-22) — kept for the trace.
-
 
 **Title:** Analytics model details card incorrectly shows Thinking row for Sonnet 5 · **Route:** /analytics · **Stage:** 5-fixer · **Date:** 2026-09-17
 **Report:** [BUGS.md#qa-ps-009](BUGS.md#qa-ps-009) · **Cards:** [ISS-667](.knowledge/cards/20260917-1320-ISS-667.md) (root, resolved by [FIX-524](.knowledge/cards/20260917-1639-FIX-524.md)), [ISS-668](.knowledge/cards/20260917-1325-ISS-668.md) (sibling, open, the subject of this escalation)
@@ -167,7 +178,6 @@ Record the decision on [ISS-668](.knowledge/cards/20260917-1325-ISS-668.md), the
 ## QA-PS-008
 > **Now CLOSED** (2026-09-22) — kept for the trace.
 
-
 **Title:** Version dropdown shows inflated version list and preview fails for all non-live versions · **Route:** /runs/{id} · **Stage:** 5-fixer · **Date:** 2026-09-17
 **Report:** [BUGS.md#qa-ps-008](BUGS.md#qa-ps-008) · **Cards:** [ISS-652](.knowledge/cards/20260917-1244-ISS-652.md) (root), [ISS-663](.knowledge/cards/20260917-1310-ISS-663.md), [ISS-665](.knowledge/cards/20260917-1311-ISS-665.md)
 
@@ -259,7 +269,6 @@ which the existing test checks), or both?
 ## QA-PS-006
 > **Now CLOSED** (2026-09-17) — kept for the trace.
 
-
 Backend restart confirmed FIX-520 works live; agent name now visible on review-required messages. See WONTFIX.md#qa-ps-006 for design decision context.
 
 **Title:** "Review required" messages in concierge chat show no agent name, all look identical · **Route:** /runs/{id} · **Stage:** 6-verifier · **Date:** 2026-09-17
@@ -308,7 +317,7 @@ Status back to `REOPENED` — the fix itself would be wrong, not just stale.
 ---
 
 ## QA-PS-007
-> **Now CLOSED** (2026-09-23) — resolved by user decision, kept for the trace.
+> **Now CLOSED** (2026-09-23) — kept for the trace.
 
 **Title:** PPT workflow final output file always named "presentation.html" regardless of run topic · **Route:** /runs/{id} · **Stage:** 4-test-writer · **Date:** 2026-09-17
 **Report:** [BUGS.md#qa-ps-007](BUGS.md#qa-ps-007) · **Cards:** [ISS-651](.knowledge/cards/20260917-1200-ISS-651.md) (root — wontfix), [ISS-659](.knowledge/cards/20260917-1305-ISS-659.md) (sibling: prototype pipeline shares the defect — wontfix), [ISS-660](.knowledge/cards/20260917-1305-ISS-660.md) (sibling: base-version section — wontfix), [ISS-661](.knowledge/cards/20260917-1305-ISS-661.md) (sibling: header Download duplicate — wontfix, decision resolves it)
@@ -344,7 +353,7 @@ Which behaviour is intended for the header Download button: should it always ser
 - Option a): set LEDGER.md QA-PS-007 Status to `TESTED` (no frontend test change needed for ISS-661) and dispatch 5-fixer with the backend-only route.
 - Option b): set LEDGER.md QA-PS-007 Status to `CONFIRMED` so a test-writer can add the ISS-661 test alongside the `PreviewPanel.test.tsx:269` rewrite, then re-run test → fix → verify.
 ## QA-PS-021
-> **Now FIXED** (2026-09-23) — kept for the trace.
+> **Now CLOSED** (2026-09-23) — kept for the trace.
 
 ### RE-ESCALATED 2026-09-22 (5-fixer, third dispatch) — one card FIXED, two decisions still open
 
@@ -739,7 +748,7 @@ fetch-on-open latency off the home route?
 ---
 
 ## QA-PS-035
-> **Now FIXED** (2026-09-23) — kept for the trace.
+> **Now CLOSED** (2026-09-23) — kept for the trace.
 
 **Title:** Account settings page makes redundant duplicate API calls and fetches run history and workflow data not needed on settings · **Route:** /settings/* · **Stage:** 5-fixer · **Date:** 2026-09-22
 **Report:** [BUGS.md#qa-ps-035](BUGS.md#qa-ps-035) · **Cards:** [ISS-781](.knowledge/cards/20260922-1630-ISS-781.md) (root — **half fixed**, half escalated), [ISS-801](.knowledge/cards/20260922-1834-ISS-801.md) (**resolved** by [FIX-618](.knowledge/cards/20260922-1945-FIX-618.md)), [ISS-799](.knowledge/cards/20260922-1835-ISS-799.md) (**resolved** by FIX-618)
@@ -887,7 +896,7 @@ shell's needs met some other way?
 ---
 
 ## QA-PS-038
-> **Now FIXED** (2026-09-23) — kept for the trace.
+> **Now CLOSED** (2026-09-23) — kept for the trace.
 
 **Title:** Opening a run detail page from history fires ~40-50 API requests — `runs?limit=50` called
 12+ times as durable replay events trigger live-run refetch logic · **Route:** /runs/{id} ·
@@ -1004,7 +1013,7 @@ removed so the test can stand as written?
 ---
 
 ## QA-PS-041
-> **Now FIXED** (2026-09-23) — kept for the trace.
+> **Now CLOSED** (2026-09-23) — kept for the trace.
 
 **Title:** My Workflows page calls GET /api/user-workflows four times and loads run history (37 KB)
 not displayed on this page · **Route:** /workflows · **Stage:** 5-fixer · **Date:** 2026-09-22
@@ -1126,7 +1135,7 @@ non-home routes, and the header's "N Running" badge fed some other way?
 ---
 
 ## QA-PS-046
-> **Now FIXED** (2026-09-23) — kept for the trace.
+> **Now CLOSED** (2026-09-23) — kept for the trace.
 
 **Title:** Custom workflow builder calls GET /api/capabilities four times (94 KB wasted) and loads
 run history (37 KB) not needed on the composer · **Route:** /workflows/new · **Stage:** 5-fixer ·
@@ -1252,3 +1261,143 @@ badge that no longer sees runs launched outside this tab?
 - Option b) or c): the row stays ESCALATED and is re-dispatched with QA-PS-035's answer; option b)
   goes back to `3-analyzer` for the replacement data path, since it is not expressible as an edit
   to the files ISS-832's `applies_to.globs` name.
+
+## QA-KB-032
+> **Evidence missing** — claims below are unproven.
+> **Section missing** — the worker did not write its trace.
+
+---
+
+## QA-KB-055
+> **Now CLOSED** (2026-10-09) — kept for the trace.
+
+**Title:** Another family's finished revision hijacks the run-detail screen you are viewing · **Route:**
+/runs/[id] (run detail, app/[...view]/page.tsx) · **Stage:** 5-fixer · **Date:** 2026-10-07
+**Report:** [BUGS.md#qa-kb-055](BUGS.md#qa-kb-055) · **Cards:**
+[ISS-745](.knowledge/cards/20260922-1400-ISS-745.md) (root, **resolved** by
+[FIX-752](.knowledge/cards/20261007-2214-FIX-752.md)),
+[ISS-1074](.knowledge/cards/20261007-2140-ISS-1074.md) (**resolved** by FIX-752),
+[ISS-1077](.knowledge/cards/20261007-2142-ISS-1077.md) (open, the subject of this escalation)
+
+### Why escalated
+
+The reported bug is fixed. [FIX-752](.knowledge/cards/20261007-2214-FIX-752.md) lets a foreign revision's
+completion take the screen only when the viewed run belongs to that revision's own family. The background bridge,
+the content source and the Preview slots now all follow that one decision. Two of the three assertions in
+`foreignRevisionHijack.qaKb055.source.test.ts` (ISS-745 and ISS-1074) went from red to green.
+
+The third assertion (ISS-1077) cannot pass unless the Revision Families B1 contract is overturned, and another
+test pins that contract:
+- It requires the revise handlers to stop passing `contentSourceRunId` as the `postRevision` parent.
+- `revisionFamilyLinkage.source.test.ts:28` requires exactly that call.
+
+No code satisfies both. Each fix direction ISS-1077 offers changes product behaviour (see Options). FIX-752 has also
+removed the trigger ISS-1077 relies on: the completion-time set is family-gated, and every other writer of
+`contentSourceRunId` is navigation or launch.
+
+### Evidence
+
+**1. The two assertions contradict each other.**
+`frontend/src/app/[...view]/foreignRevisionHijack.qaKb055.source.test.ts:47-49`:
+
+```ts
+  it("ISS-1077: revise/chain actions do not read the mutable contentSourceRunId as the POST parent", () => {
+    expect(layout).not.toMatch(/postRevision\(getToken\(\) \?\? "", contentSourceRunId,/);
+  });
+```
+
+`frontend/src/app/[...view]/revisionFamilyLinkage.source.test.ts:28`:
+
+```ts
+    expect(dashboardLayout).toContain('postRevision(getToken() ?? "", contentSourceRunId,');
+```
+
+Observed after FIX-752, one file at a time from `frontend/`:
+- `npx vitest --run "src/app/[...view]/foreignRevisionHijack.qaKb055.source.test.ts"` gives
+  `Tests 1 failed | 2 passed (3)`. The failure is the ISS-1077 case (`evidence/qa-kb-055/02-fix-after-qakb055-source-test.txt`).
+  Before the fix it gave `Tests 3 failed (3)` (`evidence/qa-kb-055/01-fix-baseline-before-change.txt`).
+- `revisionFamilyLinkage.source.test.ts` gives `Tests 4 passed (4)` (`evidence/qa-kb-055/03-fix-neighbour-tests-after.txt`).
+
+**2. The contract the second test pins.** `frontend/src/components/layout/DashboardLayout.tsx:134-138` (identical at
+HEAD `e93aa40ed` and in the working tree):
+
+```ts
+  // Revision Families (B1 / D1-D7): the reliable "run id that produced the
+  // on-screen content", owned by page.tsx (pipeline_complete + reopen). Every
+  // revision launch path sources parent linkage from this — replaces the fragile
+  // currentWorkflowRunId heuristic (which mis-matched on double-revision types).
+  contentSourceRunId?: string | null;
+```
+
+The assertion targets `void postRevision(getToken() ?? "", contentSourceRunId, {` at `DashboardLayout.tsx:1203`,
+`:1286`, `:1306` and `:1325`.
+
+**3. The card's own fix directions.** ISS-1077 § "Fix direction": "derive the parent for the revise/chain handlers
+from the route-parsed run id ... rather than from mutable state, or compare the two and refuse on mismatch. Adding a
+request field the server validates (an expected family root) would be an API-contract change, which is a product
+decision, not an analyzer call."
+
+**4. Why a route-derived parent conflicts with behaviour FIX-752 keeps.** FIX-752 keeps FIX-088's same-family
+advance:
+
+```ts
+          if (completingRunId && (!isForeignCompletion || sameFamily)) {
+            setContentSourceRunId(completingRunId);
+```
+
+That is `frontend/src/app/[...view]/page.tsx:1643-1644`. Nothing pushes a route on that set (ISS-745 analysis: "No
+effect reacts to it by pushing a route"). Suppose the user opens v1 and a same-family v2 then finishes. The screen
+shows v2 while the URL still names v1, so a parent taken from the URL revises v1.
+
+**5. What can still write `contentSourceRunId`.**
+`git show "HEAD:frontend/src/app/[...view]/page.tsx" | grep -n "setContentSourceRunId("` at HEAD `e93aa40ed` finds:
+- `:1630`: the completion set, now family-gated by FIX-752.
+- `:2801`: handleSwitchToLiveRun.
+- `:2940` and `:2980`: handleSelectWorkflowRun.
+- `:3528`: T7 route reopen.
+- `:3623`: T11 stream route.
+- `:4307`: null at a fresh launch.
+
+### Decision needed
+
+A completion can no longer move `contentSourceRunId` to another family. Should revise and chain keep taking their
+parent from `contentSourceRunId` (Revision Families B1)? Or should the handlers guard the parent independently, which
+changes either which run gets revised or what the user sees?
+
+### Options
+
+- **a) Keep B1 (recommended).** Retire the ISS-1077 case in `foreignRevisionHijack.qaKb055.source.test.ts`, or invert
+  it into the B1 pin, and close ISS-1077 as covered by FIX-752. Consequence: there is no defence in depth. A future
+  background writer of `contentSourceRunId` would again mis-parent a revision silently: FIX-173 recorded exactly that on
+  2026-08-04, and `create_revision` (`backend/app/api/run_commands.py:5532`) only checks the owner.
+- **b) Family-scoped guard, refuse on mismatch.** Thread the URL's run id into DashboardLayout. Revise and chain use
+  `contentSourceRunId` only when it is in the URL run's family, and otherwise refuse with a visible message.
+  `revisionFamilyLinkage.source.test.ts:28` gets updated. Consequence: a flow that never errors today gains an error
+  state. A revise clicked while the family fetch is still in flight also needs a defined behaviour.
+- **c) Route-derived parent** (the card's first direction). Consequence: after a same-family advance (URL on v1,
+  screen on v2), the new revision is parented on v1. It branches from content the user is not looking at, which
+  reverses what FIX-088 intended for that case.
+- **d) Server-validated expected family root** on `POST /api/runs/{id}/revisions`. Consequence: the API contract
+  changes (a new request field, a backend check and a client change).
+
+### What happens after the decision
+
+- Option a): `4-test-writer` retires or inverts the ISS-1077 case and ISS-1077 moves to `resolved`. The row is then
+  set to `FIXED`, and `6-verifier` runs the cards' test files. ISS-745's Test notes give a browser repro, but it costs
+  a real revision run, so it needs the owner's go.
+- Options b), c) or d): set the row to `TESTED`. `4-test-writer` rewrites the ISS-1077 case for the chosen shape, and
+  `5-fixer` implements it on top of FIX-752, which stays in the tree either way.
+
+
+## QA-KB-112
+> **Now ANALYZED** (2026-10-12) — kept for the trace.
+
+## QA-KB-114
+> **Evidence missing** — claims below are unproven.
+> **Section missing** — the worker did not write its trace.
+
+## QA-KB-117
+> **Now CLOSED** (2026-10-12) — kept for the trace.
+
+## QA-KB-121
+> **Now CLOSED** (2026-10-12) — kept for the trace.

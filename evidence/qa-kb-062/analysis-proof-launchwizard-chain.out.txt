@@ -1,0 +1,264 @@
+
+ RUN  v4.1.11 /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/frontend
+
+stdout | ../evidence/qa-kb-062/analysis-proof-launchwizard-chain.repro.test.tsx > QA-KB-062 analysis proof — LaunchWizard ambient chain.* state > R0 control: draft only, no chain keys -> draft applied, one-shot cleared
+OBSERVED R0 {"briefEditorVisible":true,"briefEditorValue":"EDITED brief (caller staged)","continuingBanner":false,"ackCheckbox":false,"continueDisabled":true,"draftKeyStillStored":false,"chainKeysLeft":[]}
+
+stdout | ../evidence/qa-kb-062/analysis-proof-launchwizard-chain.repro.test.tsx > QA-KB-062 analysis proof — LaunchWizard ambient chain.* state > R1 ISS-347 root: stale chain trio + caller-staged draft -> the draft must win (desired; RED at HEAD)
+OBSERVED R1 {"briefEditorVisible":false,"briefEditorValue":null,"continuingBanner":true,"ackCheckbox":false,"continueDisabled":true,"draftKeyStillStored":true,"chainKeysLeft":["chain.source_run_id"],"launch":{"launched":true,"draft":{"templateId":"kanban","designSystemId":"midnight","brief":"STALE chained brief","sourceRunId":"stale-run-id","gateAgentIds":[],"agentIds":["prototype-specify","prototype-plan","prototype-analyze","prototype-build","prototype-validate"]}}}
+
+ ✓ ../evidence/qa-kb-062/analysis-proof-launchwizard-chain.repro.test.tsx > QA-KB-062 analysis proof — LaunchWizard ambient chain.* state > R0 control: draft only, no chain keys -> draft applied, one-shot cleared 145ms
+ × ../evidence/qa-kb-062/analysis-proof-launchwizard-chain.repro.test.tsx > QA-KB-062 analysis proof — LaunchWizard ambient chain.* state > R1 ISS-347 root: stale chain trio + caller-staged draft -> the draft must win (desired; RED at HEAD) 98ms
+   → brief editor visible (caller wants the user to edit the brief): expected false to be true // Object.is equality
+   → editor holds the caller-staged brief: expected null to be 'EDITED brief (caller staged)' // Object.is equality
+   → no 'Continuing from your ...' banner for a non-chain open: expected true to be false // Object.is equality
+   → FIX-005 one-shot: the staged draft is consumed: expected true to be false // Object.is equality
+   → stale chain.* keys are dropped: expected [ 'chain.source_run_id' ] to deeply equal []
+   → the launched brief is the staged one: expected 'STALE chained brief' to be 'EDITED brief (caller staged)' // Object.is equality
+   → no stale source_workflow_run_id rides into the run: expected 'stale-run-id' to be undefined
+stdout | ../evidence/qa-kb-062/analysis-proof-launchwizard-chain.repro.test.tsx > QA-KB-062 analysis proof — LaunchWizard ambient chain.* state > R2 sibling A: stale chain.from + chain.source_run_id + draft, NO chain.brief -> must not arm 'chaining' (desired; RED at HEAD)
+OBSERVED R2 {"briefEditorVisible":false,"briefEditorValue":null,"continuingBanner":true,"ackCheckbox":false,"continueDisabled":true,"draftKeyStillStored":false,"chainKeysLeft":["chain.source_run_id"],"launch":{"launched":true,"draft":{"templateId":"kanban","designSystemId":"midnight","brief":"EDITED brief (caller staged)","sourceRunId":"stale-run-id","gateAgentIds":[],"agentIds":["prototype-specify","prototype-plan","prototype-analyze","prototype-build","prototype-validate"]}}}
+
+ × ../evidence/qa-kb-062/analysis-proof-launchwizard-chain.repro.test.tsx > QA-KB-062 analysis proof — LaunchWizard ambient chain.* state > R2 sibling A: stale chain.from + chain.source_run_id + draft, NO chain.brief -> must not arm 'chaining' (desired; RED at HEAD) 76ms
+   → isChaining hides the brief editor: expected false to be true // Object.is equality
+   → expected true to be false // Object.is equality
+   → stale source id must not become source_workflow_run_id: expected 'stale-run-id' to be undefined
+stdout | ../evidence/qa-kb-062/analysis-proof-launchwizard-chain.repro.test.tsx > QA-KB-062 analysis proof — LaunchWizard ambient chain.* state > R3 sibling C: stale chain.v2.source_status alone -> Continue must not be blocked with no way to acknowledge (desired; RED at HEAD)
+OBSERVED R3 {"briefEditorVisible":true,"briefEditorValue":"A perfectly normal brief","continuingBanner":false,"ackCheckbox":false,"continueDisabled":true,"draftKeyStillStored":false,"chainKeysLeft":[]}
+
+ × ../evidence/qa-kb-062/analysis-proof-launchwizard-chain.repro.test.tsx > QA-KB-062 analysis proof — LaunchWizard ambient chain.* state > R3 sibling C: stale chain.v2.source_status alone -> Continue must not be blocked with no way to acknowledge (desired; RED at HEAD) 216ms
+   → Continue disabled AND no acknowledgement checkbox rendered: expected true to be false // Object.is equality
+stdout | ../evidence/qa-kb-062/analysis-proof-launchwizard-chain.repro.test.tsx > QA-KB-062 analysis proof — LaunchWizard ambient chain.* state > R3 control: the SAME clicks without chain.v2.source_status -> Continue is enabled (isolates the key as the cause)
+OBSERVED R3-control {"briefEditorVisible":true,"briefEditorValue":"A perfectly normal brief","continuingBanner":false,"ackCheckbox":false,"continueDisabled":false,"draftKeyStillStored":false,"chainKeysLeft":[]}
+
+stdout | ../evidence/qa-kb-062/analysis-proof-launchwizard-chain.repro.test.tsx > QA-KB-062 analysis proof — LaunchWizard ambient chain.* state > R4 sibling B (characterisation): stale chain trio, NO draft (fresh open) -> what a fresh open shows today
+OBSERVED R4 {"briefEditorVisible":false,"briefEditorValue":null,"continuingBanner":true,"ackCheckbox":false,"continueDisabled":true,"draftKeyStillStored":false,"chainKeysLeft":["chain.source_run_id"]}
+
+stdout | ../evidence/qa-kb-062/analysis-proof-launchwizard-chain.repro.test.tsx > QA-KB-062 analysis proof — LaunchWizard ambient chain.* state > R6 control: a GENUINE chain (trio, no draft) still launches with the chain brief and threads the source id (must stay green after any fix)
+OBSERVED R6 {"launched":true,"draft":{"templateId":"kanban","designSystemId":"midnight","brief":"chained brief","sourceRunId":"run-42","gateAgentIds":[],"agentIds":["prototype-specify","prototype-plan","prototype-analyze","prototype-build","prototype-validate"]}}
+
+ ✓ ../evidence/qa-kb-062/analysis-proof-launchwizard-chain.repro.test.tsx > QA-KB-062 analysis proof — LaunchWizard ambient chain.* state > R3 control: the SAME clicks without chain.v2.source_status -> Continue is enabled (isolates the key as the cause) 169ms
+ ✓ ../evidence/qa-kb-062/analysis-proof-launchwizard-chain.repro.test.tsx > QA-KB-062 analysis proof — LaunchWizard ambient chain.* state > R4 sibling B (characterisation): stale chain trio, NO draft (fresh open) -> what a fresh open shows today 22ms
+stdout | ../evidence/qa-kb-062/analysis-proof-launchwizard-chain.repro.test.tsx > QA-KB-062 analysis proof — LaunchWizard ambient chain.* state > R5 cold mount: stale chain.brief + draft, agent library arrives after the first run of the restore effect
+OBSERVED R5 {"before":{"draftKeyStillStored":true,"chainBriefLeft":false},"after":{"briefEditorVisible":false,"briefEditorValue":null,"continuingBanner":true,"ackCheckbox":false,"continueDisabled":true,"draftKeyStillStored":false,"chainKeysLeft":[]},"launch":{"launched":true,"draft":{"templateId":"kanban","designSystemId":"midnight","brief":"EDITED brief (caller staged)","gateAgentIds":[],"agentIds":["prototype-specify","prototype-plan","prototype-analyze","prototype-build","prototype-validate"]}}}
+
+ ✓ ../evidence/qa-kb-062/analysis-proof-launchwizard-chain.repro.test.tsx > QA-KB-062 analysis proof — LaunchWizard ambient chain.* state > R6 control: a GENUINE chain (trio, no draft) still launches with the chain brief and threads the source id (must stay green after any fix) 42ms
+ ✓ ../evidence/qa-kb-062/analysis-proof-launchwizard-chain.repro.test.tsx > QA-KB-062 analysis proof — LaunchWizard ambient chain.* state > R5 cold mount: stale chain.brief + draft, agent library arrives after the first run of the restore effect 58ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  ../evidence/qa-kb-062/analysis-proof-launchwizard-chain.repro.test.tsx > QA-KB-062 analysis proof — LaunchWizard ambient chain.* state > R1 ISS-347 root: stale chain trio + caller-staged draft -> the draft must win (desired; RED at HEAD)
+AssertionError: brief editor visible (caller wants the user to edit the brief): expected false to be true // Object.is equality
+
+- Expected
++ Received
+
+- true
++ false
+
+ ❯ ../evidence/qa-kb-062/analysis-proof-launchwizard-chain.repro.test.tsx:177:105
+    175|     const l = await launch(user);
+    176|     console.log("OBSERVED R1 " + JSON.stringify({ ...o, launch: l }));
+    177|     expect.soft(o.briefEditorVisible, "brief editor visible (caller wa…
+       |                                                                                                         ^
+    178|     expect.soft(o.briefEditorValue, "editor holds the caller-staged br…
+    179|     expect.soft(o.continuingBanner, "no 'Continuing from your ...' ban…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/11]⎯
+
+ FAIL  ../evidence/qa-kb-062/analysis-proof-launchwizard-chain.repro.test.tsx > QA-KB-062 analysis proof — LaunchWizard ambient chain.* state > R1 ISS-347 root: stale chain trio + caller-staged draft -> the draft must win (desired; RED at HEAD)
+AssertionError: editor holds the caller-staged brief: expected null to be 'EDITED brief (caller staged)' // Object.is equality
+
+- Expected:
+"EDITED brief (caller staged)"
+
++ Received:
+null
+
+ ❯ ../evidence/qa-kb-062/analysis-proof-launchwizard-chain.repro.test.tsx:178:77
+    176|     console.log("OBSERVED R1 " + JSON.stringify({ ...o, launch: l }));
+    177|     expect.soft(o.briefEditorVisible, "brief editor visible (caller wa…
+    178|     expect.soft(o.briefEditorValue, "editor holds the caller-staged br…
+       |                                                                             ^
+    179|     expect.soft(o.continuingBanner, "no 'Continuing from your ...' ban…
+    180|     expect.soft(o.draftKeyStillStored, "FIX-005 one-shot: the staged d…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/11]⎯
+
+ FAIL  ../evidence/qa-kb-062/analysis-proof-launchwizard-chain.repro.test.tsx > QA-KB-062 analysis proof — LaunchWizard ambient chain.* state > R1 ISS-347 root: stale chain trio + caller-staged draft -> the draft must win (desired; RED at HEAD)
+AssertionError: no 'Continuing from your ...' banner for a non-chain open: expected true to be false // Object.is equality
+
+- Expected
++ Received
+
+- false
++ true
+
+ ❯ ../evidence/qa-kb-062/analysis-proof-launchwizard-chain.repro.test.tsx:179:98
+    177|     expect.soft(o.briefEditorVisible, "brief editor visible (caller wa…
+    178|     expect.soft(o.briefEditorValue, "editor holds the caller-staged br…
+    179|     expect.soft(o.continuingBanner, "no 'Continuing from your ...' ban…
+       |                                                                                                  ^
+    180|     expect.soft(o.draftKeyStillStored, "FIX-005 one-shot: the staged d…
+    181|     expect.soft(o.chainKeysLeft, "stale chain.* keys are dropped").toE…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/11]⎯
+
+ FAIL  ../evidence/qa-kb-062/analysis-proof-launchwizard-chain.repro.test.tsx > QA-KB-062 analysis proof — LaunchWizard ambient chain.* state > R1 ISS-347 root: stale chain trio + caller-staged draft -> the draft must win (desired; RED at HEAD)
+AssertionError: FIX-005 one-shot: the staged draft is consumed: expected true to be false // Object.is equality
+
+- Expected
++ Received
+
+- false
++ true
+
+ ❯ ../evidence/qa-kb-062/analysis-proof-launchwizard-chain.repro.test.tsx:180:90
+    178|     expect.soft(o.briefEditorValue, "editor holds the caller-staged br…
+    179|     expect.soft(o.continuingBanner, "no 'Continuing from your ...' ban…
+    180|     expect.soft(o.draftKeyStillStored, "FIX-005 one-shot: the staged d…
+       |                                                                                          ^
+    181|     expect.soft(o.chainKeysLeft, "stale chain.* keys are dropped").toE…
+    182|     expect.soft(l.draft?.brief, "the launched brief is the staged one"…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/11]⎯
+
+ FAIL  ../evidence/qa-kb-062/analysis-proof-launchwizard-chain.repro.test.tsx > QA-KB-062 analysis proof — LaunchWizard ambient chain.* state > R1 ISS-347 root: stale chain trio + caller-staged draft -> the draft must win (desired; RED at HEAD)
+AssertionError: stale chain.* keys are dropped: expected [ 'chain.source_run_id' ] to deeply equal []
+
+- Expected
++ Received
+
+- []
++ [
++   "chain.source_run_id",
++ ]
+
+ ❯ ../evidence/qa-kb-062/analysis-proof-launchwizard-chain.repro.test.tsx:181:68
+    179|     expect.soft(o.continuingBanner, "no 'Continuing from your ...' ban…
+    180|     expect.soft(o.draftKeyStillStored, "FIX-005 one-shot: the staged d…
+    181|     expect.soft(o.chainKeysLeft, "stale chain.* keys are dropped").toE…
+       |                                                                    ^
+    182|     expect.soft(l.draft?.brief, "the launched brief is the staged one"…
+    183|     expect.soft(l.draft?.sourceRunId, "no stale source_workflow_run_id…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/11]⎯
+
+ FAIL  ../evidence/qa-kb-062/analysis-proof-launchwizard-chain.repro.test.tsx > QA-KB-062 analysis proof — LaunchWizard ambient chain.* state > R1 ISS-347 root: stale chain trio + caller-staged draft -> the draft must win (desired; RED at HEAD)
+AssertionError: the launched brief is the staged one: expected 'STALE chained brief' to be 'EDITED brief (caller staged)' // Object.is equality
+
+Expected: "EDITED brief (caller staged)"
+Received: "STALE chained brief"
+
+ ❯ ../evidence/qa-kb-062/analysis-proof-launchwizard-chain.repro.test.tsx:182:73
+    180|     expect.soft(o.draftKeyStillStored, "FIX-005 one-shot: the staged d…
+    181|     expect.soft(o.chainKeysLeft, "stale chain.* keys are dropped").toE…
+    182|     expect.soft(l.draft?.brief, "the launched brief is the staged one"…
+       |                                                                         ^
+    183|     expect.soft(l.draft?.sourceRunId, "no stale source_workflow_run_id…
+    184|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/11]⎯
+
+ FAIL  ../evidence/qa-kb-062/analysis-proof-launchwizard-chain.repro.test.tsx > QA-KB-062 analysis proof — LaunchWizard ambient chain.* state > R1 ISS-347 root: stale chain trio + caller-staged draft -> the draft must win (desired; RED at HEAD)
+AssertionError: no stale source_workflow_run_id rides into the run: expected 'stale-run-id' to be undefined
+
+- Expected:
+undefined
+
++ Received:
+"stale-run-id"
+
+ ❯ ../evidence/qa-kb-062/analysis-proof-launchwizard-chain.repro.test.tsx:183:93
+    181|     expect.soft(o.chainKeysLeft, "stale chain.* keys are dropped").toE…
+    182|     expect.soft(l.draft?.brief, "the launched brief is the staged one"…
+    183|     expect.soft(l.draft?.sourceRunId, "no stale source_workflow_run_id…
+       |                                                                                             ^
+    184|   });
+    185|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/11]⎯
+
+ FAIL  ../evidence/qa-kb-062/analysis-proof-launchwizard-chain.repro.test.tsx > QA-KB-062 analysis proof — LaunchWizard ambient chain.* state > R2 sibling A: stale chain.from + chain.source_run_id + draft, NO chain.brief -> must not arm 'chaining' (desired; RED at HEAD)
+AssertionError: isChaining hides the brief editor: expected false to be true // Object.is equality
+
+- Expected
++ Received
+
+- true
++ false
+
+ ❯ ../evidence/qa-kb-062/analysis-proof-launchwizard-chain.repro.test.tsx:196:76
+    194|     const l = await launch(user);
+    195|     console.log("OBSERVED R2 " + JSON.stringify({ ...o, launch: l }));
+    196|     expect.soft(o.briefEditorVisible, "isChaining hides the brief edit…
+       |                                                                            ^
+    197|     expect.soft(o.continuingBanner).toBe(false);
+    198|     expect.soft(l.draft?.sourceRunId, "stale source id must not become…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/11]⎯
+
+ FAIL  ../evidence/qa-kb-062/analysis-proof-launchwizard-chain.repro.test.tsx > QA-KB-062 analysis proof — LaunchWizard ambient chain.* state > R2 sibling A: stale chain.from + chain.source_run_id + draft, NO chain.brief -> must not arm 'chaining' (desired; RED at HEAD)
+AssertionError: expected true to be false // Object.is equality
+
+- Expected
++ Received
+
+- false
++ true
+
+ ❯ ../evidence/qa-kb-062/analysis-proof-launchwizard-chain.repro.test.tsx:197:37
+    195|     console.log("OBSERVED R2 " + JSON.stringify({ ...o, launch: l }));
+    196|     expect.soft(o.briefEditorVisible, "isChaining hides the brief edit…
+    197|     expect.soft(o.continuingBanner).toBe(false);
+       |                                     ^
+    198|     expect.soft(l.draft?.sourceRunId, "stale source id must not become…
+    199|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[9/11]⎯
+
+ FAIL  ../evidence/qa-kb-062/analysis-proof-launchwizard-chain.repro.test.tsx > QA-KB-062 analysis proof — LaunchWizard ambient chain.* state > R2 sibling A: stale chain.from + chain.source_run_id + draft, NO chain.brief -> must not arm 'chaining' (desired; RED at HEAD)
+AssertionError: stale source id must not become source_workflow_run_id: expected 'stale-run-id' to be undefined
+
+- Expected:
+undefined
+
++ Received:
+"stale-run-id"
+
+ ❯ ../evidence/qa-kb-062/analysis-proof-launchwizard-chain.repro.test.tsx:198:97
+    196|     expect.soft(o.briefEditorVisible, "isChaining hides the brief edit…
+    197|     expect.soft(o.continuingBanner).toBe(false);
+    198|     expect.soft(l.draft?.sourceRunId, "stale source id must not become…
+       |                                                                                                 ^
+    199|   });
+    200|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[10/11]⎯
+
+ FAIL  ../evidence/qa-kb-062/analysis-proof-launchwizard-chain.repro.test.tsx > QA-KB-062 analysis proof — LaunchWizard ambient chain.* state > R3 sibling C: stale chain.v2.source_status alone -> Continue must not be blocked with no way to acknowledge (desired; RED at HEAD)
+AssertionError: Continue disabled AND no acknowledgement checkbox rendered: expected true to be false // Object.is equality
+
+- Expected
++ Received
+
+- false
++ true
+
+ ❯ ../evidence/qa-kb-062/analysis-proof-launchwizard-chain.repro.test.tsx:211:100
+    209|     console.log("OBSERVED R3 " + JSON.stringify(o));
+    210|     const blockedWithNoRemedy = o.continueDisabled && !o.ackCheckbox;
+    211|     expect.soft(blockedWithNoRemedy, "Continue disabled AND no acknowl…
+       |                                                                                                    ^
+    212|   });
+    213|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[11/11]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  3 failed | 5 passed (8)
+   Start at  04:55:33
+   Duration  2.51s (transform 267ms, setup 89ms, import 714ms, tests 828ms, environment 751ms)
+
+exit=1

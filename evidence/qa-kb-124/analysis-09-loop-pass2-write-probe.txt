@@ -1,0 +1,23 @@
+# QA-KB-124 re-analysis 09: the delivery contract on a loop's second pass (offline; real engine, factory and deepagents backend)
+# date: 2026-10-09   backend under test = the optA scratch copy (decision-step fix present, analysis-07-candidate-fix.diff); the repo tree was not edited
+# cmd: cd <optA>/backend && PYTHONPATH=. backend/.venv/bin/python evidence/qa-kb-124/analysis-09-loop-pass2-write-probe.py 2>/dev/null
+# scripted: greet obeys the block on every pass (write_file the same path, reply Done!); check reads the file and answers ok only if the text it READ has a joke.
+# NOT scripted: what a real model does after the refusal (read + edit_file, a new path, give up) - INFERRED, needs a live run.
+backend under test: <scratch>/optA/backend
+   check read: '1\tHello team!' -> retry
+   check read: '1\tHello team!' -> retry
+   check read: '1\tHello team!' -> retry
+   check read: '1\tHello team!' -> retry
+
+===== ex_A1_loop edges, Composer-default read+write grants, decision-step fix present
+dispatch order: ['emoji', 'greet', 'check', 'greet', 'check', 'greet', 'check', 'greet', 'check', 'done']
+   artifact_fallback: {'agent_id': 'custom-agent:emoji', 'filename': 'emoji-build-me-a-thing-for-managing-tasks.md', 'seq': 7, 'event_id': '414f4b32-9af1-484f-b7e9-e83a10e1f861'}
+   greet pass 1 write_file -> 'Updated file /greet-build-me-a-thing-for-managing-tasks.md'
+   artifact_fallback: {'agent_id': 'custom-agent:check', 'filename': 'check-build-me-a-thing-for-managing-tasks.md', 'seq': 22, 'event_id': '99af1859-d9fc-4a88-b931-9360ea90c86b'}
+   greet pass 2 write_file -> 'Cannot write to /greet-build-me-a-thing-for-managing-tasks.md because it already exists. Read and then make an edit, or write to a new path.'
+   greet pass 3 write_file -> 'Cannot write to /greet-build-me-a-thing-for-managing-tasks.md because it already exists. Read and then make an edit, or write to a new path.'
+   greet pass 4 write_file -> 'Cannot write to /greet-build-me-a-thing-for-managing-tasks.md because it already exists. Read and then make an edit, or write to a new path.'
+budget_aborted {}
+   artifact_fallback: {'agent_id': 'custom-agent:done', 'filename': 'greeting.md', 'seq': 71, 'event_id': '53580c40-7335-41c9-8d38-2fe781e2b9ae'}
+pipeline_complete {}
+file on disk after the run: greet-build-me-a-thing-for-managing-tasks.md -> 'Hello team!'

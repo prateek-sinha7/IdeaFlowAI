@@ -1,0 +1,22 @@
+REAL  KernelServices.run_fanout(requests, ctx, *, step, event_queue=Ellipsis)   (backend/agents/execution_engine/kernel_services.py:1161)
+
+fake                                                                                         FULL (wave/parallel_group)   SHORT (fanout_batch/_derive_fanout)
+backend/tests/agents/test_fanout_parent_task_id.py:30                                        TypeError                    ok   [_Runner]
+backend/tests/agents/test_wave_scheduler_cancel_row.py:40                                    TypeError                    ok   [_CancelMidWaveRunner]
+backend/tests/integration/agents/test_restart_resume_db.py:670                               ok                           ok   [_ParallelOrderFakeRunner]
+backend/tests/integration/agents/test_restart_resume_db.py:780                               ok                           ok   [_CrossStepFakeRunner]
+backend/tests/integration/agents/test_restart_resume_db.py:880                               ok                           ok   [_StaleRowFakeRunner]
+backend/tests/integration/agents/test_restart_resume_db.py:2647                              ok                           ok   [_WorkerCursorFakeRunner]
+backend/tests/unit/agents/execution_engine/test_iss685_resume_parses_task_file.py:173        TypeError                    ok   [Runner]
+backend/tests/unit/agents/test_fanout.py:320                                                 TypeError                    ok   [_StratRunner]
+backend/tests/unit/agents/test_fanout.py:563                                                 TypeError                    ok   [_Runner]
+backend/tests/unit/agents/test_fanout.py:605                                                 TypeError                    ok   [_Runner]
+backend/tests/unit/agents/test_fanout.py:712                                                 TypeError                    ok   [_StratRunner]
+backend/tests/unit/agents/test_parallel_group_strategy.py:150                                ok                           ok   [_FakeRunner]
+backend/tests/unit/agents/test_subagent_runs.py:105                                          ok                           ok   [_Runner]
+backend/tests/unit/agents/test_wave_scheduler.py:166                                         ok                           ok   [_StampFakeRunner]
+backend/tests/unit/agents/test_wave_scheduler.py:358                                         ok                           ok   [_RepairFakeRunner]
+backend/tests/unit/agents/test_wave_scheduler.py:420                                         ok                           ok   [_StillMissingRunner]
+backend/tests/unit/test_wave_custom_path.py:75                                               ok                           ok   [_Runner]
+
+17 fakes | reject the FULL call: 7 | reject the SHORT call: 0

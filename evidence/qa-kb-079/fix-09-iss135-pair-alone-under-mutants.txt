@@ -1,0 +1,9 @@
+# QA-KB-079 fix phase: ONLY the two ISS-135 tests of test_run_events_payload_seq_db.py (the six ISS-907 cases deselected = the file as it was before them), 2026-10-07 19:22
+mutant=R  2 passed, 6 deselected, 1 warning in 1.12s
+mutant=H  2 failed, 6 deselected, 1 warning in 1.03s
+mutant=A  2 passed, 6 deselected, 1 warning in 0.90s
+mutant=B  2 passed, 6 deselected, 1 warning in 0.94s
+mutant=C  2 passed, 6 deselected, 1 warning in 1.02s
+mutant=D  2 passed, 6 deselected, 1 warning in 1.02s
+mutant=E  2 passed, 6 deselected, 1 warning in 0.97s
+mutant=F  2 passed, 6 deselected, 1 warning in 0.95s

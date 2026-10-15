@@ -1,0 +1,108 @@
+# QA-KB-059 / ISS-919 - code quotes, working tree of feat/user-stories-v2 on 2026-10-02 (HEAD 024c03ef8).
+# IdeaInputPage.tsx carries uncommitted ISS-371 hunks (+37/-4 vs HEAD), so its line numbers sit ~+24..+33 above the numbers ISS-919 recorded.
+# Each line is 'path:line: <the line as read>' (produced by sed -n Np, not retyped).
+
+== 1. First roster = the library roster when the library is already loaded (lazy init)
+frontend/src/components/workflow/IdeaInputPage.tsx:1001:   const [pipelineAgents, setPipelineAgents] = useState<AgentDef[]>(() => {
+frontend/src/components/workflow/IdeaInputPage.tsx:1007:     const type = isMigrationMeta && migrationChoice ? migrationChoice : workflowType;
+frontend/src/components/workflow/IdeaInputPage.tsx:1010:     if (type === "custom") return [];
+frontend/src/components/workflow/IdeaInputPage.tsx:1011:     return LIBRARY_AGENTS.filter((a) => agentMatchesPipelineType(a.pipeline_type, type)).sort((a, b) => a.order - b.order);
+
+== 2. The fetch effect: no settled state; success path, failure path, deps
+frontend/src/components/workflow/IdeaInputPage.tsx:1138:   const [loadError, setLoadError] = useState<"not-found" | "failed" | null>(null);
+frontend/src/components/workflow/IdeaInputPage.tsx:1159:     getWorkflowDetail(jwt, workflowId)
+frontend/src/components/workflow/IdeaInputPage.tsx:1161:         if (cancelled) return;
+frontend/src/components/workflow/IdeaInputPage.tsx:1162:         setLoadError(null);
+frontend/src/components/workflow/IdeaInputPage.tsx:1189:         if (detail.has_override && detail.override_id) {
+frontend/src/components/workflow/IdeaInputPage.tsx:1191:           if (detail.is_overridden) {
+frontend/src/components/workflow/IdeaInputPage.tsx:1193:             setOverrideAgents(proj.agents);
+frontend/src/components/workflow/IdeaInputPage.tsx:1195:             setShowOverride(true);
+frontend/src/components/workflow/IdeaInputPage.tsx:1263:           setManifestAgents(
+frontend/src/components/workflow/IdeaInputPage.tsx:1329:       .catch((e) => {
+frontend/src/components/workflow/IdeaInputPage.tsx:1332:         if (!cancelled) {
+frontend/src/components/workflow/IdeaInputPage.tsx:1339:           setLoadError(isNotFoundError(e) ? "not-found" : "failed");
+frontend/src/components/workflow/IdeaInputPage.tsx:1345:   }, [workflowId]);
+
+== 3. The roster effect re-seeds pipelineAgents on every dep change, without reading prev
+frontend/src/components/workflow/IdeaInputPage.tsx:1367:   useEffect(() => {
+frontend/src/components/workflow/IdeaInputPage.tsx:1426:       const libraryIsComplete =
+frontend/src/components/workflow/IdeaInputPage.tsx:1429:       const systemRoster = libraryIsComplete ? fromLibrary : (manifestAgents ?? fromLibrary);
+frontend/src/components/workflow/IdeaInputPage.tsx:1430:       const seeded =
+frontend/src/components/workflow/IdeaInputPage.tsx:1433:           : systemRoster;
+frontend/src/components/workflow/IdeaInputPage.tsx:1434:       setPipelineAgents(seeded);
+frontend/src/components/workflow/IdeaInputPage.tsx:1437:   }, [LIBRARY_AGENTS, effectiveType, initialAgentIds, ALL_LIBRARY_AGENTS, manifestAgents, showOverride, overrideAgents]);
+
+== 4. The two save handlers read pipelineAgents at click time
+frontend/src/components/workflow/IdeaInputPage.tsx:1692:   const handleSaveWorkflow = async (name: string, description: string) => {
+frontend/src/components/workflow/IdeaInputPage.tsx:1710:       await createUserWorkflow(jwt, {
+frontend/src/components/workflow/IdeaInputPage.tsx:1713:         base_pipeline_type: effectiveType,
+frontend/src/components/workflow/IdeaInputPage.tsx:1714:         agent_ids: pipelineAgents.map((a) => a.id),
+frontend/src/components/workflow/IdeaInputPage.tsx:1773:   const handleSaveAsOverride = useCallback(async () => {
+frontend/src/components/workflow/IdeaInputPage.tsx:1776:     if (!jwt || !workflowId) { setSaveError("Not authenticated."); return; }
+frontend/src/components/workflow/IdeaInputPage.tsx:1795:         base_pipeline_type: workflowId,
+frontend/src/components/workflow/IdeaInputPage.tsx:1796:         agent_ids: pipelineAgents.map((a) => a.id),
+frontend/src/components/workflow/IdeaInputPage.tsx:1804:         overrides_pipeline_type: workflowId,
+frontend/src/components/workflow/IdeaInputPage.tsx:1870:   const handleReorderAgents = useCallback((reordered: AgentDef[]) => {
+frontend/src/components/workflow/IdeaInputPage.tsx:1871:     setPipelineAgents(reordered);
+
+== 5. The button gates: emptiness and migration only; Advanced has no gate; banner hidden when roster non-empty
+frontend/src/components/workflow/IdeaInputPage.tsx:1982:                       onClick={() => { setSaveError(null); setShowSaveModal(true); }}
+frontend/src/components/workflow/IdeaInputPage.tsx:1983:                       disabled={pipelineAgents.length === 0 || (isMigrationMeta && !migrationChoice)}
+frontend/src/components/workflow/IdeaInputPage.tsx:1995:                   {effectiveType !== "custom" && workflowId && !savedConfirm && (
+frontend/src/components/workflow/IdeaInputPage.tsx:1997:                       onClick={handleSaveAsOverride}
+frontend/src/components/workflow/IdeaInputPage.tsx:1998:                       disabled={pipelineAgents.length === 0 || (isMigrationMeta && !migrationChoice)}
+frontend/src/components/workflow/IdeaInputPage.tsx:2009:                     disabled={isSubmitting || !ideaInput.trim() || pipelineAgents.length === 0 || (isMigrationMeta && !migrationChoice)}
+frontend/src/components/workflow/IdeaInputPage.tsx:2029:             {loadError && pipelineAgents.length === 0 && !isMigrationMeta && (
+frontend/src/components/workflow/IdeaInputPage.tsx:2188:           <button
+frontend/src/components/workflow/IdeaInputPage.tsx:2189:             onClick={() => setShowAgents(true)}
+frontend/src/components/workflow/IdeaInputPage.tsx:2290:         onReorder={handleReorderAgents}
+
+== 6. The one mount of IdeaInputPage (workflowId is always workflowType)
+frontend/src/components/layout/DashboardLayout.tsx:3159:               <IdeaInputPage
+frontend/src/components/layout/DashboardLayout.tsx:3176:                 workflowId={workflowType}
+
+== 7. Server: agent_ids must be non-empty; override save UPSERTs over the real row, no version/concurrency check
+backend/app/api/user_workflows.py:214:     agent_ids: list[str] = Field(min_length=1)
+backend/app/api/user_workflows.py:807:     _ov_target = body.overrides_pipeline_type
+backend/app/api/user_workflows.py:808:     if _ov_target:
+backend/app/api/user_workflows.py:809:         if _ov_target not in SUPPORTED_PIPELINE_TYPES:
+backend/app/api/user_workflows.py:814:         prior = (
+backend/app/api/user_workflows.py:823:         if prior is not None:
+backend/app/api/user_workflows.py:826:             prior.agents = json.dumps(sorted_ids)
+backend/app/api/user_workflows.py:829:             prior.manifest_json = (
+backend/app/api/user_workflows.py:830:                 _validated_manifest(body.manifest, f"workflow:{body.name}")
+backend/app/api/user_workflows.py:840:             prior.override_enabled = True
+backend/app/api/user_workflows.py:841:             db.commit()
+
+== 8. Server: launch overlays the caller's ENABLED override on whatever roster the client sent (Run is not a loss path)
+backend/app/api/run_commands.py:3630:         # `resolve_override` returns None unless the caller saved one AND left it
+backend/app/api/run_commands.py:3647:             _ov_row = _resolve_override(_ov_db, current_user, base_pipeline_type)
+backend/app/api/run_commands.py:3653:         if _ov_steps:
+backend/app/api/run_commands.py:3666:                 _merged = merge_override_steps(
+backend/app/api/run_commands.py:3673:                     compiled = _merged
+backend/app/api/run_commands.py:3674:                     agents = get_execution_engine()._specs_from_plan(_merged.steps)
+
+== 9. AgentsPopup: Cancel re-applies the snapshot taken at the FIRST edit, through the host's onReorder
+frontend/src/components/workflow/AgentsPopup.tsx:2730:   // Staged at the FIRST edit of the session, NOT on the `isOpen` edge: both
+frontend/src/components/workflow/AgentsPopup.tsx:2732:   // already up (`IdeaInputPage.tsx`'s roster effect re-runs when the manifest
+frontend/src/components/workflow/AgentsPopup.tsx:2739:   const stageEdit = useCallback(() => {
+frontend/src/components/workflow/AgentsPopup.tsx:2740:     if (!openSnapshot.current) openSnapshot.current = { agents, selections: liveSelections };
+frontend/src/components/workflow/AgentsPopup.tsx:2770:   const handleCancel = useCallback(() => {
+frontend/src/components/workflow/AgentsPopup.tsx:2773:       onReorder?.(snapshot.agents);
+frontend/src/components/workflow/AgentsPopup.tsx:2797:         await saveUserWorkflow(token, userWorkflowId, {
+frontend/src/components/workflow/AgentsPopup.tsx:2801:           agent_ids: agents.map((a) => a.id),
+frontend/src/components/workflow/AgentsPopup.tsx:3029:               <button
+frontend/src/components/workflow/AgentsPopup.tsx:3043:                 Save workflow
+
+== 10. Senders of overrides_pipeline_type in frontend/src (non-test): exactly two
+frontend/src/components/workflow/IdeaInputPage.tsx:1804:        overrides_pipeline_type: workflowId,
+frontend/src/components/workflow/LaunchWizard.tsx:987:        overrides_pipeline_type: pipeline,
+
+== 11. Callers of getWorkflowDetail in frontend/src (non-test)
+frontend/src/app/[...view]/page.tsx:530:        const detail = await getWorkflowDetail(jwt, builtinCanvasType);
+frontend/src/components/workflow/IdeaInputPage.tsx:1159:    getWorkflowDetail(jwt, workflowId)
+frontend/src/components/workflow/IdeaInputPage.tsx:1749:          const detail = await getWorkflowDetail(token, workflowId);
+frontend/src/components/workflow/LaunchWizard.tsx:518:    getWorkflowDetail(token, pipeline)
+frontend/src/components/workflow/LaunchWizard.tsx:602:          const detail = await getWorkflowDetail(token, MODE_CONFIG[mode].agentPipeline);
+frontend/src/components/workflow/WorkflowDialog.tsx:79:    Promise.all([getWorkflowDetail(jwt, workflowId), fetchCapabilities(jwt)])
+frontend/src/components/workflow/composer/ComposerPage.tsx:610:    getWorkflowDetail(jwt, workflowId)

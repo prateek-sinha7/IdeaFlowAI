@@ -1,0 +1,65 @@
+interpreters: OLD=/usr/bin/python3 (3.9.6)  GOOD=/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/.venv/bin/python (3.13.14)
+sandbox: /var/folders/fv/36z8hwhx79zbmd06_pbk4bvm0000gp/T//qa-kb-051-sandbox.Cy4uYa
+
+== 1. converge under GOOD interpreter
+exit=0
+  INDEX.md   sha=251f4a2c390b  header: 1698 cards. 
+  state.yaml sha=44c6be8a6e09  cards_count: 1698 | last_sync_date: '2026-10-01' | last_sync_commit: 3b08b2ba8457
+  CONTEXT.md sha=ee843e1e9ea0  cards_indexed: 1698
+
+== 2. add one card, cards-only rebuild under OLD interpreter
+Rebuilding .knowledge/ (3 stages)
+
+[1/3] index  (build_index.py)
+  Related blocks: 0 card(s) updated
+  INDEX.md: updated
+    note: no git HEAD (no commits yet, or not a checkout) -- recording an empty commit in state.yaml
+  state.yaml: updated
+  INDEX.md total lines: 1716
+  cards indexed: 1699
+  by_type: {'adr': 57, 'bug': 147, 'fix': 699, 'issue': 796} sum=1699
+  description source counts: {'compact_summary': 1691, 'title': 2, 'body': 6, 'none': 0}
+  cards with no usable description: []
+  state.yaml parses OK: True
+
+[2/3] context  (build_context.py)
+  ! Traceback (most recent call last):
+  !     main()
+  !     OUT_PATH.write_text(body, encoding='utf-8', newline='\n')
+  ! TypeError: write_text() got an unexpected keyword argument 'newline'
+  FAILED (exit 1)
+
+Aborted at stage 'context'. Nothing further was run.
+exit=1
+
+== 3. state after the failed run (expect INDEX/state advanced, CONTEXT stale)
+  INDEX.md   sha=67689067e2c6  header: 1699 cards. 
+  state.yaml sha=e1e9b4f65d85  cards_count: 1699 | last_sync_date: '2026-10-01' | last_sync_commit: 3b08b2ba8457
+  CONTEXT.md sha=ee843e1e9ea0  cards_indexed: 1698
+
+== 4. sync-point stamp under OLD interpreter (watermark = last_sync_*)
+before:
+last_sync_commit: 3b08b2ba84575d405b6e97f8006f053ca6b5b30d
+last_sync_date: '2026-10-01'
+  ! TypeError: write_text() got an unexpected keyword argument 'newline'
+  FAILED (exit 1)
+Aborted at stage 'context'. Nothing further was run.
+exit=1
+after (sandbox has no HEAD so the commit is '' here; in the real repo it is HEAD's sha):
+last_sync_commit: ''
+last_sync_date: '2026-10-02'
+CONTEXT.md still: cards_indexed: 1698
+
+== 5. patch ONLY the sandbox copy (write_bytes keeps LF on every OS) and re-run under OLD interpreter
+patched sandbox copy
+[1/3] index  (build_index.py)
+[2/3] context  (build_context.py)
+[3/3] validate  (validate_links.py)
+  Resolved: 18410
+  Broken: 0
+All stages completed.
+exit=0
+  INDEX.md   sha=9704e5772777  header: 1700 cards. 
+  state.yaml sha=8bfd895ad1ad  cards_count: 1700 | last_sync_date: '2026-10-02' | last_sync_commit: ''
+  CONTEXT.md sha=044f508d7f82  cards_indexed: 1700
+  CR bytes in CONTEXT.md: 0

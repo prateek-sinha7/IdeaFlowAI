@@ -1,0 +1,111 @@
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+
+// QA-KB-082 fixer shape matrix (ISS-915 / ISS-1020). Not a repo test: copied into
+// frontend/src/app/preview-fullscreen/ for one run, then deleted.
+// Stable router identity, like Next's: a fresh object per render re-runs the page effect forever.
+const { router } = vi.hoisted(() => ({ router: { push: () => {}, replace: (() => {}) as (u: string) => void } }));
+vi.mock("next/navigation", () => ({ useRouter: () => router }));
+const replace = vi.fn();
+router.replace = replace;
+
+import PreviewFullscreenPage from "./page";
+
+function mount(raw: string | null, search = "") {
+  window.history.replaceState(null, "", "/preview-fullscreen" + search);
+  if (raw !== null) sessionStorage.setItem("__app_preview__", raw);
+  render(<PreviewFullscreenPage />);
+}
+const exited = () => waitFor(() => expect(replace).toHaveBeenCalledWith("/runs"));
+const rendered = () => screen.findByText("Explorer", {}, { timeout: 1500 });
+
+const EXIT: Record<string, unknown> = {
+  "files 'a'": { files: "a" },
+  "files ['a.ts']": { files: ["a.ts"] },
+  "path number": { files: [{ path: 1, content: "x" }] },
+  "ISS-1020 no content": { files: [{ path: "a.ts" }], projectName: "x" },
+  "ISS-1020 content number": { files: [{ path: "a.ts", content: 5 }], projectName: "x" },
+  "ext number": { files: [{ path: "a.ts", content: "x", ext: 5 }] },
+  "ext object": { files: [{ path: "a.ts", content: "x", ext: {} }] },
+  "null": null,
+  "[]": [],
+  "files []": { files: [] },
+  "files {}": { files: {} },
+  "{}": {},
+};
+
+describe("QA-KB-082 shape matrix", () => {
+  beforeEach(() => {
+    replace.mockClear();
+    sessionStorage.clear();
+    document.title = "";
+    vi.spyOn(console, "error").mockImplementation(() => {});
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it.each(Object.entries(EXIT))("exit %s", async (_n, payload) => {
+    mount(JSON.stringify(payload));
+    await exited();
+    expect(replace).toHaveBeenCalledTimes(1);
+  });
+
+  it("exit invalid JSON", async () => {
+    mount("{not json");
+    await exited();
+  });
+
+  it("exit missing key", async () => {
+    mount(null);
+    await exited();
+  });
+
+  it("quota + wrong shape shows the quota message, no redirect", async () => {
+    mount(JSON.stringify({ files: [{}] }), "?error=quota");
+    await screen.findByText("Project too large for full screen", {}, { timeout: 1500 });
+    expect(replace).not.toHaveBeenCalled();
+  });
+
+  it("complete ParsedFile payload renders", async () => {
+    mount(
+      JSON.stringify({
+        files: [{ path: "src/a.ts", name: "a.ts", ext: "ts", content: "x", language: "typescript" }],
+        projectName: "Demo",
+      }),
+    );
+    await rendered();
+    expect(replace).not.toHaveBeenCalled();
+    expect(document.title).toBe("Demo — IDE Preview");
+  });
+
+  it("ISS-298 fixture {path, content} renders and search does not throw", async () => {
+    mount(
+      JSON.stringify({
+        files: [{ path: "index.html", content: "<h1>hello</h1>" }],
+        projectName: "Iss298Project",
+      }),
+    );
+    await rendered();
+    expect(replace).not.toHaveBeenCalled();
+    expect(document.title).toBe("Iss298Project — IDE Preview");
+    fireEvent.change(screen.getByLabelText("Search files"), { target: { value: "ind" } });
+    expect(screen.getByText("Explorer")).toBeTruthy();
+    expect(screen.getAllByText("index.html").length).toBeGreaterThan(0);
+  });
+
+  it("ISS-1020 projectName {} renders with the default name", async () => {
+    mount(JSON.stringify({ files: [{ path: "a.ts", content: "x" }], projectName: {} }));
+    await rendered();
+    expect(replace).not.toHaveBeenCalled();
+    expect(screen.getByText("Project")).toBeTruthy();
+    expect(document.title).toBe("Project — IDE Preview");
+  });
+
+  it("non-string name is derived from path, search does not throw", async () => {
+    mount(JSON.stringify({ files: [{ path: "src/b.ts", content: "x", name: {} }], projectName: "P" }));
+    await rendered();
+    fireEvent.change(screen.getByLabelText("Search files"), { target: { value: "b" } });
+    expect(screen.getAllByText("b.ts").length).toBeGreaterThan(0);
+  });
+});

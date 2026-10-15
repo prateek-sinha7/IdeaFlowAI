@@ -1,0 +1,28 @@
+{
+  "scenario": "S-09-02",
+  "title": "test_clicking_a_tab_pushes_its_url[chromium-tab-security-Security-/settings/security]",
+  "steps": [
+    {
+      "n": 1,
+      "slug": "click-tab-security",
+      "gherkin": "Given I am on \"/settings/profile\"",
+      "shot": "01-click-tab-security.png",
+      "url": "http://localhost:3001/settings/profile",
+      "console": [],
+      "failed_requests": [],
+      "outcome": "passed",
+      "ms": 405
+    },
+    {
+      "n": 2,
+      "slug": "pushed-tab-security",
+      "gherkin": "When I click \"tab-security\"",
+      "shot": "02-pushed-tab-security.png",
+      "url": "http://localhost:3001/settings/security",
+      "console": [],
+      "failed_requests": [],
+      "outcome": "passed",
+      "ms": 154
+    }
+  ]
+}

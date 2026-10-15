@@ -50,7 +50,7 @@ def lock_badge(tier: str) -> str:
 # exactly what HomeLaunchGrid renders outside the Coming Soon group.
 LAUNCHABLE_TITLES = [
     "Pitch an idea (Fast)",
-    "Pitch an idea (Detailed)",
+    "Pitch an idea (Depth)",
     "Build an interactive prototype (Fast)",
     "Build an end-to-end application",
     "Generate product requirements",

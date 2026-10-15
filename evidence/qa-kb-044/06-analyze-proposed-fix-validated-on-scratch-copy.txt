@@ -1,0 +1,57 @@
+# QA-KB-044 analyze evidence 06 - the proposed fix, validated on a SCRATCH COPY of PreviewPanel (the real source was NOT edited), 2026-10-01
+# Proposed fix = scratch-amended-fix.diff (alongside): VersionView.status + versionViewFrom status:run.status + status-gated copy at the !hasContent branch.
+# Probe suite = scratch-c-amended-fix.test.tsx.txt (alongside). Same suite run twice:
+#
+# (1) against the REAL, UNPATCHED PreviewPanel.tsx -> the 6 'distinct copy' probes are RED (each reaches the pinned state first: the read-only banner is awaited), the 5 controls GREEN
+ × C1 pinned completed + output=null -> distinct copy, not the neutral 111ms
+ ✓ C2 pinned still RUNNING + output=null -> neutral stays (no false 'saved' claim) 11ms
+ × C3 pinned failed + output=null -> distinct copy 11ms
+ × C3 pinned cancelled + output=null -> distinct copy 12ms
+ × C3 pinned degraded + output=null -> distinct copy 14ms
+ × C3 pinned diverted + output=null -> distinct copy 11ms
+ × C4 pinned completed + output='' (empty string) -> distinct copy 8ms
+ ✓ C5 CONTROL pinned completed WITH output -> deliverable renders, neither copy 10ms
+ ✓ C6 CONTROL no pin, terminal, no content -> neutral stays (degraded.test:177/259, TS-Q-05, TS-R-03) 4ms
+ ✓ C7 pinned run record without a status field (partial API mock) -> neutral fallback, no crash 11ms
+ ✓ C8 version-menu path with git tags -> RefVersionPreview, neither copy 63ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 6 ⎯⎯⎯⎯⎯⎯⎯
+ Test Files  1 failed (1)
+      Tests  6 failed | 5 passed (11)
+#
+# (2) against the PATCHED scratch copy -> 11/11 GREEN
+ ✓ C1 pinned completed + output=null -> distinct copy, not the neutral 101ms
+ ✓ C2 pinned still RUNNING + output=null -> neutral stays (no false 'saved' claim) 11ms
+ ✓ C3 pinned failed + output=null -> distinct copy 9ms
+ ✓ C3 pinned cancelled + output=null -> distinct copy 8ms
+ ✓ C3 pinned degraded + output=null -> distinct copy 11ms
+ ✓ C3 pinned diverted + output=null -> distinct copy 9ms
+ ✓ C4 pinned completed + output='' (empty string) -> distinct copy 10ms
+ ✓ C5 CONTROL pinned completed WITH output -> deliverable renders, neither copy 9ms
+ ✓ C6 CONTROL no pin, terminal, no content -> neutral stays (degraded.test:177/259, TS-Q-05, TS-R-03) 4ms
+ ✓ C7 pinned run record without a status field (partial API mock) -> neutral fallback, no crash 8ms
+ ✓ C8 version-menu path with git tags -> RefVersionPreview, neither copy 57ms
+ Test Files  1 passed (1)
+      Tests  11 passed (11)
+#
+# (3) tsc --noEmit on the patched file (frontend tsconfig settings, @/* -> real src): exit 0. Negative control (status: 123 in the same file): TS2322 'Type number is not assignable to type WorkflowStatus', exit 2.
+#
+# (4) Blast radius on the EXISTING PreviewPanel unit tests - each file run on its own (real source vs patched scratch copy; identical everywhere):
+#   PreviewPanel.appBuilderSearch.test.tsx | REAL: Tests 1 failed (1) | PATCHED-COPY: Tests 1 failed (1)
+#   PreviewPanel.degraded.test.tsx | REAL: Tests 11 passed (11) | PATCHED-COPY: Tests 11 passed (11)
+#   PreviewPanel.genericDeliverable.test.tsx | REAL: Tests 13 passed (13) | PATCHED-COPY: Tests 13 passed (13)
+#   PreviewPanel.liveVersion.test.tsx | REAL: Tests 2 passed (2) | PATCHED-COPY: Tests 2 passed (2)
+#   PreviewPanel.loadingGap.test.tsx | REAL: Tests 2 passed (2) | PATCHED-COPY: Tests 2 passed (2)
+#   PreviewPanel.pdfDeliverable.test.tsx | REAL: Tests 3 passed (3) | PATCHED-COPY: Tests 3 passed (3)
+#   PreviewPanel.phantomFile.test.tsx | REAL: Tests 1 passed (1) | PATCHED-COPY: Tests 1 passed (1)
+#   PreviewPanel.pinSurvival.test.tsx | REAL: Tests 2 passed | 1 expected fail (3) | PATCHED-COPY: Tests 2 passed | 1 expected fail (3)
+#   PreviewPanel.refSurfaces.test.tsx | REAL: Tests 4 passed (4) | PATCHED-COPY: Tests 4 passed (4)
+#   PreviewPanel.revisionChip.test.tsx | REAL: Tests 2 passed (2) | PATCHED-COPY: Tests 2 passed (2)
+#   PreviewPanel.sandboxRef.test.tsx | REAL: Tests 5 passed (5) | PATCHED-COPY: Tests 5 passed (5)
+#   PreviewPanel.test.tsx | REAL: Tests 1 failed | 18 passed (19) | PATCHED-COPY: Tests 1 failed | 18 passed (19)
+#   PreviewPanel.themeRemount.test.tsx | REAL: Tests 3 passed (3) | PATCHED-COPY: Tests 3 passed (3)
+#   PreviewPanel.versionChip.test.tsx | REAL: Tests 5 failed (5) | PATCHED-COPY: Tests 5 failed (5)
+#   PreviewPanel.versionRunInput.test.tsx | REAL: Tests 2 passed (2) | PATCHED-COPY: Tests 2 passed (2)
+#   PreviewPanel.workspaceDuringRun.test.tsx | REAL: Tests 1 passed (1) | PATCHED-COPY: Tests 1 passed (1)
+#   VersionSwitch.integration.test.tsx | REAL: Tests 10 passed (10) | PATCHED-COPY: Tests 10 passed (10)
+#   (appBuilderSearch 1 failed, PreviewPanel.test.tsx 1 failed, versionChip 5 failed are red on the REAL source today, same counts after the patch; versionChip is the stale-chip scaffold, see evidence 04)
+# (5) frontend/e2e: no spec navigates a /versions/{n} pin (grep -rn 'versions/[0-9]' frontend/e2e -> no matches); TS-Q-05 / TS-R-03 assert the neutral copy on UNPINNED terminal-empty runs, which the fix leaves alone.

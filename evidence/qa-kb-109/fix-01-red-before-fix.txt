@@ -1,0 +1,41 @@
+# QA-KB-109 5-fixer, 2026-10-09 ~16:47 CEST: runs observed BEFORE any application source edit.
+# page.tsx and admin.py had no working-tree change at the time (git status --short showed nothing for either).
+# Lines below are copied from this session's tool output, ANSI codes removed. One file per invocation, offline.
+
+## baseline: the test-writer's red test
+$ (frontend/) ./node_modules/.bin/vitest run src/app/admin/admin.iss1153.test.tsx
+ Test Files  1 passed (1)
+      Tests  2 expected fail (2)
+
+## baseline: the repo's existing admin tests (the 16 the analysis names)
+$ (frontend/) ./node_modules/.bin/vitest run src/app/admin/admin.actions.test.tsx
+      Tests  7 passed (7)
+$ (frontend/) ./node_modules/.bin/vitest run src/app/admin/admin.reskin.test.tsx
+      Tests  8 passed (8)
+$ (frontend/) ./node_modules/.bin/vitest run src/app/admin/admin.escape.test.tsx
+      Tests  1 passed (1)
+
+## baseline: backend admin matrix before the ISS-1170 case was added (no psycopg/Postgres in the warnings summary)
+$ (backend/) .venv/bin/python -m pytest tests/integration/api/test_admin_authorization_matrix.py -q -p no:cacheprovider
+37 passed, 3 warnings in 14.65s
+
+## ISS-1170 sibling had no red test: case added (TestResetPasswordSelfAction), first run WITHOUT the xfail marker
+$ (backend/) .venv/bin/python -m pytest "tests/integration/api/test_admin_authorization_matrix.py::TestResetPasswordSelfAction" -q -p no:cacheprovider
+>       assert resp.status_code == 400
+E       assert 200 == 400
+tests/integration/api/test_admin_authorization_matrix.py:1019: AssertionError
+1 failed, 3 warnings in 3.89s
+# then with @pytest.mark.xfail(reason="ISS-1170 unfixed", strict=True):
+1 xfailed, 3 warnings in 3.98s
+
+## ISS-1169 sibling had no red test: admin.iss1169.test.tsx added, first run with plain `it`
+$ (frontend/) ./node_modules/.bin/vitest run src/app/admin/admin.iss1169.test.tsx
+Expected element to have text content:
+  Pro
+Received:
+  Basic
+ Test Files  1 failed (1)
+      Tests  1 failed (1)
+# then with it.fails:
+ Test Files  1 passed (1)
+      Tests  1 expected fail (1)

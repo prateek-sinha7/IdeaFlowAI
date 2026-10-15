@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from "motion/react";
 import { Bell, CheckCircle2, XCircle, Loader2, ArrowRight, Trash2, PauseCircle, X } from "lucide-react";
 import type { PipelineNotification } from "@/hooks/useNotifications";
 import { useWorkflowLabels } from "@/hooks/useWorkflowMetadata";
+import { useEscapeToClose } from "@/hooks/useEscapeToClose";
 import { Badge } from "@/components/ui/Badge";
 import { Pill } from "@/components/ui/Pill";
 import { parseRunInput } from "@/lib/runInput";
@@ -231,13 +232,9 @@ export function NotificationPanel({
     return () => document.removeEventListener("mousedown", handler);
   }, [open]);
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Escape" && open) {
-      e.stopPropagation();
-      setOpen(false);
-      bellRef.current?.focus();
-    }
-  };
+  // ISS-929: Escape closes the panel and refocuses the bell. A document listener,
+  // so it fires even when the opening click left focus on BODY (Safari/Firefox macOS).
+  useEscapeToClose(() => { setOpen(false); bellRef.current?.focus(); }, open);
 
   const handleOpen = () => {
     setOpen(v => !v);
@@ -249,7 +246,7 @@ export function NotificationPanel({
   const isEmpty = totalCount === 0;
 
   return (
-    <div className="relative" ref={panelRef} onKeyDown={handleKeyDown}>
+    <div className="relative" ref={panelRef}>
       {/* Bell button */}
       <button
         ref={bellRef}

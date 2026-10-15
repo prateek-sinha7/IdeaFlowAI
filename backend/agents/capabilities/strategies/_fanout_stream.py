@@ -7,8 +7,9 @@ optional side-channel queue instead (``fanout.py``: ``event_queue``).
 
 A strategy that wants live per-worker streaming has to consume BOTH — the
 generator and the queue — concurrently, or the queued events only surface after
-the whole fan-out finishes. ``parallel_group`` had that merge inline; the wave
-scheduler needs exactly the same thing, so it lives here once.
+the whole fan-out finishes. ``parallel_group`` uses this merge; the wave
+scheduler keeps its own copy, with wave identity stamping, in
+``_fanout_wave_stream.py``.
 
 Import purity (INV-13): nothing from ``agents.execution_engine`` or ``app.*`` —
 the kernel is reached only through the caller's ``runner`` handle.

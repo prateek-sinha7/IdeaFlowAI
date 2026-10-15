@@ -440,6 +440,8 @@ class TestRefParameterOnRoutes:
 
         sb = _sandbox(env, user.id, run_id)
         sb.ensure()
+        # ISS-1072: an EMPTY run dir is an expired workspace (404 before the ref gate).
+        (sb.root / "file.txt").write_text("content", encoding="utf-8")
 
         env["state"]["user"] = user
 

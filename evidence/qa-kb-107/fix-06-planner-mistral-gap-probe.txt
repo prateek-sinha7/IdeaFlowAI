@@ -1,0 +1,47 @@
+# QA-KB-107 fix 06: the planner's Mistral half of ISS-1134, left open by FIX-772 (filed as ISS-1143). 5-fixer, 2026-10-09, HEAD 8fb136808 + FIX-772.
+# Command: cd backend && .venv/bin/python probe_planner_mistral.py (body below). Constructors replaced by MagicMock recorders; no network, no model call.
+# Config: USE_LOCAL_OLLAMA=0, ANTHROPIC_API_KEY='', BEDROCK_INFERENCE_PROFILE_ID='', BEDROCK_MODEL_ID='', MISTRAL_API_KEY='m', no bearer token.
+
+build_model()           -> ['ChatMistralAI']
+SmartPlanner()          -> ['ChatBedrockConverse'] model kwarg: 
+SmartPlanner() model= ''
+
+# ---- probe_planner_mistral.py ----
+"""Probe: SmartPlanner vs build_model in a Mistral-only config (Bedrock unconfigured, MISTRAL_API_KEY set,
+no Anthropic key, override off). Constructors replaced by recorders; nothing is built, nothing leaves the process."""
+import os
+import sys
+from unittest.mock import MagicMock
+
+sys.path.insert(0, os.getcwd())
+os.environ["USE_LOCAL_OLLAMA"] = "0"
+import langchain_aws, langchain_mistralai, langchain_anthropic, langchain_ollama  # noqa: E401,E402
+from app.core.config import settings  # noqa: E402
+
+rec = {}
+for mod, name in ((langchain_aws, "ChatBedrockConverse"), (langchain_mistralai, "ChatMistralAI"),
+                  (langchain_anthropic, "ChatAnthropic"), (langchain_ollama, "ChatOllama")):
+    m = MagicMock(name=name)
+    setattr(mod, name, m)
+    rec[name] = m
+for k, v in (("ANTHROPIC_API_KEY", ""), ("BEDROCK_INFERENCE_PROFILE_ID", ""), ("BEDROCK_MODEL_ID", ""),
+             ("MISTRAL_API_KEY", "m"), ("AWS_BEARER_TOKEN_BEDROCK", "")):
+    setattr(settings, k, v)
+
+from app.agents.model_factory import build_model  # noqa: E402
+from agents.planner.smart_planner import SmartPlanner  # noqa: E402
+
+
+def called():
+    out = [n for n, m in rec.items() if m.called]
+    for m in rec.values():
+        m.reset_mock()
+    return out
+
+
+build_model()
+print("build_model()           ->", called())
+SmartPlanner()
+print("SmartPlanner()          ->", called(), "model kwarg:", repr(rec["ChatBedrockConverse"].call_args) if False else "")
+SmartPlanner()
+print("SmartPlanner() model=", repr(rec["ChatBedrockConverse"].call_args.kwargs.get("model")))

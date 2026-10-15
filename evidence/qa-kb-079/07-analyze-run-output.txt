@@ -1,0 +1,152 @@
+QA-KB-079 / ISS-907 -- 3-analyzer evidence, 2026-10-02 (branch feat/user-stories-v2 @ 024c03ef8 + working tree)
+Application source and tests were NOT edited. Each mutant is swapped in at runtime by 04-analyze-mutant-plugin.py.txt
+(scratch pytest plugin, lazy imports, psycopg mentions counted: 0). Scratch tests 05/06 ran from the scratchpad with the
+backend's own config: cd backend && RUNS_ROOT=<scratch>/runs PYTHONPATH=<scratch>:. .venv/bin/python -m pytest -c pyproject.toml --rootdir . <file> -p kb079_mutant
+One pytest invocation per file. Mutant key: R control (faithful copy of authz.py:613-674), H no re-stamp (the ISS-135 bug), A in-place re-stamp,
+B first-hop-only re-stamp, C exhaustion raises RuntimeError, D stamps seq-less payloads, E guard 'tail < attempt_seq' removed, F exhaustion swallowed,
+S _RunEventSink.persist bypasses the retry, T resume driver never re-stamps (engine.py:15951-15954 deleted), U execute() never re-stamps (engine.py:4208-4211 deleted).
+
+== 1. Real source, no plugin
+$ pytest tests/integration/repositories/test_run_events_payload_seq_db.py -q
+2 passed, 1 warning in 1.16s
+$ pytest tests/integration/repositories/test_run_events_db.py -q
+9 passed, 1 warning in 1.05s
+$ pytest tests/integration/api/test_rest_answers_cancel_api.py -k durable_cancel -q
+3 passed, 26 deselected, 3 warnings in 1.00s
+
+== 2. Mutant x existing-file matrix (F1 = test_run_events_payload_seq_db.py, F2 = test_run_events_db.py, F5 = test_rest_answers_cancel_api.py -k durable_cancel)
+   'KB079 ...' lines are the plugin's own counters for the run printed right below them (real_hops = retries that moved past a taken seq).
+# QA-KB-079 mutant matrix, 2026-10-02 06:41
+KB079 mutant=R append_event_calls=6 tail_probes=2 real_hops=2
+mutant=R file=F1 summary=[2 passed] failed=[] psycopg_mentions=0
+KB079 mutant=R append_event_calls=11 tail_probes=2 real_hops=2
+mutant=R file=F2 summary=[9 passed] failed=[] psycopg_mentions=0
+KB079 mutant=R append_event_calls=4 tail_probes=2 real_hops=1
+mutant=R file=F5 summary=[3 passed, 26 deselected] failed=[] psycopg_mentions=0
+KB079 mutant=H append_event_calls=6 tail_probes=2 real_hops=2
+mutant=H file=F1 summary=[2 failed] failed=[tests/integration/repositories/test_run_events_payload_seq_db.py::test_store_retry_restamps_payload_seq tests/integration/repositories/test_run_events_payload_seq_db.py::test_execute_wrapper_stored_payload_seq_matches_row ] psycopg_mentions=0
+KB079 mutant=H append_event_calls=11 tail_probes=2 real_hops=2
+mutant=H file=F2 summary=[9 passed] failed=[] psycopg_mentions=0
+KB079 mutant=H append_event_calls=4 tail_probes=2 real_hops=1
+mutant=H file=F5 summary=[3 passed, 26 deselected] failed=[] psycopg_mentions=0
+KB079 mutant=A append_event_calls=6 tail_probes=2 real_hops=2
+mutant=A file=F1 summary=[2 passed] failed=[] psycopg_mentions=0
+KB079 mutant=A append_event_calls=11 tail_probes=2 real_hops=2
+mutant=A file=F2 summary=[9 passed] failed=[] psycopg_mentions=0
+KB079 mutant=A append_event_calls=4 tail_probes=2 real_hops=1
+mutant=A file=F5 summary=[3 passed, 26 deselected] failed=[] psycopg_mentions=0
+KB079 mutant=B append_event_calls=6 tail_probes=2 real_hops=2
+mutant=B file=F1 summary=[2 passed] failed=[] psycopg_mentions=0
+KB079 mutant=B append_event_calls=11 tail_probes=2 real_hops=2
+mutant=B file=F2 summary=[9 passed] failed=[] psycopg_mentions=0
+KB079 mutant=B append_event_calls=4 tail_probes=2 real_hops=1
+mutant=B file=F5 summary=[3 passed, 26 deselected] failed=[] psycopg_mentions=0
+KB079 mutant=C append_event_calls=6 tail_probes=2 real_hops=2
+mutant=C file=F1 summary=[2 passed] failed=[] psycopg_mentions=0
+KB079 mutant=C append_event_calls=11 tail_probes=2 real_hops=2
+mutant=C file=F2 summary=[9 passed] failed=[] psycopg_mentions=0
+KB079 mutant=C append_event_calls=4 tail_probes=2 real_hops=1
+mutant=C file=F5 summary=[3 passed, 26 deselected] failed=[] psycopg_mentions=0
+KB079 mutant=D append_event_calls=6 tail_probes=2 real_hops=2
+mutant=D file=F1 summary=[2 passed] failed=[] psycopg_mentions=0
+KB079 mutant=D append_event_calls=11 tail_probes=2 real_hops=2
+mutant=D file=F2 summary=[9 passed] failed=[] psycopg_mentions=0
+KB079 mutant=D append_event_calls=4 tail_probes=2 real_hops=1
+mutant=D file=F5 summary=[3 passed, 26 deselected] failed=[] psycopg_mentions=0
+KB079 mutant=E append_event_calls=6 tail_probes=2 real_hops=2
+mutant=E file=F1 summary=[2 passed] failed=[] psycopg_mentions=0
+KB079 mutant=E append_event_calls=11 tail_probes=2 real_hops=2
+mutant=E file=F2 summary=[9 passed] failed=[] psycopg_mentions=0
+KB079 mutant=E append_event_calls=11 tail_probes=9 real_hops=9
+mutant=E file=F5 summary=[3 passed, 26 deselected] failed=[] psycopg_mentions=0
+KB079 mutant=F append_event_calls=6 tail_probes=2 real_hops=2
+mutant=F file=F1 summary=[2 passed] failed=[] psycopg_mentions=0
+KB079 mutant=F append_event_calls=11 tail_probes=2 real_hops=2
+mutant=F file=F2 summary=[9 passed] failed=[] psycopg_mentions=0
+KB079 mutant=F append_event_calls=4 tail_probes=2 real_hops=1
+mutant=F file=F5 summary=[3 passed, 26 deselected] failed=[] psycopg_mentions=0
+KB079 mutant=S append_event_calls=0 tail_probes=0 real_hops=0
+mutant=S file=F1 summary=[1 failed, 1 passed] failed=[tests/integration/repositories/test_run_events_payload_seq_db.py::test_execute_wrapper_stored_payload_seq_matches_row ] psycopg_mentions=0
+KB079 mutant=S append_event_calls=0 tail_probes=0 real_hops=0
+mutant=S file=F2 summary=[2 failed, 7 passed] failed=[tests/integration/repositories/test_run_events_db.py::test_engine_sink_survives_a_raced_seq_instead_of_losing_the_event tests/integration/repositories/test_run_events_db.py::test_execute_restamps_seq_onto_the_frame_it_yields ] psycopg_mentions=0
+KB079 mutant=S append_event_calls=0 tail_probes=0 real_hops=0
+mutant=S file=F5 summary=[3 passed, 26 deselected] failed=[] psycopg_mentions=0
+# done
+
+== 3. Where do existing tests reach a retry hop at all? (control R, counters)
+== tests/integration/repositories/test_run_events_payload_seq_db.py
+KB079 mutant=R append_event_calls=6 tail_probes=2 real_hops=2
+2 passed, 1 warning in 1.13s
+== tests/integration/repositories/test_run_events_db.py
+KB079 mutant=R append_event_calls=11 tail_probes=2 real_hops=2
+9 passed, 1 warning in 1.07s
+== tests/integration/agents/test_resume_ws_bridge_db.py
+KB079 mutant=R append_event_calls=117 tail_probes=1 real_hops=0
+1 failed, 3 passed, 3 warnings in 4.12s
+== tests/integration/agents/test_cancel_stops_resumed_run_db.py
+KB079 mutant=R append_event_calls=2 tail_probes=0 real_hops=0
+1 failed, 4 passed, 3 warnings in 3.49s
+== tests/integration/agents/test_resume_marker_workspace_db.py
+KB079 mutant=R append_event_calls=66 tail_probes=1 real_hops=0
+5 passed, 2 warnings in 2.56s
+== tests/agents/test_resume_marker_seq_allocation.py
+KB079 mutant=R append_event_calls=1 tail_probes=0 real_hops=0
+1 passed, 2 warnings in 0.85s
+== tests/integration/agents/test_restart_resume_db.py
+KB079 mutant=R append_event_calls=544 tail_probes=0 real_hops=0
+6 failed, 77 passed, 17 warnings in 20.16s
+   (the 6 failures there, the 1 in test_resume_ws_bridge_db.py and the 1 in test_cancel_stops_resumed_run_db.py also fail WITHOUT the plugin: pre-existing, unrelated)
+
+== 4. Consumer-side mutants T and U against the execute() and resume tests (failing SETS, compared with control R)
+mutant=R file=test_run_events_payload_seq_db.py [2 passed, 1 warning in 1.19s] failed=[]
+mutant=R file=test_run_events_db.py [9 passed, 1 warning in 1.05s] failed=[]
+mutant=R file=test_resume_ws_bridge_db.py [1 failed, 3 passed, 3 warnings in 4.11s] failed=[test_engine_module_does_not_import_app_api ]
+mutant=R file=test_cancel_stops_resumed_run_db.py [1 failed, 4 passed, 3 warnings in 3.54s] failed=[test_cancel_stops_a_resumed_drive_and_writes_the_terminal_row ]
+mutant=R file=test_resume_marker_workspace_db.py [5 passed, 2 warnings in 2.53s] failed=[]
+mutant=R file=test_restart_resume_db.py [6 failed, 77 passed, 17 warnings in 20.35s] failed=[test_apply_terminal_output_columns_captures_per_agent_model_id test_apply_terminal_output_columns_populates_all_columns test_failed_run_resumes_skips_completed_tasks test_midwave_resume_does_not_reinvoke_completed_workers test_resume_dispatch_carries_rehydrated_planning_context test_user_resume_persists_output_columns ]
+mutant=R file=test_resume_marker_seq_allocation.py [1 passed, 2 warnings in 1.13s] failed=[]
+mutant=T file=test_run_events_payload_seq_db.py [2 passed, 1 warning in 0.97s] failed=[]
+mutant=T file=test_run_events_db.py [9 passed, 1 warning in 1.06s] failed=[]
+mutant=T file=test_resume_ws_bridge_db.py [1 failed, 3 passed, 3 warnings in 4.11s] failed=[test_engine_module_does_not_import_app_api ]
+mutant=T file=test_cancel_stops_resumed_run_db.py [1 failed, 4 passed, 3 warnings in 3.50s] failed=[test_cancel_stops_a_resumed_drive_and_writes_the_terminal_row ]
+mutant=T file=test_resume_marker_workspace_db.py [5 passed, 2 warnings in 2.58s] failed=[]
+mutant=T file=test_restart_resume_db.py [6 failed, 77 passed, 17 warnings in 20.10s] failed=[test_apply_terminal_output_columns_captures_per_agent_model_id test_apply_terminal_output_columns_populates_all_columns test_failed_run_resumes_skips_completed_tasks test_midwave_resume_does_not_reinvoke_completed_workers test_resume_dispatch_carries_rehydrated_planning_context test_user_resume_persists_output_columns ]
+mutant=T file=test_resume_marker_seq_allocation.py [1 passed, 2 warnings in 1.03s] failed=[]
+mutant=U file=test_run_events_payload_seq_db.py [2 passed, 1 warning in 0.95s] failed=[]
+mutant=U file=test_run_events_db.py [1 failed, 8 passed, 1 warning in 1.25s] failed=[test_execute_restamps_seq_onto_the_frame_it_yields ]
+mutant=U file=test_resume_ws_bridge_db.py [1 failed, 3 passed, 3 warnings in 4.18s] failed=[test_engine_module_does_not_import_app_api ]
+mutant=U file=test_cancel_stops_resumed_run_db.py [1 failed, 4 passed, 3 warnings in 3.47s] failed=[test_cancel_stops_a_resumed_drive_and_writes_the_terminal_row ]
+mutant=U file=test_resume_marker_workspace_db.py [5 passed, 2 warnings in 2.56s] failed=[]
+mutant=U file=test_restart_resume_db.py [6 failed, 77 passed, 17 warnings in 20.62s] failed=[test_apply_terminal_output_columns_captures_per_agent_model_id test_apply_terminal_output_columns_populates_all_columns test_failed_run_resumes_skips_completed_tasks test_midwave_resume_does_not_reinvoke_completed_workers test_resume_dispatch_carries_rehydrated_planning_context test_user_resume_persists_output_columns ]
+mutant=U file=test_resume_marker_seq_allocation.py [1 passed, 2 warnings in 1.04s] failed=[]
+
+== 5. Proposed store-level cases (05-analyze-proposed-cases-store-level.py.txt) against the real source and each mutant
+real source, no plugin: 6 passed
+mutant=R [6 passed] killed_by=[] psycopg=0
+mutant=H [2 failed, 4 passed] killed_by=[test_retry_restamps_a_copy_and_leaves_the_callers_dict_alone test_two_hop_retry_restamps_the_final_landed_seq ] psycopg=0
+mutant=A [3 failed, 3 passed] killed_by=[test_retry_restamps_a_copy_and_leaves_the_callers_dict_alone test_exhaustion_raises_the_dbs_own_rejection_and_keeps_the_callers_seq test_sink_degrades_on_exhaustion_and_the_live_frame_keeps_its_seq ] psycopg=0
+mutant=B [1 failed, 5 passed] killed_by=[test_two_hop_retry_restamps_the_final_landed_seq ] psycopg=0
+mutant=C [2 failed, 4 passed] killed_by=[test_exhaustion_raises_the_dbs_own_rejection_and_keeps_the_callers_seq test_sink_degrades_on_exhaustion_and_the_live_frame_keeps_its_seq ] psycopg=0
+mutant=D [1 failed, 5 passed] killed_by=[test_payload_without_a_seq_key_is_stored_untouched_on_a_retry ] psycopg=0
+mutant=E [1 failed, 5 passed] killed_by=[test_a_rejection_no_tail_explains_is_not_retried ] psycopg=0
+mutant=F [2 failed, 4 passed] killed_by=[test_exhaustion_raises_the_dbs_own_rejection_and_keeps_the_callers_seq test_sink_degrades_on_exhaustion_and_the_live_frame_keeps_its_seq ] psycopg=0
+
+== 6. Proposed resume-driver twin (06-analyze-proposed-case-resume-driver-twin.py.txt)
+real source, no plugin: 1 passed
+mutant=R [1 passed] 
+mutant=H [1 failed] E   AssertionError: pipeline_cancelled 
+mutant=A [1 passed] 
+mutant=T [1 failed] E   AssertionError: pipeline_cancelled 
+mutant=U [1 passed] 
+
+== 7. Exact assertion text for the exhaustion case through the sink (rows 1-10 exist, lagging tail probe, all 8 attempts spent)
+mutant A: AssertionError: assert {'seq': 9} == {'seq': 1}   (the live frame moved to seq 9, which row 9 of ANOTHER event owns)
+mutant C: RuntimeError: exhausted                            (escapes _RunEventSink.persist: it absorbs only SQLAlchemyError, engine.py:3341-3342)
+mutant F: assert 9 is None                                   (persist reports a landed seq for a row that was never written)
+
+== 8. Mutant P (copy re-stamp placed BEFORE the `tail < attempt_seq` guard, FIX-692 constraint 2 "placement" clause)
+mutant P vs 05 proposed store-level cases:                                   6 passed
+mutant P vs tests/integration/repositories/test_run_events_payload_seq_db.py: 2 passed
+mutant P vs tests/integration/repositories/test_run_events_db.py:             9 passed
+=> EQUIVALENT mutant. The re-stamp is on a copy, and a raise discards the copy, so no black-box test can see the placement. What a test CAN pin is the
+   guard itself (mutant E, case `test_a_rejection_no_tail_explains_is_not_retried`). Do not ask for a test that kills P.

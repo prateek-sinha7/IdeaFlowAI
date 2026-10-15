@@ -1,0 +1,39 @@
+# QA-KB-044 analyze evidence 04 - the existing it.fails test is VACUOUS (2026-10-01, analyzer)
+# (a) The stated repro command, run as-is (exit code recorded):
+$ cd frontend && npx vitest --run --coverage=false src/components/preview/PreviewPanel.olderVersionNullOutput.test.tsx
+⎯⎯⎯⎯⎯⎯ Unhandled Errors ⎯⎯⎯⎯⎯⎯
+⎯⎯⎯⎯ Unhandled Rejection ⎯⎯⎯⎯⎯
+Error: [vitest] No "getRunSandboxRefs" export is defined on the "@/lib/api" mock. Did you forget to return it from "vi.mock"?
+ ❯ src/components/preview/RunHeader.tsx:308:43
+ Test Files  1 passed (1)
+      Tests  1 expected fail (1)
+     Errors  1 error
+exit=1   (non-zero even though the it.fails 'passes': the stale @/lib/api mock lacks getRunSandboxRefs -> unhandled rejection from RunHeader.tsx:308)
+
+# (b) The SAME test body with it.fails -> it (what the agreed 'drop it.fails to it' step would leave), scratch copy at
+#     scratchpad/qa-kb-044/a-verbatim-body.scratch.test.tsx (only the relative vi.mock paths were made absolute):
+ RUN  v4.1.11 /private/tmp/claude-502/-Users-bilala-Developer-Projects-VELOCITY-AI-worktrees-feat-user-stories-v2/2d1a1575-310a-48fd-8155-2763a084604d/scratchpad/qa-kb-044
+ ❯ a-verbatim-body.scratch.test.tsx (1 test | 1 failed) 105ms
+     × A. existing test body (it.fails -> it) 103ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+ FAIL  a-verbatim-body.scratch.test.tsx > A - verbatim body of the existing it.fails test, run as plain it > A. existing test body (it.fails -> it)
+TestingLibraryElementError: Unable to find a label with the text of: /Version v2/
+ ❯ Object.getElementError ../../../../../../../Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/frontend/node_modules/@testing-library/dom/dist/config.js:37:19
+ ❯ getAllByLabelText ../../../../../../../Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/frontend/node_modules/@testing-library/dom/dist/queries/label-text.js:111:38
+ ❯ ../../../../../../../Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/frontend/node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+ ❯ ../../../../../../../Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/frontend/node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+ ❯ a-verbatim-body.scratch.test.tsx:46:28
+     44|     mockGetWorkflow.mockImplementation((_t, id) => Promise.resolve({ i…
+
+# (c) The scaffold the test was cloned from (PreviewPanel.versionChip.test.tsx) fails 5/5 for the same reason today:
+     × a11y: chip carries aria-haspopup/aria-expanded; the dropdown is a listbox with aria-selected options 6ms
+     × chip tick: when the family grows the chip label increments v2 → v3 10ms
+     × chip visibility: present as v{N} for a ≥2-member family; absent when no family 59ms
+     × dropdown + read-only load: selecting an older version fetches it via getWorkflow and shows the read-only banner; Back to latest restores live 7ms
+     × keyboard nav: opening focuses the listbox, ArrowUp moves focus, Enter loads a version, Escape closes + returns focus to the chip 8ms
+      Tests  5 failed (5)
+TestingLibraryElementError: Unable to find a label with the text of: /Version v2, choose version/
+TestingLibraryElementError: Unable to find a label with the text of: /Version v3, choose version/
+
+# (d) Why: no element carries aria-label /Version v2/. RunHeader.tsx:420-424 renders a plain <span> chip when the run has no git tags, and VersionMenu (RunHeader.tsx:98-110, no aria-label) only when hasTags (RunHeader.tsx:426).
+# Note PreviewPanel.pinSurvival.test.tsx:17-22 already records: versionChip.test.tsx 'tests a pre-task-U1 chip UI (aria-label="Version vN, choose version") that no longer exists in RunHeader.tsx'.

@@ -25,6 +25,7 @@ import { Pill } from "@/components/ui/Pill";
 import { Tabs } from "@/components/ui/Tabs";
 import { CapacityMatrix } from "@/components/admin/CapacityMatrix";
 import { useCapacityMatrix } from "@/hooks/useCapacityMatrix";
+import { useEscapeToClose } from "@/hooks/useEscapeToClose";
 
 const TIER_ORDER: Tier[] = ["basic", "pro", "enterprise", "hexaware"];
 
@@ -54,10 +55,11 @@ function TierBadge({ tier }: { tier: string }) {
   );
 }
 
-function TierDropdown({ userId, currentTier, onUpdate }: {
+function TierDropdown({ userId, currentTier, onUpdate, disabled = false }: {
   userId: string;
   currentTier: string;
   onUpdate: (userId: string, tier: string) => Promise<void>;
+  disabled?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -65,6 +67,9 @@ function TierDropdown({ userId, currentTier, onUpdate }: {
 
   // Sync if parent updates
   useEffect(() => { setLocalTier(currentTier); }, [currentTier]);
+  // ISS-930: Escape closes wherever focus is (a wrapper onKeyDown missed BODY).
+  // Gated on open: one TierDropdown per users-table row.
+  useEscapeToClose(() => setOpen(false), open);
 
   const handleSelect = async (tier: string) => {
     if (tier === localTier) { setOpen(false); return; }
@@ -82,11 +87,11 @@ function TierDropdown({ userId, currentTier, onUpdate }: {
   return (
     <div
       className="relative inline-block"
-      onKeyDown={(e) => { if (e.key === "Escape" && open) { e.stopPropagation(); setOpen(false); } }}
     >
       <button
         onClick={() => setOpen(!open)}
-        disabled={loading}
+        disabled={loading || disabled}
+        title={disabled ? "You cannot change your own plan" : undefined}
         aria-haspopup="menu"
         aria-expanded={open}
         className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-[var(--radius-button)] border border-line-control bg-surface-white hover:bg-surface-warm transition-colors text-[11px] font-medium text-ink-700 disabled:opacity-50"
@@ -127,6 +132,9 @@ function TierDropdown({ userId, currentTier, onUpdate }: {
 
 export default function AdminPage() {
   const router = useRouter();
+  // ISS-1153: the signed-in admin's id, so the own row can drop the controls
+  // the server refuses for self (b2a621f84 removed this with its role guard).
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -218,6 +226,7 @@ export default function AdminPage() {
     // back through login (they ARE authenticated, just not authorized here).
     getMe(token).then(user => {
       if (!user.is_admin) { router.replace(routes.dashboard()); return; }
+      setCurrentUserId(user.id);
       loadUsers(token);
     }).catch((err: unknown) => {
       // FR-015: on a 401 getMe() has ALREADY gone through lib/api.ts's shared
@@ -242,6 +251,7 @@ export default function AdminPage() {
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Failed to update tier";
       showToast("error", msg);
+      throw err; // ISS-1169: TierDropdown's catch reverts its optimistic badge
     }
   };
 
@@ -508,6 +518,7 @@ export default function AdminPage() {
               <tbody>
                 {filtered.map((user, i) => {
                   const isDisabled = user.status === "disabled";
+                  const isSelf = user.id === currentUserId;
                   return (
                   <motion.tr
                     key={user.id}
@@ -538,6 +549,7 @@ export default function AdminPage() {
                         userId={user.id}
                         currentTier={user.tier}
                         onUpdate={handleUpdateTier}
+                        disabled={isSelf}
                       />
                     </td>
                     <td className="px-4 py-3.5 text-center">
@@ -546,10 +558,16 @@ export default function AdminPage() {
                     <td className="px-4 py-3.5 text-center">
                       <button
                         onClick={() => handleUpdateRole(user.id, !user.is_admin)}
-                        disabled={rolePending.includes(user.id)}
+                        disabled={rolePending.includes(user.id) || (isSelf && user.is_admin)}
                         aria-label={user.is_admin ? `Remove admin access from ${user.email}` : `Grant admin access to ${user.email}`}
-                        className="inline-flex items-center"
-                        title={user.is_admin ? "Click to remove admin access" : "Click to grant admin access"}
+                        className="inline-flex items-center disabled:cursor-not-allowed disabled:opacity-60"
+                        title={
+                          isSelf && user.is_admin
+                            ? "You cannot remove your own admin access"
+                            : user.is_admin
+                              ? "Click to remove admin access"
+                              : "Click to grant admin access"
+                        }
                       >
                         {user.is_admin ? (
                           <Pill className="!bg-brand-fill !border-brand-border !text-brand text-[9px] font-bold uppercase px-1.5 py-0.5">
@@ -577,7 +595,7 @@ export default function AdminPage() {
                       </span>
                     </td>
                     <td className="px-5 py-3.5 text-right">
-                      <div className="flex items-center justify-end gap-1">
+                      {!isSelf && <div className="flex items-center justify-end gap-1">
                         <button
                           onClick={() => handleResetPassword(user.id)}
                           aria-label={`Reset password for ${user.email}`}
@@ -613,7 +631,7 @@ export default function AdminPage() {
                         >
                           <Trash2 className="h-3.5 w-3.5" />
                         </button>
-                      </div>
+                      </div>}
                     </td>
                   </motion.tr>
                   );

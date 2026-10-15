@@ -1,0 +1,22 @@
+# QA-KB-124 analysis-03: offline reproduction output (real engine + factory, scripted model, no DB/network)
+# date: 2026-10-09  tree: feat/stale-bug-fixes @ 9da59389b (+ uncommitted work of other sessions; none touch this path)
+# cmd: cd backend && PYTHONPATH=. /Users/bilala/Developer/Projects/VELOCITY-AI/venv/bin/python ../evidence/qa-kb-124/analysis-03-offline-repro.py   (harness noise lines removed)
+# note: scenario 1 prints the check input once per pass (retry loop: 2 passes); published_status is not printed - the DB-less harness always finalizes as degraded
+===== scenario 1: BUILT-IN plan (tool-free steps, greeting pasted)
+check.context_message  : '\n--- Output from Greet (A user-defined workflow agent) ---\nHello team!'
+check 'How to deliver' : False
+check system_prompt end: 'greeting does not contain a joke, respond with exactly:\n{"decision": "retry"}\n\n\nEarlier steps produced:\n- Greet → greet-build-me-a-thing-for-managing-tasks.md\nRead the files you need before you start.'
+check.context_message  : '\n--- Output from Greet (A user-defined workflow agent) ---\nHello team!'
+check 'How to deliver' : False
+check system_prompt end: 'greeting does not contain a joke, respond with exactly:\n{"decision": "retry"}\n\n\nEarlier steps produced:\n- Greet → greet-build-me-a-thing-for-managing-tasks.md\nRead the files you need before you start.'
+pipeline_complete {}
+===== scenario 2: admin's SAVED OVERRIDE (read/write granted, consumes/produces dropped)
+check.context_message  : ''
+check 'How to deliver' : True
+check system_prompt end: '-tasks.md\nRead the files you need before you start.\n\n## How to deliver\n\nCall `write_file` with path `check-build-me-a-thing-for-managing-tasks.md`. Its content is your answer — never this instruction.'
+  tool_call read_file {"file_path": "/greet-build-me-a-thing-for-managing-tasks.md"}
+  tool_result read_file "     1\tHello team!"
+  tool_call write_file {"file_path": "/check-build-me-a-thing-for-managing-tasks.md", "content": "{\"decision\": \"retry\"}"}
+  tool_result write_file "Updated file /check-build-me-a-thing-for-managing-tasks.md"
+gate_blocked {"step": "custom-agent:check", "gate": "conditional", "reason": "no matching route outcome and no default_next"}
+pipeline_failed {"error": "Check's conditional gate had nowhere to route: no matching outcome and no default_next."}

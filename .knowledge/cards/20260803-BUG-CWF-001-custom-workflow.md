@@ -4,7 +4,7 @@ type: bug
 kind: event
 title: CWF-001 — Consumer-before-producer order runs unsatisfiable at runtime; no
   compose-time guard; failed run shows `completed`
-status: open
+status: resolved
 applies_to:
   phases:
   - '44'
@@ -26,7 +26,7 @@ verification:
   test_files:
   - test_workflow_resolver.py
 compact_summary: 'Composer let a consumer be ordered before its producer while execution ran topo order, so the resulting failure mislabeled itself completed; fixed with a producer-first presort.'
-last_updated: '2026-08-14'
+last_updated: 2026-10-02
 author: 'unknown'
 author_source: 'unknown'
 recorded_by: 'Bilal Arshad <bilala@hexaware.com>'
@@ -48,3 +48,13 @@ recorded_by: 'Bilal Arshad <bilala@hexaware.com>'
   - **D2 (mandatory):** in `_drive_launch_to_queue` treat a terminal non-recoverable `error` (`code=="workflow_unsatisfiable"` / `recoverable is False`) as failure → `wr.status="failed"` + `wr.error` instead of the `completed` else (`run_commands.py:1358-1442`). Single file; no WS twin (websocket.py deleted Phase 44).
   - **D1 (primary):** add order-independent produces/consumes validation at save + launch (reuse resolver graph logic on the composed `AgentSpec`s) and **topologically pre-sort `agent_ids` producer-first** before mint; reject a genuinely-unsatisfiable set pre-mint with a clear message; surface edges/auto-order in `ComposerPage.tsx`. Candidate (b) preferred over making the resolver order-independent (candidate a) — (a) changes the multi-producer tie-break (`resolver.py:134-138`) and risks the 5 characterization goldens + `test_workflow_resolver.py`. SC-001-safe (no workflow-name literal).
 - **Verification:** repro deterministic (consumer before producer → DAG error, status completed). Fail-before/pass-after per D1/D2 above.
+
+## Resolution
+
+Verified fixed in the current code on 2026-10-02 (feat/user-stories-v2, uncommitted tree after the QA-KB-001..046 line) by static review: a triage pass and an independent adversarial re-check both agreed. No tests were run for this closure.
+
+**Triage:** Both defects (D1 order-dependent satisfiability with no guard, D2 failed run labelled completed) are fixed in the current code, matching the card's own FIXED banner.
+
+**Evidence (re-check):** D2: run_commands.py:4319/4327 track error/pipeline_failed; :4374-4385 completed only on clean terminal, else failed. D1: resolver.py:226 presort (order-independent, validate unchanged); run_commands.py:3550-3572 presorts custom agent_ids, 422 workflow_unsatisfiable pre-mint; user_workflows.py:759-780 presort at save; ComposerPage.tsx:944 handles it. Tests: test_workflow_resolver.py:305+ presort tests, plus launch/save API tests.
+
+**Left over (outside this card's claims):** Card frontmatter still says status: open (and verification.status: required) despite FIXED banner; closing needs that update. Save-time presort skips manifest-backed (canvas) saves (user_workflows.py:~775 `if body.manifest is None`); out of the card's agent_ids scope. D2 live proof was never done (offline only). I did not run the tests.

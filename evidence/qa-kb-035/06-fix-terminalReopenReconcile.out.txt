@@ -1,0 +1,14 @@
+ ✓ src/app/[...view]/terminalReopenReconcile.source.test.ts > ISS-126 reopen reconciles a terminal run (source-lock) > imports the shared terminal reducer rather than re-deriving markers inline 1ms
+ × src/app/[...view]/terminalReopenReconcile.source.test.ts > ISS-126 reopen reconciles a terminal run (source-lock) > gates the reconciliation on the EXISTING REOPEN_TERMINAL_STATUSES set 9ms
+ × src/app/[...view]/terminalReopenReconcile.source.test.ts > ISS-126 reopen reconciles a terminal run (source-lock) > reconciles BOTH containers — the store AND the legacy reducer state 5ms
+ ✓ src/app/[...view]/terminalReopenReconcile.source.test.ts > ISS-126 reopen reconciles a terminal run (source-lock) > clears the lingering clarify panel — the one branch not gated on isRunning 0ms
+ ✓ src/app/[...view]/terminalReopenReconcile.source.test.ts > ISS-126 reopen reconciles a terminal run (source-lock) > does NOT clear reviewGateData — that would erase the historical gate card 0ms
+ × src/app/[...view]/terminalReopenReconcile.source.test.ts > ISS-126 reopen reconciles a terminal run (source-lock) > writes to the run STORE — the state the UI actually reads 0ms
+ × src/app/[...view]/terminalReopenReconcile.source.test.ts > ISS-126 reopen reconciles a terminal run (source-lock) > runs AFTER the durable replay loop, never before it 0ms
+ × src/app/[...view]/terminalReopenReconcile.source.test.ts > ISS-126 reopen reconciles a terminal run (source-lock) > stays inside the reopen handler, after the durable fetch 0ms
+ ✓ src/app/[...view]/terminalReopenReconcile.source.test.ts > ISS-126 reopen reconciles a terminal run (source-lock) > deleted the formerly-unreachable pipeline_cancelled/pipeline_failed switch arm (ISS-139) 1ms
+ ✓ src/app/[...view]/terminalReopenReconcile.source.test.ts > page.tsx pipelineTypes includes hook_run (ISS-870) > lists hook_run 0ms
+"applyTerminalStatus(prev, fullRun.status)" HEAD 024c03ef8 indexOf: -1  worktree indexOf: -1
+"reconcileTerminalStatus(fullRun.status);" HEAD 024c03ef8 indexOf: -1  worktree indexOf: -1
+              reconcileTerminalStatus(fullRun.status, undefined, fullRun.tokenUsage);
+                applyTerminalStatus(prev, fullRun.status, undefined, fullRun.tokenUsage),

@@ -1,0 +1,3 @@
+src/hooks/useRunChat.chatTimestamp.test.ts ::       Tests  3 passed (3)
+src/components/chat/ResultCard.test.tsx ::       Tests  16 passed (16)
+src/providers/RunConnectionProvider.test.tsx ::       Tests  18 passed (18)

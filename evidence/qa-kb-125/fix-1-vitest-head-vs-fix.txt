@@ -1,0 +1,52 @@
+### QA-KB-125 fix: vitest, pre-fix HEAD 01777a107 (git archive export + the two test files + lib/agentHtml.ts copied in) vs the working tree with the fix, 2026-10-09T14:26:04Z
+
+=== PRE-FIX HEAD: src/components/preview/PrototypePreview.sandbox.test.tsx
+ Test Files  1 passed (1)
+      Tests  2 expected fail (2)
+
+=== WITH FIX: src/components/preview/PrototypePreview.sandbox.test.tsx
+     × frames agent HTML via srcdoc with sandbox exactly allow-scripts 55ms
+     × Open in new tab does not hand the raw agent HTML to a top-level tab 17ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+Error: Expect test to fail
+ Test Files  1 failed (1)
+      Tests  2 failed (2)
+
+=== PRE-FIX HEAD: src/lib/agentHtml.test.ts
+     × no frame gets allow-same-origin 4ms
+     × no blob URL is opened in a new tab outside openAgentHtmlInNewTab 2ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+- Expected
++ Received
+- []
++ [
++   "components/preview/PPTPreview.tsx",
++   "components/preview/PrototypePreview.tsx",
++ ]
+- Expected
++ Received
+- []
++ [
++   [
++     "components/history/WorkflowHistory.tsx",
++     1,
++   ],
++   [
++     "components/preview/PPTPreview.tsx",
++     1,
++   ],
++   [
++     "components/preview/PreviewPanel.tsx",
++     2,
++   ],
++   [
++     "components/preview/PrototypePreview.tsx",
++     1,
++   ],
++ ]
+ Test Files  1 failed (1)
+      Tests  2 failed | 4 passed (6)
+
+=== WITH FIX: src/lib/agentHtml.test.ts
+ Test Files  1 passed (1)
+      Tests  6 passed (6)

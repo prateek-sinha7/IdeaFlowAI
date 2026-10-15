@@ -1,0 +1,143 @@
+"""QA-KB-079 analysis only -- scratch pytest plugin, application source is NOT edited.
+
+KB079_MUTANT picks ONE deviation from the real
+``ScopedStore.append_event_at_or_after`` (backend/agents/authz.py:613-674), swapped in at
+runtime. "R" is a faithful copy and is the control: it must behave exactly like the real
+code, which proves the swap itself changes nothing.
+
+  R  control (faithful copy)
+  H  no re-stamp at all                       (= the pre-FIX-692 / ISS-135 behaviour)
+  A  re-stamp the CALLER'S dict in place       (violates FIX-692 constraint: copy, never mutate)
+  B  re-stamp a copy on the FIRST hop only     (violates FIX-692 constraint: every hop)
+  C  exhaustion raises RuntimeError            (violates authz.py:670-673: re-raise the DB's own rejection)
+  D  stamp a seq into payloads that had none   (violates FIX-692 constraint: only seq-carrying dicts)
+  E  the `tail < attempt_seq` guard removed    (violates FIX-240 / FIX-692 constraint: guard first)
+  F  exhaustion swallowed, returns a seq       (claims a row that was never written)
+  P  the copy re-stamp placed BEFORE the guard   (FIX-692 constraint 2 placement clause; expected EQUIVALENT)
+  S  _RunEventSink.persist bypasses the retry  (engine-side wiring regression, plain append_event)
+  T  the drive loop of _drive_resumed_stream never sees the landed seq (== its re-stamp +
+     allocator-advance block, engine.py:15951-15954, deleted); persist() answers with the
+     REQUESTED seq when called from that function only
+  U  same as T for execute() (engine.py:4208-4211), the control: an existing test must kill it
+
+Imports are lazy (inside pytest_runtest_setup) on purpose: a plugin that imports app/engine at
+load time binds the live Postgres before the test fixtures run.
+"""
+
+import os
+import sys
+
+import pytest
+
+_COUNTS = {"appends": 0, "probes": 0, "hops": 0, "installed": None}
+
+
+def _store_mutant(kind):
+    async def at_or_after(
+        self, run_id, seq, event_id, type, payload_json, _max_attempts=8
+    ):
+        from sqlalchemy.exc import IntegrityError
+
+        attempt_seq = int(seq)
+        last_rejection = None
+        restamped = False
+        for _ in range(max(1, _max_attempts)):
+            try:
+                _COUNTS["appends"] += 1
+                await self.append_event(run_id, attempt_seq, event_id, type, payload_json)
+                return attempt_seq
+            except IntegrityError as rejected:
+                last_rejection = rejected
+                if self._session is not None:
+                    self._session.rollback()
+                _COUNTS["probes"] += 1
+                tail = await self._max_event_seq(run_id)
+                if kind == "P" and isinstance(payload_json, dict) and "seq" in payload_json:
+                    payload_json = {**payload_json, "seq": tail + 1}
+                if kind != "E" and tail < attempt_seq:
+                    raise
+                attempt_seq = tail + 1
+                _COUNTS["hops"] += 1
+                if kind == "H":
+                    continue
+                if kind == "D":
+                    if isinstance(payload_json, dict):
+                        payload_json = {**payload_json, "seq": attempt_seq}
+                    continue
+                if isinstance(payload_json, dict) and "seq" in payload_json:
+                    if kind == "A":
+                        payload_json["seq"] = attempt_seq
+                    elif kind == "B":
+                        if not restamped:
+                            payload_json = {**payload_json, "seq": attempt_seq}
+                            restamped = True
+                    else:  # R, C, E, F
+                        payload_json = {**payload_json, "seq": attempt_seq}
+        if kind == "C":
+            raise RuntimeError("exhausted")
+        if kind == "F":
+            return attempt_seq
+        raise last_rejection
+
+    return at_or_after
+
+
+def _sink_mutant():
+    async def persist(self, seq, event_id, type, payload_json):
+        if self._store is None or self._run_id is None:
+            return None
+        try:
+            await self._store.append_event(self._run_id, seq, event_id, type, payload_json)
+            return seq
+        except Exception as exc:  # noqa: BLE001
+            from sqlalchemy.exc import SQLAlchemyError
+
+            if not isinstance(exc, SQLAlchemyError):
+                raise
+            return None
+
+    return persist
+
+
+def _consumer_mutant(real, target):
+    async def persist(self, seq, event_id, type, payload_json):
+        caller = sys._getframe(1).f_code.co_name
+        landed = await real(self, seq, event_id, type, payload_json)
+        if caller == target and landed is not None:
+            return seq
+        return landed
+
+    return persist
+
+
+@pytest.hookimpl(tryfirst=True)
+def pytest_runtest_setup(item):
+    if _COUNTS["installed"]:
+        return
+    kind = os.environ["KB079_MUTANT"]
+    if kind == "S":
+        from agents.execution_engine.engine import _RunEventSink
+
+        _RunEventSink.persist = _sink_mutant()
+    elif kind in ("T", "U"):
+        from agents.execution_engine.engine import _RunEventSink
+
+        _RunEventSink.persist = _consumer_mutant(
+            _RunEventSink.persist,
+            "_drive_resumed_stream" if kind == "T" else "execute",
+        )
+    else:
+        from agents.authz import ScopedStore
+
+        ScopedStore.append_event_at_or_after = _store_mutant(kind)
+    _COUNTS["installed"] = kind
+
+
+def pytest_sessionfinish(session, exitstatus):
+    out = os.environ.get("KB079_OUT")
+    if out:
+        with open(out, "a") as fh:
+            fh.write(
+                f"KB079 mutant={_COUNTS['installed']} append_event_calls={_COUNTS['appends']} "
+                f"tail_probes={_COUNTS['probes']} real_hops={_COUNTS['hops']}\n"
+            )

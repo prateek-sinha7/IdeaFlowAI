@@ -73,6 +73,7 @@ steps:
     WHAT YOU MAY CHANGE
 
     - `prototype.html` only, and only with `edit_file`: an exact old string read from the file, and its replacement. It exists, and write_file cannot overwrite it. Never write a second prototype.
+    - Your report: `revisions/<run_id>/fix.md`, with write_file, in Phase 6. Nothing else under `revisions/`.
     - Never write `spec.md`, `design.md`, `synthesis.md`, anything under `build/` or anything under `parts/`. They are the finished run's record; you read them.
 
     HOW THE PROTOTYPE MOVES (the shell's runtime, fixed code)
@@ -95,11 +96,12 @@ steps:
     Phase 1 - Read
 
     Steps
-    1. grep `.context/user-prompt.md` for `=== REVISION INSTRUCTION ===` with output_mode "content", then read_file it from that line with a limit of 60: that is the person's request. Never read that file whole: above that line the engine pasted the finished prototype as it was BEFORE this revision — work from the files on disk, never from that copy.
-    2. read_file `.agents/01-prototype-revision-analyzer.md`: the analyzer's `## Solution Plan`. Follow it where it agrees with the request; the request wins where they differ. Translate its route vocabulary as HOW THE PROTOTYPE MOVES says.
-    3. read_file `design.md`: its `## Transition table` names every control that moves the user, with its exact attribute.
-    4. read_file `build/bugs.json` if it exists: the faults the run's Validator left open. One of them may be what the person is asking about.
-    5. If the request mentions an attached file: `ls .uploads/`, then read_file the `.txt` file beside it (the extracted text).
+    1. read_file `.context/run-id.txt`: that is <run_id>, this revision's id. This revision's files live under `revisions/<run_id>/`; never read or write any other folder under `revisions/` — those belong to earlier revisions.
+    2. grep `.context/user-prompt.md` for `=== REVISION INSTRUCTION ===` with output_mode "content", then read_file it from that line with a limit of 60: that is the person's request. Never read that file whole: above that line the engine pasted the finished prototype as it was BEFORE this revision — work from the files on disk, never from that copy.
+    3. read_file `.agents/01-prototype-revision-analyzer.md`: the analyzer's `## Solution Plan`. Follow it where it agrees with the request; the request wins where they differ. Translate its route vocabulary as HOW THE PROTOTYPE MOVES says.
+    4. read_file `design.md`: its `## Transition table` names every control that moves the user, with its exact attribute.
+    5. read_file `build/bugs.json` if it exists: the faults the ORIGINAL run's Validator left open. That is the original run's record: read it, never edit it. One of them may be what the person is asking about.
+    6. If the request mentions an attached file: `ls .uploads/`, then read_file the `.txt` file beside it (the extracted text).
 
     Phase 2 - Locate
 
@@ -141,10 +143,11 @@ steps:
 
     Steps
     1. Reply with ONE line: what you changed, on which screens (their ids), what you checked in the browser, and anything of the request you could not do.
+    2. write_file `revisions/<run_id>/fix.md` with that same line: the Validator reads it to find the screens you touched.
 
     HOW TO DELIVER
 
-    Your work is the edits to `prototype.html`. Then deliver the step file the engine asks for with ONE line — your report. It never holds the work. If the tool says the step file already exists, you are done: an earlier revision of this run wrote one under the same name.
+    Your work is the edits to `prototype.html`. Then deliver the step file the engine asks for with ONE line — your report. It never holds the work. If the tool says the step file already exists, an earlier revision left it: read_file it, then edit_file its whole content to your one-line report. Never stop on that message.
   tools:
     read_files: true
     write_files: true
@@ -176,7 +179,7 @@ steps:
       Phase 3 - Walk       the touched screens, every transition, their states
       Phase 4 - Fix        in prototype.html, smallest edit first
       Phase 5 - Re-check   every fix, in the browser
-      Phase 6 - Record     one line, and build/bugs.json when it exists
+      Phase 6 - Record     one line, and revisions/<run_id>/bugs.json
 
     HOW TO WRITE A PATH
 
@@ -203,11 +206,12 @@ steps:
     Phase 1 - Read
 
     Steps
-    1. grep `.context/user-prompt.md` for `=== REVISION INSTRUCTION ===` with output_mode "content", then read_file it from that line with a limit of 60: that is the person's request. Never read that file whole: above that line the engine pasted the finished prototype as it was BEFORE this revision — work from the files on disk, never from that copy.
-    2. read_file `.agents/02-custom-agent_v2-fix.md`: the Fixer's report — what it changed and on which screens. Those are your TOUCHED screens.
-    3. read_file `design.md`. Its `## Transition table` is the route list you click: one row, one route. Its `## Screen states` are the states you trigger.
-    4. grep `spec.md` for `### <id>` of each touched screen and read that section: its Fields table and Actions table.
-    5. List, before you open anything: touched screens (N), routes (N), states on the touched screens (N).
+    1. read_file `.context/run-id.txt`: that is <run_id>, this revision's id. This revision's files live under `revisions/<run_id>/`; never read or write any other folder under `revisions/` — those belong to earlier revisions.
+    2. grep `.context/user-prompt.md` for `=== REVISION INSTRUCTION ===` with output_mode "content", then read_file it from that line with a limit of 60: that is the person's request. Never read that file whole: above that line the engine pasted the finished prototype as it was BEFORE this revision — work from the files on disk, never from that copy.
+    3. read_file `revisions/<run_id>/fix.md`: the Fixer's report — what it changed and on which screens. Those are your TOUCHED screens.
+    4. read_file `design.md`. Its `## Transition table` is the route list you click: one row, one route. Its `## Screen states` are the states you trigger.
+    5. grep `spec.md` for `### <id>` of each touched screen and read that section: its Fields table and Actions table.
+    6. List, before you open anything: touched screens (N), routes (N), states on the touched screens (N).
 
     Phase 2 - Open
 
@@ -240,7 +244,7 @@ steps:
     - A fault the Fixer introduced is fixed to what the request asked for. An older fault is fixed to what the spec and design.md say.
     - You never touch the shell: nothing above `<div id="slot-content">` except a menu or tab entry the Fixer added, nothing in the `<style>`, nothing in the `<script>`.
     - You never delete a screen or a section. You never change an `id` the shell or another screen points at.
-    - Never write `spec.md`, `design.md`, anything under `build/` except the record below, or anything under `parts/`.
+    - Never write `spec.md`, `design.md`, anything under `build/`, or anything under `parts/`.
 
     Steps
     1. Fix the faults in order.
@@ -260,13 +264,13 @@ steps:
     - Be honest about what you left. An open fault named is worth more than a silent one.
 
     Steps
-    1. If `build/bugs.json` exists: for each fault you found, add one entry to its `found` list with edit_file — `{"screen": "<id>", "element": "<what>", "fault": "<one line>", "status": "fixed" | "open"}` — inserted before the list's closing `]`. Change nothing else in the file. If it does not exist, skip this step.
+    1. write_file `revisions/<run_id>/bugs.json` with one JSON object `{"found": [...]}`: one entry for each fault you found, each `{"screen": "<id>", "element": "<what>", "fault": "<one line>", "status": "fixed" | "open"}`. Never edit `build/bugs.json`: it is the original run's record. With no faults, write `{"found": []}`.
     2. `playwright_take_screenshot(".verify/revised.png")` of the first touched screen.
     3. Reply with ONE line: touched screens checked, routes working / total, states reachable / total, faults found, fixed, open.
 
     HOW TO DELIVER
 
-    Your work is the edits to `prototype.html` and the screenshot. As the last step you may be told to deliver `prototype.html` as your step file: it already holds your work, so never write_file or edit_file it to deliver — your one-line reply is your report. When the step file the engine asks for has any other name, write_file it with ONE line — your report. It never holds the work. If the tool says the step file already exists, you are done: an earlier revision of this run wrote one under the same name.
+    Your work is the edits to `prototype.html` and the screenshot. As the last step you may be told to deliver `prototype.html` as your step file: it already holds your work, so never write_file or edit_file it to deliver — your one-line reply is your report. When the step file the engine asks for has any other name, write_file it with ONE line — your report. It never holds the work. If the tool says the step file already exists, an earlier revision left it: read_file it, then edit_file its whole content to your one-line report, unless the step file is `prototype.html`, which is never written or edited to deliver. Never stop on that message.
   tools:
     read_files: true
     write_files: true

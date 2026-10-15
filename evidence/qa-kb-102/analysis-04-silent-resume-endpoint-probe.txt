@@ -1,0 +1,102 @@
+# QA-KB-102 analysis-04: does a user resume that cannot start end silently THROUGH THE REAL ENDPOINT with the REAL engine?
+# Probe: evidence/qa-kb-102/analysis-plugins/kb102_probe_test.py (a scratch test module, NOT in the suite; reuses the harness helpers of
+#   backend/tests/integration/agents/test_restart_resume_db.py: _ResumeHarness, _make_session, _seed_workflow_run, _wire_user_resume_drive).
+# Offline: in-memory SQLite (StaticPool); the app's global engine is pinned to a throwaway sqlite FILE by DATABASE_URL (the probe asserts it);
+#   no model call, no network, no live DB. The engine is armed with the same hooks app/main.py:159-190 injects.
+# Command (from backend/):
+#   DATABASE_URL=sqlite:///<scratch>/probe.db KB102_OUT=<scratch>/out.txt PYTHONPATH=. .venv/bin/python -m pytest \
+#     ../evidence/qa-kb-102/analysis-plugins/kb102_probe_test.py -c pyproject.toml --rootdir=. -p no:cacheprovider -q
+# Result: 9 passed (the assertions in the probe only check the endpoint answered 200; the OBSERVATIONS below are the evidence).
+# Tree: branch feat/stale-bug-fixes, HEAD 3bfff3990, 2026-10-08T14:46; engine.py, state_machine.py, run_engine.py unmodified vs HEAD.
+# Python Python 3.13.14
+
+=== 00 CONTROL: valid composed manifest, real engine, _drive_resumed_stream stubbed to count entry
+  endpoint returned {'run_id': 'c0-52359ee9'}; _drive_resumed_stream entered 1x (>=1 means resume_run got past every early exit)
+=== A/failed: composed run, status 'failed', persisted manifest names an unknown deliverable resolver
+  BEFORE the click
+    workflow_runs.status='failed'  .error="prior attempt: step a raised ValueError('boom')"  .completed_at set=False
+    run_events: 1:pipeline_start, 2:agent_start, 3:agent_error, 4:pipeline_failed
+  AFTER the driver task finished
+    workflow_runs.status='failed'  .error="prior attempt: step a raised ValueError('boom')"  .completed_at set=True
+    run_events: 1:pipeline_start, 2:agent_start, 3:agent_error, 4:pipeline_failed, 5:run_resuming
+    endpoint response: {'run_id': 'a-fai-0d219d'}
+    live queue items an attached client receives: [None]
+    engine.resume_run: ['returned None normally']
+    _flip_back_to_failed calls (the app-layer failure channel): []
+    server log WARNINGs naming the run: ["resume_run(a-fai-0d219d): persisted manifest failed to recompile (unknown deliverable 'no_such_deliverable_resolver' in workflow 'composed-three-step') — refusing to resume with a substitute roster"]
+=== A/cancelled: composed run, status 'cancelled', persisted manifest names an unknown deliverable resolver
+  BEFORE the click
+    workflow_runs.status='cancelled'  .error="prior attempt: step a raised ValueError('boom')"  .completed_at set=False
+    run_events: 1:pipeline_start, 2:agent_start, 3:pipeline_cancelled
+  AFTER the driver task finished
+    workflow_runs.status='cancelled'  .error="prior attempt: step a raised ValueError('boom')"  .completed_at set=True
+    run_events: 1:pipeline_start, 2:agent_start, 3:pipeline_cancelled, 4:run_resuming
+    endpoint response: {'run_id': 'a-can-f37d7d'}
+    live queue items an attached client receives: [None]
+    engine.resume_run: ['returned None normally']
+    _flip_back_to_failed calls (the app-layer failure channel): []
+    server log WARNINGs naming the run: ["resume_run(a-can-f37d7d): persisted manifest failed to recompile (unknown deliverable 'no_such_deliverable_resolver' in workflow 'composed-three-step') — refusing to resume with a substitute roster"]
+=== A/degraded: composed run, status 'degraded', persisted manifest names an unknown deliverable resolver
+  BEFORE the click
+    workflow_runs.status='degraded'  .error="prior attempt: step a raised ValueError('boom')"  .completed_at set=False
+    run_events: 1:pipeline_start, 2:agent_start, 3:agent_complete, 4:pipeline_complete
+  AFTER the driver task finished
+    workflow_runs.status='failed'  .error="prior attempt: step a raised ValueError('boom')"  .completed_at set=True
+    run_events: 1:pipeline_start, 2:agent_start, 3:agent_complete, 4:pipeline_complete, 5:run_resuming
+    endpoint response: {'run_id': 'a-deg-d945a4'}
+    live queue items an attached client receives: [None]
+    engine.resume_run: ['returned None normally']
+    _flip_back_to_failed calls (the app-layer failure channel): []
+    server log WARNINGs naming the run: ["resume_run(a-deg-d945a4): persisted manifest failed to recompile (unknown deliverable 'no_such_deliverable_resolver' in workflow 'composed-three-step') — refusing to resume with a substitute roster"]
+=== B1: run of type 'user_stories_v2' (the id of dev-DB runs 5ab1be23 and 05832e65; no workflow.yaml in any checkout)
+  endpoint refused: HTTP 403 {'error': 'This pipeline is not available on your current plan.', 'code': 'tier_not_entitled', 'recoverable': False}
+=== B2 (SIMULATED drift): whitelisted type 'prototype', roster empty and plan uncompilable
+  BEFORE the click
+    workflow_runs.status='failed'  .error="prior attempt: step a raised ValueError('boom')"  .completed_at set=False
+    run_events: 1:pipeline_start, 2:agent_start, 3:agent_error, 4:pipeline_failed
+  AFTER the driver task finished
+    workflow_runs.status='failed'  .error="prior attempt: step a raised ValueError('boom')"  .completed_at set=True
+    run_events: 1:pipeline_start, 2:agent_start, 3:agent_error, 4:pipeline_failed, 5:run_resuming
+    endpoint response: {'run_id': 'b2-64ff6333'}
+    live queue items an attached client receives: [None]
+    engine.resume_run: ['returned None normally']
+    _flip_back_to_failed calls (the app-layer failure channel): []
+    server log WARNINGs naming the run: ["resume_run(b2-64ff6333): cannot compile plan (workflow.yaml not found for 'prototype' (simulated deploy drift))"]
+=== C: valid registry run (sample_wave), failed; the sandbox reconciles to 'quarantined' -> _execute_impl raises RuntimeError before dispatch
+  BEFORE the click
+    workflow_runs.status='failed'  .error="prior attempt: step a raised ValueError('boom')"  .completed_at set=False
+    run_events: 1:pipeline_start, 2:agent_start, 3:agent_error, 4:pipeline_failed
+  AFTER the driver task finished (user resume)
+    workflow_runs.status='failed'  .error="prior attempt: step a raised ValueError('boom')"  .completed_at set=True
+    run_events: 1:pipeline_start, 2:agent_start, 3:agent_error, 4:pipeline_failed, 5:run_resuming
+    endpoint response: {'run_id': 'c-d351aa71'}
+    live queue items an attached client receives: [None, None]
+    engine.resume_run: ['returned None normally']
+    _flip_back_to_failed calls (the app-layer failure channel): []
+    server log WARNINGs naming the run: ['resumed-stream drive(c-d351aa71) failed mid-drive: sandbox quarantined for run c-d351aa71: repository is corrupt and requires operator action']
+  C2 same fault via engine.execute() (what the launch driver wraps):
+    engine.execute raised to its caller: RuntimeError: sandbox quarantined for run c2-a5fcff71: repository is corrupt and requires operator action
+=== D: backend restart, run left 'running' with durable step state; its persisted manifest no longer compiles
+  BEFORE the restart scan
+    workflow_runs.status='running'  .error=None  .completed_at set=False
+    run_events: 1:pipeline_start, 2:agent_start
+  AFTER restore_non_terminal_runs + the auto-resume task finished
+    workflow_runs.status='running'  .error=None  .completed_at set=False
+    run_events: 1:pipeline_start, 2:agent_start, 3:run_resuming
+    server log WARNINGs naming the run: ["resume_run(d-da6d307a): persisted manifest failed to recompile (unknown deliverable 'no_such_deliverable_resolver' in workflow 'composed-three-step') — refusing to resume with a substitute roster"]
+  AFTER a SECOND restart scan (next deploy)
+    workflow_runs.status='running'  .error=None  .completed_at set=False
+    run_events: 1:pipeline_start, 2:agent_start, 3:run_resuming, 4:run_resuming
+=== G (control): same user resume, but the fault is raised BEFORE _drive_resumed_stream's try block
+  BEFORE the click
+    workflow_runs.status='failed'  .error="prior attempt: step a raised ValueError('boom')"  .completed_at set=False
+    run_events: 1:pipeline_start, 2:agent_start, 3:agent_error, 4:pipeline_failed
+  AFTER the driver task finished
+    workflow_runs.status='failed'  .error='scripted fault in RunTrace(...) construction (engine.py:15922, outside the try)'  .completed_at set=True
+    run_events: 1:pipeline_start, 2:agent_start, 3:agent_error, 4:pipeline_failed, 5:run_resuming
+    endpoint response: {'run_id': 'g-30875578'}
+    live queue items an attached client receives: []
+    engine.resume_run: ['RAISED RuntimeError: scripted fault in RunTrace(...) construction (engine.py:15922, outside the try)']
+    _flip_back_to_failed calls (the app-layer failure channel): ['scripted fault in RunTrace(...) construction (engine.py:15922, outside the try)']
+    registry after the driver is done: driver task still registered / done: (True, True)
+    registry after the driver is done: live queue still registered: True

@@ -1,0 +1,29 @@
+# fix-09 — AFTER the fix: the two other PreviewPanel tests whose closed @/lib/api factory lacks getRunSandboxRefs (found by the fixer's re-grep; not in ISS-1011's list). One file per run -> both exit 0. Before-fix state not re-run by the fixer.
+
+######## npx vitest run src/components/preview/PreviewPanel.workspaceDuringRun.test.tsx   -> exit 0
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - ESM syntax in a file loaded as CommonJS (vitest.config.ts:1:1). Use a `.mjs` extension or set `"type": "module"` in the closest package.json
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+
+ RUN  v4.1.11 /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/frontend
+
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  18:50:37
+   Duration  1.71s (transform 178ms, setup 52ms, import 491ms, tests 280ms, environment 760ms)
+
+
+######## npx vitest run src/components/preview/PreviewPanel.phantomFile.test.tsx   -> exit 0
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - ESM syntax in a file loaded as CommonJS (vitest.config.ts:1:1). Use a `.mjs` extension or set `"type": "module"` in the closest package.json
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+
+ RUN  v4.1.11 /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/frontend
+
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  18:50:40
+   Duration  1.17s (transform 295ms, setup 58ms, import 527ms, tests 51ms, environment 442ms)
+

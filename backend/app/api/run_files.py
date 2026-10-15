@@ -59,10 +59,10 @@ from app.agents.sandbox import (
     FamilyLockTimeout,
     RunSandbox,
     _UPLOADS_PREFIX,
-    _dedupe_segment,
     _safe_segment,
     family_lock,
     is_deliverable_relpath,
+    run_dir_expired,
 )
 from app.api.file_extract import _MAX_FILE_BYTES, extract_upload_text
 from app.core.config import settings
@@ -173,6 +173,28 @@ async def _read_capped(upload: UploadFile, limit: int) -> "bytes | None":
             return None
         chunks.append(chunk)
     return b"".join(chunks)
+
+
+def _dedupe_segment(safe: str, used: set[str]) -> str:
+    """Return ``safe`` — or ``safe`` with a ``-N`` suffix inserted before its extension —
+    that is not already in ``used`` (WR-01).
+
+    Two DISTINCT original filenames can sanitize to the same ``_safe_segment`` (e.g.
+    ``invoice#1.txt`` and ``invoice@1.txt`` both → ``invoice_1.txt``); without this the
+    second write silently clobbers the first's bytes + sidecar + manifest entry while the
+    response still reports both as stored. The first use keeps the bare name; each
+    subsequent collision takes the next free ``-2``, ``-3``… (``invoice_1.txt`` →
+    ``invoice_1-2.txt``), so no upload is ever silently overwritten and the caller is told
+    the ACTUAL stored name.
+    """
+    if safe not in used:
+        return safe
+    stem, dot, ext = safe.rpartition(".")
+    base, suffix = (stem, f".{ext}") if dot else (safe, "")
+    n = 2
+    while f"{base}-{n}{suffix}" in used:
+        n += 1
+    return f"{base}-{n}{suffix}"
 
 
 async def _validate_uploads(
@@ -323,10 +345,6 @@ async def ingest_staged_uploads(
     from agents.authz import ScopedStore
 
     store = ScopedStore(owner_id=user_id, workspace_id=workspace_id)
-    # Stages whose documents reached _persist_documents without raising. That
-    # call is the only writer of `.uploads/manifest.json` here, so zero persisted
-    # stages means this launch's run has no manifest for its agents to read.
-    persisted = 0
     for stage_id in stage_ids:
         if not _STAGE_ID_RE.match(stage_id or ""):
             logger.warning(
@@ -383,8 +401,6 @@ async def ingest_staged_uploads(
                     run_id,
                     type(exc).__name__,
                 )
-        if validated and not failed:
-            persisted += 1
         shutil.rmtree(staging.root, ignore_errors=True)
         logger.info(
             "staged upload ingested: run=%s stage=%s files=%d failed=%s",
@@ -393,28 +409,6 @@ async def ingest_staged_uploads(
             0 if failed else len(validated),
             failed,
         )
-    if stage_ids and persisted == 0:
-        # Still best-effort (FIX-560): report, never raise. Counts only.
-        logger.warning(
-            "staged upload ingest finished but .uploads/manifest.json is absent: "
-            "run=%s stages=%d persisted=0",
-            run_id,
-            len(stage_ids),
-        )
-
-
-def declares_file_extract(plan: object) -> bool:
-    """True when any step of a compiled plan is granted the ``file_extract`` tool
-    set — the same declaration the engine keys its attachment strip on.
-
-    Keyed on the declared tool set only, never a workflow name or step id
-    (SC-001). ``None`` (no plan could be compiled) is False.
-    """
-    for step in getattr(plan, "steps", None) or []:
-        tools = getattr(step, "tools", None)
-        if "file_extract" in (getattr(tools, "tool_sets", None) or []):
-            return True
-    return False
 
 
 async def _persist_documents(
@@ -945,11 +939,14 @@ async def list_sandbox(
     # family directory (Req 2 AC7). Raises 404 on RevisionRootUnresolved.
     _chain_root_id = _resolve_chain_root_or_404(run_id, current_user.id)
     sandbox = RunSandbox(current_user.id, _chain_root_id, runs_root=settings.RUNS_ROOT)
-    expired = not sandbox.root.is_dir()
+    expired = run_dir_expired(sandbox.root)
 
     # Ref-scoped listing (Requirement 17 AC2): when a validated ref is provided
     # use git ls-tree instead of the live working tree.
-    if ref is not None:
+    # ISS-893: a swept sandbox has no tags, so validating first turned `expired`
+    # into a 400. Expiry wins, as it does in the zip and file routes; the live
+    # branch below returns the `expired: true` payload.
+    if ref is not None and not expired:
         safe_ref = _validate_ref(ref, sandbox)
         list_files_fn = getattr(sandbox, "list_files_at_ref", None)
         if list_files_fn is not None:
@@ -1045,7 +1042,7 @@ async def download_sandbox_zip(
     # the shared family directory (Req 2 AC7). Raises 404 on RevisionRootUnresolved.
     _chain_root_id = _resolve_chain_root_or_404(run_id, current_user.id)
     sandbox = RunSandbox(current_user.id, _chain_root_id, runs_root=settings.RUNS_ROOT)
-    if not sandbox.root.is_dir():
+    if run_dir_expired(sandbox.root):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Workspace expired"
         )
@@ -1157,7 +1154,7 @@ async def read_sandbox_file(
     # the shared family directory (Req 2 AC7). Raises 404 on RevisionRootUnresolved.
     _chain_root_id = _resolve_chain_root_or_404(run_id, current_user.id)
     sandbox = RunSandbox(current_user.id, _chain_root_id, runs_root=settings.RUNS_ROOT)
-    if not sandbox.root.is_dir():
+    if run_dir_expired(sandbox.root):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Workspace expired"
         )

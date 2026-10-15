@@ -1,0 +1,19 @@
+# analyzer evidence, 2026-10-01. Read-only script (not committed). For each authoring-commit (78613ca08) cite into engine.py / run_commands.py / model_factory.py:
+# the enclosing def/class chain at that commit, then whether the SAME symbol exists in today's file (and where). (post_message._drive is a closure nested inside an if-block of post_message.)
+engine.py:1032  authoring symbol = ExecutionEngine.execute                          today -> lines 4025-4276
+engine.py:1943  authoring symbol = ExecutionEngine._execute_impl                    today -> lines 4278-8181
+engine.py:2287  authoring symbol = ExecutionEngine._execute_impl                    today -> lines 4278-8181
+engine.py:2514  authoring symbol = ExecutionEngine._execute_impl                    today -> lines 4278-8181
+engine.py:3621  authoring symbol = ExecutionEngine._run_agent                       today -> lines 9178-11130
+engine.py:4437  authoring symbol = ExecutionEngine._run_validation_fix_loop         today -> lines 11144-11401
+engine.py:4566  authoring symbol = ExecutionEngine._run_validation_fix_loop         today -> lines 11144-11401
+engine.py:5012  authoring symbol = ExecutionEngine._run_spec_revision_sub_pipeline  today -> lines 11899-12125
+engine.py:5155  authoring symbol = ExecutionEngine._run_review_gate                 today -> lines 12314-12576
+run_commands.py:1347  authoring symbol = post_message._drive                              today -> lines 2232-2403
+run_commands.py:1356  authoring symbol = post_message._drive                              today -> lines 2232-2403
+run_commands.py:1401  authoring symbol = post_message                                     today -> lines 1778-2433
+run_commands.py:2155  authoring symbol = _drive_launch_to_queue                           today -> lines 4134-4424
+run_commands.py:2473  authoring symbol = _drive_revision_to_queue                         today -> lines 5673-5847
+model_factory.py:112   authoring symbol = build_model                                      today -> lines 300-533
+
+resolves BY SYMBOL today: 15 of 15   | resolves BY LINE NUMBER today: 0 of 15 (see 05-analyze-cite-inventory.txt)

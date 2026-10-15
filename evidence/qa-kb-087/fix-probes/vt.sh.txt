@@ -1,0 +1,12 @@
+#!/bin/bash
+# vt.sh <out-file> <label> <test-path-relative-to-frontend> [extra vitest args]
+# Runs ONE vitest file from frontend/, ANSI stripped, and appends a labelled transcript to <out-file>.
+OUT="$1"; LABEL="$2"; FILE="$3"; shift 3
+FE=/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/frontend
+{
+  echo "### $LABEL"
+  echo "\$ cd frontend && npx vitest run $FILE --reporter=verbose $*"
+  echo "# run at $(date '+%Y-%m-%d %H:%M:%S %Z'), HEAD $(git -C "$FE" rev-parse --short HEAD)"
+  (cd "$FE" && ./node_modules/.bin/vitest run "$FILE" --reporter=verbose "$@" 2>&1; echo "# exit code: $?") | sed 's/\x1b\[[0-9;]*m//g'
+  echo
+} >> "$OUT"

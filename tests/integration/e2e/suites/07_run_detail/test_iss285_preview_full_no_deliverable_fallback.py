@@ -10,8 +10,8 @@ explaining the substitution — a materially different tab (a 32-record
 governance/security log) is rendered in place of the requested Preview with
 zero visual or textual indication that a fallback occurred.
 
-Run used: a40d0f2b-901e-4847-85ba-c205f4a41f16 (status `failed`, no Preview tab).
-Live run discovered 2026-09-21; these rot whenever the database is pruned.
+The run is discovered rather than pinned: the pinned one went with a reseed
+and the page then had nothing to render, so this passed vacuously (ISS-1188).
 """
 
 from __future__ import annotations
@@ -19,7 +19,17 @@ from __future__ import annotations
 import pytest
 from playwright.sync_api import expect
 
-FAILED_RUN_NO_DELIVERABLE = "a40d0f2b-901e-4847-85ba-c205f4a41f16"
+from framework import api
+
+
+def _a_failed_run_with_no_deliverable(page) -> str:
+    """A failed run that produced nothing: no output and no deliverable file."""
+    page.goto("/dashboard")
+    for row in api.json_body(page, "GET", "/api/runs?limit=100&status_filter=failed"):
+        run = api.json_body(page, "GET", f"/api/runs/{row['id']}")
+        if not (run.get("output") or "").strip() and not run.get("deliverable_filename"):
+            return row["id"]
+    pytest.skip("no failed run in this history is without a deliverable")
 
 
 @pytest.mark.issue("ISS-285")
@@ -28,7 +38,8 @@ def test_preview_full_does_not_silently_substitute_audit(page):
     deliverable must not land on the unrelated Audit tab with no
     explanation — either no tab is selected (mirroring the plain /runs/{id}
     route for the same run) or an explicit fallback message is shown."""
-    page.goto(f"/runs/{FAILED_RUN_NO_DELIVERABLE}/preview/full")
+    run_id = _a_failed_run_with_no_deliverable(page)
+    page.goto(f"/runs/{run_id}/preview/full")
     page.wait_for_load_state("networkidle")
 
     audit_tab = page.locator('[data-testid="tab-audit"]')

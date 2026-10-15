@@ -9,9 +9,9 @@ Root cause is two gates in series, both required for a fix:
      independently omits "diverted" from the same triad (this half was
      originally filed as ISS-282, now superseded by ISS-390).
 
-Run used: 28a318c9-d207-4e2a-bce8-c3260d4c57f2 ("Ex A4 Human Divert"),
-status `diverted`, `completed_at` set (terminal), `output`/
-`deliverable_filename` both null, only 2/3 agents ran.
+The run is discovered rather than pinned: any `diverted` run (terminal, e.g.
+an "Ex A4 Human Divert"). The pinned one went with a reseed and the page then
+had nothing to render, so this passed vacuously (ISS-1188).
 
 Contrast (not asserted here, documented in the card): the cancelled run
 28a318c9-d207-4e2a-bce8-c3260d4c57f2 already shows a status-aware message
@@ -24,7 +24,15 @@ from __future__ import annotations
 import pytest
 from playwright.sync_api import expect
 
-DIVERTED_RUN = "28a318c9-d207-4e2a-bce8-c3260d4c57f2"
+from framework import api
+
+
+def _a_diverted_run(page) -> str:
+    page.goto("/dashboard")
+    rows = api.json_body(page, "GET", "/api/runs?limit=100&status_filter=diverted")
+    if not rows:
+        pytest.skip("no run in this history diverted")
+    return rows[0]["id"]
 
 
 @pytest.mark.issue("ISS-390")
@@ -32,7 +40,8 @@ def test_diverted_run_preview_is_not_the_live_waiting_placeholder(page):
     """A permanently-terminal diverted run's Preview tab must show a
     state-aware terminal message, not the neutral live-streaming placeholder
     that implies output is still forthcoming."""
-    page.goto(f"/runs/{DIVERTED_RUN}/stream")
+    run_id = _a_diverted_run(page)
+    page.goto(f"/runs/{run_id}/stream")
     page.wait_for_load_state("networkidle")
 
     preview_tab = page.locator('[data-testid="tab-preview"]')

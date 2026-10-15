@@ -1,0 +1,122 @@
+# QA-KB-007 analyzer outputs, captured 2026-10-01 at HEAD (feat/user-stories-v2 @ 024c03ef8 + uncommitted working tree).
+
+## A. Scratch repro (copy 02-analyze-scratch-repro.py.txt to any .py name; run from backend/)
+## cmd: cd backend && PYTHONPATH=. .venv/bin/python -m pytest <copy>.py -p no:cacheprovider -s -q --no-header -W ignore
+## expected at HEAD: tests A,B,C FAIL (the defect); D,E,F,G PASS (they run a patched COPY modelling the BUGS.md agreed fix)
+[A] LANDED 2 row.seq 2 payload.seq 1
+[B] live frame seq=3  row.seq=3  stored payload.seq=2
+[C] (type, row.seq, payload.seq): [('review_gate_ready', 1, 1), ('chat_message', 2, None), ('pipeline_cancelled', 3, 2), ('agent_chunk', 4, 4)]
+[C] yielded frame seqs: [('review_gate_ready', 1), ('pipeline_cancelled', 3), ('agent_chunk', 4)]
+[E] hops=2 landed=4 row.seq=4 payload.seq=4
+E       AssertionError: payload.seq diverged from row.seq after the retry
+E       assert 1 == 2
+E       AssertionError: stored payload kept the REQUESTED seq
+E       assert 2 == 3
+E               AssertionError: pipeline_cancelled: payload.seq != row.seq
+E               assert 2 == 3
+FAILED test_qa_kb_007_scratch.py::test_A_store_level_retry_leaves_stale_payload_seq
+FAILED test_qa_kb_007_scratch.py::test_B_sink_level_mimicking_the_execute_loop
+FAILED test_qa_kb_007_scratch.py::test_C_through_the_real_execute_wrapper
+3 failed, 4 passed in 1.29s
+
+## B. Baseline of the existing FIX-240 test file (it has no payload.seq assertion)
+## cmd: cd backend && .venv/bin/python -m pytest tests/integration/repositories/test_run_events_db.py -q
+.........                                                                [100%]
+9 passed in 1.43s
+
+## C. probe 1: stored rows whose payload_json.seq <> seq column (first 12 divergent rows shown)
+total run_events rows: 756178
+rows whose payload has a seq key: 755945
+DIVERGENT rows (payload.seq <> seq): 746
+  b09e4ae7 row.seq= 28047 payload.seq= 28046 agent_chunk 2026-09-25 13:23:09
+  b09e4ae7 row.seq= 28048 payload.seq= 28047 workflow_validated 2026-09-25 13:23:09
+  b09e4ae7 row.seq= 28049 payload.seq= 28048 agent_chunk 2026-09-25 13:23:09
+  b09e4ae7 row.seq= 28057 payload.seq= 28049 pipeline_start 2026-09-25 13:23:10
+  b09e4ae7 row.seq= 28058 payload.seq= 28057 agent_chunk 2026-09-25 13:23:10
+  b09e4ae7 row.seq= 28077 payload.seq= 28058 agent_start 2026-09-25 13:23:12
+  b09e4ae7 row.seq= 28078 payload.seq= 28077 agent_chunk 2026-09-25 13:23:12
+  b09e4ae7 row.seq= 28086 payload.seq= 28078 agent_input 2026-09-25 13:23:13
+  b09e4ae7 row.seq= 28088 payload.seq= 28086 agent_chunk 2026-09-25 13:23:13
+  b09e4ae7 row.seq= 28160 payload.seq= 28088 agent_thinking 2026-09-25 13:23:15
+  b09e4ae7 row.seq= 28169 payload.seq= 28160 agent_chunk 2026-09-25 13:23:15
+  b09e4ae7 row.seq= 28185 payload.seq= 28169 agent_thinking 2026-09-25 13:23:16
+distinct runs affected: 1
+
+## D. probe 2: shape of the divergence in run b09e4ae7
+run: b09e4ae7-f7a2-492d-9643-ae314a624989
+workflow_runs: ('cancelled', 'prototype_v2', datetime.datetime(2026, 9, 25, 12, 39, 14, 943843))
+rows in run: (35690, 1, 35690)
+divergent span: (28047, 35529, 746)
+delta (row.seq - payload.seq) histogram:
+  delta 2 -> 147
+  delta 1 -> 131
+  delta 8 -> 114
+  delta 4 -> 45
+  delta 3 -> 28
+  delta 9 -> 26
+  delta 5 -> 25
+  delta 7 -> 20
+  delta 10 -> 19
+  delta 6 -> 19
+  delta 11 -> 17
+  delta 16 -> 17
+
+rows around the first divergence (seq 28040..28062):
+   28040 9b8e14f8-39a4- agent_chunk payload.seq= 28040 payload_has_event_id= True 13:23:07.508
+   28041 7d836ac8-34bb- agent_chunk payload.seq= 28041 payload_has_event_id= True 13:23:07.796
+   28042 ecdc7574-cc81- tool_call payload.seq= 28042 payload_has_event_id= True 13:23:08.508
+   28043 5f1992d4-be65- tool_call payload.seq= 28043 payload_has_event_id= True 13:23:08.537
+   28044 026ced11-855a- tool_result payload.seq= 28044 payload_has_event_id= True 13:23:08.550
+   28045 a03382f6-032f- tool_result payload.seq= 28045 payload_has_event_id= True 13:23:08.582
+   28046 1f215b85-ff31- run_resuming payload.seq= None payload_has_event_id= False 13:23:08.751
+   28047 61b5ac22-c481- agent_chunk payload.seq= 28046 payload_has_event_id= True 13:23:09.656
+   28048 e3ba3ba7-a4ff- workflow_validated payload.seq= 28047 payload_has_event_id= True 13:23:09.962
+   28049 1ae0443f-2ee3- agent_chunk payload.seq= 28048 payload_has_event_id= True 13:23:09.982
+   28050 bf5e510c-406e- agent_chunk payload.seq= 28050 payload_has_event_id= True 13:23:09.984
+   28051 2ac186f7-7ec1- agent_chunk payload.seq= 28051 payload_has_event_id= True 13:23:09.990
+   28052 494eb85c-61f9- agent_chunk payload.seq= 28052 payload_has_event_id= True 13:23:09.993
+   28053 6054612a-ee21- agent_chunk payload.seq= 28053 payload_has_event_id= True 13:23:09.997
+   28054 8a5525d1-7037- agent_chunk payload.seq= 28054 payload_has_event_id= True 13:23:10.000
+   28055 8fd3107b-2e65- agent_chunk payload.seq= 28055 payload_has_event_id= True 13:23:10.003
+   28056 c2c0adb9-cebe- agent_chunk payload.seq= 28056 payload_has_event_id= True 13:23:10.007
+   28057 40efbaa3-4b41- pipeline_start payload.seq= 28049 payload_has_event_id= True 13:23:10.012
+   28058 8b347862-32e8- agent_chunk payload.seq= 28057 payload_has_event_id= True 13:23:10.224
+   28059 71bf4742-22dd- agent_chunk payload.seq= 28059 payload_has_event_id= True 13:23:10.230
+   28060 54c7c066-fc9f- agent_chunk payload.seq= 28060 payload_has_event_id= True 13:23:10.233
+   28061 3d3c393a-7aaa- agent_chunk payload.seq= 28061 payload_has_event_id= True 13:23:10.236
+   28062 b6904b1c-d231- agent_chunk payload.seq= 28062 payload_has_event_id= True 13:23:10.240
+
+## E. probe 3: frequency + proof of >=2 concurrent engine writers in b09e4ae7
+runs with >=1 run_events row: 50
+runs created on/after FIX-240 (2026-08-12) with events: 50
+... of those, with a chat_message row: 10
+... with a chat_message row AND a divergent engine row: 0
+... with ANY divergent engine row (chat_message or not): 1
+b09e4ae7: requested-seq inversions in landing order: 615 of 35683 rows
+   e.g. row 28056 requested 28056 -> next row 28057 requested 28049 (went backwards)
+   e.g. row 28076 requested 28076 -> next row 28077 requested 28058 (went backwards)
+   e.g. row 28085 requested 28085 -> next row 28086 requested 28078 (went backwards)
+b09e4ae7 run_resuming markers: [(27586, '13:21:46.499', 'backend_restart_in_process_resume'), (28046, '13:23:08.751', 'backend_restart_in_process_resume')]
+b09e4ae7 pipeline_start rows: [(2, '2'), (27588, '27588'), (28057, '28049')]
+
+## F-I. probe 4: card's sample run, delta range, chat-lane rows vs divergence, the one chat-lane retry
+F. card's original sample run 1ea6d262: run_events rows = 0 | workflow_runs rows = 0
+G. delta (row.seq - payload.seq) over all divergent rows: min=1 max=476 rows-with-negative-delta=0
+H. app-layer (chat lane) rows in b09e4ae7: 5 [(3, 'chat_reply', '12:39:15.887'), (1543, 'chat_reply', '12:51:41.680'), (1545, 'chat_reply', '12:57:19.602'), (27585, 'chat_reply', '13:20:54.906'), (35528, 'chat_reply', '13:32:03.504')]
+   divergent rows whose slots requested .. landed-1 hold a chat-lane row: 1 of 746
+I. rows 35522..35536 of b09e4ae7 (the one chat-lane-caused retry): seq, type, payload.seq, time
+   35522 tool_call payload.seq= 35522 13:32:01.579
+   35523 tool_result payload.seq= 35523 13:32:01.641
+   35524 agent_chunk payload.seq= 35524 13:32:02.621
+   35525 agent_chunk payload.seq= 35525 13:32:02.746
+   35526 agent_chunk payload.seq= 35526 13:32:02.750
+   35527 agent_chunk payload.seq= 35527 13:32:02.799
+   35528 chat_reply payload.seq= None 13:32:03.504
+   35529 tool_call payload.seq= 35528 13:32:04.478
+   35530 tool_result payload.seq= 35530 13:32:04.533
+   35531 agent_chunk payload.seq= 35531 13:32:05.286
+   35532 agent_chunk payload.seq= 35532 13:32:05.473
+   35533 agent_chunk payload.seq= 35533 13:32:05.475
+   35534 agent_chunk payload.seq= 35534 13:32:05.478
+   35535 agent_chunk payload.seq= 35535 13:32:05.480
+   35536 agent_chunk payload.seq= 35536 13:32:05.482

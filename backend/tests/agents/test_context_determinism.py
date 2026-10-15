@@ -689,3 +689,18 @@ class TestEdgeCases:
         assert (
             files1 == files2
         ), "explicit_selection=False produced different files from the default."
+
+
+def test_design_system_files_are_written_and_restored(tmp_path: Path) -> None:
+    from app.services.od_context_sandbox import (
+        _write_od_context_to_sandbox,
+        rebuild_od_context_from_sandbox,
+    )
+
+    sb = _make_sandbox(tmp_path)
+    od = dict(_SAMPLE_OD_CONTEXT, ds_files={"tokens.css": ":root{--accent:#0f62fe}"})
+    _write_od_context_to_sandbox(sb, od)
+    assert sb.read(".context/design/tokens.css") == ":root{--accent:#0f62fe}"
+    assert rebuild_od_context_from_sandbox(sb)["ds_files"] == {
+        "tokens.css": ":root{--accent:#0f62fe}"
+    }

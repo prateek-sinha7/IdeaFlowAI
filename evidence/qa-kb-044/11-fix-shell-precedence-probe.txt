@@ -1,0 +1,27 @@
+# QA-KB-044 fix evidence 11 - ISS-952 probe: shell status vs pinned status precedence on the PATCHED real tree, 2026-10-02 (5-fixer)
+# Scratch test imports the real frontend/src/components/preview/PreviewPanel by absolute path; pin = pinnedVersion='1' on tagless family, getWorkflow -> {status:'completed', output:null}; shell status = reopenedRunStatus prop.
+# Command: cd frontend && npx vitest --run --coverage=false --config <scratch>/fixer2-probe/vitest.probe.config.mts -> Tests 5 passed (5) (probe records, does not assert)
+
+PROBE shell=undefined | tabs=["Preview","Steps","Workspace","Audit"] | distinct=true | cancelledCopy=false | failedCopy=false
+PROBE shell=completed | tabs=["Preview","Steps","Workspace","Audit"] | distinct=true | cancelledCopy=false | failedCopy=false
+PROBE shell=cancelled | tabs=["Preview","Steps","Workspace","Audit"] | distinct=false | cancelledCopy=true | failedCopy=false
+PROBE shell=failed | tabs=["Steps","Workspace","Audit"] | distinct=false | cancelledCopy=false | failedCopy=false
+PROBE shell=diverted | tabs=["Preview","Steps","Workspace","Audit"] | distinct=false | cancelledCopy=false | failedCopy=true
+
+## probe source (describe block)
+async function pinUnder(shellStatus: string | undefined, run: Record<string, unknown>) {
+  mockGetWorkflow.mockImplementation((_t, id) => Promise.resolve({ id, ...run } as any));
+  render(<PreviewPanel workflowType="prototype" prototypeContent="<html>latest</html>" runFamily={tagless} liveRunId="root" pinnedVersion="1" reopenedRunStatus={shellStatus as any} />);
+  await waitFor(() => expect(mockGetWorkflow).toHaveBeenCalledWith("test-token", "root"));
+  await screen.findByRole("status");
+}
+describe("probe - shell status vs pinned status precedence (patched real tree)", () => {
+  for (const shell of [undefined, "completed", "cancelled", "failed", "diverted"]) {
+    it("shell=" + shell + " pinned completed+null", async () => {
+      await pinUnder(shell, { status: "completed", output: null });
+      const tabs = screen.queryAllByRole("tab").map((t) => t.textContent?.trim());
+      const txt = document.body.textContent || "";
+      require("fs").appendFileSync("/private/tmp/claude-502/-Users-bilala-Developer-Projects-VELOCITY-AI-worktrees-feat-user-stories-v2/2d1a1575-310a-48fd-8155-2763a084604d/scratchpad/qa-kb-044/fixer2-probe/probe.results", ["PROBE shell=" + shell, "| tabs=" + JSON.stringify(tabs), "| distinct=" + txt.includes(DISTINCT), "| cancelledCopy=" + txt.includes("This run was cancelled"), "| failedCopy=" + txt.includes("did not complete successfully")].join(" ") + "\n");
+    });
+  }
+});

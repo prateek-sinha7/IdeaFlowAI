@@ -1,0 +1,18 @@
+# local dev DB (database velocity-local-db on localhost:5432), read-only transaction, run 2026-10-08T00:01:31
+
+SQL> SELECT operation, count(*) AS n, min(created_at)::date AS first, max(created_at)::date AS last FROM run_provenance_audits GROUP BY operation ORDER BY n DESC
+     ['operation', 'n', 'first', 'last']
+     ('chain_source_selected', 2, datetime.date(2026, 9, 25), datetime.date(2026, 9, 29))
+
+SQL> SELECT (created_at >= '2026-09-16') AS after_merge_4ebd98e8f, count(*) AS wave_rows, count(merge_state) AS with_merge_state, min(created_at)::date AS first, max(created_at)::date AS last FROM wave_runs GROUP BY 1 ORDER BY 1
+     ['after_merge_4ebd98e8f', 'wave_rows', 'with_merge_state', 'first', 'last']
+     (True, 73, 0, datetime.date(2026, 9, 25), datetime.date(2026, 10, 1))
+
+SQL> SELECT type, count(*) AS n, count(DISTINCT run_id) AS runs, max(created_at)::date AS last FROM run_events WHERE type IN ('merge_started','merge_completed','merge_conflict') GROUP BY type ORDER BY type
+     ['type', 'n', 'runs', 'last']
+     ('merge_completed', 77, 25, datetime.date(2026, 10, 1))
+     ('merge_started', 77, 25, datetime.date(2026, 10, 1))
+
+SQL> SELECT count(DISTINCT w.run_id) AS runs_with_wave_rows, count(DISTINCT CASE WHEN e.run_id IS NOT NULL THEN w.run_id END) AS of_which_had_merge_completed FROM wave_runs w LEFT JOIN (SELECT DISTINCT run_id FROM run_events WHERE type='merge_completed') e ON e.run_id = w.run_id
+     ['runs_with_wave_rows', 'of_which_had_merge_completed']
+     (26, 25)

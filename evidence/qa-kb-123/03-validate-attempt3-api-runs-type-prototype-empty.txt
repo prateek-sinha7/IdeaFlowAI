@@ -1,0 +1,29 @@
+attempt 3 2026-10-12T07:29:02Z fresh login, GET :8000
+GET /api/runs?limit=100&type=prototype ->
+[]
+all runs by type (paged limit=100, offset 0..500):
+('backlog', 'cancelled') 3
+('backlog', 'completed') 2
+('backlog', 'degraded') 2
+('backlog', 'failed') 2
+('backlog_revision', 'cancelled') 1
+('backlog_revision', 'completed') 6
+('ex_A1_loop', 'completed') 7
+('ex_A1_loop', 'failed') 6
+('ex_A2_branch', 'completed') 4
+('ex_A2_branch', 'failed') 2
+('ex_A3_c_dutch', 'completed') 1
+('ex_A4_human_divert', 'diverted') 1
+('ex_A4_human_gate', 'failed') 1
+('prototype_large_revision', 'degraded') 1
+('prototype_revision', 'cancelled') 2
+('prototype_revision', 'completed') 2
+('prototype_revision', 'failed') 2
+('prototype_v2', 'cancelled') 5
+('prototype_v2', 'completed') 8
+('prototype_v2', 'failed') 3
+('prototype_v2_feature_revision', 'completed') 3
+('prototype_v2_revision', 'completed') 2
+('user_stories', 'cancelled') 1
+('user_stories_v2', 'degraded') 1
+('user_stories_v2', 'failed') 1

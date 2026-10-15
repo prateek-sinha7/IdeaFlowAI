@@ -1,0 +1,58 @@
+# Same failing files with the PRE-FIX RunSandbox.list_tags body patched back in-process (pytest -p baseline_plugin; working tree untouched, so :8000 --reload not retriggered).
+# The ISS-678 file going back to 2 xfailed proves the patch takes effect. Identical failures => pre-existing, unrelated to this fix.
+=== BASELINE (pre-fix list_tags) tests/integration/api/test_run_sandbox_has_git_derived_api.py
+XFAIL tests/integration/api/test_run_sandbox_has_git_derived_api.py::test_refs_endpoint_spawns_no_git_without_dot_git - ISS-678 unfixed
+XFAIL tests/integration/api/test_run_sandbox_has_git_derived_api.py::test_restore_tag_gate_spawns_no_git_without_dot_git - ISS-678 unfixed
+2 xfailed in 1.35s
+=== BASELINE (pre-fix list_tags) tests/agents/test_version_family_v5.py
+E       sqlite3.IntegrityError: NOT NULL constraint failed: users.cognito_sub
+E       sqlalchemy.exc.IntegrityError: (sqlite3.IntegrityError) NOT NULL constraint failed: users.cognito_sub
+E       sqlite3.IntegrityError: NOT NULL constraint failed: users.cognito_sub
+E       sqlalchemy.exc.IntegrityError: (sqlite3.IntegrityError) NOT NULL constraint failed: users.cognito_sub
+FAILED tests/agents/test_version_family_v5.py::TestFiveDistinctVersionFamily::test_five_versions_distinct_content_tags_and_reread
+FAILED tests/agents/test_version_family_v5.py::TestConcurrentBrowseDuringInFlightRevision::test_browsing_v1_v2_while_v4_in_flight_does_not_affect_it
+2 failed in 1.49s
+=== BASELINE (pre-fix list_tags) tests/agents/test_rollback_safety.py
+FAILED tests/agents/test_rollback_safety.py::TestR1IgnoresUnknownChainFiles::test_legacy_payload_selection_ignores_flat_chain_files
+FAILED tests/agents/test_rollback_safety.py::TestR4FeatureDetectionNoBooleanFlag::test_summary_md_carries_schema_version_field
+FAILED tests/agents/test_rollback_safety.py::TestR6LegacySelectDoesNotConfuseV2Layout::test_flat_chain_files_not_selected_as_legacy_payload
+FAILED tests/agents/test_rollback_safety.py::TestR6LegacySelectDoesNotConfuseV2Layout::test_chain_legacy_dir_selected_not_chain_flat
+4 failed, 19 passed in 4.08s
+=== BASELINE (pre-fix list_tags) tests/agents/test_revision_ordinal_v3.py
+E       sqlite3.IntegrityError: NOT NULL constraint failed: users.cognito_sub
+E       sqlalchemy.exc.IntegrityError: (sqlite3.IntegrityError) NOT NULL constraint failed: users.cognito_sub
+E       sqlite3.IntegrityError: NOT NULL constraint failed: users.cognito_sub
+E       sqlalchemy.exc.IntegrityError: (sqlite3.IntegrityError) NOT NULL constraint failed: users.cognito_sub
+FAILED tests/agents/test_revision_ordinal_v3.py::TestSequentialTagsAcrossRealFinalization::test_three_completed_revisions_tag_v1_v2_v3
+FAILED tests/agents/test_revision_ordinal_v3.py::TestSequentialTagsAcrossSiblingRevisions::test_two_sibling_revisions_tag_v1_v2_v3_not_v1_v2_v2
+2 failed, 6 passed in 2.90s
+=== BASELINE (pre-fix list_tags) tests/agents/test_family_lock.py
+FAILED tests/agents/test_family_lock.py::TestRestoreLockTimeout::test_upload_handler_timeout_returns_409
+1 failed, 25 passed in 4.74s
+FAILED tests/agents/test_sandbox_commit_all.py::test_commit_all_delegates_to_workspace_and_returns_sha
+FAILED tests/agents/test_sandbox_commit_all.py::test_commit_all_warns_not_a_git_repo_when_git_dir_missing
+FAILED tests/agents/test_sandbox_commit_all.py::test_commit_all_warns_nothing_to_commit_when_git_dir_present
+FAILED tests/agents/test_sandbox_commit_all.py::test_commit_all_no_warning_on_successful_commit
+FAILED tests/agents/test_sandbox_commit_all.py::test_commit_all_forwards_message_verbatim
+5 failed, 1 passed in 1.05s
+
+# baseline_plugin.py
+"""Baseline only: put back the PRE-FIX RunSandbox.list_tags body in-process (the working tree is untouched).
+app is imported lazily in pytest_runtest_setup so the plugin cannot bind a live DB at collection."""
+
+
+def pytest_runtest_setup(item):
+    import app.agents.sandbox as sb
+
+    def list_tags(self):
+        if not self.has_git:
+            return []
+        fn = getattr(self._ws(), "list_tags", None)
+        if fn is None:
+            return []
+        try:
+            return fn()
+        except Exception:  # noqa: BLE001
+            return []
+
+    sb.RunSandbox.list_tags = list_tags

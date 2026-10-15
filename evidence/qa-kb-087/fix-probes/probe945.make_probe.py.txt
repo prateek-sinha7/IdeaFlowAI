@@ -1,0 +1,40 @@
+# QA-KB-087 5-fixer mutant probe for ISS-945 / ISS-1036. Writes scratch variants next to this script; never writes the repo.
+import pathlib, subprocess
+REPO = "/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2"
+SETTINGS = REPO + "/frontend/src/components/settings"
+REL = "frontend/src/components/settings/AccountSettings.iss372.test.tsx"
+fixed = pathlib.Path(SETTINGS + "/AccountSettings.iss372.test.tsx").read_text()          # working tree = this fix
+head = subprocess.run(["git", "-C", REPO, "show", "HEAD:" + REL], capture_output=True, text=True, check=True).stdout
+
+def harness(s, comp):
+    t = s.replace('import { AccountSettings } from "./AccountSettings";', f'import {{ AccountSettings }} from "{comp}";')
+    assert t != s
+    return t.replace("__dirname", f'"{SETTINGS}"')
+
+# ISS-945 alone, as its card prescribes (no ISS-1036 change): :83 deleted, waitFor import dropped, it.fails -> it, empty mock kept.
+WAIT = "    await waitFor(() => expect(fetch).toHaveBeenCalled());\n"
+assert WAIT in head
+only945 = head.replace(WAIT, "").replace("import { render, screen, waitFor } from", "import { render, screen } from").replace("it.fails(", "it(")
+assert only945.count("it(") >= 4 and "it.fails(" not in only945
+
+app = pathlib.Path(SETTINGS + "/AccountSettings.tsx").read_text()
+# M1 (ISS-1036): the Constitution load forgets setLoadedValue(loaded) (AccountSettings.tsx:635)
+L = "        setLoadedValue(loaded);\n"
+assert app.count(L) == 1
+pathlib.Path("MutantNoLoadedValue.tsx").write_text(app.replace(L, ""))
+# M2 (ISS-921 itself): the Constitution draft is not unsaved work (the pre-FIX-704 shape of hasUnsavedWork, AccountSettings.tsx:130-133)
+T = "    pendingModel !== selectedModel ||\n    constitutionDirty;\n"
+assert app.count(T) == 1
+pathlib.Path("MutantNoConstitutionTerm.tsx").write_text(app.replace(T, "    pendingModel !== selectedModel;\n"))
+
+REAL = "@/components/settings/AccountSettings"
+for name, src, comp in [
+    ("fixed_real", fixed, REAL),
+    ("fixed_m1", fixed, "./MutantNoLoadedValue"),
+    ("fixed_m2", fixed, "./MutantNoConstitutionTerm"),
+    ("only945_real", only945, REAL),
+    ("only945_m1", only945, "./MutantNoLoadedValue"),
+    ("only945_m2", only945, "./MutantNoConstitutionTerm"),
+]:
+    pathlib.Path(f"{name}.test.tsx").write_text(harness(src, comp))
+print("ok")

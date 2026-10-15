@@ -1,0 +1,523 @@
+# QA-KB-102 analysis -- verbatim source quotes, branch feat/stale-bug-fixes, HEAD 3bfff3990, read 2026-10-08T14:48.
+# Every line number below is the COMMITTED (HEAD) numbering: backend/app/api/run_commands.py is quoted from 'git show HEAD:' because a concurrent fixer
+# edit in the working tree shifts its lines after ~3300; engine.py, state_machine.py, run_engine.py and the frontend files are unmodified vs HEAD.
+
+### backend/agents/execution_engine/engine.py:16029-16031  -- THE SWALLOW: _drive_resumed_stream turns every _execute_impl exception into a log line
+ 16029                              pass
+ 16030          except Exception as exc:  # noqa: BLE001 — a resume failure must not crash startup
+ 16031              logger.warning("resumed-stream drive(%s) failed mid-drive: %s", run_id, exc)
+
+### backend/agents/execution_engine/engine.py:15922-15930  -- the only statements of the funnel OUTSIDE its try (a fault here DOES propagate -> flip-back)
+ 15922          _resume_trace = RunTrace(
+ 15923              RunSandbox(
+ 15924                  user_id or "anon",
+ 15925                  _resolve_root_id(run_id, user_id or f"anon:{session_id or run_id}"),
+ 15926                  current_run_id=run_id,
+ 15927              ).run_log_path
+ 15928          )
+ 15929          try:
+ 15930              async for event in self._execute_impl(
+
+### backend/agents/execution_engine/engine.py:15566-15575  -- resume_run silent exit 1: no workflow_runs row
+ 15566          db = SessionLocal()
+ 15567          try:
+ 15568              wr = db.query(WorkflowRun).filter(WorkflowRun.id == run_id).first()
+ 15569              if wr is None:
+ 15570                  logger.warning(
+ 15571                      "resume_run(%s): no workflow_runs row — skipping", run_id
+ 15572                  )
+ 15573                  # WR-01: drop the task entry registered at the create_task site.
+ 15574                  self._fire_resume_cleanup(run_id)
+ 15575                  return
+
+### backend/agents/execution_engine/engine.py:15642-15653  -- resume_run silent exit 2: persisted manifest no longer compiles (fail closed, FIX-576 lock) -- returns, nothing recorded
+ 15642              except Exception as exc:  # noqa: BLE001 — refuse a WRONG resume
+ 15643                  # Fail closed: substituting the generic roster is strictly worse
+ 15644                  # than not resuming (it runs the wrong pipeline on the user's
+ 15645                  # dime), so a manifest that no longer compiles ends the resume.
+ 15646                  logger.warning(
+ 15647                      "resume_run(%s): persisted manifest failed to recompile (%s) — "
+ 15648                      "refusing to resume with a substitute roster",
+ 15649                      run_id,
+ 15650                      exc,
+ 15651                  )
+ 15652                  self._fire_resume_cleanup(run_id)
+ 15653                  return
+
+### backend/agents/execution_engine/engine.py:15693-15702  -- resume_run silent exit 3: cannot resolve agents
+ 15693          try:
+ 15694              if resumed_compiled is not None:
+ 15695                  agents = self._specs_from_plan(resumed_compiled.steps)
+ 15696              else:
+ 15697                  agents = get_pipeline_agents(resolve_alias(pipeline_type))
+ 15698          except Exception as exc:  # noqa: BLE001 — unknown pipeline → cannot resume
+ 15699              logger.warning("resume_run(%s): cannot resolve agents (%s)", run_id, exc)
+ 15700              # WR-01: drop the task entry registered at the create_task site.
+ 15701              self._fire_resume_cleanup(run_id)
+ 15702              return
+
+### backend/agents/execution_engine/engine.py:15715-15735  -- resume_run silent exits 4 and 5: plan cannot compile / empty agent list
+ 15715              try:
+ 15716                  plan_steps = compile_for_run(pipeline_type).steps
+ 15717              except Exception as exc:  # noqa: BLE001 — cannot compile → cannot resume
+ 15718                  if not agents:
+ 15719                      logger.warning(
+ 15720                          "resume_run(%s): cannot compile plan (%s)", run_id, exc
+ 15721                      )
+ 15722                      self._fire_resume_cleanup(run_id)
+ 15723                      return
+ 15724                  plan_steps = []  # no plan: a registry roster resumes as it stands
+ 15725              if plan_steps and (
+ 15726                  not agents or {a.id for a in agents} < {s.agent_id for s in plan_steps}
+ 15727              ):
+ 15728                  agents = self._specs_from_plan(plan_steps)
+ 15729          if not agents:
+ 15730              logger.warning(
+ 15731                  "resume_run(%s): empty agent list — nothing to resume", run_id
+ 15732              )
+ 15733              # WR-01: drop the task entry registered at the create_task site.
+ 15734              self._fire_resume_cleanup(run_id)
+ 15735              return
+
+### backend/agents/execution_engine/engine.py:16105-16113  -- _replay_clarify_run silent exit 1 (of 7: :16108, :16154, :16178, :16194, :16206, :16223, :16238)
+ 16105          db = SessionLocal()
+ 16106          try:
+ 16107              wr = db.query(WorkflowRun).filter(WorkflowRun.id == run_id).first()
+ 16108              if wr is None:
+ 16109                  logger.warning(
+ 16110                      "_replay_clarify_run(%s): no workflow_runs row — skipping", run_id
+ 16111                  )
+ 16112                  self._fire_resume_cleanup(run_id)
+ 16113                  return
+
+### backend/agents/execution_engine/engine.py:16154-16165  -- _replay_clarify_run silent exit 2: persisted manifest no longer compiles
+ 16154              except Exception as exc:  # noqa: BLE001 — refuse a WRONG replay
+ 16155                  # Fail closed: substituting the generic roster is strictly worse than
+ 16156                  # not replaying (it runs the wrong pipeline on the user's dime), so a
+ 16157                  # manifest that no longer compiles ends the replay.
+ 16158                  logger.warning(
+ 16159                      "_replay_clarify_run(%s): persisted manifest failed to recompile "
+ 16160                      "(%s) — refusing to replay with a substitute roster",
+ 16161                      run_id,
+ 16162                      exc,
+ 16163                  )
+ 16164                  self._fire_resume_cleanup(run_id)
+ 16165                  return
+
+### backend/agents/execution_engine/engine.py:4503-4511  -- a pre-dispatch fault the engine MEANS to be fatal: sandbox quarantine raises RuntimeError
+  4503                                      if _reconcile_result == "quarantined":
+  4504                                          # Corrupt repo — refuse the open so no write
+  4505                                          # lands on an unrecoverable repository state.
+  4506                                          # This is the sole hard-failure path; all other
+  4507                                          # reconciliation outcomes continue the run.
+  4508                                          raise RuntimeError(
+  4509                                              f"sandbox quarantined for run {pipeline_run_id}: "
+  4510                                              "repository is corrupt and requires operator action"
+  4511                                          )
+
+### backend/agents/execution_engine/engine.py:4522-4524  -- ...and says so: 'propagate to abort the run'
+  4522              except RuntimeError:
+  4523                  raise  # quarantine — propagate to abort the run
+  4524              except Exception:  # noqa: BLE001 — detection failure must never abort open
+
+### backend/agents/execution_engine/engine.py:4255-4271  -- execute() (launch entry) re-raises unchanged so the DRIVER records it
+  4255          except Exception as exc:
+  4256              # A terminal exception here (e.g. a REST driver's caught pipeline
+  4257              # exception, run_commands.py) previously left the on-disk trace
+  4258              # silent — the durable WorkflowRun.error DB column got the message,
+  4259              # but `.logs/run-logs.jsonl` just stopped mid-stream with no record
+  4260              # of why, so reading the trace alone looked like a crash rather than
+  4261              # a caught, recorded failure. Record it here, on the SAME `_trace`
+  4262              # (not torn down yet — only `.flush()`ed in `finally`, below), then
+  4263              # re-raise unchanged so every existing caller behavior (DB write,
+  4264              # event emission) is untouched.
+  4265              _trace.observe(
+  4266                  {
+  4267                      "type": "error",
+  4268                      "data": {"error": str(exc), "agent_id": _last_agent_id},
+  4269                  }
+  4270              )
+  4271              raise
+
+### backend/agents/execution_engine/engine.py:7619-7626  -- the engine's own finally: an unhandled exception never moves the state machine; it relies on the caller to record it
+  7619          finally:
+  7620              # Captured FIRST, before any await below: the exception (if any) this
+  7621              # finally is running under. An unhandled one (a mechanical step's
+  7622              # TypeError, run 05832e65) never moves the state machine off
+  7623              # "generating", which the status derivation below reads as completed.
+  7624              import sys as _sys
+  7625  
+  7626              _exc_in_flight = _sys.exc_info()[1]
+
+### backend/agents/execution_engine/engine.py:7692-7697  -- ...'_pending_terminal_event is None ... on the unhandled-exception path': no terminal event for an unhandled exception
+  7692              # ``_pending_terminal_event`` is None on the normal-completion path
+  7693              # (cursor exhausted without an early return) and on the unhandled-
+  7694              # exception / GeneratorExit path — in both cases Step 5 (below the
+  7695              # try/finally) handles the terminal event, or the consumer simply
+  7696              # abandons the generator.
+  7697              #
+
+### backend/agents/execution_engine/engine.py:5739-5739  -- state machine transition that StateMachineError can refuse (ISS-1061 / ISS-1101)
+  5739          self._state_machine.transition(pipeline_run_id, "generating")
+
+### backend/app/api/run_commands.py:4368-4396  -- LAUNCH driver: except Exception -> error frame + status failed + .error=str(e) (then, below, the sentinel and _cleanup_pipeline)
+  4368      except Exception as e:  # pragma: no cover - defensive parity with WS driver
+  4369          logger.error(
+  4370              "REST launch driver error — run=%s: %s", workflow_run_id, e, exc_info=True
+  4371          )
+  4372          await event_queue.put(
+  4373              {
+  4374                  "type": "error",
+  4375                  "data": {
+  4376                      "error": f"Pipeline execution failed: {e}",
+  4377                      "code": "pipeline_error",
+  4378                      "recoverable": True,
+  4379                  },
+  4380              }
+  4381          )
+  4382          if workflow_run_id:
+  4383              db = _get_db()
+  4384              try:
+  4385                  wr = (
+  4386                      db.query(WorkflowRun)
+  4387                      .filter(WorkflowRun.id == workflow_run_id)
+  4388                      .first()
+  4389                  )
+  4390                  if wr:
+  4391                      wr.status = "failed"
+  4392                      wr.error = str(e)
+  4393                      wr.completed_at = datetime.now(timezone.utc)
+  4394                      db.commit()
+  4395              finally:
+  4396                  db.close()
+
+### backend/app/api/run_commands.py:4397-4399  -- LAUNCH driver finally: sentinel + cleanup
+  4397      finally:
+  4398          await event_queue.put(None)
+  4399          _cleanup_pipeline(pipeline_run_id)
+
+### backend/app/api/run_commands.py:760-797  -- RESUME wrapper _drive_user_resume: its except -> _flip_back_to_failed is unreachable for anything resume_run swallows
+   760  async def _drive_user_resume(run_id: str, *, user: User) -> None:
+   761      """The THIN drive wrapper the resume endpoint spawns (RESEARCH §Arm-Failure, PINNED).
+   762  
+   763      Delegates 100% of drive to ``engine.resume_run`` (the SOLE drive path — the armed
+   764      singleton's live-layer hooks fire off ``self.*``, so NO callbacks are re-threaded here;
+   765      ``resume_run`` accepts none, and adding them would be dead code) and adds ONLY the two
+   766      status writes the resume tier structurally lacks: on success, reconcile the terminal
+   767      status from the durable tail; on any failure, flip back to ``failed`` (honest state —
+   768      never stuck ``running`` with no live task, T-50-06).
+   769  
+   770      HARD FENCE (INV-12 / Pitfall 7): this body MUST NOT contain an
+   771      ``async for ... engine.execute(`` event ladder and MUST NOT clone
+   772      ``_drive_launch_to_queue``'s per-event accumulation. It is NOT a third driver.
+   773      """
+   774      from agents.execution_engine.engine import get_execution_engine
+   775  
+   776      engine = get_execution_engine()
+   777      try:
+   778          # Stamp the run_resuming marker (best-effort audit, moved from the
+   779          # endpoint handler so the HTTP response returns immediately).
+   780          db = _get_db()
+   781          try:
+   782              wr_snap = db.query(WorkflowRun).filter(WorkflowRun.id == run_id).first()
+   783              if wr_snap is not None:
+   784                  await engine._stamp_resume_marker(wr_snap)
+   785          except Exception as _stamp_exc:  # noqa: BLE001
+   786              logger.warning(
+   787                  "_drive_user_resume: stamp failed run=%s: %s", run_id, _stamp_exc
+   788              )
+   789          finally:
+   790              db.close()
+   791  
+   792          await engine.resume_run(run_id)  # SOLE drive path — armed-singleton hooks fire.
+   793          await _reconcile_terminal_status(run_id)
+   794      except Exception as exc:  # noqa: BLE001 — any drive failure → honest state
+   795          logger.error("user-resume drive failed run=%s: %s", run_id, exc, exc_info=True)
+   796          _flip_back_to_failed(run_id, str(exc))
+   797  
+
+### backend/app/api/run_commands.py:926-935  -- _reconcile_terminal_status: no terminal event in this attempt -> 'failed' (D2 fail-safe)
+   926              failed_current = any(
+   927                  e.type == "pipeline_failed" and e.seq >= last_reattempt_seq
+   928                  for e in events
+   929              )
+   930              if degraded_current:
+   931                  new_status = "degraded"
+   932              elif current_attempt_completes and not failed_current:
+   933                  new_status = "completed"
+   934              else:
+   935                  new_status = "failed"
+
+### backend/app/api/run_commands.py:984-1012  -- ...derives .error only from this attempt's own events, else leaves it untouched; _flip_back_to_failed is a DB write only
+   984                  )
+   985              else:
+   986                  pipeline_failed_msg = next(
+   987                      (
+   988                          e.payload_json.get("error")
+   989                          for e in this_attempt
+   990                          if e.type == "pipeline_failed"
+   991                          and isinstance(e.payload_json, dict)
+   992                          and e.payload_json.get("error")
+   993                      ),
+   994                      None,
+   995                  )
+   996                  derived = first_agent_error_msg or pipeline_failed_msg
+   997              if derived is not None:
+   998                  new_error = derived
+   999              # else: nothing to derive from this attempt's own events — leave the
+  1000              # existing ``.error`` value untouched rather than invent one.
+  1001      except Exception as exc:  # noqa: BLE001 — best-effort reconcile (offline degrade)
+  1002          logger.warning("_reconcile_terminal_status(%s) failed: %s", run_id, exc)
+  1003          return
+  1004  
+  1005      _persist_resume_status(run_id, new_status, error=new_error)
+  1006  
+  1007  
+  1008  def _flip_back_to_failed(run_id: str, err: str) -> None:
+  1009      """Flip a user-resumed run back to ``failed`` + record the error (T-50-06 honest
+  1010      state — never left stuck ``running`` with no live task). The ``_persist_terminal_status``
+  1011      idiom with ``new_status="failed"`` + ``wr.error``."""
+  1012      _persist_resume_status(run_id, "failed", error=err)
+
+### backend/app/api/run_commands.py:1031-1041  -- _persist_resume_status re-stamps completed_at on every call
+  1031      sdb = _get_db()
+  1032      try:
+  1033          swr = sdb.query(WorkflowRun).filter(WorkflowRun.id == run_id).first()
+  1034          if swr:
+  1035              swr.status = new_status
+  1036              if error is not _UNSET_ERROR:
+  1037                  swr.error = error
+  1038              swr.completed_at = datetime.now(timezone.utc)
+  1039              sdb.commit()
+  1040      finally:
+  1041          sdb.close()
+
+### backend/app/api/run_commands.py:3863-3870  -- _apply_terminal_output_columns docstring: writes NO status/error -- 'the engine state machine on restart'
+  3863      Replays a normalized ``(event_type, data)`` list — the SAME ``agent_*`` /
+  3864      ``pipeline_complete`` accumulation the launch loop ran inline (this file, the old
+  3865      1599-1675) — into the terminal ``output`` / ``agent_outputs`` / ``token_usage`` /
+  3866      ``deliverable_mimetype`` / ``deliverable_filename`` / ``completed_at`` / ``duration``
+  3867      columns, byte-for-byte identical to ``_drive_launch_to_queue``'s post-stream block
+  3868      (the old 1704-1742). It writes NO ``status`` / ``error`` — those stay caller-owned
+  3869      (launch's seen-flags, user-resume's ``_reconcile_terminal_status``, the engine state
+  3870      machine on restart). It does NOT commit — the caller owns the session.
+
+### backend/agents/execution_engine/state_machine.py:109-129  -- StateMachine._persist writes workflow_runs.status -- the engine's only status writer on the restart path
+   109      def _persist(self, run_id: str, new_state: str) -> None:
+   110          """Persist the state transition.
+   111  
+   112          Phase 2: in-memory dict.
+   113          Phase 3 (T071): also write to workflow_runs.status DB column.
+   114          """
+   115          self._states[run_id] = new_state
+   116          # Phase 3: persist to DB (best-effort — in-memory is the authoritative
+   117          # source for the current process; DB is for cross-restart resumability)
+   118          try:
+   119              from app.models.database import SessionLocal
+   120              from app.models.workflow import WorkflowRun
+   121  
+   122              db = SessionLocal()
+   123              try:
+   124                  wr = db.query(WorkflowRun).filter(WorkflowRun.id == run_id).first()
+   125                  if wr:
+   126                      wr.status = new_state
+   127                      db.commit()
+   128              finally:
+   129                  db.close()
+
+### backend/agents/execution_engine/engine.py:12809-12816  -- restart branch (b): stamp the marker, then spawn the driver
+ 12809                      elif await self._is_resumable_in_flight(wr):
+ 12810                          # ── branch (b): resumable in-flight → auto-resume in-process ─
+ 12811                          # Stamp the additive ``run_resuming`` marker FIRST (the
+ 12812                          # double-drive guard). An additive EVENT (not a new status
+ 12813                          # value) keeps the NON_TERMINAL list + the state machine
+ 12814                          # untouched (Open Q2). Then spawn the in-process driver.
+ 12815                          await self._stamp_resume_marker(wr)
+ 12816                          import asyncio as _asyncio
+
+### backend/agents/execution_engine/engine.py:12854-12868  -- restart branch (b): _admitted_resume -> resume_run, no app wrapper, nothing reconciles status
+ 12854                          async def _admitted_resume(
+ 12855                              _run_id: str = pipeline_run_id,
+ 12856                              _sem: "_asyncio.Semaphore" = _restore_sem,
+ 12857                              _batch: int = _batch_num,
+ 12858                              _stagger: float = _stagger_s,
+ 12859                              _conc: int = _concurrency,
+ 12860                          ) -> None:
+ 12861                              # Stagger: wait (batch_number // concurrency) * stagger_s
+ 12862                              # before acquiring the semaphore so consecutive batches
+ 12863                              # start RESTORE_ADMISSION_STAGGER_SECONDS apart.
+ 12864                              _wait = (_batch // _conc) * _stagger
+ 12865                              if _wait > 0:
+ 12866                                  await _asyncio.sleep(_wait)
+ 12867                              async with _sem:
+ 12868                                  await self.resume_run(_run_id)
+
+### backend/agents/execution_engine/engine.py:12911-12922  -- restart branch (c) WR-05: the loud path a non-resumable run takes
+ 12911                      else:
+ 12912                          # ── branch (c): WR-05 abandoned→failed VERBATIM ──────────
+ 12913                          # The owning process is gone — no coroutine will ever drive
+ 12914                          # this run forward. Fail it loud so it is not a phantom-live
+ 12915                          # row. DB write is committed once after the loop.
+ 12916                          prior_status = wr.status
+ 12917                          wr.status = "failed"
+ 12918                          wr.error = (
+ 12919                              "Run abandoned: backend restarted while in "
+ 12920                              f"'{prior_status}'; no driver after restart (WR-05)."
+ 12921                          )
+ 12922                          abandoned += 1
+
+### backend/agents/execution_engine/engine.py:13036-13039  -- _is_resumable_in_flight: compile_for_run(wr.type) must succeed before branch (b)
+ 13036          try:
+ 13037              compile_for_run(wr.type)
+ 13038          except Exception:  # noqa: BLE001 — unknown/uncompilable pipeline → not resumable
+ 13039              return False
+
+### backend/agents/execution_engine/engine.py:13107-13112  -- the run_resuming marker payload (reason is hard-coded for user resumes too)
+ 13107                  {
+ 13108                      "pipeline_run_id": run_id,
+ 13109                      "prior_status": prior_status,
+ 13110                      "reason": "backend_restart_in_process_resume",
+ 13111                  },
+ 13112              )
+
+### backend/app/api/run_engine.py:120-127  -- _cleanup_pipeline pops the queue and sends the None sentinel
+   120      queue = _PIPELINE_QUEUES.pop(pipeline_run_id, None)
+   121      _PIPELINE_TASKS.pop(pipeline_run_id, None)
+   122      _CANCEL_EVENTS.pop(pipeline_run_id, None)
+   123      if queue is not None:
+   124          try:
+   125              queue.put_nowait(None)
+   126          except Exception:  # noqa: BLE001 -- releasing readers must never raise in cleanup
+   127              pass
+
+### backend/app/core/entitlements.py:112-124  -- can_run_pipeline: closed TIER_PIPELINES whitelist, fails closed -> the endpoint's 403 for a retired pipeline id
+   112  def can_run_pipeline(user_tier: str, pipeline_type: str) -> tuple[bool, str]:
+   113      """Return (allowed, reason). reason is empty string when allowed."""
+   114      allowed_pipelines = TIER_PIPELINES.get(user_tier, TIER_PIPELINES["basic"])
+   115      if pipeline_type in allowed_pipelines:
+   116          return True, ""
+   117      next_tier = UPGRADE_PATH.get(user_tier)
+   118      if next_tier:
+   119          next_label = TIER_LABELS[next_tier]
+   120          return (
+   121              False,
+   122              f"This pipeline requires {next_label} or higher. Upgrade your plan to unlock it.",
+   123          )
+   124      return False, "This pipeline is not available on your current plan."
+
+### frontend/src/components/layout/DashboardLayout.tsx:1148-1154  -- FE: the ONLY effect that clears runRestarting on success (needs isPipelineRunning)
+  1148    useEffect(() => {
+  1149      if (isPipelineRunning) {
+  1150        setResumeError(null);
+  1151        // FIX-226: pipeline started — clear the "Restarting run…" indicator.
+  1152        setRunRestarting(false);
+  1153      }
+  1154    }, [isPipelineRunning]);
+
+### frontend/src/components/layout/DashboardLayout.tsx:2548-2556  -- FE: handleResumeRun sets runRestarting=true, POSTs, attaches the stream
+  2548      setResumeError(null);
+  2549      // FIX-226: show "Restarting run…" indicator immediately.
+  2550      setRunRestarting(true);
+  2551  
+  2552      const doResume = (token: string, id: string): Promise<void> =>
+  2553        postResume(token, id).then(({ run_id }) => {
+  2554          if (run_id) runConnection.attachRun(run_id);
+  2555        });
+  2556  
+
+### frontend/src/components/layout/DashboardLayout.tsx:2582-2591  -- FE: the only other clear -- an HTTP error from the POST (a 200 never reaches it)
+  2582        // Any other error: show inline message instead of silently navigating home.
+  2583        console.error("postResume failed", e);
+  2584        if (code === "pipeline_already_running") {
+  2585          // The run is live in another tab or session — just attach this SSE stream.
+  2586          runConnection.attachRun(runId);
+  2587          return;
+  2588        }
+  2589        setRunRestarting(false);
+  2590        setResumeError("Could not resume the run — please try again.");
+  2591      });
+
+### frontend/src/components/chat/RunChatLane.tsx:1726-1747  -- FE: terminal lane state renders 'Restarting run...' and returns BEFORE any failed/cancelled copy or button
+  1726        case "terminal": {
+  1727          // FIX-226: while the resume is in flight (between "Run Again" click and
+  1728          // pipeline_start), show an animated "Restarting run…" indicator. This
+  1729          // gives immediate feedback without persisting a message to the transcript.
+  1730          // Uses the same three-dot brand animation as "Preparing your questions…".
+  1731          if (runRestarting) {
+  1732            return (
+  1733              <div className="ml-[31px] flex items-center gap-[9px] font-sans text-[11.5px] font-medium text-ink-500">
+  1734                <span className="flex items-center gap-[3px]">
+  1735                  {[0, 1, 2].map((i) => (
+  1736                    <motion.span
+  1737                      key={i}
+  1738                      className="h-[5px] w-[5px] rounded-full bg-brand"
+  1739                      animate={{ opacity: [0.3, 0.9, 0.3] }}
+  1740                      transition={{ duration: 1.2, repeat: Infinity, delay: i * 0.15, ease: "easeInOut" }}
+  1741                    />
+  1742                  ))}
+  1743                </span>
+  1744                Restarting run…
+  1745              </div>
+  1746            );
+  1747          }
+
+### frontend/src/app/[...view]/page.tsx:1170-1177  -- FE: stream_attached is early-returned, never reaches the pipeline reducer
+  1170      const frameType = msg.type as string;
+  1171      if (
+  1172        frameType === "chat_message" ||
+  1173        frameType === "chat_reply" ||
+  1174        frameType === "stream_attached"
+  1175      ) {
+  1176        return;
+  1177      }
+
+### frontend/src/providers/RunConnectionProvider.tsx:77-89  -- FE design assumption: a resume always emits pipeline_start, then 'a fast-failing resume emits pipeline_failed ~3-5s later'
+    77  /**
+    78   * ISS-220/236/237 — the resume remount gap. A resume (`handleResumeRun` →
+    79   * `DashboardLayout`'s `isRunning` effect → `router.push(routes.runStream(...))`)
+    80   * remounts `app/[...view]/page.tsx`, which unsubscribes its fan-out listeners on
+    81   * unmount and resubscribes fresh ones on mount. `fanout` had no buffering, so a
+    82   * frame dispatched in that window — e.g. the `pipeline_failed` a fast-failing
+    83   * resume emits ~3-5s later — reached no listener and was lost for good, freezing
+    84   * the live view on stale "Running · Starting…" state until a manual reload. Frames
+    85   * dispatched with ZERO subscribers are held here and replayed to the next
+    86   * subscriber(s) that join. Bounded by count AND age so a surface that never
+    87   * subscribes (e.g. /login) can neither grow the buffer without limit nor hand a
+    88   * stale burst to a subscriber that mounts much later; a remount gap is
+    89   * sub-second, so the window only has to cover a route commit.
+
+### backend/tests/integration/api/test_rest_resume_api.py:100-110  -- the only test of the flip-back contract drives a STUB engine whose resume_run is made to raise
+   100      async def _stamp_resume_marker(self, wr) -> None:
+   101          self.marker_status_calls.append(wr.status)
+   102  
+   103      async def resume_run(self, run_id: str) -> None:
+   104          self.resume_calls.append(run_id)
+   105          if self.resume_behavior is not None:
+   106              await self.resume_behavior(run_id)
+   107  
+   108      async def _recover_workspace_id(self, owner_id: str, run_id: str):
+   109          return self.workspace_id
+   110  
+
+### backend/tests/integration/api/test_rest_resume_api.py:426-446  -- ...so the real engine's swallow can never be seen by it
+   426  @pytest.mark.asyncio
+   427  async def test_resume_arm_failure_flips_back_to_failed(env):
+   428      """If ``resume_run`` raises, the thin wrapper flips the row back to ``failed`` +
+   429      records the error — never left stuck ``running`` with no live task. Drives
+   430      ``_drive_user_resume`` directly from the endpoint-left ``running`` state."""
+   431      owner = _seed_user(env, "owner")
+   432      # The endpoint would have already flipped the row to ``running``; simulate that.
+   433      run_id = _seed_run(env, owner.id, status="running")
+   434      rc = env["rc"]
+   435  
+   436      async def _boom(_rid):
+   437          raise RuntimeError("scripted arm failure")
+   438  
+   439      env["engine"].resume_behavior = _boom
+   440  
+   441      await rc._drive_user_resume(run_id, user=owner)
+   442  
+   443      row = _row(env, run_id)
+   444      assert row.status == "failed", "arm failure must flip back to failed (honest state)"
+   445      assert row.status != "running"
+   446      assert "scripted arm failure" in (row.error or "")

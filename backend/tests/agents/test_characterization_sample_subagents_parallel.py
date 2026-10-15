@@ -67,6 +67,7 @@ async def test_sample_subagents_parallel_deliverable_byte_snapshot() -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.issue("ISS-1015")
 async def test_sample_subagents_parallel_event_snapshot() -> None:
     """Lock the normalized semantic event stream for the fan-out family.
 

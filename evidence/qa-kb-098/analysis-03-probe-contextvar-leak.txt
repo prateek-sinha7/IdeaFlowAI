@@ -1,0 +1,11 @@
+# QA-KB-098 analysis 03: PROBE - does bind_sandbox's ContextVar write leak out of the async test?
+# HEAD 165c40316, 2026-10-07T23:10Z
+# plugin: evidence/qa-kb-098/analysis-plugins/kb098_leak_probe.py ; test order: writer_driven FIRST, then the property test
+
+2 passed, 2 warnings in 2.67s
+
+--- contextvar values recorded by the plugin ---
+SETUP    test_revision_browser_dir_writer_driven: _SANDBOX_VAR=None _AGENT_KEY_VAR='unknown'
+TEARDOWN test_revision_browser_dir_writer_driven: _SANDBOX_VAR=None _AGENT_KEY_VAR='unknown'
+SETUP    test_revision_uses_correct_browser_dir_path: _SANDBOX_VAR=None _AGENT_KEY_VAR='unknown'
+TEARDOWN test_revision_uses_correct_browser_dir_path: _SANDBOX_VAR=None _AGENT_KEY_VAR='unknown'

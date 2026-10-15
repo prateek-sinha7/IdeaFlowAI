@@ -1,0 +1,50 @@
+diff --git a/frontend/src/app/[...view]/page.tsx b/frontend/src/app/[...view]/page.tsx
+index 8eb2f3ceb..62856ed4e 100644
+--- a/frontend/src/app/[...view]/page.tsx
++++ b/frontend/src/app/[...view]/page.tsx
+@@ -3483,8 +3483,10 @@ export default function DashboardPage({
+       // `run-detail` maps to "preview" HERE ONLY (reopenTabFor deliberately
+       // returns undefined for it so a COLD open of a still-building run keeps
+       // its state-derived default of Steps).
++      // ISS-1026: so does its pinned twin, the `/runs/{id}/versions/{v}` Preview
++      // URL that Back/forward lands on after a tab click made while pinned.
+       const openTab = reopenTabFor(parsedView.screen)
+-        ?? (parsedView.screen === "run-detail" ? "preview" : undefined);
++        ?? (parsedView.screen === "run-detail" || parsedView.screen === "run-version" ? "preview" : undefined);
+       if (openTab) runTabDeepLink.requestOpenTab(openTab, deepLinkAgentIdFor(parsedView));
+       return;
+     }
+diff --git a/frontend/src/lib/routes.ts b/frontend/src/lib/routes.ts
+index aafdbed44..f67e39f9f 100644
+--- a/frontend/src/lib/routes.ts
++++ b/frontend/src/lib/routes.ts
+@@ -369,11 +369,13 @@ export function parseViewPath(segments: string[] | undefined): ParsedView {
+     // out here and parse what follows exactly as the un-pinned form, rather
+     // than duplicating every tab arm below. A bare pin with no tab after it
+     // stays its own screen (`run-version`), unchanged.
++    // ISS-941: `/versions` with no `{v}`, and a pin before `stream` or
++    // `preview/full` (no builder emits a pinned form of either), are unknown.
+     let version: string | undefined;
+     let tail = segments;
+     if (segments[2] === 'versions') {
+       version = segments[3];
+-      if (segments.length <= 4) {
++      if (segments.length === 4) {
+         return { screen: 'run-version', runId, version };
+       }
+       tail = [segments[0], runId, ...segments.slice(4)];
+@@ -412,12 +414,12 @@ export function parseViewPath(segments: string[] | undefined): ParsedView {
+     }
+ 
+     // /runs/{id}/stream
+-    if (subpath === 'stream' && tail.length === 3) {
++    if (subpath === 'stream' && tail.length === 3 && version === undefined) {
+       return { screen: 'run-stream', runId };
+     }
+ 
+     // /runs/{id}/preview/full
+-    if (subpath === 'preview' && tail[3] === 'full' && tail.length === 4) {
++    if (subpath === 'preview' && tail[3] === 'full' && tail.length === 4 && version === undefined) {
+       return { screen: 'run-preview-full', runId };
+     }
+ 

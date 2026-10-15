@@ -1,0 +1,6 @@
+fresh event_id     -> (created=True, seq=4)
+                      _run_bounded calls : ['append_event_next_seq', '_max_event_seq', 'append_event']
+                      read_events calls  : 0
+replayed event_id  -> (created=False, seq=4)
+                      _run_bounded calls : ['append_event_next_seq']
+                      read_events calls  : 0

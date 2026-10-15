@@ -1,0 +1,22 @@
+# QA-KB-066 5-fixer, 2026-10-07. Names of the failing tests in the 3 preview files that are red BEFORE and AFTER the fix.
+# BEFORE (observed 18:47-18:50 on the unmodified file, same command):
+#   PreviewPanel.appBuilderSearch.test.tsx: ISS-500 — a folder with zero matching descendants is hidden by an active search in the embedded IDE tab, same as ISS-332
+#   PreviewPanel.test.tsx: mounts the run header and exactly ONE version affordance (INV-3) in the settled state
+#   PreviewPanel.versionChip.test.tsx: all 5 (chip visibility / dropdown + read-only load / keyboard nav / chip tick / a11y)
+# AFTER (18:57:01):
+== src/components/preview/PreviewPanel.appBuilderSearch.test.tsx
+     × ISS-500 — a folder with zero matching descendants is hidden by an active search in the embedded IDE tab, same as ISS-332 194ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed (1)
+== src/components/preview/PreviewPanel.test.tsx
+     × mounts the run header and exactly ONE version affordance (INV-3) in the settled state 10ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 18 passed (19)
+== src/components/preview/PreviewPanel.versionChip.test.tsx
+     × chip visibility: present as v{N} for a ≥2-member family; absent when no family 35ms
+     × dropdown + read-only load: selecting an older version fetches it via getWorkflow and shows the read-only banner; Back to latest restores live 6ms
+     × keyboard nav: opening focuses the listbox, ArrowUp moves focus, Enter loads a version, Escape closes + returns focus to the chip 5ms
+     × chip tick: when the family grows the chip label increments v2 → v3 4ms
+     × a11y: chip carries aria-haspopup/aria-expanded; the dropdown is a listbox with aria-selected options 4ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 5 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  5 failed (5)

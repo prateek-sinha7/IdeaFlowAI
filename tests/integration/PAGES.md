@@ -49,7 +49,7 @@ fallback described in D-12.
 |---|---|---|---|
 | p08 | `/create/ppt` | wizard shell — tab strip + template gallery | `03-launch-panels` |
 | p09 | `/create/prototype` | wizard shell — Template / Design System / Discovery | `03-launch-panels` |
-| p10 | `/create/app` | **renders the user-stories panel — D-01** | `03-launch-panels` |
+| p10 | `/create/app` | **renders the user-stories panel — D-01** (resolved, BUG-023; screenshot predates the fix) | `03-launch-panels` |
 | p11 | `/create/user-stories` | simple panel — brief, Advanced, review gates, Run | `03-launch-panels` |
 | p12 | `/create/ex_A2_branch` | catalog-driven launch panel for a fixture workflow | `03-launch-panels` |
 | p13 | `/workflow/create?mode=ppt` | **redirects to `/create/ppt` — C-1** | `16-pages-outside-routes` |

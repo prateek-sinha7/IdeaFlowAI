@@ -11,7 +11,6 @@ const PAGE =
 // can read the HTML that would be loaded into the preview iframe.
 let blobs: Blob[] = [];
 let createObjectURL: ReturnType<typeof vi.spyOn>;
-let revokeObjectURL: ReturnType<typeof vi.spyOn>;
 
 beforeEach(() => {
   blobs = [];
@@ -19,15 +18,19 @@ beforeEach(() => {
     blobs.push(obj as Blob);
     return `blob:mock/${blobs.length}`;
   });
-  revokeObjectURL = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+  vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
 });
 
 afterEach(() => {
   vi.restoreAllMocks();
 });
 
+// QA-KB-125: the preview frames agent HTML as srcdoc (sandbox "allow-scripts", never
+// allow-same-origin) behind a <base href="about:srcdoc">, not as a blob URL. This reads
+// the framed document back without that base tag. (The name is kept from dev's suite.)
 async function lastBlobText(): Promise<string> {
-  return blobs[blobs.length - 1].text();
+  const frame = screen.getByTitle("Prototype Preview");
+  return (frame.getAttribute("srcdoc") ?? "").replace('<base href="about:srcdoc">', "");
 }
 
 describe("PrototypePreview — non-preview states", () => {
@@ -53,11 +56,12 @@ describe("PrototypePreview — non-preview states", () => {
     expect(screen.queryByTitle("Prototype Preview")).not.toBeInTheDocument();
   });
 
-  it("shows 'Loading preview...' while the blob URL is not yet available for an HTML document", () => {
-    createObjectURL.mockReturnValue("");
+  it("frames an HTML document at once, with no blob URL to wait for (QA-KB-125)", () => {
     render(<PrototypePreview content={PAGE} />);
 
-    expect(screen.getByText("Loading preview...")).toBeInTheDocument();
+    expect(screen.queryByText("Loading preview...")).not.toBeInTheDocument();
+    expect(screen.getByTitle("Prototype Preview")).toHaveAttribute("srcdoc");
+    expect(createObjectURL).not.toHaveBeenCalled();
   });
 
   it("returns to the empty state when the content is cleared", () => {
@@ -71,12 +75,13 @@ describe("PrototypePreview — non-preview states", () => {
 });
 
 describe("PrototypePreview — HTML extraction and iframe", () => {
-  it("loads the document into a sandboxed iframe through a blob URL", () => {
+  it("loads the document into an opaque-origin sandboxed iframe as srcdoc (QA-KB-125)", async () => {
     render(<PrototypePreview content={PAGE} />);
 
     const frame = screen.getByTitle("Prototype Preview");
-    expect(frame).toHaveAttribute("src", "blob:mock/1");
-    expect(frame).toHaveAttribute("sandbox", "allow-scripts allow-same-origin");
+    expect(frame).not.toHaveAttribute("src");
+    expect(frame).toHaveAttribute("sandbox", "allow-scripts");
+    expect(await lastBlobText()).toBe(PAGE);
   });
 
   it("strips markdown fences, the artifact envelope and any preamble before the doctype", async () => {
@@ -88,12 +93,12 @@ describe("PrototypePreview — HTML extraction and iframe", () => {
     expect(await lastBlobText()).toBe(PAGE);
   });
 
-  it("revokes the previous blob URL when the content changes", () => {
+  it("reframes the new document when the content changes", async () => {
     const { rerender } = render(<PrototypePreview content={PAGE} />);
 
     rerender(<PrototypePreview content={PAGE.replace("Hello", "Bye")} />);
 
-    expect(revokeObjectURL).toHaveBeenCalledWith("blob:mock/1");
+    expect(await lastBlobText()).toBe(PAGE.replace("Hello", "Bye"));
   });
 
   it("opens the blob URL in a new tab from the Open button", async () => {
@@ -103,7 +108,11 @@ describe("PrototypePreview — HTML extraction and iframe", () => {
 
     await user.click(screen.getByRole("button", { name: "Open" }));
 
-    expect(open).toHaveBeenCalledWith("blob:mock/1", "_blank");
+    // A script-free wrapper page holding the same sandboxed frame, opened noopener.
+    expect(open).toHaveBeenCalledWith("blob:mock/1", "_blank", "noopener,noreferrer");
+    const wrapper = await blobs[0].text();
+    expect(wrapper).toContain('sandbox="allow-scripts"');
+    expect(wrapper).not.toContain("allow-same-origin");
   });
 });
 
@@ -263,11 +272,11 @@ describe("PrototypePreview — tweaks", () => {
     const user = userEvent.setup();
     render(<PrototypePreview content={PAGE} />);
     await user.click(screen.getByRole("button", { name: "Tweaks" }));
-    const before = blobs.length;
+    const before = await lastBlobText();
 
     await user.type(screen.getByLabelText("Accent / Primary hex value"), "a");
 
-    expect(blobs).toHaveLength(before); // rebuild is debounced, not immediate
+    expect(await lastBlobText()).toBe(before); // rebuild is debounced, not immediate
     await waitFor(async () => expect(await lastBlobText()).toContain("--accent: #2563eba !important;"));
   });
 

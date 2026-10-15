@@ -1,0 +1,81 @@
+# QA-KB-083 fix, BEFORE any edit. HEAD 21191b09c + working tree. 2026-10-07T17:50Z
+# each file alone from backend/: .venv/bin/python -m pytest <file> -q -p no:cacheprovider
+
+=== tests/integration/api/test_settings_model_gate_effective_tier_api.py
+xxx                                                                      [100%]
+=============================== warnings summary ===============================
+app/core/config.py:94
+  /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/app/core/config.py:94: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+    class Settings(BaseSettings):
+
+.venv/lib/python3.13/site-packages/fastapi/testclient.py:1
+  /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/.venv/lib/python3.13/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+.venv/lib/python3.13/site-packages/starlette/testclient.py:53
+  /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/.venv/lib/python3.13/site-packages/starlette/testclient.py:53: DeprecationWarning: The anyio.abc.BlockingPortal alias is deprecated, use anyio.from_thread.BlockingPortal instead.
+    _PortalFactoryType = Callable[[], AbstractContextManager[anyio.abc.BlockingPortal]]
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+XFAIL tests/integration/api/test_settings_model_gate_effective_tier_api.py::test_put_premium_model_refused_when_groups_say_basic_but_column_says_pro - ISS-937 unfixed
+XFAIL tests/integration/api/test_settings_model_gate_effective_tier_api.py::test_get_marks_premium_disallowed_when_groups_say_basic_but_column_says_pro - ISS-937 unfixed
+XFAIL tests/integration/api/test_settings_model_gate_effective_tier_api.py::test_get_marks_premium_allowed_when_groups_say_pro_but_column_says_basic - ISS-937 unfixed
+3 xfailed, 3 warnings in 1.78s
+exit: 0
+
+=== tests/security/test_no_projection_reads.py
+                "  app/api/admin.py::_to_response::tier  # response field, not a decision",
+            ]
+>           raise AssertionError("\n".join(msg))
+E           AssertionError: Projection reads found in code that is not declared display-only.
+E           
+E           `users.is_admin` / `users.tier` are a non-authoritative projection of
+E           Cognito groups. Use effective_is_admin() / effective_tier() for any
+E           decision. If the read only shapes a response, add it below with a reason.
+E           
+E             app/api/settings.py::get_preferences::tier   (app/api/settings.py:341)
+E             app/api/settings.py::update_preferences::tier   (app/api/settings.py:388)
+E           
+E           Allow-list format (projection_read_allowlist.txt):
+E             app/api/admin.py::_to_response::tier  # response field, not a decision
+
+tests/security/test_no_projection_reads.py:163: AssertionError
+=============================== warnings summary ===============================
+app/core/config.py:94
+  /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/app/core/config.py:94: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+    class Settings(BaseSettings):
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/security/test_no_projection_reads.py::test_no_projection_reads_in_decision_context
+1 failed, 1 passed, 1 warning in 1.45s
+exit: 1
+
+=== tests/unit/test_settings_preferences_race.py
+
+dbapi_connection = <sqlite3.Connection object at 0x10ce474c0>
+connection_record = <sqlalchemy.pool.base._ConnectionRecord object at 0x109936930>
+
+    def _deny_db_connect(dbapi_connection, connection_record):  # noqa: ARG001
+        """SQLAlchemy ``connect`` event listener — refuses every real DBAPI connection."""
+>       raise UnitIsolationError(
+            "Unit test opened a real database connection. Move it to "
+            "tests/integration/<mirror>/ (the hermetic in-memory SQLite db_session fixture "
+            "lives in tests/integration/repositories/conftest.py), or mock the Session with "
+            "MagicMock(spec=Session) / AsyncMock(spec=AsyncSession). "
+            "Deliberate exception: @pytest.mark.allow_io(\"reason\")."
+        )
+E       tests.unit.conftest.UnitIsolationError: Unit test opened a real database connection. Move it to tests/integration/<mirror>/ (the hermetic in-memory SQLite db_session fixture lives in tests/integration/repositories/conftest.py), or mock the Session with MagicMock(spec=Session) / AsyncMock(spec=AsyncSession). Deliberate exception: @pytest.mark.allow_io("reason").
+
+tests/unit/conftest.py:81: UnitIsolationError
+=============================== warnings summary ===============================
+app/core/config.py:94
+  /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/app/core/config.py:94: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+    class Settings(BaseSettings):
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+ERROR tests/unit/test_settings_preferences_race.py::test_losing_requests_response_reports_its_own_value
+1 warning, 1 error in 1.21s
+exit: 1

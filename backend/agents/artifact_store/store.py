@@ -142,7 +142,7 @@ class ArtifactStore:
         gate_key: str,
         approved: bool,
         edited_content: str | None = None,
-        action: str = "approve",
+        action: str | None = None,
         instructions: str | None = None,
     ) -> None:
         """Store review gate response and unblock the gate.
@@ -150,11 +150,17 @@ class ArtifactStore:
         ``action`` / ``instructions`` are ADDITIVE (REDO-GATE): a ``"redo"`` action
         carries optional free-text ``instructions`` for an in-place re-run of the
         gated agent (decision keyed on the generic ``action`` discriminator, read by
-        ``_run_review_gate`` via ``.get(...)``). Both default to the prior
-        approve/reject behavior, so every existing caller (WS approve/reject, the
-        characterization live_harness, the declared-gate tests) is byte-identical —
-        the extra keys are inert for any reader that does not look for them.
+        ``_run_review_gate`` via ``.get(...)``). The extra keys are inert for any
+        reader that does not look for them.
+
+        ISS-128 / ISS-865: an omitted, ``"approve"`` or ``"reject"`` action is
+        DERIVED from ``approved`` — the engine's terminal decision keys on
+        ``approved``, so the stored label says the same and a rejection is never
+        recorded as ``"approve"``, whichever caller omitted or hardcoded it.
+        ``"redo"`` / ``"update_specs"`` are stored as given.
         """
+        if action in (None, "approve", "reject"):
+            action = "approve" if approved else "reject"
         key = f"review:{gate_key}"
         self._questionnaire_responses[key] = [
             {
@@ -194,11 +200,13 @@ class ArtifactStore:
     def forget_run(self, run_id: str) -> None:
         """Evict all HITL state for a completed/terminal run (D4 fix — KAN-139).
 
-        Removes the run's questionnaire response, force-proceed flag, and all
-        asyncio.Event entries keyed by ``run_id`` or ``review:{run_id}:*`` so the
-        three singleton dicts do not grow without bound for the process lifetime.
+        Removes the run's questionnaire response, force-proceed flag, its
+        asyncio.Event, and every ``review:{run_id}:*`` entry (the gate events AND the
+        stored gate responses, which share that key space — ISS-868) so the three
+        singleton dicts do not grow without bound for the process lifetime.
         Called by ``_cleanup_pipeline`` (run_engine.py) so run-end and HITL cleanup
-        are one atomic operation.
+        are one atomic operation. Run end only: the engine's gate reader treats an
+        absent review response as an approval.
 
         Safe to call multiple times (idempotent pops). The review-gate key space is
         ``review:{run_id}:{agent_id}``, so we drop every key whose prefix matches the
@@ -208,17 +216,16 @@ class ArtifactStore:
         self._questionnaire_force_proceed.pop(run_id, None)
         # Evict the questionnaire resume event (keyed directly by run_id).
         self._resume_events.pop(run_id, None)
-        # Evict all review-gate events for the run. These are keyed
-        # ``review:{run_id}:{agent_id}`` — scan only once with a list comprehension
-        # to avoid mutating the dict while iterating.
-        review_prefix = f"review:{run_id}:"
-        stale_keys = [
-            k
-            for k in self._resume_events
-            if k == f"review:{run_id}" or k.startswith(review_prefix)
-        ]
-        for k in stale_keys:
-            self._resume_events.pop(k, None)
+        # Evict all review-gate entries for the run from both registries — the
+        # events in _resume_events, the responses in _questionnaire_responses.
+        # Scan a list copy so popping never mutates the dict being iterated.
+        review_key = f"review:{run_id}"
+        review_prefix = f"{review_key}:"
+        for registry in (self._resume_events, self._questionnaire_responses):
+            for k in [
+                k for k in registry if k == review_key or k.startswith(review_prefix)
+            ]:
+                registry.pop(k, None)
         logger.debug("ArtifactStore: evicted HITL state for run=%s", run_id)
 
 

@@ -1,0 +1,9 @@
+# QA-KB-119 analysis: offline repro, 2026-10-09 (in-memory SQLite, TestClient, no network; same harness as backend/tests/integration/api/test_runs_api_events_api.py)
+# Run: cd backend && .venv/bin/python ../evidence/qa-kb-119/06-analysis-offline-repro.py   (it imports the test file's _seed_run/_seed_events helpers)
+# Baseline of the existing file: cd backend && .venv/bin/python -m pytest tests/integration/api/test_runs_api_events_api.py -q -p no:cacheprovider  ->  7 passed, 3 warnings in 1.42s
+
+status=200 seeded=1200 returned=1200 elapsed=0.070s
+envelope keys: ['after', 'events', 'workflow_id']
+has_more/next_after present: False/False
+limit param accepted? GET ?limit=10 -> returned 1200 rows (10 expected once paging exists)
+after=-1 -> status 200 (422 expected once ge=0 lands)

@@ -1,0 +1,4 @@
+== worktree (ISS-684 guard PRESENT): tests/agents/test_event_contract.py
+24 passed, 2 warnings in 1.44s
+== HEAD engine.py copy: tests/agents/test_event_contract.py
+24 passed, 2 warnings in 1.21s

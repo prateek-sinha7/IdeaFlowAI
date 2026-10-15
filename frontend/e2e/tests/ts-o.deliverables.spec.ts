@@ -1,13 +1,13 @@
 /**
  * TS-O — PreviewPanel deliverable renderers, dispatched by workflow type.
  * Proves the four bespoke render branches (user_stories backlog, app_builder
- * IDE, od_ppt deck iframe, od_prototype iframe) + the neutral empty state, the
+ * IDE, ppt deck iframe, prototype iframe) + the neutral empty state, the
  * three preview tabs, and the header copy affordance.
  *
  * Setup per case: goto + runWith(user_stories framing) → mockSse.start(...) with
  * the case's pipelineType → run agents → mockSse.complete({ pipelineType,
  * finalOutput }). pipeline_start's pipeline_type drives the workflowType sync in
- * DashboardLayout (od_prototype→prototype, od_ppt→ppt, app_builder passthrough),
+ * DashboardLayout (ppt, prototype, app_builder),
  * so the right renderer mounts on completion.
  */
 import { test, expect } from "../fixtures/test";
@@ -34,17 +34,13 @@ async function runToComplete(
   finalOutput: string,
 ) {
   const agents = AGENTS[pipelineType];
-  // The od_ppt / od_prototype pipelines were folded into `ppt` / `prototype`
-  // (backend/agents/workflows has no od_* manifests) — announce the real wire type.
-  const wireType =
-    pipelineType === "od_ppt" ? "ppt" : pipelineType === "od_prototype" ? "prototype" : pipelineType;
-  mockSse.start(agents, { pipelineType: wireType });
+  mockSse.start(agents, { pipelineType });
   // Lazy-attach cases: let the stream attach before the rest of the run plays,
   // else the durable replay delivers start→complete in one burst and the run
   // never renders as live (no execution-view swap).
   await mockSse.ready();
   for (const a of agents) await runAgent(mockSse, a.id);
-  mockSse.complete({ pipelineType: wireType, finalOutput });
+  mockSse.complete({ pipelineType, finalOutput });
 }
 
 test.describe("TS-O — deliverable renderers", () => {
@@ -52,7 +48,7 @@ test.describe("TS-O — deliverable renderers", () => {
   // mock's lazy attach instead of a user_stories launch: since 015-frontend-routing
   // a launch persists its run TYPE (sessionStorage run_type:{id}) and restores it
   // across the /runs/{id}/stream remount, so launching user_stories and then
-  // announcing od_ppt is a state the real backend can never produce.
+  // announcing ppt is a state the real backend can never produce.
   const NON_USER_STORIES = /TS-O-0[345] /;
   test.beforeEach(async ({ dashboard }, testInfo) => {
     await dashboard.goto();
@@ -107,16 +103,16 @@ test.describe("TS-O — deliverable renderers", () => {
     await expect(dashboard.page.getByRole("button", { name: "Download ZIP" })).toBeVisible();
   });
 
-  test("TS-O-04 od_ppt renders the deck in a sandboxed iframe", async ({ dashboard, mockSse }) => {
-    await runToComplete(mockSse, "od_ppt", SAMPLE_DECK);
+  test("TS-O-04 ppt renders the deck in a sandboxed iframe", async ({ dashboard, mockSse }) => {
+    await runToComplete(mockSse, "ppt", SAMPLE_DECK);
 
     await expect(dashboard.deckIframe()).toBeVisible();
   });
 
-  test("TS-O-05 od_prototype renders the prototype iframe", async ({ dashboard, mockSse }) => {
+  test("TS-O-05 prototype renders the prototype iframe", async ({ dashboard, mockSse }) => {
     await runToComplete(
       mockSse,
-      "od_prototype",
+      "prototype",
       "<!DOCTYPE html><html><body><h1>App</h1></body></html>",
     );
 

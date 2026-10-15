@@ -193,6 +193,8 @@ markers = [
     "live: test makes a live network/provider call — excluded from default offline runs",
     "issue: the ISS card this test proves; paired with xfail until the fix lands",
     "slow: test takes more than 10 seconds (integration categorization)",
+    "agents: legacy suite marker (tests/agents/) — to be removed in Batch 6",
+    "ci: legacy suite marker (tests/ci/) — to be removed in Batch 6",
 ]
 
 # Coverage configuration for pytest-cov

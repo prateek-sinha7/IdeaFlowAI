@@ -2,8 +2,9 @@
 
 ``tests/conftest.py::_forbid_live_model_clients`` is the only thing standing between the
 offline suite and a real AWS bill: the Bedrock ids and region are **hardcoded code defaults**
-(``app/core/config.py:118/:123/:130``) and there is no ``backend/.env``, so no amount of env
-unsetting makes ``build_model()`` offline.
+(``app.core.config.Settings``: ``BEDROCK_MODEL_ID``, ``BEDROCK_INFERENCE_PROFILE_ID``,
+``AWS_REGION``) and there is no ``backend/.env``, so no amount of env unsetting makes
+``build_model()`` offline.
 
 A guard with no coverage of its own is a guard-shaped comment — it rots silently the first time
 someone edits the conftest. These cases pin the four properties the guard's design depends on,

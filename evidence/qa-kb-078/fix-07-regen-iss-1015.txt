@@ -1,0 +1,5 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+[XPASS(strict)] ISS-1015 unfixed
+[XPASS(strict)] ISS-1015 unfixed
+1 failed, 1 deselected in 2.70s

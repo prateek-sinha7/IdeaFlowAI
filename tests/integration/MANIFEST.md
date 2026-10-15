@@ -41,7 +41,7 @@ inventory entirely.
 | create | `/create` | ✅ `04` |
 | create-ppt | `/create/ppt` | ✅ `05` |
 | create-prototype | `/create/prototype` | ✅ `06` |
-| create-app | `/create/app` | ✅ `07` (**D-01**) |
+| create-app | `/create/app` | ✅ `07` (**D-01**, resolved — BUG-023) |
 | create-user-stories | `/create/user-stories` | ✅ `08` |
 | create-workflow | `/create/{type}` | ✅ `09` |
 | workflows | `/workflows` | ✅ `10` |

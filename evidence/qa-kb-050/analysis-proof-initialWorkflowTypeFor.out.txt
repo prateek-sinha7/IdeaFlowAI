@@ -1,0 +1,33 @@
+SLICED SOURCE:
+function initialWorkflowTypeFor(parsed: ParsedView): string | undefined {
+  switch (parsed.screen) {
+    case "create-app":
+      return "app_builder";
+    case "create-user-stories":
+      return "user_stories";
+    case "create-workflow":
+      return parsed.pipelineType;
+    default:
+      return undefined;
+  }
+}
+
+DashboardLayout workflowType initializer:
+const [workflowType, setWorkflowType] = useState<WorkflowType>(() => {
+    // A cold-loaded /create/{type} URL wins: without this the panel silently
+    // opened on the "user_stories" default below, so a shared or refreshed link
+    // launched the WRONG workflow rather than the one the URL named.
+    if (initialWorkflowType) return initialWorkflowType as WorkflowType;
+    if (typeof window !== "undefined") {
+      if (sessionStorage.getItem("prototype.pending")) return "prototype";
+      if (sessionStorage.getItem("ppt.pending")) return "ppt";
+    }
+    return "user_stories";
+  });
+
+url                        screen            initialWorkflowTypeFor  -> initialWorkflowType passed down
+/workflows/new             workflow-new      undefined               -> undefined   => DashboardLayout falls through to "user_stories"
+/workflows/abc123/edit     workflow-edit     undefined               -> undefined   => DashboardLayout falls through to "user_stories"
+/workflows/abc123/run      workflow-run      undefined               -> undefined   => DashboardLayout falls through to "user_stories"
+/workflows/ppt/canvas      workflow-canvas   undefined               -> ppt 
+/create/app                create-app        app_builder             -> app_builder 

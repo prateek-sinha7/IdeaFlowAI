@@ -1,0 +1,75 @@
+### QA-KB-125 fix: regression files, one vitest run per file, 2026-10-09T14:26:21Z; HEAD = 01777a107 git archive export
+
+=== WITH FIX: src/components/preview/PreviewPanel.pinSurvival.test.tsx
+ Test Files  1 passed (1)
+      Tests  2 passed | 1 expected fail (3)
+
+=== WITH FIX: src/components/preview/PreviewPanel.refSurfaces.test.tsx
+ Test Files  1 passed (1)
+      Tests  4 passed (4)
+
+=== WITH FIX: src/components/preview/PreviewPanel.versionRunInput.test.tsx
+ Test Files  1 passed (1)
+      Tests  2 passed (2)
+
+=== WITH FIX: src/components/preview/RunHeader.test.tsx
+ Test Files  1 passed (1)
+      Tests  14 passed (14)
+
+=== WITH FIX: src/components/preview/PrototypePreview.byteSize.test.tsx
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+
+=== WITH FIX: src/components/preview/PrototypePreview.copyFeedback.test.tsx
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+
+=== WITH FIX: src/components/preview/PreviewPanel.genericDeliverable.test.tsx
+ Test Files  1 passed (1)
+      Tests  13 passed (13)
+
+=== WITH FIX: src/components/preview/PreviewPanel.themeRemount.test.tsx
+ Test Files  1 passed (1)
+      Tests  3 passed (3)
+
+=== WITH FIX: src/components/preview/__tests__/PreviewPanel.switcher.test.tsx
+ Test Files  1 passed (1)
+      Tests  5 passed (5)
+
+=== WITH FIX: src/components/history/WorkflowHistory.genericReopen.test.tsx
+ Test Files  1 passed (1)
+      Tests  6 passed (6)
+
+=== WITH FIX: src/components/history/WorkflowHistory.pptV2Files.test.tsx
+ Test Files  1 passed (1)
+      Tests  1 passed | 1 expected fail (2)
+
+=== WITH FIX: src/components/results/SandboxTab.test.tsx
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 4 ⎯⎯⎯⎯⎯⎯⎯
+ FAIL  src/components/results/SandboxTab.test.tsx > fenceAgentPayloads > unwraps a fence whose WHOLE body is a prose wrapper (the agent fenced its own markdown)
+ FAIL  src/components/results/SandboxTab.test.tsx > fenceAgentPayloads > leaves a fence that NAMES a language alone, even around a wrapper
+ FAIL  src/components/results/SandboxTab.test.tsx > fenceAgentPayloads > leaves a fence with anything outside the wrapper alone
+ FAIL  src/components/results/SandboxTab.test.tsx > fenceAgentPayloads > never reaches inside an existing fence
+ Test Files  1 failed (1)
+      Tests  4 failed | 35 passed (39)
+
+=== WITH FIX: src/components/preview/PreviewPanel.test.tsx
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+ FAIL  src/components/preview/PreviewPanel.test.tsx > PreviewPanel — Phase 39 run header + tabs > mounts the run header and exactly ONE version affordance (INV-3) in the settled state
+ Test Files  1 failed (1)
+      Tests  1 failed | 18 passed (19)
+
+=== PRE-FIX HEAD: src/components/results/SandboxTab.test.tsx
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 4 ⎯⎯⎯⎯⎯⎯⎯
+ FAIL  src/components/results/SandboxTab.test.tsx > fenceAgentPayloads > unwraps a fence whose WHOLE body is a prose wrapper (the agent fenced its own markdown)
+ FAIL  src/components/results/SandboxTab.test.tsx > fenceAgentPayloads > leaves a fence that NAMES a language alone, even around a wrapper
+ FAIL  src/components/results/SandboxTab.test.tsx > fenceAgentPayloads > leaves a fence with anything outside the wrapper alone
+ FAIL  src/components/results/SandboxTab.test.tsx > fenceAgentPayloads > never reaches inside an existing fence
+ Test Files  1 failed (1)
+      Tests  4 failed | 35 passed (39)
+
+=== PRE-FIX HEAD: src/components/preview/PreviewPanel.test.tsx
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+ FAIL  src/components/preview/PreviewPanel.test.tsx > PreviewPanel — Phase 39 run header + tabs > mounts the run header and exactly ONE version affordance (INV-3) in the settled state
+ Test Files  1 failed (1)
+      Tests  1 failed | 18 passed (19)

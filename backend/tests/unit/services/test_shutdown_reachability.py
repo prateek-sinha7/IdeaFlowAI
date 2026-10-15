@@ -1,14 +1,13 @@
-"""tests/unit/test_shutdown_reachability.py — ISS-088.
+"""tests/unit/services/test_shutdown_reachability.py — ISS-088.
 
-``tests/unit/test_run_shutdown.py`` covers the *body* of
+``tests/unit/app/test_run_shutdown.py`` covers the *body* of
 ``shutdown_run_infrastructure()``. Nothing covered whether that body is ever REACHED,
 and that is exactly what broke: uvicorn's ``timeout_graceful_shutdown`` defaults to
-``None`` (``uvicorn/config.py:215``), and ``H11Protocol.shutdown()`` does NOT close a
-connection whose response is still streaming — it only clears keep_alive
-(``uvicorn/protocols/http/h11_impl.py:328-337``). A live ``EventSourceResponse``
-therefore never leaves ``server_state.connections``, ``_wait_tasks_to_complete()`` spins
-forever (``uvicorn/server.py:294-310``), and ``await self.lifespan.shutdown()`` on line
-292 is never reached. Measured before the fix: SIGTERM left the process alive past 30s
+``None``, and ``H11Protocol.shutdown()`` does NOT close a connection whose response is
+still streaming — it only clears keep_alive. A live ``EventSourceResponse`` therefore
+never leaves ``server_state.connections``, ``_wait_tasks_to_complete()`` spins forever,
+and ``await self.lifespan.shutdown()``, the last statement of ``uvicorn.Server.shutdown``,
+is never reached. Measured before the fix: SIGTERM left the process alive past 30s
 with only ``startup_complete`` written; SIGKILL was the only thing that ended it.
 
 These tests pin the four things that keep that path honest:
@@ -19,15 +18,22 @@ These tests pin the four things that keep that path honest:
   3. the teardown budget still fits inside docker's ``stop_grace_period``;
   4. ``close_checkpointer()`` is wired exactly ONCE on the shutdown path.
 
-(1) must be a subprocess, not the in-process ``uvicorn.Server`` of
-``test_run_stream_pool_leak.py:196-238``: ``Server.capture_signals()`` installs its
+(1) must be a subprocess, not the in-process ``uvicorn.Server`` that
+``tests/unit/app/test_run_stream_pool_leak.py`` starts in
+``test_stream_endpoint_returns_connections``: ``Server.capture_signals()`` installs its
 handlers only when it is on the main thread, and the whole defect lives in the signal
 path.
 """
 
 from __future__ import annotations
 
+import os
 import re
+import signal
+import socket
+import subprocess
+import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -54,13 +60,6 @@ def _uvicorn_graceful_window_seconds() -> float:
     return float(match.group(1))
 
 
-# ════════════════════════════════════════════════════════════════════════════
-# 1. Reachability — a real subprocess, a live stream, a real SIGTERM
-# ════════════════════════════════════════════════════════════════════════════
-# Deliberately NOT an import of app.main: booting the real application runs
-# restore_non_terminal_runs() (main.py:238), which auto-resumes in-flight runs. This
-# app mirrors only the shape under test — a lifespan whose shutdown half records that
-# it ran, and the same sse_starlette.EventSourceResponse run_stream.py:421 uses.
 def _stop_grace_period_seconds() -> float:
     """docker's hard SIGKILL ceiling for the backend service."""
     text = DOCKER_COMPOSE.read_text(encoding="utf-8")
@@ -69,6 +68,13 @@ def _stop_grace_period_seconds() -> float:
         match
     ), "docker-compose.yml no longer declares stop_grace_period for the backend."
     return float(match.group(1))
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# 1. Reachability — moved to tests/integration/external/
+#    test_shutdown_reachability_external.py (it spawns a uvicorn subprocess, so it
+#    belongs under the integration external suite, README rule 8).
+# ════════════════════════════════════════════════════════════════════════════
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -89,13 +95,13 @@ def _teardown_budget_seconds(*, stop_runs: bool) -> float:
 
     Every wait on the path, in order:
       uvicorn graceful window        docker-entrypoint.sh
-      Concierge drain                run_shutdown.py:101-103
-      Concierge cancel-and-wait      run_shutdown.py:124
-      pump drain                     run_shutdown.py:161-163
-      pump cancel-and-wait           run_shutdown.py:174-176
-      [stop-runs] driver drain       run_shutdown.py:233-235   (only when SHUTDOWN_STOP_RUNS)
-      [stop-runs] driver escalation  run_shutdown.py:247-249   (only when SHUTDOWN_STOP_RUNS)
-      checkpointer pool close        checkpointer.py:140-152   (ISS-106)
+      Concierge drain                run_shutdown.py step 1
+      Concierge cancel-and-wait      run_shutdown.py step 1 escalation
+      pump drain                     run_shutdown.py step 2b
+      pump cancel-and-wait           run_shutdown.py step 2b escalation
+      [stop-runs] driver drain       _drain_then_cancel first wait    (only when SHUTDOWN_STOP_RUNS)
+      [stop-runs] driver escalation  _drain_then_cancel second wait   (only when SHUTDOWN_STOP_RUNS)
+      checkpointer pool close        close_checkpointer's wait_for    (ISS-106)
 
     Every wait on the path is bounded, so this really is the worst case: ISS-106 wrapped
     step 4's pool.close() in asyncio.wait_for(SHUTDOWN_CHECKPOINTER_CLOSE_SECONDS), which

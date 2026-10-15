@@ -1,0 +1,31 @@
+# QA-KB-126 fix 04: dev DB (DATABASE_URL in backend/.env), read-only: SET TRANSACTION READ ONLY + SELECT only, 2026-10-09T14:27Z
+# Purpose: who the change can demote. (a) plain saved rows by owner tier (a non-Composer owner's privileged or file-copy row stops launching), (b) saved rows whose routes trigger a workflow (the trigger clamp only changes a trigger naming a SAVED ROW id), (c) runs persisted at _trust=db (the resume refusal only affects those).
+## (a) cmd: cd backend && PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=. .venv/bin/python ../evidence/qa-kb-126/analysis-plugins/query_saved_rows_by_shape.py
+Q0: SELECT (SELECT count(*) FROM workflows) AS workflows_rows, (SELECT count(*) FROM users) AS users_rows
+Q1: SELECT w.source, (w.manifest_json IS NOT NULL) AS has_manifest, (w.overrides_pipeline_type IS NOT NULL) AS is_override, w.base_pipeline_type, u.tier, count(*) AS n FROM workflows w LEFT JOIN users u ON u.id = w.user_id GROUP BY 1, 2, 3, 4, 5 ORDER BY 1, 2, 3, 4, 5
+Q2: SELECT w.id, w.base_pipeline_type, u.tier, w.manifest_json::text AS mj (privilege scan below, not printed) FROM workflows w LEFT JOIN users u ON u.id = w.user_id WHERE w.source = 'user' AND w.manifest_json IS NOT NULL AND w.overrides_pipeline_type IS NULL ORDER BY w.created_at
+Q0 -> {'workflows_rows': 11, 'users_rows': 4}
+Q1 -> 10 group(s)
+    {'source': 'user', 'has_manifest': True, 'is_override': False, 'base_pipeline_type': 'custom', 'tier': 'enterprise', 'n': 2}
+    {'source': 'user', 'has_manifest': True, 'is_override': True, 'base_pipeline_type': 'ex_A1_loop', 'tier': 'enterprise', 'n': 1}
+    {'source': 'user', 'has_manifest': True, 'is_override': True, 'base_pipeline_type': 'ex_A2_branch', 'tier': 'enterprise', 'n': 1}
+    {'source': 'user', 'has_manifest': True, 'is_override': True, 'base_pipeline_type': 'ex_A3_divert', 'tier': 'enterprise', 'n': 1}
+    {'source': 'user', 'has_manifest': True, 'is_override': True, 'base_pipeline_type': 'ex_A4_human_divert', 'tier': 'enterprise', 'n': 1}
+    {'source': 'user', 'has_manifest': True, 'is_override': True, 'base_pipeline_type': 'ex_A4_human_gate', 'tier': 'enterprise', 'n': 1}
+    {'source': 'user', 'has_manifest': True, 'is_override': True, 'base_pipeline_type': 'ppt', 'tier': 'enterprise', 'n': 1}
+    {'source': 'user', 'has_manifest': True, 'is_override': True, 'base_pipeline_type': 'ppt_v2', 'tier': 'enterprise', 'n': 1}
+    {'source': 'user', 'has_manifest': True, 'is_override': True, 'base_pipeline_type': 'prototype', 'tier': 'enterprise', 'n': 1}
+    {'source': 'user', 'has_manifest': True, 'is_override': True, 'base_pipeline_type': 'user_stories', 'tier': 'enterprise', 'n': 1}
+Q2 -> 2 plain manifest-backed row(s)
+    id=3a92d13b-136a-46c4-9aae-ae9c16679917 base=custom owner_tier=enterprise steps=3 exec_steps=0 spawn_steps=0 gates=[]
+    id=5d38a438-391e-4727-a12e-dedb1a75df3a base=custom owner_tier=enterprise steps=1 exec_steps=0 spawn_steps=0 gates=[]
+
+## (b)+(c) cmd: cd backend && PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=. .venv/bin/python ../evidence/qa-kb-126/fix-plugins/query_trigger_rows_and_run_trust.py
+Q1: SELECT w.id, w.base_pipeline_type, w.overrides_pipeline_type, u.tier, w.manifest_json::text AS mj FROM workflows w LEFT JOIN users u ON u.id = w.user_id WHERE w.source = 'user' AND w.manifest_json::text LIKE '%"trigger": "workflow"%'
+Q2: SELECT manifest_json->>'_trust' AS trust, count(*) AS n FROM workflow_runs WHERE manifest_json IS NOT NULL GROUP BY 1 ORDER BY 1
+Q1 -> 2 row(s)
+    id=913484d3-6dd3-4eac-aa00-b0c6c8bb7386 base=ex_A4_human_divert override=ex_A4_human_divert owner_tier=enterprise trigger_targets=['ex_A3_b_spanish', 'ex_A3_c_dutch']
+    id=a804a93c-91d8-46e7-b9cf-c0afdf280e3a base=ex_A3_divert override=ex_A3_divert owner_tier=enterprise trigger_targets=['ex_A3_b_spanish', 'ex_A3_c_dutch']
+Q2 -> [{'trust': None, 'n': 48}]
+
+## Reading: (a) the only plain manifest rows are 2 enterprise 'custom' rows -> still db. (b) the 2 rows with trigger routes are enterprise OVERRIDE rows that target file pipelines (ex_A3_b_spanish, ex_A3_c_dutch) -> the trigger clamp never runs for them (file-backed branch). (c) no run carries _trust at all -> the resume refusal affects no dev run. This is the dev DB only; production was not queried.

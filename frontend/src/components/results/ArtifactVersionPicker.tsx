@@ -47,6 +47,12 @@ export interface ArtifactVersionPickerProps {
   onSelect: (v: { index: number; content: string } | null) => void;
 }
 
+/** ISS-869: the wire is a lineage TREE — a version linked by `derived_from` (gate
+ *  Redo / Edit) nests under its parent's `children`, not at the top level. Walk it
+ *  pre-order, so a parent always precedes the version derived from it. */
+const flattenArtifacts = (ns: ArtifactNode[]): ArtifactNode[] =>
+  ns.flatMap((n) => [n, ...flattenArtifacts(n.children)]);
+
 /**
  * Collapse a run's artifact nodes into this agent's distinct versions.
  *
@@ -67,7 +73,7 @@ export interface ArtifactVersionPickerProps {
  */
 export function collapseVersions(nodes: ArtifactNode[], agentId: string): ArtifactVersion[] {
   const byHash = new Map<string, ArtifactVersion>();
-  for (const n of nodes) {
+  for (const n of flattenArtifacts(nodes)) {
     if (n.producer_agent !== agentId) continue;
     const existing = byHash.get(n.content_hash);
     if (!existing) {
@@ -156,7 +162,7 @@ export function ArtifactVersionPicker({
             kind: v.kind,
             includeContent: true,
           });
-          rows = resp?.artifacts ?? [];
+          rows = flattenArtifacts(resp?.artifacts ?? []);
           contentCache.current.set(v.kind, rows);
         }
         const row = rows.find((r) => r.id === v.id);
@@ -263,7 +269,7 @@ export function ArtifactVersionPicker({
                       {v.index === versions.length ? " · latest" : ""}
                     </p>
                     <p className="m-0 mt-0.5 font-serif text-[11px] font-normal leading-none text-ink-300">
-                      {/* No created_at on the node shape (runs.py:907-925), so label by
+                      {/* No created_at on the node shape (`_build_lineage_tree._node`, runs.py), so label by
                           size rather than inventing a time. */}
                       {v.chars !== undefined ? `${v.chars.toLocaleString()} chars` : v.contentHash.slice(0, 8)}
                     </p>

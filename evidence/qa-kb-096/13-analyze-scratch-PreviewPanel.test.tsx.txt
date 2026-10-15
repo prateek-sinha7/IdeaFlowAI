@@ -1,0 +1,256 @@
+import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
+import { render, waitFor, screen, cleanup } from "@testing-library/react";
+import React, { useEffect, useState, type ReactNode } from "react";
+import fs from "node:fs";
+import type { PipelineRunState, RunFamily } from "@/types/index";
+
+const DIR = "/private/tmp/claude-502/-Users-bilala-Developer-Projects-VELOCITY-AI-worktrees-feat-user-stories-v2/2d1a1575-310a-48fd-8155-2763a084604d/scratchpad/qa-kb-096";
+const OUT = `${DIR}/probe-output.txt`;
+const say = (...a: unknown[]) => fs.appendFileSync(OUT, a.join(" ") + "\n");
+
+// QA-KB-096 scratch probe. The REAL PreviewPanel + RunHeader + api.ts are mounted. Only global fetch is faked, serving what the live
+// API returned for the backlog family 78e185fb (evidence/qa-kb-096/probe-family-refs.out.txt): the family JSON verbatim, and for
+// each tag the Backlog.* entries of its tree. The fake file endpoint is exactly run_files.py:1174: the path is read EXACTLY at the
+// ref (404 when absent), or from the working tree when there is no ref.
+const family = JSON.parse(fs.readFileSync(`${DIR}/family.fixture.json`, "utf8")) as RunFamily;
+const idOf = (n: number) => family.members.find((m) => m.revision_index === n)!.id;
+const V1 = idOf(1), V2 = idOf(2), V8 = idOf(8);
+
+const LISTING: Record<string, string[]> = {
+  v1: [".chain/backlog.md", "backlog.md"],
+  v2: [".chain/Backlog.pdf", "backlog.md"],
+  v3: [".chain/Backlog.pdf", "backlog.md"],
+  v4: [".chain/Backlog.pdf", ".chain/backlog.md", "backlog.md"],
+  v5: [".chain/Backlog.pdf", ".chain/backlog.md", "backlog.md"],
+  v7: [".chain/Backlog.pdf", ".chain/backlog.md", "backlog.md"],
+  v8: [".chain/Backlog.pdf", ".chain/backlog.md", "backlog.md"],
+  // the live tree: root Backlog.pdf is on disk (untracked, .gitignore:/Backlog.pdf) plus the force-added chain copy
+  live: ["Backlog.pdf", ".chain/Backlog.pdf", ".chain/backlog.md", "backlog.md"],
+};
+
+let calls: string[] = [];
+const json = (status: number, body: unknown) =>
+  new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+const entry = (p: string) => ({ path: p, size: p.endsWith(".pdf") ? 23_000_000 : 1_000_000, modified: 0, text: !p.endsWith(".pdf"), kind: p.endsWith(".pdf") ? "pdf" : "text", deliverable: true });
+
+function fakeFetch(input: unknown): Promise<Response> {
+  const url = String(input);
+  calls.push(url.replace("http://localhost:8000", ""));
+  const u = new URL(url);
+  const m = u.pathname.match(/^\/api\/runs\/([^/]+)(\/.*)?$/);
+  if (!m) return Promise.resolve(json(404, { detail: "Not Found" }));
+  const [, id, rest = ""] = m;
+  const ref = u.searchParams.get("ref");
+  const files = ref ? LISTING[ref] : LISTING.live;
+  if (rest === "/family") return Promise.resolve(json(200, family));
+  if (rest === "/sandbox/refs") return Promise.resolve(json(200, { run_id: id, refs: ["v1", "v2", "v3", "v4", "v5", "v7", "v8"] }));
+  if (rest === "/sandbox") {
+    if (!files) return Promise.resolve(json(400, { detail: "invalid ref" }));
+    return Promise.resolve(json(200, { run_id: id, expired: false, truncated: false, ...(ref ? { ref } : {}), files: files.map(entry) }));
+  }
+  if (rest === "/sandbox/file") {
+    if (!files) return Promise.resolve(json(400, { detail: "invalid ref" }));
+    const path = u.searchParams.get("path")!;
+    if (!files.includes(path)) return Promise.resolve(json(404, { detail: "File not found" }));
+    return Promise.resolve(new Response(path.endsWith(".pdf") ? "%PDF-1.4 scratch bytes" : "# backlog text", { status: 200 }));
+  }
+  if (rest === "") {
+    const mem = family.members.find((x) => x.id === id)!;
+    return Promise.resolve(json(200, {
+      id, title: mem.title, type: "backlog", status: mem.status, input: "Write the complete product backlog", output: "# Backlog text form",
+      agent_outputs: "[]", deliverable_mimetype: "application/pdf", deliverable_filename: "Backlog.pdf",
+      parent_run_id: mem.parent_run_id, root_run_id: family.root_id, created_at: mem.created_at, completed_at: mem.completed_at, agent_count: 0,
+    }));
+  }
+  return Promise.resolve(json(404, { detail: "Not Found" }));
+}
+
+const STRIPPED = new Set(["initial", "animate", "exit", "transition", "whileHover", "whileTap", "whileFocus", "whileInView", "viewport", "layout", "layoutId", "drag", "dragConstraints", "variants", "custom"]);
+vi.mock("motion/react", () => {
+  const byTag = new Map<string, unknown>();
+  return {
+    motion: new Proxy({}, { get: (_t, prop: string) => {
+      if (!byTag.has(prop)) byTag.set(prop, ({ children, ...rest }: any) =>
+        React.createElement(prop, Object.fromEntries(Object.entries(rest).filter(([k]) => !STRIPPED.has(k))), children));
+      return byTag.get(prop);
+    } }),
+    AnimatePresence: ({ children }: any) => <>{children}</>,
+  };
+});
+vi.mock("@/components/preview/UserStoryPreview", () => ({ UserStoryPreview: () => <div /> }));
+vi.mock("@/components/preview/PPTPreview", () => ({ PPTPreview: () => <div /> }));
+vi.mock("@/components/preview/PrototypePreview", () => ({ PrototypePreview: () => <div /> }));
+vi.mock("@/components/preview/MarkdownPreview", () => ({ MarkdownPreview: () => <div data-testid="markdown-preview" /> }));
+vi.mock("@/components/preview/AppBuilderPreview", () => ({ AppBuilderPreview: () => <div /> }));
+vi.mock("@/lib/exporters/storyExporter", () => ({ exportUserStories: vi.fn() }));
+vi.mock("@/components/results/AgentThinkingTab", () => ({ AgentThinkingTab: () => <div /> }));
+vi.mock("@/components/results/AuditTab", () => ({ AuditTab: () => <div /> }));
+
+import { PreviewPanel } from "@/components/preview/PreviewPanel";
+import { getRunSandboxFileBlob, getToken, resolveRunDeliverable } from "@/lib/api";
+
+const settled = (id: string) => ({
+  isRunning: false, pipelineRunId: id, pipeline_type: "backlog", agents: [], currentAgentIndex: -1,
+  totalDuration: null, completedCount: 0, deliverableFilename: "Backlog.pdf",
+} as unknown as PipelineRunState);
+const PDF = { mimetype: "application/pdf", filename: "Backlog.pdf", content: "# Backlog text form" };
+const mountAt = (liveRunId: string, extra: Record<string, unknown> = {}) =>
+  render(<PreviewPanel workflowType={"backlog" as never} rawPipelineType="backlog" genericDeliverable={PDF}
+    pipelineState={settled(liveRunId)} liveRunId={liveRunId} runFamily={family} {...extra} />);
+
+const fileReads = () => calls.filter((c) => c.includes("/sandbox/file"));
+const listings = () => calls.filter((c) => /\/sandbox(\?|$)/.test(c));
+const downloadDisabled = () => (screen.getByLabelText("Download the deliverable") as HTMLButtonElement).disabled;
+
+beforeEach(() => {
+  calls = [];
+  localStorage.setItem("auth_token", "scratch-token");
+  vi.stubGlobal("fetch", vi.fn(fakeFetch));
+  URL.createObjectURL = vi.fn(() => "blob:scratch");
+  URL.revokeObjectURL = vi.fn();
+});
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
+
+describe("QA-KB-096 probe — what the run page's PDF Preview asks the sandbox for", () => {
+  it("A. v2's own page (an older member, nothing pinned): the preview reads the DECLARED root path at ref v2 -> 404 -> fallback", async () => {
+    mountAt(V2);
+    await screen.findByText(/could not be loaded/);
+    await waitFor(() => expect(listings().length).toBeGreaterThan(0));
+    say("PROBE A (v2 own page) sandbox/file requests:", JSON.stringify(fileReads()));
+    say("PROBE A listings requested:", JSON.stringify(listings()));
+    say("PROBE A fallback text:", JSON.stringify(screen.getByText(/could not be loaded/).textContent));
+    say("PROBE A header Download disabled:", downloadDisabled());
+    expect(fileReads()).toEqual([`/api/runs/${V2}/sandbox/file?path=Backlog.pdf&ref=v2`]);
+    expect(screen.queryByTestId("sandbox-pdf-preview")).toBeNull();
+  });
+
+  it("B. v1's own page (the validator's run): the same request at ref v1 -> 404 -> fallback; header Download disabled", async () => {
+    mountAt(V1);
+    await screen.findByText(/could not be loaded/);
+    await waitFor(() => expect(listings().length).toBeGreaterThan(0));
+    say("PROBE B (v1 own page) sandbox/file requests:", JSON.stringify(fileReads()));
+    say("PROBE B listings requested:", JSON.stringify(listings()));
+    say("PROBE B header Download disabled:", downloadDisabled());
+    expect(fileReads()).toEqual([`/api/runs/${V1}/sandbox/file?path=Backlog.pdf&ref=v1`]);
+  });
+
+  it("C. control: the NEWEST member v8 (no ref): reads the live root Backlog.pdf -> 200 -> the PDF frame renders", async () => {
+    mountAt(V8);
+    await screen.findByTestId("sandbox-pdf-preview");
+    await waitFor(() => expect(listings().length).toBeGreaterThan(0));
+    say("PROBE C (v8 own page, newest) sandbox/file requests:", JSON.stringify(fileReads()));
+    say("PROBE C header Download disabled:", downloadDisabled());
+    expect(fileReads()).toEqual([`/api/runs/${V8}/sandbox/file?path=Backlog.pdf`]);
+  });
+
+  it("D. the PINNED twin (/runs/<root>/versions/2): the Preview takes RefVersionPreview, resolves .chain/Backlog.pdf, reads the PDF AS TEXT, and shows no PDF frame", async () => {
+    mountAt(V1, { pinnedVersion: "2" });
+    await screen.findByText(/read-only/);
+    await waitFor(() => expect(fileReads().length).toBeGreaterThan(0));
+    await screen.findByText(/Deliverable ready/);
+    say("PROBE D (pinned v2) sandbox/file requests:", JSON.stringify(fileReads()));
+    say("PROBE D listings requested:", JSON.stringify(listings()));
+    say("PROBE D PDF frame rendered:", !!screen.queryByTestId("sandbox-pdf-preview"));
+    say("PROBE D card text:", JSON.stringify(screen.getByText(/can be downloaded from the Files tab/).textContent));
+    say("PROBE D Download button in card:", JSON.stringify(screen.getByText(/Download Backlog\.pdf/).textContent));
+    expect(screen.queryByTestId("sandbox-pdf-preview")).toBeNull();
+  });
+});
+
+describe("QA-KB-096 probe — does the PDF read also fire when a DEEP LINK lands on another tab? (activeTab starts as preview)", () => {
+  for (const [label, extra] of [
+    ["steps (deepLinkTarget thinking)", { deepLinkTarget: { tab: "thinking", nonce: 1 } }],
+    ["workspace (deepLinkTarget workspace)", { deepLinkTarget: { tab: "workspace", nonce: 1 } }],
+    ["audit (deepLinkTarget audit)", { deepLinkTarget: { tab: "audit", nonce: 1 } }],
+    ["files (deepLinkTarget files)", { deepLinkTarget: { tab: "files", nonce: 1 } }],
+    ["files (initialTab files)", { initialTab: "files" }],
+  ] as const) {
+    it(`G. v2 own page, ${label}`, async () => {
+      mountAt(V2, extra as Record<string, unknown>);
+      await new Promise((r) => setTimeout(r, 400));
+      say(`PROBE G [${label}] sandbox/file requests:`, JSON.stringify(fileReads()), "| preview frame/fallback present:", !!screen.queryByText(/could not be loaded/));
+    });
+  }
+});
+
+describe("QA-KB-096 probe — the pinned twin for the validator's own run (v1 pinned: its tag holds no PDF at all)", () => {
+  it("H. /runs/<root>/versions/1: header resolve at v1 is null, so the ref read never starts and Preview says Loading v1... (ISS-677's open mechanism)", async () => {
+    mountAt(V1, { pinnedVersion: "1" });
+    await screen.findByText(/read-only/);
+    await new Promise((r) => setTimeout(r, 700));
+    say("PROBE H (pinned v1) sandbox/file requests:", JSON.stringify(fileReads()));
+    say("PROBE H listings requested:", JSON.stringify(listings()));
+    say("PROBE H still shows 'Loading v1' after 700ms:", !!screen.queryByText(/Loading v1/), "| Deliverable-ready card:", !!screen.queryByText(/Deliverable ready/), "| header Download disabled:", downloadDisabled());
+  });
+});
+
+describe("QA-KB-096 probe — the shared resolver already answers correctly in all three states (real api.ts, fake network)", () => {
+  it("E. resolveRunDeliverable(token, run, 'Backlog.pdf', ref): v2 -> .chain/Backlog.pdf, v1 -> null, no ref -> Backlog.pdf", async () => {
+    const t = getToken() || "";
+    const atV2 = await resolveRunDeliverable(t, V2, "Backlog.pdf", "v2");
+    const atV1 = await resolveRunDeliverable(t, V1, "Backlog.pdf", "v1");
+    const live = await resolveRunDeliverable(t, V8, "Backlog.pdf", undefined);
+    say("PROBE E resolve(v2):", JSON.stringify(atV2 && { path: atV2.path, ref: atV2.ref }));
+    say("PROBE E resolve(v1):", JSON.stringify(atV1));
+    say("PROBE E resolve(live):", JSON.stringify(live && { path: live.path, ref: live.ref ?? null }));
+    expect(atV2?.path).toBe(".chain/Backlog.pdf");
+    expect(atV1).toBeNull();
+    expect(live?.path).toBe("Backlog.pdf");
+  });
+});
+
+// PROTOTYPE OF THE PROPOSED FIX, in the scratchpad only (not application source): SandboxPdfPreview resolves through the shared
+// resolver first, reads the RESOLVED path at the ref, and renders `fallback` WITHOUT a file request when nothing resolves.
+function ProposedSandboxPdfPreview({ runId, path, selectedRef, fallback }: { runId: string; path: string; selectedRef?: string | null; fallback: ReactNode }) {
+  const [state, setState] = useState<{ url: string } | "loading" | "missing">("loading");
+  useEffect(() => {
+    if (selectedRef === null) return;
+    let url: string | null = null;
+    let cancelled = false;
+    setState("loading");
+    void (async () => {
+      try {
+        const token = getToken() || "";
+        const hit = await resolveRunDeliverable(token, runId, path, selectedRef);
+        if (cancelled) return;
+        if (!hit) { setState("missing"); return; }
+        const blob = await getRunSandboxFileBlob(token, runId, hit.path, hit.ref ?? selectedRef);
+        if (cancelled) return;
+        url = URL.createObjectURL(new Blob([blob], { type: "application/pdf" }));
+        setState({ url });
+      } catch { if (!cancelled) setState("missing"); }
+    })();
+    return () => { cancelled = true; if (url) URL.revokeObjectURL(url); };
+  }, [runId, path, selectedRef]);
+  if (state === "missing" || selectedRef === null) return <>{fallback}</>;
+  if (state === "loading") return <div data-testid="sandbox-pdf-loading" />;
+  return <iframe title={path} src={state.url} data-testid="sandbox-pdf-preview" />;
+}
+
+describe("QA-KB-096 probe — the proposed fix location clears every state of the real family (scratch prototype)", () => {
+  const fb = <p>fallback</p>;
+  it("F1. v2 at ref v2: lists the tree at the ref once, reads .chain/Backlog.pdf@v2 -> the PDF frame", async () => {
+    render(<ProposedSandboxPdfPreview runId={V2} path="Backlog.pdf" selectedRef="v2" fallback={fb} />);
+    await screen.findByTestId("sandbox-pdf-preview");
+    say("PROBE F1 (v2) requests:", JSON.stringify(calls));
+    expect(fileReads()).toEqual([`/api/runs/${V2}/sandbox/file?path=.chain%2FBacklog.pdf&ref=v2`]);
+  });
+  it("F2. v1 at ref v1: nothing resolves -> fallback and NO sandbox/file request (no 404)", async () => {
+    render(<ProposedSandboxPdfPreview runId={V1} path="Backlog.pdf" selectedRef="v1" fallback={fb} />);
+    await screen.findByText("fallback");
+    say("PROBE F2 (v1) requests:", JSON.stringify(calls));
+    expect(fileReads()).toEqual([]);
+  });
+  it("F3. newest, no ref: resolves the live root Backlog.pdf and reads it -> the PDF frame (unchanged behaviour)", async () => {
+    render(<ProposedSandboxPdfPreview runId={V8} path="Backlog.pdf" selectedRef={undefined} fallback={fb} />);
+    await screen.findByTestId("sandbox-pdf-preview");
+    say("PROBE F3 (live) requests:", JSON.stringify(calls));
+    expect(fileReads()).toEqual([`/api/runs/${V8}/sandbox/file?path=Backlog.pdf`]);
+  });
+  it("F4. an older member with NO tag (selectedRef null): fallback, no request at all (FIX-717 contract kept)", async () => {
+    render(<ProposedSandboxPdfPreview runId={V2} path="Backlog.pdf" selectedRef={null} fallback={fb} />);
+    await screen.findByText("fallback");
+    say("PROBE F4 (null ref) requests:", JSON.stringify(calls));
+    expect(calls).toEqual([]);
+  });
+});

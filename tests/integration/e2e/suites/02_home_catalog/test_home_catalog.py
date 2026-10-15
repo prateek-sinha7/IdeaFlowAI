@@ -132,7 +132,7 @@ def test_every_catalog_card_renders_regardless_of_tier(page, shot):
         # spec 017 entitled ppt and ppt_v2 on EVERY tier — the deck is the
         # entry-level product now. The spec's matrix predates that merge.
         ("basic", "Pitch an idea (Fast)", None),
-        ("basic", "Pitch an idea (Detailed)", None),
+        ("basic", "Pitch an idea (Depth)", None),
         ("basic", "Build an interactive prototype (Fast)", "Pro"),
         ("basic", "Compose a custom workflow", "Enterprise"),
         ("pro", "Pitch an idea (Fast)", None),

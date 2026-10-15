@@ -41,14 +41,17 @@ import base64
 import hashlib
 import logging
 import math
+import tempfile
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import JSONResponse
 
-from app.agents.sandbox import RunSandbox
+from app.agents.sandbox import RunSandbox, run_dir_expired
 from app.api.run_files import (
     _resolve_chain_root_or_404,
     _resolve_owned_run,
+    _validate_ref,
 )
 from app.core.config import settings
 from app.core.dependencies import get_current_user
@@ -737,6 +740,7 @@ def _sanitize_floats(obj: object) -> object:
 @router.post("/{run_id}/figma-export")
 async def figma_export(
     run_id: str,
+    ref: str | None = None,
     current_user: User = Depends(get_current_user),
 ):
     """Render prototype.html in Chromium and return the IRNode tree as JSON.
@@ -746,6 +750,11 @@ async def figma_export(
 
     Falls back to 503 when Playwright/Chromium is unavailable so the frontend
     degrades gracefully to the client-side DOM-walk export.
+
+    ISS-974 — ``ref`` (a version tag, validated by ``_validate_ref``) renders that
+    version's own prototype.html. Every member of a revision family shares ONE
+    sandbox, so the working tree is the NEWEST member's file whatever id is in
+    the path. Omitting ``ref`` renders the working tree, as before.
     """
     # ── Two-layer IDOR owner check ────────────────────────────────────────
     await _resolve_owned_run(run_id, current_user)
@@ -754,23 +763,34 @@ async def figma_export(
     chain_root_id = _resolve_chain_root_or_404(run_id, current_user.id)
     sandbox = RunSandbox(current_user.id, chain_root_id, runs_root=settings.RUNS_ROOT)
 
-    if not sandbox.root.is_dir():
+    if run_dir_expired(sandbox.root):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Workspace expired"
         )
 
-    try:
-        html_path = sandbox.path_for("prototype.html")
-    except ValueError:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid path"
-        )
+    html_at_ref: bytes | None = None
+    if ref is not None:
+        safe_ref = _validate_ref(ref, sandbox)
+        try:
+            html_at_ref = sandbox.read_file_at_ref(safe_ref, "prototype.html")
+        except Exception:  # noqa: BLE001 — absent at that version
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="prototype.html not found at this version",
+            ) from None
+    else:
+        try:
+            html_path = sandbox.path_for("prototype.html")
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid path"
+            )
 
-    if not html_path.is_file():
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="prototype.html not found in this run's workspace",
-        )
+        if not html_path.is_file():
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="prototype.html not found in this run's workspace",
+            )
 
     # ── Playwright availability check ─────────────────────────────────────
     try:
@@ -783,7 +803,20 @@ async def figma_export(
         ) from exc
 
     # ── Run extraction ────────────────────────────────────────────────────
+    tmp_html: Path | None = None
     try:
+        if html_at_ref is not None:
+            # Chromium renders a file:// URI, so the tagged bytes go to a temp
+            # file in the sandbox's own git-ignored .browser/ scratch: relative
+            # references still resolve inside this user's workspace, and no
+            # concurrent revision's commit can pick the file up.
+            scratch = sandbox.root / ".browser"
+            scratch.mkdir(exist_ok=True)
+            with tempfile.NamedTemporaryFile(
+                "wb", dir=scratch, prefix="figma-", suffix=".html", delete=False
+            ) as fh:
+                fh.write(html_at_ref)
+            html_path = tmp_html = Path(fh.name)
         raw = await _run_playwright_extraction(html_path.as_uri())
     except Exception as exc:
         logger.error("figma_export: extraction failed: %s", exc, exc_info=True)
@@ -791,6 +824,9 @@ async def figma_export(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Figma extraction failed: {exc}",
         ) from exc
+    finally:
+        if tmp_html is not None:
+            tmp_html.unlink(missing_ok=True)
 
     if not raw or not raw.get("screens"):
         raise HTTPException(

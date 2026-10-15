@@ -1,0 +1,32 @@
+# QA-KB-099 analysis 05: does any OTHER unit-tier test spawn a process or open a socket without allow_io? (static scan + one-file runs of every hit)
+# HEAD 3af414bc6, 2026-10-08T11:55Z. Each hit was run ALONE, unit tier, offline.
+
+$ grep -rlE 'subprocess\.(Popen|run|call|check_output|check_call)|asyncio\.create_subprocess|os\.system\(|os\.popen\(|pty\.spawn' tests/unit --include='*.py'
+  -> 11 files; those with NO allow_io anywhere in the file:
+     tests/unit/agents/test_migration_ledger.py
+     tests/unit/services/test_shutdown_reachability.py
+     tests/unit/tools/ci/test_ci_pin_contracts.py
+     tests/unit/tools/ci/test_count_enforcement.py
+
+$ grep -rlE 'socket\.create_connection|socket\.socket\(|uvicorn\.(Server|run)|\.connect_ex\(|urlopen\(|http\.client\.HTTP|aiohttp\.ClientSession|websockets\.connect|requests\.(get|post|put|delete|request)\(' tests/unit --include='*.py'
+  -> 4 files; those with NO allow_io anywhere in the file:
+     tests/unit/services/test_shutdown_reachability.py
+     tests/unit/tools/ci/test_ci_pin_contracts.py
+
+$ .venv/bin/python -m pytest tests/unit/agents/test_migration_ledger.py -q -p no:cacheprovider --timeout=200 --tb=line -x
+  /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/app/core/config.py:94: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. S
+23 passed, 7 skipped, 1 warning in 5.31s
+
+$ .venv/bin/python -m pytest tests/unit/tools/ci/test_ci_pin_contracts.py -q -p no:cacheprovider --timeout=200 --tb=line -x
+  /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/app/core/config.py:94: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. S
+41 passed, 1 warning in 1.61s
+
+$ .venv/bin/python -m pytest tests/unit/tools/ci/test_count_enforcement.py -q -p no:cacheprovider --timeout=200 --tb=line -x
+  /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/app/core/config.py:94: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. S
+  /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/tests/unit/tools/ci/test_count_enforcement.py:25: PytestCollectionWarning: cannot collect test class 'TestCountValidator' because it has a __init__ constructor (from: tests/u
+
+# READING: apart from test_shutdown_reachability.py (this bug), no unit-tier file that mentions subprocess/socket calls and lacks allow_io errors with UnitIsolationError.
+#   test_migration_ledger.py: 23 passed 7 skipped (its 'subprocess.run' is only a docstring, line 41).
+#   test_ci_pin_contracts.py: 41 passed (requests.get/urlopen/subprocess.run appear inside fixture strings, lines 343/360/415).
+#   test_count_enforcement.py: 0 tests collected - a helper class (TestCountValidator has __init__), so its subprocess.run calls never execute.
+# So there is no second test with THIS shape. (DB-connect violators are a different, already-carded family: ISS-724, ISS-947, ISS-1017.)

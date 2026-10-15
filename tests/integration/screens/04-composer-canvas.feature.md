@@ -54,8 +54,8 @@ Testid `composer-header-summary`.
 **Config rail** — tabs `Workflow` | `Agent`, plus `Reset to default`.
 
 The **Agent** tab is not one panel but five sub-tabs of its own — `Overview`,
-`Skills`, `Hooks`, `Tools`, `Config` — headed by
-`Agent · step <n> of <total> · <agent title>` and carrying
+`Skills`, `Data`, `Tools`, `Config` — headed by the step's kind and position,
+`AI agent · step <n> of <total>` for a plain agent, and carrying
 `input[name="agent-name"]`. Its `Skills` sub-tab renders the full skill catalogue
 **inline in the rail**, not as a modal; the surface manifest had it listed as an
 overlay, which is why four sweeps never found it by opening dialogs.
@@ -186,8 +186,8 @@ Feature: Composing a workflow
   Scenario: The config rail's Agent tab has five sub-tabs of its own
     When I cold-load "/workflows/ppt/canvas"
     And I click the rail tab "Agent"
-    Then the rail heading reads "Agent · step 1 of 3 · <the first agent's title>"
-    And I see the sub-tabs "Overview", "Skills", "Hooks", "Tools", "Config"
+    Then the rail heading reads "AI agent · step 1 of 3"
+    And I see the sub-tabs "Overview", "Skills", "Data", "Tools", "Config"
     And an input named "agent-name" is present
 
   @S-04-11

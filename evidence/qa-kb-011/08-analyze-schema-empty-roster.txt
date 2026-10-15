@@ -1,0 +1,6 @@
+# QA-KB-011 analyzer offline check: does POST /api/user-workflows accept the validator's captured body (agent_ids: [])?
+# 2026-10-01 22:18, HEAD 024c03ef8, cwd backend/, interpreter .venv/bin/python, pydantic model only (no server, no DB, no network).
+# Command: .venv/bin/python -c 'from app.api.user_workflows import SaveUserWorkflowRequest ...'  (source: backend/app/api/user_workflows.py:213  agent_ids: list[str] = Field(min_length=1))
+
+validator body (library not loaded, roster empty)                        agent_ids=[] -> REJECTED 422: loc=('agent_ids',) msg='List should have at least 1 item after validation, not 0'
+default roster (library loaded, override overlay not yet applied)        agent_ids=['prototype-specify', 'prototype-build'] -> ACCEPTED by schema (reaches the UPSERT at user_workflows.py:794-834)

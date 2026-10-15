@@ -10,8 +10,10 @@ import {
 import { authedFetch, getToken, getMe, changePassword, getPreferences, updatePreferences, getCapabilities, getConstitution } from "@/lib/api";
 import type { ModelOption, CapabilityModelEntry } from "@/lib/api";
 import { ENV } from "@/lib/env";
-import { TIER_PIPELINES, TIER_LABELS } from "@/lib/entitlements";
+import { TIER_PIPELINES, TIER_LABELS, catalogAccess } from "@/lib/entitlements";
 import type { Tier } from "@/lib/entitlements";
+import { useAppSelector } from "@/store/hooks";
+import { useWorkflowLabels } from "@/hooks/useWorkflowMetadata";
 import { Tabs, type TabItem } from "@/components/ui/Tabs";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
@@ -44,6 +46,9 @@ interface AccountSettingsProps {
    * than a controlled `section`.
    */
   initialSection?: SettingsSection;
+  /** ISS-372 — "this page holds work that Back would discard", reported to
+   *  DashboardLayout's shared `handleBackNav` guard (same contract as ComposerPage). */
+  onUnsavedChange?: (dirty: boolean) => void;
 }
 
 // Same section->route mapping parseViewPath (routes.ts) reads on cold-mount, in
@@ -77,14 +82,45 @@ const MODEL_TIER_BADGE: Record<string, BadgeStatus> = {
   powerful: "cancelled",
 };
 
-// Unique base pipelines available to a tier (no revision variants) — the real
-// deliverable-access entitlement set for the current user's plan (ND-D).
+// Unique base pipelines available to a tier (no revision variants) — the
+// deliverable-access tiles shown until the live catalog has loaded (ND-D).
 function getBasePipelines(tier: Tier): string[] {
   const all = Array.from(TIER_PIPELINES[tier]);
   return all.filter(p => !p.endsWith("_revision")).filter(p => PIPELINE_DISPLAY[p]);
 }
 
-export function AccountSettings({ onBack, initialSection }: AccountSettingsProps) {
+// Deliverable access (ISS-1195): the product workflows and Engine examples the
+// home catalog enables for this tier, through the catalog's own split
+// (catalogAccess), labelled as the catalog labels them unless PIPELINE_DISPLAY
+// names the tile. Reads the store, so it mounts only with the Usage & Limits tab.
+function DeliverableAccessGrid({ tier }: { tier: Tier }) {
+  const workflows = useAppSelector((state) => state.global.workflows);
+  const getWorkflowLabel = useWorkflowLabels();
+  const tile = (id: string, label: string) => (
+    <div key={id} className="flex items-center gap-2.5 rounded-[9px] border border-line-faint-row bg-surface-white px-3 py-2.5">
+      <CheckCircle2 className="h-4 w-4 text-status-done flex-shrink-0" />
+      <span className="text-[12.5px] font-medium text-ink-800">{label}</span>
+    </div>
+  );
+  if (workflows.length === 0) {
+    return <div className="grid grid-cols-2 gap-2.5">{getBasePipelines(tier).map(p => tile(p, PIPELINE_DISPLAY[p].label))}</div>;
+  }
+  const { productRows, exampleRows } = catalogAccess(workflows, tier);
+  const label = (w: (typeof workflows)[number]) => PIPELINE_DISPLAY[w.id]?.label ?? w.display_name ?? getWorkflowLabel(w.id);
+  return (
+    <>
+      <div className="grid grid-cols-2 gap-2.5">{productRows.map(w => tile(w.id, label(w)))}</div>
+      {exampleRows.length > 0 && (
+        <>
+          <p className="text-[10px] font-semibold text-ink-400 uppercase tracking-[0.12em] mt-5 mb-4">Engine examples</p>
+          <div className="grid grid-cols-2 gap-2.5">{exampleRows.map(w => tile(w.id, label(w)))}</div>
+        </>
+      )}
+    </>
+  );
+}
+
+export function AccountSettings({ onBack, initialSection, onUnsavedChange }: AccountSettingsProps) {
   const router = useRouter();
   const [section, setSection] = useState<SettingsSection>(initialSection ?? "profile");
   const [email, setEmail] = useState("");
@@ -118,12 +154,30 @@ export function AccountSettings({ onBack, initialSection }: AccountSettingsProps
   const [savingModel, setSavingModel] = useState(false);
   const [modelMessage, setModelMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
+  // ISS-372 / ISS-921 — typed passwords, an unsaved model pick and an unsaved
+  // Constitution draft are work Back would silently discard. Each is compared
+  // with what is saved (empty, for the password fields), and the loads set both
+  // sides together, so a pristine page never reads as dirty. Trimmed: Save
+  // stores the trimmed draft, so surrounding whitespace alone is nothing to lose.
+  const constitutionDirty = constitutionContent.trim() !== constitutionLoadedValue.trim();
+  const hasUnsavedWork =
+    !!(currentPassword || newPassword || confirmPassword) ||
+    pendingModel !== selectedModel ||
+    constitutionDirty;
+  useEffect(() => {
+    onUnsavedChange?.(hasUnsavedWork);
+    return () => onUnsavedChange?.(false);
+  }, [hasUnsavedWork, onUnsavedChange]);
+
   const commitDiscardConstitution = useCallback(() => {
     setConfirmingDiscardConstitution(false);
+    // ISS-921: the draft is parent state and outlives the tab; drop it so Back
+    // does not ask about work the user already discarded.
+    setConstitutionContent(constitutionLoadedValue);
     if (!nextSection) return;
     setSection(nextSection);
     router.replace(SECTION_ROUTE[nextSection]());
-  }, [nextSection, router]);
+  }, [nextSection, router, constitutionLoadedValue]);
 
   const cancelDiscardConstitution = useCallback(() => {
     setConfirmingDiscardConstitution(false);
@@ -249,7 +303,7 @@ export function AccountSettings({ onBack, initialSection }: AccountSettingsProps
             onChange={id => {
               const next = id as SettingsSection;
               // ISS-482: guard tab switch away from Constitution if draft differs from loaded value
-              if (section === "constitution" && constitutionContent !== constitutionLoadedValue) {
+              if (section === "constitution" && constitutionDirty) {
                 setNextSection(next);
                 setConfirmingDiscardConstitution(true);
                 return;
@@ -484,14 +538,7 @@ export function AccountSettings({ onBack, initialSection }: AccountSettingsProps
               {/* Deliverable access — the live entitlement set for this plan (ND-D) */}
               <Card className="p-[22px] shadow-[var(--elevation-raised)]">
                 <p className="text-[10px] font-semibold text-ink-400 uppercase tracking-[0.12em] mb-4">Deliverable access</p>
-                <div className="grid grid-cols-2 gap-2.5">
-                  {getBasePipelines(userTier).map(p => (
-                    <div key={p} className="flex items-center gap-2.5 rounded-[9px] border border-line-faint-row bg-surface-white px-3 py-2.5">
-                      <CheckCircle2 className="h-4 w-4 text-status-done flex-shrink-0" />
-                      <span className="text-[12.5px] font-medium text-ink-800">{PIPELINE_DISPLAY[p].label}</span>
-                    </div>
-                  ))}
-                </div>
+                <DeliverableAccessGrid tier={userTier} />
               </Card>
             </motion.div>
           )}

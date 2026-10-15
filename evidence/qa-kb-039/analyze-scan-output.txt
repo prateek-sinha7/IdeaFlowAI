@@ -1,0 +1,15 @@
+# scan_last_turn.py backend/tests
+turn-list literals scanned: 158
+lists whose LAST turn carries tool_calls: 1
+  tests/agents/test_qa_ps_027_placeholder_completion.py:139  turns=1  last-turn@line 140
+
+# scan_toolturns.py backend/tests
+tool-calling turn constructors found: 34
+
+SUSPECT (last element of its list):
+   tests/agents/test_qa_ps_027_placeholder_completion.py 140 _prototype_placeholder_scripts in-list 1/1 LAST
+
+BARE (helper-built; need caller check):
+   tests/integration/agents/test_phase5_revision_validation_db.py 176 _edit_turn bare(Return) check-callers
+
+Summary by position: {'ok': 32, 'LAST': 1, 'check-callers': 1}

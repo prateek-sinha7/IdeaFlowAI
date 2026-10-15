@@ -1,0 +1,17 @@
+# grep -n 'output file not found\|stage_exact failed' /private/tmp/velocity-8000.log (validator, 2026-10-09)
+6743:15:42:09  engine      build_flat_payload: output file not found run=c10a03ed-77d8-4f31-97b9-d1af2994ce17 basename='greeting.md'  ffc5da53
+6744:15:42:09  engine      WARN  build_flat_payload: stage_exact failed for run=c10a03ed-77d8-4f31-97b9-d1af2994ce17  ffc5da53
+7085:15:42:34  engine      build_flat_payload: output file not found run=caa766dc-8ae4-4e91-9ed0-f679c16a9624 basename='greeting.md'  ff67b91a
+7086:15:42:34  engine      WARN  build_flat_payload: stage_exact failed for run=caa766dc-8ae4-4e91-9ed0-f679c16a9624  ff67b91a
+7307:15:42:55  engine      build_flat_payload: output file not found run=1260b7ba-18d3-45c1-afc9-6959c6836155 basename='greeting.md'  e85ccb5b
+7308:15:42:56  engine      WARN  build_flat_payload: stage_exact failed for run=1260b7ba-18d3-45c1-afc9-6959c6836155  e85ccb5b
+
+# traceback tail, line 6764
+    )
+  File "/opt/homebrew/Cellar/python@3.13/3.13.14/Frameworks/Python.framework/Versions/3.13/lib/python3.13/subprocess.py", line 577, in run
+    raise CalledProcessError(retcode, process.args,
+                             output=stdout, stderr=stderr)
+subprocess.CalledProcessError: Command '['git', '-c', 'user.name=Velocity Runtime', '-c', 'user.email=runtime@velocity.local', '-c', 'commit.gpgsign=false', 'add', '--force', '--', '.chain/summary.md', '.chain/logs.jsonl', '.chain/greeting.md']' returned non-zero exit status 128.
+15:42:09  engine      build_metadata_only_snapshot: index reset run=c10a03ed-77d8-4f31-97b9-d1af2994ce17  ffc5da53
+
+# :8001 log (be8001.log) run 9a931a7a

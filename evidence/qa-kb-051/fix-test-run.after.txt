@@ -1,0 +1,19 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+____________________ test_build_context_runs_under_python39 ____________________
+[XPASS(strict)] BUG-127 unfixed
+=============================== warnings summary ===============================
+app/core/config.py:94
+  /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/app/core/config.py:94: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+    class Settings(BaseSettings):
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+1 failed, 1 warning in 5.18s
+  issue: 869 total, 210 open/active
+  bug: 146 total, 7 open/active
+  fix: 702 total, 157 open/active
+py 3.9.6 wrote CONTEXT.md bytes: 12769 CR bytes: 0
+sha256 new@3.9.6 : 9211886c8b2ed78d CR: 0
+sha256 new@3.13  : 9211886c8b2ed78d CR: 0
+sha256 old@3.13  : 9211886c8b2ed78d
+byte-identical across interpreters and vs the old call: True

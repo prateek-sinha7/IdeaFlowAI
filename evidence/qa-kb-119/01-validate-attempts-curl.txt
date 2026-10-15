@@ -1,0 +1,3 @@
+attempt1 200 bytes=52909786 t=5.409406s
+attempt2 200 bytes=52909786 t=4.671531s
+attempt3 200 bytes=52909786 t=5.406636s

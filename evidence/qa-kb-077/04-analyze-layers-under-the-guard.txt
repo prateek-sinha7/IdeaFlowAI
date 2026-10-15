@@ -1,0 +1,86 @@
+# QA-KB-077 analyzer evidence 04 — the layers under the unit I/O guard (2026-10-02, tree: feat/user-stories-v2 @ 024c03ef8 + working tree)
+# Every block: the command, then its raw output. Offline only, one test file per pytest invocation, no repo file edited.
+
+## 1. The file as shipped  (cd backend && .venv/bin/python -m pytest tests/unit/test_iss401_reset_password_message.py -q -p no:cacheprovider)
+>       Base.metadata.create_all(bind=engine)
+tests/unit/test_iss401_reset_password_message.py:42: 
+E       tests.unit.conftest.UnitIsolationError: Unit test opened a real database connection. Move it to tests/integration/<mirror>/ (the hermetic in-memory SQLite db_session fixture lives in tests/int
+tests/unit/conftest.py:81: UnitIsolationError
+ERROR tests/unit/test_iss401_reset_password_message.py::test_reset_password_409_does_not_claim_credentials_are_managed_externally
+1 warning, 1 error in 1.35s
+
+## 2. Model has neither removed column; constructing with them raises  (python -c against app.models.user, no DB)
+columns: ['cognito_sub', 'created_at', 'email', 'encrypted_cognito_refresh_token', 'id', 'is_admin', 'mfa_verified_at', 'password_changed_at', 'preferred_model', 'roles_synced_at', 'status', 'tier', 'tokens_valid_from', 'updated_at']
+has auth_provider: False | has password_hash: False
+User(auth_provider=, password_hash=) -> TypeError : 'auth_provider' is an invalid keyword argument for User
+cognito_sub nullable: False
+
+## 3. ResetPasswordRequest takes no fields (admin.py:197-205), so the test body at :96 cannot be built
+ResetPasswordRequest(new_password=...) -> ValidationError : ['1 validation error for ResetPasswordRequest', 'new_password', "  Extra inputs are not permitted [type=extra_forbidden, input_value='a-new-password-123', input_type=str]"]
+fields: [] | config: {'extra': 'forbid'}
+
+## 4. Copies of the stale tests run OUTSIDE tests/unit (no unit I/O guard): what is underneath it
+##    (copies in the session scratchpad; PYTHONPATH=backend DATABASE_URL=sqlite:///:memory: pytest <copies> -c /dev/null)
+E               TypeError: 'auth_provider' is an invalid keyword argument for User
+E       AssertionError: {"detail":"Not Found"}
+E       assert 404 == 422
+E        +  where 404 = <Response [404 Not Found]>.status_code
+E       AssertionError: {"detail":"Not Found"}
+E       assert 404 == 422
+E        +  where 404 = <Response [404 Not Found]>.status_code
+  /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/app/core/config.py:94: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict i
+FAILED unguarded/test_iss401_reset_password_message.py::test_reset_password_409_does_not_claim_credentials_are_managed_externally
+FAILED unguarded/test_register_password_echo.py::test_a_too_short_password_is_never_echoed_back_in_the_422_body
+FAILED unguarded/test_register_password_echo_fixture_mounts_real_app.py::test_password_echo_harness_observes_app_mains_redaction_fix
+3 failed, 6 warnings in 1.19s
+
+## 5. The live-path reset coverage that makes retirement lossless  (cd backend && pytest tests/integration/api/test_admin_privilege_atomicity_api.py -k TestPasswordResetAtomicity)
+3 passed, 3 deselected, 1 warning in 1.04s
+
+## 6. This is the LAST test that seeds a removed User kwarg  (AST scan of backend/tests; script below)
+    | """Read-only AST scan: User(...) constructions in backend/tests that (a) pass a removed
+    | kwarg (auth_provider/password_hash) or (b) omit cognito_sub (NOT NULL since 0038)."""
+    | import ast, pathlib, sys
+    | 
+    | root = pathlib.Path("backend/tests")
+    | removed = {"auth_provider", "password_hash"}
+    | rows = []
+    | for p in sorted(root.rglob("*.py")):
+    |     try:
+    |         tree = ast.parse(p.read_text(encoding="utf-8"))
+    |     except Exception as e:
+    |         print("PARSE-ERR", p, e); continue
+    |     for n in ast.walk(tree):
+    |         if isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id == "User":
+    |             kws = {k.arg for k in n.keywords if k.arg}
+    |             has_star = any(k.arg is None for k in n.keywords)
+    |             rows.append((str(p), n.lineno, sorted(kws & removed), "cognito_sub" in kws, has_star, len(n.args)))
+    | bad_removed = [r for r in rows if r[2]]
+    | no_sub = [r for r in rows if not r[3] and not r[4]]
+    | print("User(...) calls scanned:", len(rows))
+    | print("\n== with removed kwargs ==")
+    | for r in bad_removed: print(f"{r[0]}:{r[1]} removed={r[2]}")
+    | print("\n== omitting cognito_sub (no **kwargs) ==")
+    | byfile = {}
+    | for r in no_sub: byfile.setdefault(r[0], []).append(r[1])
+    | for f, ls in byfile.items(): print(f"{f}: lines {ls}")
+
+User(...) calls scanned: 73
+
+== with removed kwargs ==
+backend/tests/unit/test_iss401_reset_password_message.py:53 removed=['auth_provider', 'password_hash']
+backend/tests/unit/test_iss401_reset_password_message.py:69 removed=['auth_provider']
+
+
+## 7. No other production or test string still makes the claim ISS-401 guarded
+$ grep -rn "managed outside" backend/app backend/agents frontend/src backend/tests
+backend/tests/unit/test_iss401_reset_password_message.py:88:    password is "managed outside the application": this app's own database
+
+## 8. Git archaeology (read-only)
+test authored:      d027f16bd 2026-08-29 bug-hunter: close 80 bugs from the parallel validate/analyze/test/fix/verify batch
+Cognito-only commit: b2a621f84 2026-09-17 Fix/cognito login (#8)
+unit I/O guard:     09270703b 2026-09-22 Fix/testcases (#9)
+b2a621f84 deleted (same commit, same account type):
+    backend/tests/integration/test_bootstrap_admin_postgres.py
+    backend/tests/unit/test_bootstrap_admin.py
+    backend/tests/unit/test_break_glass_invariant.py

@@ -1,0 +1,39 @@
+# QA-KB-042 fix phase, 2026-10-01. Each file run alone from backend/ with .venv/bin/python -m pytest <file> -q -p no:cacheprovider (offline).
+# BEFORE (observed in this working tree just before the edits; summary lines as printed):
+#   tests/unit/test_run_shutdown_stale_citations.py      -> 2 xfailed
+#   tests/unit/services/test_shutdown_reachability.py    -> 1 failed, 7 passed (test_sigterm_reaches_the_lifespan_shutdown_half_while_a_stream_is_live: tests.unit.conftest.UnitIsolationError: Unit test spawned a subprocess)
+#   tests/unit/app/test_run_shutdown.py                  -> 13 passed
+
+## AFTER: guard, default run (-rX)
+FF                                                                       [100%]
+=================================== FAILURES ===================================
+_______________ test_no_line_number_cites_in_shutdown_path_files _______________
+[XPASS(strict)] ISS-104/ISS-885 unfixed
+___________ test_shutdown_comment_read_timeout_matches_model_factory ___________
+[XPASS(strict)] ISS-888 unfixed
+=============================== warnings summary ===============================
+app/core/config.py:94
+2 failed, 1 warning in 1.22s
+
+## AFTER: guard, --runxfail (positive assertions)
+2 passed, 1 warning in 1.26s
+
+## AFTER: tests/unit/services/test_shutdown_reachability.py
+E       tests.unit.conftest.UnitIsolationError: Unit test spawned a subprocess: ['/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/.venv/bin/python', '-m', 'uvicorn', 'reachability_prob
+FAILED tests/unit/services/test_shutdown_reachability.py::test_sigterm_reaches_the_lifespan_shutdown_half_while_a_stream_is_live
+1 failed, 7 passed, 1 warning in 1.49s
+
+## AFTER: tests/unit/app/test_run_shutdown.py
+13 passed, 1 warning in 1.97s
+
+## AFTER: lint-imports (from backend/)
+Contracts: 3 kept, 2 broken.
+
+## Comment-only proof: tokenize (comments, NL/INDENT dropped, every STRING -> STR) and non-docstring string constants, pre-edit snapshot vs now
+app/api/run_shutdown.py: code tokens identical; non-docstring strings identical
+app/api/run_engine.py: code tokens identical; non-docstring strings identical
+app/api/run_stream.py: code tokens identical; non-docstring strings identical
+app/core/config.py: code tokens identical; non-docstring strings identical
+app/services/host_metrics.py: code tokens identical; non-docstring strings identical
+tests/unit/services/test_shutdown_reachability.py: code tokens identical; non-docstring strings identical
+docker-entrypoint.sh: comment lines only (bash -n: ok)

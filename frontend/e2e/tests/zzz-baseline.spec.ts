@@ -94,10 +94,10 @@ test("CAPTURE settled prototype run", async ({ dashboard, mockSse, page }) => {
   await dashboard.goto();
   await launch(page, mockSse, "build prototype mimicking apple website just for reference");
 
-  const agents = AGENTS.od_prototype; // specify, plan, build, validate
+  const agents = AGENTS.prototype; // specify, plan, build, validate
   // A run created ~23h ago so the settled header shows a realistic relative age.
   const createdAt = new Date(Date.now() - 23 * 3_600_000).toISOString();
-  mockSse.start(agents, { pipelineType: "od_prototype", runId: "run-e2e-1", createdAt });
+  mockSse.start(agents, { pipelineType: "prototype", runId: "run-e2e-1", createdAt });
   // Seed the conversation: the user's brief turn (+ run attachments) so the
   // transcript renders bubbles + the attachment-chip tray like the mock.
   await seedBrief(mockSse, "build prototype mimicking apple website just for reference");
@@ -177,7 +177,7 @@ test("CAPTURE settled prototype run", async ({ dashboard, mockSse, page }) => {
   // The deliverable filename + version ride pipeline_complete (D39-4). The lane
   // renders the SINGLE mock-styled deliverable card from pipelineState (INV-12) —
   // no interim narrator ResultCard stand-in is seeded.
-  mockSse.complete({ pipelineType: "od_prototype", finalOutput: PROTO_HTML, deliverableFilename: "apple-reference-prototype.html", deliverableMimetype: "text/html", deliverableVersion: 1, totalTokens: 14_620_000, totalDuration: 1446 });
+  mockSse.complete({ pipelineType: "prototype", finalOutput: PROTO_HTML, deliverableFilename: "apple-reference-prototype.html", deliverableMimetype: "text/html", deliverableVersion: 1, totalTokens: 14_620_000, totalDuration: 1446 });
 
   await page.waitForTimeout(1500);
   await shot(page, "full", "settled");
@@ -232,8 +232,8 @@ test("CAPTURE live streaming run", async ({ dashboard, mockSse, page }) => {
   test.setTimeout(120_000);
   await dashboard.goto();
   await launch(page, mockSse, "build prototype mimicking apple website just for reference");
-  const agents = AGENTS.od_prototype;
-  mockSse.start(agents, { pipelineType: "od_prototype", runId: "run-e2e-1" });
+  const agents = AGENTS.prototype;
+  mockSse.start(agents, { pipelineType: "prototype", runId: "run-e2e-1" });
   await seedBrief(mockSse, "build prototype mimicking apple website just for reference");
   mockSse.plannerStart();
   mockSse.plannerComplete("Build an Apple-style reference prototype", "PROCEED");
@@ -269,8 +269,8 @@ test("CAPTURE live — clarify-awaiting lane", async ({ dashboard, mockSse, page
   test.setTimeout(120_000);
   await dashboard.goto();
   await launch(page, mockSse, "build prototype mimicking apple website just for reference");
-  const agents = AGENTS.od_prototype;
-  mockSse.start(agents, { pipelineType: "od_prototype", runId: "run-e2e-1" });
+  const agents = AGENTS.prototype;
+  mockSse.start(agents, { pipelineType: "prototype", runId: "run-e2e-1" });
   await seedBrief(mockSse, "build prototype mimicking apple website just for reference");
   mockSse.plannerStart();
   mockSse.plannerComplete("Build an Apple-style reference prototype", "CLARIFY_REQUIRED");
@@ -289,8 +289,8 @@ test("CAPTURE live — gate-awaiting lane", async ({ dashboard, mockSse, page })
   test.setTimeout(120_000);
   await dashboard.goto();
   await launch(page, mockSse, "build prototype mimicking apple website just for reference");
-  const agents = AGENTS.od_prototype;
-  mockSse.start(agents, { pipelineType: "od_prototype", runId: "run-e2e-1" });
+  const agents = AGENTS.prototype;
+  mockSse.start(agents, { pipelineType: "prototype", runId: "run-e2e-1" });
   await seedBrief(mockSse, "build prototype mimicking apple website just for reference");
   mockSse.plannerStart();
   mockSse.plannerComplete("Build an Apple-style reference prototype", "PROCEED");
@@ -321,8 +321,8 @@ test("CAPTURE paused — planning", async ({ dashboard, mockSse, page }) => {
   test.setTimeout(120_000);
   await dashboard.goto();
   await launch(page, mockSse, "build prototype mimicking apple website just for reference");
-  const agents = AGENTS.od_prototype;
-  mockSse.start(agents, { pipelineType: "od_prototype", runId: "run-e2e-1" });
+  const agents = AGENTS.prototype;
+  mockSse.start(agents, { pipelineType: "prototype", runId: "run-e2e-1" });
   await seedBrief(mockSse, "build prototype mimicking apple website just for reference");
   // running & 0 agents & no clarify & no gate → §2 branch 1 (PlanningOverlay).
   // STOP here: do NOT call plannerComplete — capture the pre-agent planning state.
@@ -339,8 +339,8 @@ test("CAPTURE paused — clarify-awaiting", async ({ dashboard, mockSse, page })
   test.setTimeout(120_000);
   await dashboard.goto();
   await launch(page, mockSse, "build prototype mimicking apple website just for reference");
-  const agents = AGENTS.od_prototype;
-  mockSse.start(agents, { pipelineType: "od_prototype", runId: "run-e2e-1" });
+  const agents = AGENTS.prototype;
+  mockSse.start(agents, { pipelineType: "prototype", runId: "run-e2e-1" });
   await seedBrief(mockSse, "build prototype mimicking apple website just for reference");
   mockSse.plannerStart();
   mockSse.plannerComplete("Build an Apple-style reference prototype", "CLARIFY_REQUIRED");
@@ -360,8 +360,8 @@ test("CAPTURE paused — gate-awaiting", async ({ dashboard, mockSse, page }) =>
   test.setTimeout(120_000);
   await dashboard.goto();
   await launch(page, mockSse, "build prototype mimicking apple website just for reference");
-  const agents = AGENTS.od_prototype;
-  mockSse.start(agents, { pipelineType: "od_prototype", runId: "run-e2e-1" });
+  const agents = AGENTS.prototype;
+  mockSse.start(agents, { pipelineType: "prototype", runId: "run-e2e-1" });
   await seedBrief(mockSse, "build prototype mimicking apple website just for reference");
   mockSse.plannerStart();
   mockSse.plannerComplete("Build an Apple-style reference prototype", "PROCEED");
@@ -387,8 +387,8 @@ test("CAPTURE failed run", async ({ dashboard, mockSse, mockApi, page }) => {
   mockApi.setAuditVariant("failed");
   await dashboard.goto();
   await launch(page, mockSse, "Build a full inventory app with a seed script that writes credentials to .env");
-  const agents = AGENTS.od_prototype;
-  mockSse.start(agents, { pipelineType: "od_prototype", runId: "run-e2e-1" });
+  const agents = AGENTS.prototype;
+  mockSse.start(agents, { pipelineType: "prototype", runId: "run-e2e-1" });
   await seedBrief(mockSse, "Build a full inventory app with a seed script that writes credentials to .env");
   // An assistant explanation line precedes the failure card (like the mock).
   mockSse.chatReply({ cardKind: "pipeline", text: "The run stopped at the security gate — a step tried to write secrets to disk and run code the workspace policy doesn't allow. Nothing was written outside the sandbox." });

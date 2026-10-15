@@ -1,0 +1,477 @@
+# QA-KB-103 analysis 05: source excerpts read for the root cause, HEAD c9c4c630a, 2026-10-08T19:33Z. Every line is quoted from the working tree, file:line as printed.
+
+## BACKEND: the one shared check, and its callers
+
+--- backend/agents/execution_engine/overrides.py:50-71
+50:def compile_override_steps(workflow_id: str, steps: list, registry):
+51:    """Compile an override row's ``steps`` alone, at ``trust="user"``.
+52:
+53:    The ONE check every reader and writer of an override row shares: the merge
+54:    below and the saves in ``app/api/user_workflows.py`` (ISS-1092, ISS-1112), so
+55:    a save can never store steps the merge would refuse. ``trust="user"`` applies
+56:    CAP-03, the exec/network/secrets/spawn grant rejection and the untrusted
+57:    permission cap (ISS-1111). Raises ``ManifestValidationError`` /
+58:    ``CompilerError`` naming the refusal.
+59:    """
+60:    from agents.workflows.compiler import WorkflowCompiler
+61:    from agents.workflows.manifest import build_manifest_from_dict
+62:
+63:    raw = {
+64:        "id": workflow_id,
+65:        "steps": steps,
+66:        "deliverable": _PLACEHOLDER_DELIVERABLE,
+67:        "planner": "skip",
+68:        "clarify": _PLACEHOLDER_CLARIFY,
+69:    }
+70:    parsed = build_manifest_from_dict(raw, f"override:{workflow_id}")
+71:    return WorkflowCompiler().compile(parsed, registry, trust="user")
+
+--- backend/agents/execution_engine/overrides.py:108-117
+108:
+109:    try:
+110:        # The save already ran this check, but a row can be tampered with directly
+111:        # in the database, so it is re-run here. The compiler's per-step
+112:        # capability checks at trust="user" are the real boundary.
+113:        user_compiled = compile_override_steps(compiled.id, steps, registry)
+114:    except (ManifestValidationError, CompilerError) as exc:
+115:        # Narrow catch, matching engine._apply_selections' posture: these two are
+116:        # the ONLY expected rejections. Anything else is a programmer error and
+117:        # must propagate rather than fail open invisibly.
+
+--- backend/agents/execution_engine/overrides.py:138-140
+138:    # ONLY .steps is taken. deliverable / context_providers / clarify / planner /
+139:    # seed_files / limits all stay as the file manifest compiled them.
+140:    return dataclasses.replace(compiled, steps=list(user_compiled.steps))
+
+--- backend/app/api/user_workflows.py:139-168
+139:def _compile_check_override_steps(
+140:    steps: list, override_of: str, source_label: str
+141:) -> None:
+142:    """ISS-1112 — an override row's ``steps`` must pass the read side's check.
+143:
+144:    The merge compiles them alone at ``trust="user"`` and runs the file plan when
+145:    they fail, so a save that accepted them would store a row that never applies.
+146:    Every writer of an override row (POST insert and upsert, PATCH,
+147:    sync-from-file) runs the SAME shared check and answers 422 instead. Imported
+148:    lazily, like ``_compile_check_manifest`` above.
+149:    """
+150:    from agents.execution_engine.engine import _CAPABILITY_REGISTRY
+151:    from agents.execution_engine.overrides import compile_override_steps
+152:    from agents.workflows.compiler import CompilerError
+153:    from agents.workflows.manifest import ManifestValidationError
+154:
+155:    try:
+156:        compile_override_steps(override_of, steps, _CAPABILITY_REGISTRY)
+157:    except (ManifestValidationError, CompilerError) as exc:
+158:        logger.warning(
+159:            "override rejected at save: source=%s overrides=%s reason=%s: %s",
+160:            source_label,
+161:            override_of,
+162:            type(exc).__name__,
+163:            exc,
+164:        )
+165:        raise HTTPException(
+166:            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+167:            detail=f"invalid workflow override ({source_label}): {exc}",
+168:        ) from exc
+
+--- backend/app/api/user_workflows.py:232-236
+232:    _compile_check_manifest(manifest, source_label)
+233:    # ISS-1112: the row overrides a built-in, so its steps get the merge's check too.
+234:    if override_of:
+235:        _compile_check_override_steps(steps, override_of, source_label)
+236:    return manifest
+
+--- backend/app/api/user_workflows.py:1136-1142
+1136:    # ISS-1112: syncing into an override row stores steps the merge will compile at
+1137:    # trust="user", so they must pass that check here (steps only: the file's own
+1138:    # workflow-level fields are never read off an override row).
+1139:    if row.overrides_pipeline_type and new_manifest.get("steps"):
+1140:        _compile_check_override_steps(
+1141:            new_manifest["steps"], row.overrides_pipeline_type, f"workflow:{row.id}"
+1142:        )
+
+## BACKEND: the two doors that compile an override row's WHOLE manifest at trust=user WITHOUT compile_override_steps
+
+--- backend/app/api/run_commands.py:3361-3369
+3361:        _inline = user_workflow_row is None
+3362:        # trust="user" for an inline manifest — the client authored it this
+3363:        # request, so it gets the compiler's most restrictive level — and for an
+3364:        # override row launched by id (ISS-1113): its steps are user-authored and
+3365:        # merge_override_steps compiles them at "user", so this door must not hand
+3366:        # them "db". Any other saved row keeps trust="db" (unchanged).
+3367:        _trust = (
+3368:            "user" if _inline or user_workflow_row.overrides_pipeline_type else "db"
+3369:        )
+
+--- backend/app/api/run_commands.py:3398-3407
+3398:        try:
+3399:            parsed_manifest = build_manifest_from_dict(
+3400:                raw_manifest,
+3401:                "workflow:inline" if _inline else f"workflow:{user_workflow_row.id}",
+3402:            )
+3403:            compiled = _WORKFLOW_COMPILER.compile(
+3404:                parsed_manifest,
+3405:                _CAPABILITY_REGISTRY,
+3406:                trust=_trust,
+3407:            )
+
+--- backend/agents/execution_engine/kernel_services.py:1614-1616
+1614:                # ISS-1113: an override row's steps are user-authored, and the
+1615:                # merge compiles them at "user"; this door must not give them "db".
+1616:                row_trust = "user" if row.overrides_pipeline_type else "db"
+
+--- backend/agents/execution_engine/kernel_services.py:1640-1646
+1640:                parsed_manifest = build_manifest_from_dict(
+1641:                    raw_manifest, f"workflow:{row_id}"
+1642:                )
+1643:                target_compiled = _WORKFLOW_COMPILER.compile(
+1644:                    parsed_manifest, _CAPABILITY_REGISTRY, trust=row_trust
+1645:                )
+1646:                target_pipeline_type = base_pipeline_type
+
+## BACKEND: why trust=user refuses inherited keys, and why spawn_subagents cannot simply be admitted
+
+--- backend/agents/workflows/compiler.py:488-512
+488:    def _check_trust(
+489:        registry: CapabilityRegistry,
+490:        kind: str,
+491:        name: str,
+492:        trusted: bool,
+493:        where: str,
+494:    ) -> None:
+495:        """Reject a not-user-allowed reference under an untrusted trust context.
+496:
+497:        A no-op for a trusted (``file``/``builtin``) manifest — the default path,
+498:        so every existing file-backed manifest compiles unrestricted (parity). For
+499:        an untrusted (``user``/``db``) manifest, a reference that is registered but
+500:        not ``user_allowed`` raises a ``CompilerError`` NAMING the ``(kind, name)``
+501:        (the seam that keeps exec/secrets/spawn off the user palette). Called at the
+502:        SAME per-reference site as ``is_registered`` — the validation path is not
+503:        forked. (The owner allow-list is a later-phase seam: DB manifests are Q5/
+504:        later, so a missing allow-list defaults to the ``user_allowed`` flag only.)
+505:        """
+506:        if trusted:
+507:            return
+508:        if not registry.is_user_allowed(kind, name):
+509:            raise CompilerError(
+510:                f"capability ({kind!r}, {name!r}) is not user-allowed in {where} "
+511:                f"— a user/db manifest may not reference it (CAP-03)"
+512:            )
+
+--- backend/agents/workflows/compiler.py:984-996
+984:        compaction = raw.get("compaction")
+985:        if compaction is not None and not registry.is_registered(
+986:            "compaction", compaction
+987:        ):
+988:            raise CompilerError(f"unknown compaction '{compaction}' in {where}")
+989:        if compaction is not None:
+990:            self._check_trust(registry, "compaction", compaction, trusted, where)
+991:
+992:        post_step = raw.get("post_step")
+993:        if post_step is not None and not registry.is_registered("post_step", post_step):
+994:            raise CompilerError(f"unknown post_step '{post_step}' in {where}")
+995:        if post_step is not None:
+996:            self._check_trust(registry, "post_step", post_step, trusted, where)
+
+--- backend/agents/workflows/compiler.py:1021-1042
+1021:        # gates (D-01, T-10-02-02). Both checks fire ONLY when a privileged perm is
+1022:        # granted, so the un-granted path is untouched (parity).
+1023:        if not trusted:
+1024:            granted_priv: list[str] = []
+1025:            if step_grant.exec:
+1026:                granted_priv.append("exec")
+1027:            if step_grant.network:
+1028:                granted_priv.append("network")
+1029:            if step_grant.secrets:
+1030:                granted_priv.append("secrets")
+1031:            # WR-01 fail-loud symmetry: spawn_subagents is engineer-only too — the
+1032:            # trust-conditional ceiling already collapses it OFF, but rejecting the
+1033:            # grant NAMES it instead of silently dropping it.
+1034:            if step_grant.spawn_subagents:
+1035:                granted_priv.append("spawn_subagents")
+1036:            if granted_priv:
+1037:                raise CompilerError(
+1038:                    f"step grant of {granted_priv!r} is not permitted for "
+1039:                    f"{trust!r}-trust manifests in {where} — "
+1040:                    f"exec/network/secrets/spawn_subagents are engineer-only "
+1041:                    f"(file/builtin trust)"
+1042:                )
+
+--- backend/agents/workflows/compiler.py:1056-1068
+1056:
+1057:        # ── Permissions (D-07 / INV-9 / GRANT-PATH) ─────────────────────────
+1058:        # The cap, the intersection and the trace all live in
+1059:        # ``agents/workflows/permission_caps.py``. The compiler does not decide
+1060:        # permissions — it hands the step's request and the manifest's trust to
+1061:        # the one module that does, and stores the answer on the Step.
+1062:        effective_tools = apply_cap(
+1063:            step_grant,
+1064:            trust,
+1065:            workflow=getattr(self, "_workflow_id", ""),
+1066:            agent=agent_id,
+1067:        )
+1068:
+
+--- backend/agents/workflows/permission_caps.py:106-117
+106:    # toggles: only sets that write inside the run sandbox belong here. This
+107:    # list — not the registry's ``user_allowed`` flag — is what binds for a
+108:    # grant-declared set (``playwright`` is user_allowed=False on the palette
+109:    # but deliberately grantable per-step here: it drives a browser against
+110:    # the run's own artifacts).
+111:    "untrusted": ToolPermissions(
+112:        read_files=True,
+113:        write_files=True,
+114:        exec=False,
+115:        spawn_subagents=False,
+116:        network=False,
+117:        git=False,
+
+--- backend/agents/capabilities/compaction/html_skeleton.py:29-33
+29:@register(
+30:    "compaction",
+31:    "html_skeleton",
+32:    description="Compact prior HTML context down to a structural skeleton to fit the model context window.",
+33:)
+
+--- backend/agents/capabilities/post_steps/api_prefix_audit.py:50-55
+50:
+51:
+52:@register(
+53:    "post_step",
+54:    "api_prefix_audit",
+55:    description="After a step, run an event-free infra audit for endpoints not under the /api/v1 prefix.",
+
+--- backend/agents/capabilities/post_steps/revision_validation.py:40-45
+40:
+41:@register(
+42:    "post_step",
+43:    "revision_validation",
+44:    description="After a revision step, run the validation fix-loop over the revised deliverable.",
+45:)
+
+--- backend/app/api/workflows.py:530-539
+530:        # When the override is in force, the raw steps must be ITS steps: this is
+531:        # the authoring shape the composer reopens from and the wizard projects
+532:        # into its Advanced roster (spec 016 T8). Serving the file's steps here
+533:        # while `steps` above shows the override's would put the two halves of
+534:        # the same payload in disagreement.
+535:        manifest_steps=(
+536:            list(override_steps(_ov_row) or [])
+537:            if (_ov_enabled and not original)
+538:            else (list(manifest.steps) if manifest else None)
+539:        ),
+
+## FRONTEND: the lossless round trip (commit 00b61ff93) that ferries the keys
+
+--- frontend/src/store/api/userWorkflows.ts:262-306
+262:/** `ManifestStep` keys the canvas actively reads into (or fully recomputes
+263: *  onto) an `AgentDef` below. Everything else on a loaded step is opaque to
+264: *  the canvas and belongs in `AgentDef.extra` instead of being silently
+265: *  dropped — see `captureStepExtra` / the `extra` doc comment on `AgentDef`. */
+266:const MODELED_STEP_KEYS = new Set([
+267:  "agent",
+268:  "instance_id",
+269:  "name",
+270:  "prompt",
+271:  "skills",
+272:  "tools",
+273:  "gates",
+274:  "route",
+275:  "subagents",
+276:  "mechanical",
+277:  "injects",
+278:]);
+279:
+280:/** Everything on a raw manifest step that `MODELED_STEP_KEYS` doesn't cover —
+281: *  `undefined` when there is none, so an ordinary composer-created node never
+282: *  carries a stray empty `extra: {}`. */
+283:function captureStepExtra(step: ManifestStep): Record<string, unknown> | undefined {
+284:  const extra: Record<string, unknown> = {};
+285:  for (const [key, value] of Object.entries(step)) {
+286:    if (!MODELED_STEP_KEYS.has(key)) extra[key] = value;
+287:  }
+288:  return Object.keys(extra).length > 0 ? extra : undefined;
+289:}
+290:
+291:function agentToManifestStep(
+292:  agent: AgentDef,
+293:  selections?: Record<string, StepSelectionWire>,
+294:): ManifestStep {
+295:  // Passthrough FIRST: every key the loaded step carried that the canvas has
+296:  // no editor for (a hand-authored `strategy: wave_scheduler`, `fanout`,
+297:  // `task_source`, `produces`, `consumes`, `validators`, `redoable`, `fix`,
+298:  // `compaction`, `injects`, `on_conflict`, `require_render`, an explicit
+299:  // `depends_on`, ...) survives untouched. Every field the canvas genuinely
+300:  // computes is assigned AFTER this spread and wins on conflict.
+301:  const step: ManifestStep = {
+302:    ...(agent.extra ?? {}),
+303:    ...(agent.isCustom
+304:      ? { agent: "custom-agent", instance_id: agent.instance_id ?? agent.id, name: agent.name }
+305:      : { agent: agent.id }),
+306:  };
+
+--- frontend/src/store/api/userWorkflows.ts:335-345
+335:  const grants = selections?.[agent.id]?.tools;
+336:  step.tools = {
+337:    ...agent.tools,
+338:    read_files: grants?.read_files ?? true,
+339:    write_files: grants?.write_files ?? true,
+340:    exec: false,
+341:    // Named tool packs (file_extract / playwright): emitted only when the
+342:    // author ticked at least one, so untouched steps serialise unchanged.
+343:    ...(grants?.tool_sets?.length ? { tool_sets: [...grants.tool_sets] } : {}),
+344:    ...(isParent && agent.tools?.spawn_subagents === undefined ? { spawn_subagents: false } : {}),
+345:  };
+
+--- frontend/src/store/api/userWorkflows.ts:429-436
+429:    } else if (step.strategy === undefined) {
+430:      // Only default when the loaded step didn't already declare its own —
+431:      // a leaf step's `strategy` is otherwise author-only (e.g.
+432:      // `wave_scheduler` + `fanout`/`task_source` on a self-fanout step with
+433:      // no `subagents` block), so unconditionally stamping "single_shot" here
+434:      // would clobber it right back out.
+435:      step.strategy = "single_shot";
+436:    }
+
+--- frontend/src/store/api/userWorkflows.ts:729-735
+729:  agent.skills = step.skills ? [...step.skills] : undefined;
+730:  agent.tools = step.tools ? { ...step.tools } : undefined;
+731:  agent.mechanical = step.mechanical;
+732:  agent.injects = step.injects && step.injects.length > 0 ? [...step.injects] : undefined;
+733:  // Every key on this step the canvas doesn't model — see `AgentDef.extra`.
+734:  agent.extra = captureStepExtra(step);
+735:  if (isCustom) {
+
+--- frontend/src/lib/manifestAgents.ts:155-157
+155:    };
+156:  };
+157:  const agents: AgentDef[] = manifestStepsToAgents(raw).map(decorate);
+
+## FRONTEND: three roster seeds, three different payloads
+
+--- frontend/src/components/workflow/LaunchWizard.tsx:308-308
+308:  const [pipelineAgents, setPipelineAgents] = useState<AgentDef[]>(() => defaultAgentsFor(libraryAgents, initialMode));
+
+--- frontend/src/components/workflow/LaunchWizard.tsx:525-541
+525:  useEffect(() => {
+526:    if (!planAgents) return;
+527:    setPipelineAgents((prev) => {
+528:      // ISS-943: a restored saved roster is the user's, shorter or not.
+529:      if (savedRosterRef.current) return prev;
+530:      // The plan also wins when it carries a sub-agent TREE the current lineup
+531:      // does not. A fan-out parent and its children are ONE plan row (the
+532:      // children hang off `.children`), so a nested workflow can have fewer
+533:      // rows than the flat library roster and still be the richer answer —
+534:      // the length test alone left the Advanced canvas showing a parent with
+535:      // an empty "+ Sub-agent" slot while the full canvas drew its children.
+536:      const planHasTree = planAgents.some((a) => (a.children?.length ?? 0) > 0);
+537:      const prevHasTree = prev.some((a) => (a.children?.length ?? 0) > 0);
+538:      if (planAgents.length <= prev.length && !(planHasTree && !prevHasTree)) return prev;
+539:      return mergePlanWithLibrary(planAgents, libraryAgents);
+540:    });
+541:  }, [planAgents, libraryAgents]);
+
+--- frontend/src/components/workflow/LaunchWizard.tsx:596-598
+596:        const planProj = agentsFromManifest(detail, pipeline);
+597:        setPlanAgents(planProj.agents);
+598:        setPlanManifestSteps(planProj.rawSteps ?? undefined);
+
+--- frontend/src/components/workflow/LaunchWizard.tsx:1052-1059
+1052:        base_pipeline_type: pipeline,
+1053:        agent_ids: pipelineAgents.map((a) => a.id),
+1054:        manifest: buildWorkflowManifest(
+1055:          pipelineAgents,
+1056:          undefined,
+1057:          selectionsRef.current,
+1058:        ) as unknown as Record<string, unknown>,
+1059:        overrides_pipeline_type: pipeline,
+
+--- frontend/src/components/workflow/IdeaInputPage.tsx:1010-1021
+1010:  const [pipelineAgents, setPipelineAgents] = useState<AgentDef[]>(() => {
+1011:    if (initialAgentIds?.length) {
+1012:      return initialAgentIds
+1013:        .map((id) => ALL_LIBRARY_AGENTS.find((a) => a.id === id))
+1014:        .filter(Boolean) as AgentDef[];
+1015:    }
+1016:    const type = isMigrationMeta && migrationChoice ? migrationChoice : workflowType;
+1017:    // Custom workflow: start blank — user adds agents themselves via recommendations
+1018:    // or the Browse Agents library. CUSTOM_AGENTS are available there, not pre-loaded.
+1019:    if (type === "custom") return [];
+1020:    return LIBRARY_AGENTS.filter((a) => agentMatchesPipelineType(a.pipeline_type, type)).sort((a, b) => a.order - b.order);
+1021:  });
+
+--- frontend/src/components/workflow/IdeaInputPage.tsx:1284-1310
+1284:          setManifestAgents(
+1285:            raw.map((st, i) => {
+1286:              const agentBase = st.agent || "custom-agent";
+1287:              const id = st.instance_id ? `${agentBase}:${st.instance_id}` : agentBase;
+1288:              const compiled = detail.steps.find((c) => c.agent_id === id);
+1289:              return {
+1290:                id,
+1291:                name: st.name || compiled?.name || id,
+1292:                role: compiled?.role || "Workflow step",
+1293:                description: compiled?.role || "",
+1294:                pipeline_type: workflowId,
+1295:                order: compiled?.order ?? i + 1,
+1296:                icon: "\u{1F9E9}",
+1297:                estimated_duration: 0,
+1298:                has_skill: (st.skills?.length ?? 0) > 0,
+1299:                gate: compiled?.declared_gate ?? null,
+1300:                // Authoring fields the canvas renders — route is what surfaces
+1301:                // "this outcome triggers workflow X" / "jumps to step Y".
+1302:                isCustom: agentBase === "custom-agent",
+1303:                instance_id: st.instance_id,
+1304:                prompt: st.prompt,
+1305:                skills: st.skills,
+1306:                tools: st.tools,
+1307:                route: normaliseRoute(st.route as AgentDef["route"]),
+1308:              };
+1309:            }),
+1310:          );
+
+--- frontend/src/components/workflow/IdeaInputPage.tsx:1448-1456
+1448:      const libraryIsComplete =
+1449:        fromLibrary.length > 0 &&
+1450:        fromLibrary.length >= (manifestAgents?.length ?? 0);
+1451:      const systemRoster = libraryIsComplete ? fromLibrary : (manifestAgents ?? fromLibrary);
+1452:      const seeded =
+1453:        showOverride && overrideAgents && overrideAgents.length > 0
+1454:          ? overrideAgents
+1455:          : systemRoster;
+1456:      setPipelineAgents(seeded);
+
+--- frontend/src/components/workflow/IdeaInputPage.tsx:1809-1826
+1809:    const saveSelections = { ...(manifestSelections ?? {}), ...selectionsRef.current };
+1810:    try {
+1811:      const saved = await createUserWorkflow(jwt, {
+1812:        name: `My ${workflowId}`,
+1813:        // ISS-280 — was a hardcoded literal, so the saved row carried no trace
+1814:        // of the brief, even though the sibling `handleSaveWorkflow` above
+1815:        // already persists `ideaInput` for its own save.
+1816:        description: overrideDescription({ brief: ideaInput }),
+1817:        base_pipeline_type: workflowId,
+1818:        agent_ids: pipelineAgents.map((a) => a.id),
+1819:        // `manifest`, never `selections`: the override resolve reads
+1820:        // manifest_json["steps"], and a selections map has no steps in it.
+1821:        manifest: buildWorkflowManifest(
+1822:          pipelineAgents,
+1823:          undefined,
+1824:          saveSelections,
+1825:        ) as unknown as Record<string, unknown>,
+1826:        overrides_pipeline_type: workflowId,
+
+## FRONTEND: the inline-launch door (trust=user since ADR-0016) fed by the same serializer
+
+--- frontend/src/components/workflow/composer/ComposerPage.tsx:1145-1151
+1145:          // UNSAVED: send the tree inline. A composition of custom-agent instances
+1146:          // has bare, dynamically-generated ids that the flat allow-list can never
+1147:          // accept, so before this "Run once" on an edited-but-unsaved composition
+1148:          // 400'd with invalid_agent_ids and the only way forward was to save first.
+1149:          // Compiles at trust="user" server-side — stricter than a saved row's
+1150:          // trust="db" — so privileged grants are still refused.
+1151:          : { manifest: { steps: agentsToManifestSteps(pipelineAgents, selections) } }
+
+## the commit that made the round trip lossless on purpose
+00b61ff93 2026-09-04 Bilal Arshad
+fix(composer): preserve author-only manifest keys through a save round trip

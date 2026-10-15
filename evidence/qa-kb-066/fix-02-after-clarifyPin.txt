@@ -1,0 +1,27 @@
+# QA-KB-066 5-fixer, 2026-10-07 18:56:38. AFTER the fix: cd frontend && npx vitest run src/components/preview/PreviewPanel.clarifyPin.test.tsx
+
+ RUN  v4.1.11 /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/frontend
+
+ ❯ src/components/preview/PreviewPanel.clarifyPin.test.tsx (6 tests | 5 failed) 398ms
+     × ISS-755 - pin v1: Steps must NOT show v2's clarify rounds 63ms
+     × ISS-755 - pin v1: Files must NOT list the shell run's clarifications.md 68ms
+     × ISS-1006 - pin v1 whose OWN rounds are persisted: they show under the pin 61ms
+     × ISS-1007 - shell run clarify-PAUSED, pin v1: no live answer form, v1 keeps its agent rows 55ms
+     × ISS-1008 - reopened run (no pin, empty pipelineState.clarifications): persisted rounds still show in Steps 31ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 5 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/components/preview/PreviewPanel.clarifyPin.test.tsx > QA-KB-066 - clarify rounds fed to Steps/Files follow the pinned version > ISS-755 - pin v1: Steps must NOT show v2's clarify rounds
+ FAIL  src/components/preview/PreviewPanel.clarifyPin.test.tsx > QA-KB-066 - clarify rounds fed to Steps/Files follow the pinned version > ISS-755 - pin v1: Files must NOT list the shell run's clarifications.md
+ FAIL  src/components/preview/PreviewPanel.clarifyPin.test.tsx > QA-KB-066 - clarify rounds fed to Steps/Files follow the pinned version > ISS-1006 - pin v1 whose OWN rounds are persisted: they show under the pin
+ FAIL  src/components/preview/PreviewPanel.clarifyPin.test.tsx > QA-KB-066 - clarify rounds fed to Steps/Files follow the pinned version > ISS-1007 - shell run clarify-PAUSED, pin v1: no live answer form, v1 keeps its agent rows
+ FAIL  src/components/preview/PreviewPanel.clarifyPin.test.tsx > QA-KB-066 - clarify rounds fed to Steps/Files follow the pinned version > ISS-1008 - reopened run (no pin, empty pipelineState.clarifications): persisted rounds still show in Steps
+Error: Expect test to fail
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/5]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  5 failed | 1 passed (6)
+   Start at  18:56:39
+   Duration  1.92s (transform 311ms, setup 71ms, import 681ms, tests 398ms, environment 663ms)
+

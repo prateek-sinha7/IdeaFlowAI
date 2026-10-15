@@ -1,0 +1,532 @@
+FFF.FFFF..F.FFFFF                                                        [100%]
+=================================== FAILURES ===================================
+________________ test_completed_run_writes_snapshot_commit_row _________________
+
+    @pytest.mark.asyncio
+    async def test_completed_run_writes_snapshot_commit_row() -> None:
+        """A completed-run post_commit event produces one snapshot_commit audit row."""
+        session, engine = _make_db()
+        try:
+            store = _make_store(session)
+            runner = _make_runner(store)
+            run_id = _run_id()
+            ctx = _make_ctx(runner, run_id)
+            observer = ProvenanceAuditObserver()
+    
+            event = _make_event(
+                audit_operation="snapshot_commit",
+                commit_sha="deadbeef",
+                tag_name="v1",
+            )
+            outcome = await observer.handle(event, ctx)
+    
+            assert outcome.outcome == HOOK_CONTINUE
+            rows = _query_audit_rows(session, owner_id="alice", run_id=run_id)
+>           assert len(rows) == 1
+E           assert 0 == 1
+E            +  where 0 = len([])
+
+tests/agents/test_provenance_audit.py:161: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  agents.capabilities.hooks.provenance_audit:provenance_audit.py:156 ProvenanceAuditObserver.handle failed for run=02949388-465e-42f6-8a8a-20b5b30bb781: 'ScopedStore' object has no attribute '_acquire' — commit stands; observer failure is isolated
+_________________ test_degraded_run_writes_snapshot_commit_row _________________
+
+    @pytest.mark.asyncio
+    async def test_degraded_run_writes_snapshot_commit_row() -> None:
+        """A blocked/degraded run still writes a snapshot_commit row (record presence on failure)."""
+        session, engine = _make_db()
+        try:
+            store = _make_store(session)
+            runner = _make_runner(store)
+            run_id = _run_id()
+            ctx = _make_ctx(runner, run_id)
+            observer = ProvenanceAuditObserver()
+    
+            # Degraded run: snapshot_commit but no tag (non-chainable snapshot)
+            event = _make_event(
+                audit_operation="snapshot_commit",
+                commit_sha="cafe1234",
+                # No tag_name — blocked payload, no vN tag issued
+            )
+            outcome = await observer.handle(event, ctx)
+    
+            assert outcome.outcome == HOOK_CONTINUE
+            rows = _query_audit_rows(session, owner_id="alice", run_id=run_id)
+>           assert len(rows) == 1
+E           assert 0 == 1
+E            +  where 0 = len([])
+
+tests/agents/test_provenance_audit.py:200: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  agents.capabilities.hooks.provenance_audit:provenance_audit.py:156 ProvenanceAuditObserver.handle failed for run=16166d21-da61-40ad-ac69-bce512830895: 'ScopedStore' object has no attribute '_acquire' — commit stands; observer failure is isolated
+__________ test_legacy_chain_read_writes_chain_payload_installed_row ___________
+
+    @pytest.mark.asyncio
+    async def test_legacy_chain_read_writes_chain_payload_installed_row() -> None:
+        """A chain install (legacy or v2) writes a chain_payload_installed audit row."""
+        session, engine = _make_db()
+        try:
+            store = _make_store(session)
+            run_id = _run_id()
+            source_run_id = _run_id()
+    
+            # chain_payload_installed is a non-commit operation — written directly
+            # at the call site (chain_context.py), not via the observer.
+>           await store.write_provenance_audit(
+                run_id,
+                "chain_payload_installed",
+                source_ref=source_run_id,
+                tag_name="legacy",
+            )
+
+tests/agents/test_provenance_audit.py:227: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <agents.authz.ScopedStore object at 0x10bc59450>
+run_id = 'aa8e1fbf-8906-4d3a-96d7-1ea9595dc4ec'
+operation = 'chain_payload_installed'
+
+    async def write_provenance_audit(
+        self,
+        run_id: str,
+        operation: str,
+        *,
+        commit_sha: str | None = None,
+        tag_name: str | None = None,
+        source_ref: str | None = None,
+        idempotency_key: str | None = None,
+    ) -> str:
+        """Insert one ``run_provenance_audits`` row stamped with the helper principal.
+    
+        ``operation`` identifies the commit class:
+          ``snapshot_commit``, ``recovery_commit``, ``fragment_merge``,
+          ``merge_agent_commit``, ``restore``.
+    
+        Returns the new row id.  Best-effort — a persist failure (offline
+        harness / no FK row) should be handled by the caller (BLE001 pattern).
+        """
+        from app.models.run_provenance_audit import RunProvenanceAudit
+    
+>       session, owned = self._acquire()
+                         ^^^^^^^^^^^^^
+E       AttributeError: 'ScopedStore' object has no attribute '_acquire'
+
+agents/authz.py:1266: AttributeError
+____________ test_restore_writes_row_and_lookup_idempotent_restore _____________
+
+    @pytest.mark.asyncio
+    async def test_restore_writes_row_and_lookup_idempotent_restore() -> None:
+        """POST /runs/{id}/restore writes a restore row; lookup_idempotent_restore finds it."""
+        session, engine = _make_db()
+        try:
+            store = _make_store(session, owner_id="carol", workspace_id="ws-2")
+            run_id = _run_id()
+            key = str(uuid.uuid4())
+    
+>           await store.write_provenance_audit(
+                run_id,
+                "restore",
+                commit_sha="feed1234",
+                tag_name="v2",
+                idempotency_key=key,
+            )
+
+tests/agents/test_provenance_audit.py:314: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <agents.authz.ScopedStore object at 0x10bacd810>
+run_id = 'ebbba923-16f6-4193-8747-903a1a4309cd', operation = 'restore'
+
+    async def write_provenance_audit(
+        self,
+        run_id: str,
+        operation: str,
+        *,
+        commit_sha: str | None = None,
+        tag_name: str | None = None,
+        source_ref: str | None = None,
+        idempotency_key: str | None = None,
+    ) -> str:
+        """Insert one ``run_provenance_audits`` row stamped with the helper principal.
+    
+        ``operation`` identifies the commit class:
+          ``snapshot_commit``, ``recovery_commit``, ``fragment_merge``,
+          ``merge_agent_commit``, ``restore``.
+    
+        Returns the new row id.  Best-effort — a persist failure (offline
+        harness / no FK row) should be handled by the caller (BLE001 pattern).
+        """
+        from app.models.run_provenance_audit import RunProvenanceAudit
+    
+>       session, owned = self._acquire()
+                         ^^^^^^^^^^^^^
+E       AttributeError: 'ScopedStore' object has no attribute '_acquire'
+
+agents/authz.py:1266: AttributeError
+_____________ test_crash_recovered_run_writes_recovery_commit_row ______________
+
+    @pytest.mark.asyncio
+    async def test_crash_recovered_run_writes_recovery_commit_row() -> None:
+        """A crash-reconciliation commit produces a recovery_commit row."""
+        session, engine = _make_db()
+        try:
+            store = _make_store(session)
+            runner = _make_runner(store)
+            run_id = _run_id()
+            ctx = _make_ctx(runner, run_id)
+            observer = ProvenanceAuditObserver()
+    
+            event = _make_event(
+                audit_operation="recovery_commit",
+                commit_sha="baad0001",
+            )
+            outcome = await observer.handle(event, ctx)
+    
+            assert outcome.outcome == HOOK_CONTINUE
+            rows = _query_audit_rows(session, owner_id="alice", run_id=run_id)
+>           assert len(rows) == 1
+E           assert 0 == 1
+E            +  where 0 = len([])
+
+tests/agents/test_provenance_audit.py:361: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  agents.capabilities.hooks.provenance_audit:provenance_audit.py:156 ProvenanceAuditObserver.handle failed for run=5fdbccaa-ea9b-4750-9e3b-14b86683b3f6: 'ScopedStore' object has no attribute '_acquire' — commit stands; observer failure is isolated
+_____________ test_audit_row_has_only_typed_columns_no_raw_content _____________
+
+    @pytest.mark.asyncio
+    async def test_audit_row_has_only_typed_columns_no_raw_content() -> None:
+        """Audit rows expose only typed columns; no raw output, diffs, prompts, or secrets."""
+        session, engine = _make_db()
+        try:
+            store = _make_store(session)
+            runner = _make_runner(store)
+            run_id = _run_id()
+            ctx = _make_ctx(runner, run_id)
+            observer = ProvenanceAuditObserver()
+    
+            # audit_detail carries extra keys that must be stripped — only the
+            # three allowlist keys survive to the row
+            event = {
+                "audit_operation": "snapshot_commit",
+                "commit_sha": "0011aabb",
+                "audit_detail": {
+                    "tag_name": "v3",
+                    "source_ref": "refs/ideaflow/runs/some-run-id",
+                    "idempotency_key": "key-xyz",
+                    # These must NOT appear on the row:
+                    "raw_output": "SECRET_TOKEN=abc123",
+                    "diff": "--- old\n+++ new",
+                    "prompt": "You are an AI assistant…",
+                },
+            }
+            await observer.handle(event, ctx)
+    
+            rows = _query_audit_rows(session, owner_id="alice", run_id=run_id)
+>           assert len(rows) == 1
+E           assert 0 == 1
+E            +  where 0 = len([])
+
+tests/agents/test_provenance_audit.py:404: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  agents.capabilities.hooks.provenance_audit:provenance_audit.py:156 ProvenanceAuditObserver.handle failed for run=b2e414e6-8a2d-4fff-8fa4-31c86c73a8f3: 'ScopedStore' object has no attribute '_acquire' — commit stands; observer failure is isolated
+___________________ test_cross_owner_cannot_read_audit_rows ____________________
+
+    @pytest.mark.asyncio
+    async def test_cross_owner_cannot_read_audit_rows() -> None:
+        """A row written for alice is invisible to a bob-scoped store query."""
+        session, engine = _make_db()
+        try:
+            alice_store = _make_store(session, owner_id="alice")
+            runner = _make_runner(alice_store)
+            run_id = _run_id()
+            ctx = _make_ctx(runner, run_id, owner_id="alice")
+            observer = ProvenanceAuditObserver()
+    
+            await observer.handle(
+                _make_event(audit_operation="snapshot_commit", commit_sha="aaa"),
+                ctx,
+            )
+    
+            # Alice sees her row
+            alice_rows = _query_audit_rows(session, owner_id="alice", run_id=run_id)
+>           assert len(alice_rows) == 1
+E           assert 0 == 1
+E            +  where 0 = len([])
+
+tests/agents/test_provenance_audit.py:453: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  agents.capabilities.hooks.provenance_audit:provenance_audit.py:156 ProvenanceAuditObserver.handle failed for run=deeb1a59-931a-42cc-9455-e0f35e5a049f: 'ScopedStore' object has no attribute '_acquire' — commit stands; observer failure is isolated
+_______________ test_bidirectional_reconstruction_via_source_ref _______________
+
+    @pytest.mark.asyncio
+    async def test_bidirectional_reconstruction_via_source_ref() -> None:
+        """Forward: receiving run row carries source_ref → source run.
+        Reverse:  source_ref column query → receiving run ids.
+    
+        This closes Requirement 19 AC 6 — the forward direction (which ref fed this
+        run?) and the reverse (which runs were fed from this source?).
+        """
+        session, engine = _make_db()
+        try:
+            store = _make_store(session, owner_id="alice")
+            source_run_id = _run_id()
+            receiving_run_1 = _run_id()
+            receiving_run_2 = _run_id()
+    
+            # Two receiving runs both chain from the same source ref
+            for recv_id in (receiving_run_1, receiving_run_2):
+>               await store.write_provenance_audit(
+                    recv_id,
+                    "chain_source_selected",
+                    source_ref=source_run_id,
+                    tag_name="v1",
+                )
+
+tests/agents/test_provenance_audit.py:559: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <agents.authz.ScopedStore object at 0x10bacf820>
+run_id = '883dca5a-c38d-4590-81c3-21bdeb55d667'
+operation = 'chain_source_selected'
+
+    async def write_provenance_audit(
+        self,
+        run_id: str,
+        operation: str,
+        *,
+        commit_sha: str | None = None,
+        tag_name: str | None = None,
+        source_ref: str | None = None,
+        idempotency_key: str | None = None,
+    ) -> str:
+        """Insert one ``run_provenance_audits`` row stamped with the helper principal.
+    
+        ``operation`` identifies the commit class:
+          ``snapshot_commit``, ``recovery_commit``, ``fragment_merge``,
+          ``merge_agent_commit``, ``restore``.
+    
+        Returns the new row id.  Best-effort — a persist failure (offline
+        harness / no FK row) should be handled by the caller (BLE001 pattern).
+        """
+        from app.models.run_provenance_audit import RunProvenanceAudit
+    
+>       session, owned = self._acquire()
+                         ^^^^^^^^^^^^^
+E       AttributeError: 'ScopedStore' object has no attribute '_acquire'
+
+agents/authz.py:1266: AttributeError
+_______ test_each_audited_operation_class_writes_a_row[snapshot_commit] ________
+
+operation = 'snapshot_commit'
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "operation",
+        [
+            "snapshot_commit",
+            "recovery_commit",
+            "fragment_merge",
+            "merge_agent_commit",
+            "restore",
+        ],
+    )
+    async def test_each_audited_operation_class_writes_a_row(operation: str) -> None:
+        """Every audited commit class produces exactly one row (Requirement 19 AC 2)."""
+        session, engine = _make_db()
+        try:
+            store = _make_store(session)
+            runner = _make_runner(store)
+            run_id = _run_id()
+            ctx = _make_ctx(runner, run_id)
+            observer = ProvenanceAuditObserver()
+    
+            await observer.handle(
+                _make_event(audit_operation=operation, commit_sha="1a2b3c4d"),
+                ctx,
+            )
+    
+            rows = _query_audit_rows(session, owner_id="alice", run_id=run_id)
+>           assert len(rows) == 1
+E           assert 0 == 1
+E            +  where 0 = len([])
+
+tests/agents/test_provenance_audit.py:648: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  agents.capabilities.hooks.provenance_audit:provenance_audit.py:156 ProvenanceAuditObserver.handle failed for run=f329ba47-6ce5-4fe3-86c4-706de48425e0: 'ScopedStore' object has no attribute '_acquire' — commit stands; observer failure is isolated
+_______ test_each_audited_operation_class_writes_a_row[recovery_commit] ________
+
+operation = 'recovery_commit'
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "operation",
+        [
+            "snapshot_commit",
+            "recovery_commit",
+            "fragment_merge",
+            "merge_agent_commit",
+            "restore",
+        ],
+    )
+    async def test_each_audited_operation_class_writes_a_row(operation: str) -> None:
+        """Every audited commit class produces exactly one row (Requirement 19 AC 2)."""
+        session, engine = _make_db()
+        try:
+            store = _make_store(session)
+            runner = _make_runner(store)
+            run_id = _run_id()
+            ctx = _make_ctx(runner, run_id)
+            observer = ProvenanceAuditObserver()
+    
+            await observer.handle(
+                _make_event(audit_operation=operation, commit_sha="1a2b3c4d"),
+                ctx,
+            )
+    
+            rows = _query_audit_rows(session, owner_id="alice", run_id=run_id)
+>           assert len(rows) == 1
+E           assert 0 == 1
+E            +  where 0 = len([])
+
+tests/agents/test_provenance_audit.py:648: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  agents.capabilities.hooks.provenance_audit:provenance_audit.py:156 ProvenanceAuditObserver.handle failed for run=df21c2a4-9f65-40fe-a902-9e60453ac83f: 'ScopedStore' object has no attribute '_acquire' — commit stands; observer failure is isolated
+________ test_each_audited_operation_class_writes_a_row[fragment_merge] ________
+
+operation = 'fragment_merge'
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "operation",
+        [
+            "snapshot_commit",
+            "recovery_commit",
+            "fragment_merge",
+            "merge_agent_commit",
+            "restore",
+        ],
+    )
+    async def test_each_audited_operation_class_writes_a_row(operation: str) -> None:
+        """Every audited commit class produces exactly one row (Requirement 19 AC 2)."""
+        session, engine = _make_db()
+        try:
+            store = _make_store(session)
+            runner = _make_runner(store)
+            run_id = _run_id()
+            ctx = _make_ctx(runner, run_id)
+            observer = ProvenanceAuditObserver()
+    
+            await observer.handle(
+                _make_event(audit_operation=operation, commit_sha="1a2b3c4d"),
+                ctx,
+            )
+    
+            rows = _query_audit_rows(session, owner_id="alice", run_id=run_id)
+>           assert len(rows) == 1
+E           assert 0 == 1
+E            +  where 0 = len([])
+
+tests/agents/test_provenance_audit.py:648: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  agents.capabilities.hooks.provenance_audit:provenance_audit.py:156 ProvenanceAuditObserver.handle failed for run=30867cab-19e2-4173-999f-231a4b12940b: 'ScopedStore' object has no attribute '_acquire' — commit stands; observer failure is isolated
+______ test_each_audited_operation_class_writes_a_row[merge_agent_commit] ______
+
+operation = 'merge_agent_commit'
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "operation",
+        [
+            "snapshot_commit",
+            "recovery_commit",
+            "fragment_merge",
+            "merge_agent_commit",
+            "restore",
+        ],
+    )
+    async def test_each_audited_operation_class_writes_a_row(operation: str) -> None:
+        """Every audited commit class produces exactly one row (Requirement 19 AC 2)."""
+        session, engine = _make_db()
+        try:
+            store = _make_store(session)
+            runner = _make_runner(store)
+            run_id = _run_id()
+            ctx = _make_ctx(runner, run_id)
+            observer = ProvenanceAuditObserver()
+    
+            await observer.handle(
+                _make_event(audit_operation=operation, commit_sha="1a2b3c4d"),
+                ctx,
+            )
+    
+            rows = _query_audit_rows(session, owner_id="alice", run_id=run_id)
+>           assert len(rows) == 1
+E           assert 0 == 1
+E            +  where 0 = len([])
+
+tests/agents/test_provenance_audit.py:648: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  agents.capabilities.hooks.provenance_audit:provenance_audit.py:156 ProvenanceAuditObserver.handle failed for run=0789d7f7-7ba8-412d-b863-7da6f1b9bc3a: 'ScopedStore' object has no attribute '_acquire' — commit stands; observer failure is isolated
+___________ test_each_audited_operation_class_writes_a_row[restore] ____________
+
+operation = 'restore'
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "operation",
+        [
+            "snapshot_commit",
+            "recovery_commit",
+            "fragment_merge",
+            "merge_agent_commit",
+            "restore",
+        ],
+    )
+    async def test_each_audited_operation_class_writes_a_row(operation: str) -> None:
+        """Every audited commit class produces exactly one row (Requirement 19 AC 2)."""
+        session, engine = _make_db()
+        try:
+            store = _make_store(session)
+            runner = _make_runner(store)
+            run_id = _run_id()
+            ctx = _make_ctx(runner, run_id)
+            observer = ProvenanceAuditObserver()
+    
+            await observer.handle(
+                _make_event(audit_operation=operation, commit_sha="1a2b3c4d"),
+                ctx,
+            )
+    
+            rows = _query_audit_rows(session, owner_id="alice", run_id=run_id)
+>           assert len(rows) == 1
+E           assert 0 == 1
+E            +  where 0 = len([])
+
+tests/agents/test_provenance_audit.py:648: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  agents.capabilities.hooks.provenance_audit:provenance_audit.py:156 ProvenanceAuditObserver.handle failed for run=8ae24ad6-1066-482d-a6da-21642dd22ac9: 'ScopedStore' object has no attribute '_acquire' — commit stands; observer failure is isolated
+=============================== warnings summary ===============================
+app/core/config.py:94
+  /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/app/core/config.py:94: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+    class Settings(BaseSettings):
+
+tests/conftest.py:484
+  /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/tests/conftest.py:484: PytestUnknownMarkWarning: Unknown pytest.mark.agents - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    item.add_marker(getattr(pytest.mark, suite))
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/agents/test_provenance_audit.py::test_completed_run_writes_snapshot_commit_row
+FAILED tests/agents/test_provenance_audit.py::test_degraded_run_writes_snapshot_commit_row
+FAILED tests/agents/test_provenance_audit.py::test_legacy_chain_read_writes_chain_payload_installed_row
+FAILED tests/agents/test_provenance_audit.py::test_restore_writes_row_and_lookup_idempotent_restore
+FAILED tests/agents/test_provenance_audit.py::test_crash_recovered_run_writes_recovery_commit_row
+FAILED tests/agents/test_provenance_audit.py::test_audit_row_has_only_typed_columns_no_raw_content
+FAILED tests/agents/test_provenance_audit.py::test_cross_owner_cannot_read_audit_rows
+FAILED tests/agents/test_provenance_audit.py::test_bidirectional_reconstruction_via_source_ref
+FAILED tests/agents/test_provenance_audit.py::test_each_audited_operation_class_writes_a_row[snapshot_commit]
+FAILED tests/agents/test_provenance_audit.py::test_each_audited_operation_class_writes_a_row[recovery_commit]
+FAILED tests/agents/test_provenance_audit.py::test_each_audited_operation_class_writes_a_row[fragment_merge]
+FAILED tests/agents/test_provenance_audit.py::test_each_audited_operation_class_writes_a_row[merge_agent_commit]
+FAILED tests/agents/test_provenance_audit.py::test_each_audited_operation_class_writes_a_row[restore]
+13 failed, 4 passed, 2 warnings in 1.22s

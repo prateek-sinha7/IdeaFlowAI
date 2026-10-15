@@ -1,0 +1,315 @@
+# QA-KB-091 analyzer evidence 04/05 - component probes of the REAL PreviewPanel.tsx and of candidate fixes on SCRATCH COPIES, 2026-10-02 (3-analyzer)
+# The real source and tests were NOT edited. Probes live outside the repo:
+#   scratchpad/qa-kb-091/ (config: vitest.config.mts, root=scratch, alias @ -> frontend/src, setup = frontend/vitest.setup.ts)
+#   real tree  : the probe imports "@/components/preview/PreviewPanel" (the working tree on 2026-10-02, HEAD 024c03ef8 + uncommitted FIX-709)
+#   variants   : a COPY of PreviewPanel.tsx + symlinks to its 8 relative siblings, patched by make_variants.py (copy saved alongside as scratch-make_variants.py.txt)
+# Command (one file per process): cd frontend && npx vitest --run --coverage=false --config <scratch>/vitest.config.mts <probe file>
+# The probes RECORD, they do not assert (30 + 6 + 2 tests, all "passed" = recorded).
+#
+# Harness note (matters for the test-writer): olderVersionNullOutput.test.tsx's pin() renders liveRunId="root" AND pinnedVersion="1" (members[0] = "root"),
+# so the PIN IS THE SHELL (one run id carrying two contradictory statuses). Rows G1-G3, G5, G7-G9 use a DISTINCT shell: liveRunId="r1" (v2), pinnedVersion="1" (-> "root", v1).
+# Rows G4 (self pin) and G6 (the validator's shape) use liveRunId="root".
+#
+# Variants:
+#   REAL = unpatched working tree
+#   A    = the triage sketch: `!overrideActive &&` on showFailureAffordance (:1142) and showDivertedAffordance (:1154) only
+#   B1   = gate the FOUR shell signals (liveFailureSignal :1132, reopenFailureSignal :1137, isCancelledTerminal :1147, isDivertedTerminal :1153) on `!overrideActive` (ANY pin)
+#   B2   = same four, gated on shellOnScreen = viewingVersion == null || viewingVersion.id === unpinnedRunId   (a FOREIGN pin only)
+#   C    = B2 + the streaming branch (:1810) becomes `isStillRunning && shellOnScreen`
+#   D    = C, with the pin identity read from the URL-resolved member first: pinTargetId = pinnedMemberId ?? viewingVersion?.id
+# Legend: PreviewTabInStrip = a role=tab named Preview exists; landedTab = the aria-selected tab at rest; bodyWhenLanded = what the landed tab shows;
+#         bodyAfterClickingPreview = the Preview tab body after fireEvent.click (n/a when the strip has no Preview tab).
+
+
+########## PROBE 1 (rows G1-G6) - REAL vs A, B1, B2, C, D ##########
+
+### G1 shell=undefined pin=completed/null (pin!=shell)
+  REAL PreviewTabInStrip=Y landedTab=Preview bodyWhenLanded[distinct] bodyAfterClickingPreview[distinct] header[ok share=1 download=1]
+  A    PreviewTabInStrip=Y landedTab=Preview bodyWhenLanded[distinct] bodyAfterClickingPreview[distinct] header[ok share=1 download=1]
+  B1   PreviewTabInStrip=Y landedTab=Preview bodyWhenLanded[distinct] bodyAfterClickingPreview[distinct] header[ok share=1 download=1]
+  B2   PreviewTabInStrip=Y landedTab=Preview bodyWhenLanded[distinct] bodyAfterClickingPreview[distinct] header[ok share=1 download=1]
+  C    PreviewTabInStrip=Y landedTab=Preview bodyWhenLanded[distinct] bodyAfterClickingPreview[distinct] header[ok share=1 download=1]
+  D    PreviewTabInStrip=Y landedTab=Preview bodyWhenLanded[distinct] bodyAfterClickingPreview[distinct] header[ok share=1 download=1]
+
+### G1 shell=completed pin=completed/null (pin!=shell)
+  REAL PreviewTabInStrip=Y landedTab=Preview bodyWhenLanded[distinct] bodyAfterClickingPreview[distinct] header[ok share=1 download=1]
+  A    PreviewTabInStrip=Y landedTab=Preview bodyWhenLanded[distinct] bodyAfterClickingPreview[distinct] header[ok share=1 download=1]
+  B1   PreviewTabInStrip=Y landedTab=Preview bodyWhenLanded[distinct] bodyAfterClickingPreview[distinct] header[ok share=1 download=1]
+  B2   PreviewTabInStrip=Y landedTab=Preview bodyWhenLanded[distinct] bodyAfterClickingPreview[distinct] header[ok share=1 download=1]
+  C    PreviewTabInStrip=Y landedTab=Preview bodyWhenLanded[distinct] bodyAfterClickingPreview[distinct] header[ok share=1 download=1]
+  D    PreviewTabInStrip=Y landedTab=Preview bodyWhenLanded[distinct] bodyAfterClickingPreview[distinct] header[ok share=1 download=1]
+
+### G1 shell=cancelled pin=completed/null (pin!=shell)
+  REAL PreviewTabInStrip=Y landedTab=Preview bodyWhenLanded[cancelledCopy] bodyAfterClickingPreview[cancelledCopy] header[ok share=1 download=1]
+  A    PreviewTabInStrip=Y landedTab=Preview bodyWhenLanded[distinct] bodyAfterClickingPreview[distinct] header[ok share=1 download=1]
+  B1   PreviewTabInStrip=Y landedTab=Preview bodyWhenLanded[distinct] bodyAfterClickingPreview[distinct] header[ok share=1 download=1]
+  B2   PreviewTabInStrip=Y landedTab=Preview bodyWhenLanded[distinct] bodyAfterClickingPreview[distinct] header[ok share=1 download=1]
+  C    PreviewTabInStrip=Y landedTab=Preview bodyWhenLanded[distinct] bodyAfterClickingPreview[distinct] header[ok share=1 download=1]
+  D    PreviewTabInStrip=Y landedTab=Preview bodyWhenLanded[distinct] bodyAfterClickingPreview[distinct] header[ok share=1 download=1]
+
+### G1 shell=failed pin=completed/null (pin!=shell)
+  REAL PreviewTabInStrip=N landedTab=Audit bodyWhenLanded[none] bodyAfterClickingPreview[-] header[RUN-FAILED+partial-chip share=0 download=0]
+  A    PreviewTabInStrip=Y landedTab=Audit bodyWhenLanded[none] bodyAfterClickingPreview[distinct] header[RUN-FAILED+partial-chip share=0 download=0]
+  B1   PreviewTabInStrip=Y landedTab=Audit bodyWhenLanded[none] bodyAfterClickingPreview[distinct] header[ok share=1 download=1]
+  B2   PreviewTabInStrip=Y landedTab=Audit bodyWhenLanded[none] bodyAfterClickingPreview[distinct] header[ok share=1 download=1]
+  C    PreviewTabInStrip=Y landedTab=Audit bodyWhenLanded[none] bodyAfterClickingPreview[distinct] header[ok share=1 download=1]
+  D    PreviewTabInStrip=Y landedTab=Preview bodyWhenLanded[distinct] bodyAfterClickingPreview[distinct] header[ok share=1 download=1]
+
+### G1 shell=degraded pin=completed/null (pin!=shell)
+  REAL PreviewTabInStrip=N landedTab=Audit bodyWhenLanded[none] bodyAfterClickingPreview[-] header[RUN-FAILED+partial-chip share=0 download=0]
+  A    PreviewTabInStrip=Y landedTab=Audit bodyWhenLanded[none] bodyAfterClickingPreview[distinct] header[RUN-FAILED+partial-chip share=0 download=0]
+  B1   PreviewTabInStrip=Y landedTab=Audit bodyWhenLanded[none] bodyAfterClickingPreview[distinct] header[ok share=1 download=1]
+  B2   PreviewTabInStrip=Y landedTab=Audit bodyWhenLanded[none] bodyAfterClickingPreview[distinct] header[ok share=1 download=1]
+  C    PreviewTabInStrip=Y landedTab=Audit bodyWhenLanded[none] bodyAfterClickingPreview[distinct] header[ok share=1 download=1]
+  D    PreviewTabInStrip=Y landedTab=Preview bodyWhenLanded[distinct] bodyAfterClickingPreview[distinct] header[ok share=1 download=1]
+
+### G1 shell=diverted pin=completed/null (pin!=shell)
+  REAL PreviewTabInStrip=Y landedTab=Preview bodyWhenLanded[failedCopy] bodyAfterClickingPreview[failedCopy] header[ok share=1 download=1]
+  A    PreviewTabInStrip=Y landedTab=Preview bodyWhenLanded[distinct] bodyAfterClickingPreview[distinct] header[ok share=1 download=1]
+  B1   PreviewTabInStrip=Y landedTab=Preview bodyWhenLanded[distinct] bodyAfterClickingPreview[distinct] header[ok share=1 download=1]
+  B2   PreviewTabInStrip=Y landedTab=Preview bodyWhenLanded[distinct] bodyAfterClickingPreview[distinct] header[ok share=1 download=1]
+  C    PreviewTabInStrip=Y landedTab=Preview bodyWhenLanded[distinct] bodyAfterClickingPreview[distinct] header[ok share=1 download=1]
+  D    PreviewTabInStrip=Y landedTab=Preview bodyWhenLanded[distinct] bodyAfterClickingPreview[distinct] header[ok share=1 download=1]
+
+### G1b shell=undefined pin=failed/null (pin!=shell)
+  REAL PreviewTabInStrip=Y landedTab=Preview bodyWhenLanded[failedCopy] bodyAfterClickingPreview[failedCopy] header[ok share=1 download=1]
+  A    PreviewTabInStrip=Y landedTab=Preview bodyWhenLanded[failedCopy] bodyAfterClickingPreview[failedCopy] header[ok share=1 download=1]
+  B1   PreviewTabInStrip=Y landedTab=Preview bodyWhenLanded[failedCopy] bodyAfterClickingPreview[failedCopy] header[ok share=1 download=1]
+  B2   PreviewTabInStrip=Y landedTab=Preview bodyWhenLanded[failedCopy] bodyAfterClickingPreview[failedCopy] header[ok share=1 download=1]
+  C    PreviewTabInStrip=Y landedTab=Preview bodyWhenLanded[failedCopy] bodyAfterClickingPreview[failedCopy] header[ok share=1 download=1]
+  D    PreviewTabInStrip=Y landedTab=Preview bodyWhenLanded[failedCopy] bodyAfterClickingPreview[failedCopy] header[ok share=1 download=1]
+
+### G1b shell=cancelled pin=failed/null (pin!=shell)
+  REAL PreviewTabInStrip=Y landedTab=Preview bodyWhenLanded[cancelledCopy] bodyAfterClickingPreview[cancelledCopy] header[ok share=1 download=1]
+  A    PreviewTabInStrip=Y landedTab=Preview bodyWhenLanded[failedCopy] bodyAfterClickingPreview[failedCopy] header[ok share=1 download=1]
+  B1   PreviewTabInStrip=Y landedTab=Preview bodyWhenLanded[failedCopy] bodyAfterClickingPreview[failedCopy] header[ok share=1 download=1]
+  B2   PreviewTabInStrip=Y landedTab=Preview bodyWhenLanded[failedCopy] bodyAfterClickingPreview[failedCopy] header[ok share=1 download=1]
+  C    PreviewTabInStrip=Y landedTab=Preview bodyWhenLanded[failedCopy] bodyAfterClickingPreview[failedCopy] header[ok share=1 download=1]
+  D    PreviewTabInStrip=Y landedTab=Preview bodyWhenLanded[failedCopy] bodyAfterClickingPreview[failedCopy] header[ok share=1 download=1]
+
+### G1b shell=failed pin=failed/null (pin!=shell)
+  REAL PreviewTabInStrip=N landedTab=Audit bodyWhenLanded[none] bodyAfterClickingPreview[-] header[RUN-FAILED+partial-chip share=0 download=0]
+  A    PreviewTabInStrip=Y landedTab=Audit bodyWhenLanded[none] bodyAfterClickingPreview[failedCopy] header[RUN-FAILED+partial-chip share=0 download=0]
+  B1   PreviewTabInStrip=Y landedTab=Audit bodyWhenLanded[none] bodyAfterClickingPreview[failedCopy] header[ok share=1 download=1]
+  B2   PreviewTabInStrip=Y landedTab=Audit bodyWhenLanded[none] bodyAfterClickingPreview[failedCopy] header[ok share=1 download=1]
+  C    PreviewTabInStrip=Y landedTab=Audit bodyWhenLanded[none] bodyAfterClickingPreview[failedCopy] header[ok share=1 download=1]
+  D    PreviewTabInStrip=Y landedTab=Preview bodyWhenLanded[failedCopy] bodyAfterClickingPreview[failedCopy] header[ok share=1 download=1]
+
+### G1b shell=diverted pin=failed/null (pin!=shell)
+  REAL PreviewTabInStrip=Y landedTab=Preview bodyWhenLanded[failedCopy] bodyAfterClickingPreview[failedCopy] header[ok share=1 download=1]
+  A    PreviewTabInStrip=Y landedTab=Preview bodyWhenLanded[failedCopy] bodyAfterClickingPreview[failedCopy] header[ok share=1 download=1]
+  B1   PreviewTabInStrip=Y landedTab=Preview bodyWhenLanded[failedCopy] bodyAfterClickingPreview[failedCopy] header[ok share=1 download=1]
+  B2   PreviewTabInStrip=Y landedTab=Preview bodyWhenLanded[failedCopy] bodyAfterClickingPreview[failedCopy] header[ok share=1 download=1]
+  C    PreviewTabInStrip=Y landedTab=Preview bodyWhenLanded[failedCopy] bodyAfterClickingPreview[failedCopy] header[ok share=1 download=1]
+  D    PreviewTabInStrip=Y landedTab=Preview bodyWhenLanded[failedCopy] bodyAfterClickingPreview[failedCopy] header[ok share=1 download=1]
+
+### G2 shell=undefined pin=completed/WITH-content (pin!=shell)
+  REAL PreviewTabInStrip=Y landedTab=Preview bodyWhenLanded[proto] bodyAfterClickingPreview[proto] header[ok share=1 download=1]
+  A    PreviewTabInStrip=Y landedTab=Preview bodyWhenLanded[proto] bodyAfterClickingPreview[proto] header[ok share=1 download=1]
+  B1   PreviewTabInStrip=Y landedTab=Preview bodyWhenLanded[proto] bodyAfterClickingPreview[proto] header[ok share=1 download=1]
+  B2   PreviewTabInStrip=Y landedTab=Preview bodyWhenLanded[proto] bodyAfterClickingPreview[proto] header[ok share=1 download=1]
+  C    PreviewTabInStrip=Y landedTab=Preview bodyWhenLanded[proto] bodyAfterClickingPreview[proto] header[ok share=1 download=1]
+  D    PreviewTabInStrip=Y landedTab=Preview bodyWhenLanded[proto] bodyAfterClickingPreview[proto] header[ok share=1 download=1]
+
+### G2 shell=cancelled pin=completed/WITH-content (pin!=shell)
+  REAL PreviewTabInStrip=Y landedTab=Preview bodyWhenLanded[proto] bodyAfterClickingPreview[proto] header[ok share=1 download=1]
+  A    PreviewTabInStrip=Y landedTab=Preview bodyWhenLanded[proto] bodyAfterClickingPreview[proto] header[ok share=1 download=1]
+  B1   PreviewTabInStrip=Y landedTab=Preview bodyWhenLanded[proto] bodyAfterClickingPreview[proto] header[ok share=1 download=1]
+  B2   PreviewTabInStrip=Y landedTab=Preview bodyWhenLanded[proto] bodyAfterClickingPreview[proto] header[ok share=1 download=1]
+  C    PreviewTabInStrip=Y landedTab=Preview bodyWhenLanded[proto] bodyAfterClickingPreview[proto] header[ok share=1 download=1]
+  D    PreviewTabInStrip=Y landedTab=Preview bodyWhenLanded[proto] bodyAfterClickingPreview[proto] header[ok share=1 download=1]
+
+### G2 shell=failed pin=completed/WITH-content (pin!=shell)
+  REAL PreviewTabInStrip=Y landedTab=Audit bodyWhenLanded[none] bodyAfterClickingPreview[proto] header[RUN-FAILED+partial-chip share=0 download=0]
+  A    PreviewTabInStrip=Y landedTab=Audit bodyWhenLanded[none] bodyAfterClickingPreview[proto] header[RUN-FAILED+partial-chip share=0 download=0]
+  B1   PreviewTabInStrip=Y landedTab=Preview bodyWhenLanded[proto] bodyAfterClickingPreview[proto] header[ok share=1 download=1]
+  B2   PreviewTabInStrip=Y landedTab=Preview bodyWhenLanded[proto] bodyAfterClickingPreview[proto] header[ok share=1 download=1]
+  C    PreviewTabInStrip=Y landedTab=Preview bodyWhenLanded[proto] bodyAfterClickingPreview[proto] header[ok share=1 download=1]
+  D    PreviewTabInStrip=Y landedTab=Preview bodyWhenLanded[proto] bodyAfterClickingPreview[proto] header[ok share=1 download=1]
+
+### G2 shell=degraded pin=completed/WITH-content (pin!=shell)
+  REAL PreviewTabInStrip=Y landedTab=Audit bodyWhenLanded[none] bodyAfterClickingPreview[proto] header[RUN-FAILED+partial-chip share=0 download=0]
+  A    PreviewTabInStrip=Y landedTab=Audit bodyWhenLanded[none] bodyAfterClickingPreview[proto] header[RUN-FAILED+partial-chip share=0 download=0]
+  B1   PreviewTabInStrip=Y landedTab=Preview bodyWhenLanded[proto] bodyAfterClickingPreview[proto] header[ok share=1 download=1]
+  B2   PreviewTabInStrip=Y landedTab=Preview bodyWhenLanded[proto] bodyAfterClickingPreview[proto] header[ok share=1 download=1]
+  C    PreviewTabInStrip=Y landedTab=Preview bodyWhenLanded[proto] bodyAfterClickingPreview[proto] header[ok share=1 download=1]
+  D    PreviewTabInStrip=Y landedTab=Preview bodyWhenLanded[proto] bodyAfterClickingPreview[proto] header[ok share=1 download=1]
+
+### G2 shell=diverted pin=completed/WITH-content (pin!=shell)
+  REAL PreviewTabInStrip=Y landedTab=Preview bodyWhenLanded[proto] bodyAfterClickingPreview[proto] header[ok share=1 download=1]
+  A    PreviewTabInStrip=Y landedTab=Preview bodyWhenLanded[proto] bodyAfterClickingPreview[proto] header[ok share=1 download=1]
+  B1   PreviewTabInStrip=Y landedTab=Preview bodyWhenLanded[proto] bodyAfterClickingPreview[proto] header[ok share=1 download=1]
+  B2   PreviewTabInStrip=Y landedTab=Preview bodyWhenLanded[proto] bodyAfterClickingPreview[proto] header[ok share=1 download=1]
+  C    PreviewTabInStrip=Y landedTab=Preview bodyWhenLanded[proto] bodyAfterClickingPreview[proto] header[ok share=1 download=1]
+  D    PreviewTabInStrip=Y landedTab=Preview bodyWhenLanded[proto] bodyAfterClickingPreview[proto] header[ok share=1 download=1]
+
+### G3 shell=RUNNING pin=failed/null (pin!=shell)
+  REAL PreviewTabInStrip=Y landedTab=Steps bodyWhenLanded[none] bodyAfterClickingPreview[building] header[ok share=1 download=0]
+  A    PreviewTabInStrip=Y landedTab=Steps bodyWhenLanded[none] bodyAfterClickingPreview[building] header[ok share=1 download=0]
+  B1   PreviewTabInStrip=Y landedTab=Steps bodyWhenLanded[none] bodyAfterClickingPreview[building] header[ok share=1 download=0]
+  B2   PreviewTabInStrip=Y landedTab=Steps bodyWhenLanded[none] bodyAfterClickingPreview[building] header[ok share=1 download=0]
+  C    PreviewTabInStrip=Y landedTab=Steps bodyWhenLanded[none] bodyAfterClickingPreview[failedCopy] header[ok share=1 download=0]
+  D    PreviewTabInStrip=Y landedTab=Steps bodyWhenLanded[none] bodyAfterClickingPreview[failedCopy] header[ok share=1 download=0]
+
+### G3 shell=RUNNING pin=completed/null (pin!=shell)
+  REAL PreviewTabInStrip=Y landedTab=Steps bodyWhenLanded[none] bodyAfterClickingPreview[building] header[ok share=1 download=0]
+  A    PreviewTabInStrip=Y landedTab=Steps bodyWhenLanded[none] bodyAfterClickingPreview[building] header[ok share=1 download=0]
+  B1   PreviewTabInStrip=Y landedTab=Steps bodyWhenLanded[none] bodyAfterClickingPreview[building] header[ok share=1 download=0]
+  B2   PreviewTabInStrip=Y landedTab=Steps bodyWhenLanded[none] bodyAfterClickingPreview[building] header[ok share=1 download=0]
+  C    PreviewTabInStrip=Y landedTab=Steps bodyWhenLanded[none] bodyAfterClickingPreview[distinct] header[ok share=1 download=0]
+  D    PreviewTabInStrip=Y landedTab=Steps bodyWhenLanded[none] bodyAfterClickingPreview[distinct] header[ok share=1 download=0]
+
+### G3 shell=RUNNING pin=completed/WITH-content (pin!=shell)
+  REAL PreviewTabInStrip=Y landedTab=Steps bodyWhenLanded[none] bodyAfterClickingPreview[proto] header[ok share=1 download=0]
+  A    PreviewTabInStrip=Y landedTab=Steps bodyWhenLanded[none] bodyAfterClickingPreview[proto] header[ok share=1 download=0]
+  B1   PreviewTabInStrip=Y landedTab=Steps bodyWhenLanded[none] bodyAfterClickingPreview[proto] header[ok share=1 download=0]
+  B2   PreviewTabInStrip=Y landedTab=Steps bodyWhenLanded[none] bodyAfterClickingPreview[proto] header[ok share=1 download=0]
+  C    PreviewTabInStrip=Y landedTab=Steps bodyWhenLanded[none] bodyAfterClickingPreview[proto] header[ok share=1 download=0]
+  D    PreviewTabInStrip=Y landedTab=Steps bodyWhenLanded[none] bodyAfterClickingPreview[proto] header[ok share=1 download=0]
+
+### G4 SELF-PIN shell=pin=failed/null
+  REAL PreviewTabInStrip=N landedTab=Audit bodyWhenLanded[none] bodyAfterClickingPreview[-] header[RUN-FAILED+partial-chip share=0 download=0]
+  A    PreviewTabInStrip=Y landedTab=Audit bodyWhenLanded[none] bodyAfterClickingPreview[failedCopy] header[RUN-FAILED+partial-chip share=0 download=0]
+  B1   PreviewTabInStrip=Y landedTab=Audit bodyWhenLanded[none] bodyAfterClickingPreview[failedCopy] header[ok share=1 download=1]
+  B2   PreviewTabInStrip=N landedTab=Audit bodyWhenLanded[none] bodyAfterClickingPreview[-] header[RUN-FAILED+partial-chip share=0 download=0]
+  C    PreviewTabInStrip=N landedTab=Audit bodyWhenLanded[none] bodyAfterClickingPreview[-] header[RUN-FAILED+partial-chip share=0 download=0]
+  D    PreviewTabInStrip=N landedTab=Audit bodyWhenLanded[none] bodyAfterClickingPreview[-] header[RUN-FAILED+partial-chip share=0 download=0]
+
+### G4 SELF-PIN shell=pin=degraded/null
+  REAL PreviewTabInStrip=N landedTab=Audit bodyWhenLanded[none] bodyAfterClickingPreview[-] header[RUN-FAILED+partial-chip share=0 download=0]
+  A    PreviewTabInStrip=Y landedTab=Audit bodyWhenLanded[none] bodyAfterClickingPreview[failedCopy] header[RUN-FAILED+partial-chip share=0 download=0]
+  B1   PreviewTabInStrip=Y landedTab=Audit bodyWhenLanded[none] bodyAfterClickingPreview[failedCopy] header[ok share=1 download=1]
+  B2   PreviewTabInStrip=N landedTab=Audit bodyWhenLanded[none] bodyAfterClickingPreview[-] header[RUN-FAILED+partial-chip share=0 download=0]
+  C    PreviewTabInStrip=N landedTab=Audit bodyWhenLanded[none] bodyAfterClickingPreview[-] header[RUN-FAILED+partial-chip share=0 download=0]
+  D    PreviewTabInStrip=N landedTab=Audit bodyWhenLanded[none] bodyAfterClickingPreview[-] header[RUN-FAILED+partial-chip share=0 download=0]
+
+### G4 SELF-PIN shell=pin=cancelled/null
+  REAL PreviewTabInStrip=Y landedTab=Preview bodyWhenLanded[cancelledCopy] bodyAfterClickingPreview[cancelledCopy] header[ok share=1 download=1]
+  A    PreviewTabInStrip=Y landedTab=Preview bodyWhenLanded[cancelledCopy] bodyAfterClickingPreview[cancelledCopy] header[ok share=1 download=1]
+  B1   PreviewTabInStrip=Y landedTab=Preview bodyWhenLanded[cancelledCopy] bodyAfterClickingPreview[cancelledCopy] header[ok share=1 download=1]
+  B2   PreviewTabInStrip=Y landedTab=Preview bodyWhenLanded[cancelledCopy] bodyAfterClickingPreview[cancelledCopy] header[ok share=1 download=1]
+  C    PreviewTabInStrip=Y landedTab=Preview bodyWhenLanded[cancelledCopy] bodyAfterClickingPreview[cancelledCopy] header[ok share=1 download=1]
+  D    PreviewTabInStrip=Y landedTab=Preview bodyWhenLanded[cancelledCopy] bodyAfterClickingPreview[cancelledCopy] header[ok share=1 download=1]
+
+### G4 SELF-PIN shell=pin=diverted/null
+  REAL PreviewTabInStrip=Y landedTab=Preview bodyWhenLanded[failedCopy] bodyAfterClickingPreview[failedCopy] header[ok share=1 download=1]
+  A    PreviewTabInStrip=Y landedTab=Preview bodyWhenLanded[failedCopy] bodyAfterClickingPreview[failedCopy] header[ok share=1 download=1]
+  B1   PreviewTabInStrip=Y landedTab=Preview bodyWhenLanded[failedCopy] bodyAfterClickingPreview[failedCopy] header[ok share=1 download=1]
+  B2   PreviewTabInStrip=Y landedTab=Preview bodyWhenLanded[failedCopy] bodyAfterClickingPreview[failedCopy] header[ok share=1 download=1]
+  C    PreviewTabInStrip=Y landedTab=Preview bodyWhenLanded[failedCopy] bodyAfterClickingPreview[failedCopy] header[ok share=1 download=1]
+  D    PreviewTabInStrip=Y landedTab=Preview bodyWhenLanded[failedCopy] bodyAfterClickingPreview[failedCopy] header[ok share=1 download=1]
+
+### G5 CONTROL unpinned shell=failed
+  REAL PreviewTabInStrip=N landedTab=Audit bodyWhenLanded[none] bodyAfterClickingPreview[-] header[RUN-FAILED+partial-chip share=0 download=0]
+  A    PreviewTabInStrip=N landedTab=Audit bodyWhenLanded[none] bodyAfterClickingPreview[-] header[RUN-FAILED+partial-chip share=0 download=0]
+  B1   PreviewTabInStrip=N landedTab=Audit bodyWhenLanded[none] bodyAfterClickingPreview[-] header[RUN-FAILED+partial-chip share=0 download=0]
+  B2   PreviewTabInStrip=N landedTab=Audit bodyWhenLanded[none] bodyAfterClickingPreview[-] header[RUN-FAILED+partial-chip share=0 download=0]
+  C    PreviewTabInStrip=N landedTab=Audit bodyWhenLanded[none] bodyAfterClickingPreview[-] header[RUN-FAILED+partial-chip share=0 download=0]
+  D    PreviewTabInStrip=N landedTab=Audit bodyWhenLanded[none] bodyAfterClickingPreview[-] header[RUN-FAILED+partial-chip share=0 download=0]
+
+### G5 CONTROL unpinned shell=degraded
+  REAL PreviewTabInStrip=N landedTab=Audit bodyWhenLanded[none] bodyAfterClickingPreview[-] header[RUN-FAILED+partial-chip share=0 download=0]
+  A    PreviewTabInStrip=N landedTab=Audit bodyWhenLanded[none] bodyAfterClickingPreview[-] header[RUN-FAILED+partial-chip share=0 download=0]
+  B1   PreviewTabInStrip=N landedTab=Audit bodyWhenLanded[none] bodyAfterClickingPreview[-] header[RUN-FAILED+partial-chip share=0 download=0]
+  B2   PreviewTabInStrip=N landedTab=Audit bodyWhenLanded[none] bodyAfterClickingPreview[-] header[RUN-FAILED+partial-chip share=0 download=0]
+  C    PreviewTabInStrip=N landedTab=Audit bodyWhenLanded[none] bodyAfterClickingPreview[-] header[RUN-FAILED+partial-chip share=0 download=0]
+  D    PreviewTabInStrip=N landedTab=Audit bodyWhenLanded[none] bodyAfterClickingPreview[-] header[RUN-FAILED+partial-chip share=0 download=0]
+
+### G5 CONTROL unpinned shell=cancelled
+  REAL PreviewTabInStrip=Y landedTab=Preview bodyWhenLanded[cancelledCopy] bodyAfterClickingPreview[cancelledCopy] header[ok share=1 download=1]
+  A    PreviewTabInStrip=Y landedTab=Preview bodyWhenLanded[cancelledCopy] bodyAfterClickingPreview[cancelledCopy] header[ok share=1 download=1]
+  B1   PreviewTabInStrip=Y landedTab=Preview bodyWhenLanded[cancelledCopy] bodyAfterClickingPreview[cancelledCopy] header[ok share=1 download=1]
+  B2   PreviewTabInStrip=Y landedTab=Preview bodyWhenLanded[cancelledCopy] bodyAfterClickingPreview[cancelledCopy] header[ok share=1 download=1]
+  C    PreviewTabInStrip=Y landedTab=Preview bodyWhenLanded[cancelledCopy] bodyAfterClickingPreview[cancelledCopy] header[ok share=1 download=1]
+  D    PreviewTabInStrip=Y landedTab=Preview bodyWhenLanded[cancelledCopy] bodyAfterClickingPreview[cancelledCopy] header[ok share=1 download=1]
+
+### G5 CONTROL unpinned shell=diverted
+  REAL PreviewTabInStrip=Y landedTab=Preview bodyWhenLanded[failedCopy] bodyAfterClickingPreview[failedCopy] header[ok share=1 download=1]
+  A    PreviewTabInStrip=Y landedTab=Preview bodyWhenLanded[failedCopy] bodyAfterClickingPreview[failedCopy] header[ok share=1 download=1]
+  B1   PreviewTabInStrip=Y landedTab=Preview bodyWhenLanded[failedCopy] bodyAfterClickingPreview[failedCopy] header[ok share=1 download=1]
+  B2   PreviewTabInStrip=Y landedTab=Preview bodyWhenLanded[failedCopy] bodyAfterClickingPreview[failedCopy] header[ok share=1 download=1]
+  C    PreviewTabInStrip=Y landedTab=Preview bodyWhenLanded[failedCopy] bodyAfterClickingPreview[failedCopy] header[ok share=1 download=1]
+  D    PreviewTabInStrip=Y landedTab=Preview bodyWhenLanded[failedCopy] bodyAfterClickingPreview[failedCopy] header[ok share=1 download=1]
+
+### G5 CONTROL unpinned shell=RUNNING no content
+  REAL PreviewTabInStrip=Y landedTab=Steps bodyWhenLanded[none] bodyAfterClickingPreview[building] header[ok share=1 download=0]
+  A    PreviewTabInStrip=Y landedTab=Steps bodyWhenLanded[none] bodyAfterClickingPreview[building] header[ok share=1 download=0]
+  B1   PreviewTabInStrip=Y landedTab=Steps bodyWhenLanded[none] bodyAfterClickingPreview[building] header[ok share=1 download=0]
+  B2   PreviewTabInStrip=Y landedTab=Steps bodyWhenLanded[none] bodyAfterClickingPreview[building] header[ok share=1 download=0]
+  C    PreviewTabInStrip=Y landedTab=Steps bodyWhenLanded[none] bodyAfterClickingPreview[building] header[ok share=1 download=0]
+  D    PreviewTabInStrip=Y landedTab=Steps bodyWhenLanded[none] bodyAfterClickingPreview[building] header[ok share=1 download=0]
+
+### G6 VALIDATOR-HARNESS shell(root)=cancelled pin(root)=completed/null
+  REAL PreviewTabInStrip=Y landedTab=Preview bodyWhenLanded[cancelledCopy] bodyAfterClickingPreview[cancelledCopy] header[ok share=1 download=1]
+  A    PreviewTabInStrip=Y landedTab=Preview bodyWhenLanded[distinct] bodyAfterClickingPreview[distinct] header[ok share=1 download=1]
+  B1   PreviewTabInStrip=Y landedTab=Preview bodyWhenLanded[distinct] bodyAfterClickingPreview[distinct] header[ok share=1 download=1]
+  B2   PreviewTabInStrip=Y landedTab=Preview bodyWhenLanded[cancelledCopy] bodyAfterClickingPreview[cancelledCopy] header[ok share=1 download=1]
+  C    PreviewTabInStrip=Y landedTab=Preview bodyWhenLanded[cancelledCopy] bodyAfterClickingPreview[cancelledCopy] header[ok share=1 download=1]
+  D    PreviewTabInStrip=Y landedTab=Preview bodyWhenLanded[cancelledCopy] bodyAfterClickingPreview[cancelledCopy] header[ok share=1 download=1]
+
+### G6 VALIDATOR-HARNESS shell(root)=failed pin(root)=completed/null
+  REAL PreviewTabInStrip=N landedTab=Audit bodyWhenLanded[none] bodyAfterClickingPreview[-] header[RUN-FAILED+partial-chip share=0 download=0]
+  A    PreviewTabInStrip=Y landedTab=Audit bodyWhenLanded[none] bodyAfterClickingPreview[distinct] header[RUN-FAILED+partial-chip share=0 download=0]
+  B1   PreviewTabInStrip=Y landedTab=Audit bodyWhenLanded[none] bodyAfterClickingPreview[distinct] header[ok share=1 download=1]
+  B2   PreviewTabInStrip=N landedTab=Audit bodyWhenLanded[none] bodyAfterClickingPreview[-] header[RUN-FAILED+partial-chip share=0 download=0]
+  C    PreviewTabInStrip=N landedTab=Audit bodyWhenLanded[none] bodyAfterClickingPreview[-] header[RUN-FAILED+partial-chip share=0 download=0]
+  D    PreviewTabInStrip=N landedTab=Audit bodyWhenLanded[none] bodyAfterClickingPreview[-] header[RUN-FAILED+partial-chip share=0 download=0]
+
+### G6 VALIDATOR-HARNESS shell(root)=diverted pin(root)=completed/null
+  REAL PreviewTabInStrip=Y landedTab=Preview bodyWhenLanded[failedCopy] bodyAfterClickingPreview[failedCopy] header[ok share=1 download=1]
+  A    PreviewTabInStrip=Y landedTab=Preview bodyWhenLanded[distinct] bodyAfterClickingPreview[distinct] header[ok share=1 download=1]
+  B1   PreviewTabInStrip=Y landedTab=Preview bodyWhenLanded[distinct] bodyAfterClickingPreview[distinct] header[ok share=1 download=1]
+  B2   PreviewTabInStrip=Y landedTab=Preview bodyWhenLanded[failedCopy] bodyAfterClickingPreview[failedCopy] header[ok share=1 download=1]
+  C    PreviewTabInStrip=Y landedTab=Preview bodyWhenLanded[failedCopy] bodyAfterClickingPreview[failedCopy] header[ok share=1 download=1]
+  D    PreviewTabInStrip=Y landedTab=Preview bodyWhenLanded[failedCopy] bodyAfterClickingPreview[failedCopy] header[ok share=1 download=1]
+
+
+########## PROBE 2 (rows G7-G8: inverse direction, live shell signals) - REAL vs C, D ##########
+
+### G7 INVERSE shell=undefined pin=failed/WITH-content (pin!=shell)
+  REAL PreviewTabInStrip=Y landedTab=Preview bodyWhenLanded[proto] bodyAfterClickingPreview[proto] header[ok share=1 download=1]
+  C    PreviewTabInStrip=Y landedTab=Preview bodyWhenLanded[proto] bodyAfterClickingPreview[proto] header[ok share=1 download=1]
+  D    PreviewTabInStrip=Y landedTab=Preview bodyWhenLanded[proto] bodyAfterClickingPreview[proto] header[ok share=1 download=1]
+
+### G7 INVERSE shell=undefined pin=degraded/WITH-content (pin!=shell)
+  REAL PreviewTabInStrip=Y landedTab=Preview bodyWhenLanded[proto] bodyAfterClickingPreview[proto] header[ok share=1 download=1]
+  C    PreviewTabInStrip=Y landedTab=Preview bodyWhenLanded[proto] bodyAfterClickingPreview[proto] header[ok share=1 download=1]
+  D    PreviewTabInStrip=Y landedTab=Preview bodyWhenLanded[proto] bodyAfterClickingPreview[proto] header[ok share=1 download=1]
+
+### G7 CONTROL UNPINNED failed shell WITH content (header of a failed run that has content)
+  REAL PreviewTabInStrip=Y landedTab=Preview bodyWhenLanded[proto] bodyAfterClickingPreview[proto] header[RUN-FAILED+partial-chip share=0 download=0]
+  C    PreviewTabInStrip=Y landedTab=Preview bodyWhenLanded[proto] bodyAfterClickingPreview[proto] header[RUN-FAILED+partial-chip share=0 download=0]
+  D    PreviewTabInStrip=Y landedTab=Preview bodyWhenLanded[proto] bodyAfterClickingPreview[proto] header[RUN-FAILED+partial-chip share=0 download=0]
+
+### G8 LIVE-FAILED shell(pipelineState.failed) pin=completed/null (pin!=shell)
+  REAL PreviewTabInStrip=N landedTab=Audit bodyWhenLanded[none] bodyAfterClickingPreview[-] header[RUN-FAILED+partial-chip share=0 download=0]
+  C    PreviewTabInStrip=Y landedTab=Audit bodyWhenLanded[none] bodyAfterClickingPreview[distinct] header[ok share=1 download=1]
+  D    PreviewTabInStrip=Y landedTab=Preview bodyWhenLanded[distinct] bodyAfterClickingPreview[distinct] header[ok share=1 download=1]
+
+### G8 LIVE-DEGRADED shell(pipelineState.degraded) pin=completed/null (pin!=shell)
+  REAL PreviewTabInStrip=N landedTab=Audit bodyWhenLanded[none] bodyAfterClickingPreview[-] header[RUN-FAILED+partial-chip share=0 download=0]
+  C    PreviewTabInStrip=Y landedTab=Audit bodyWhenLanded[none] bodyAfterClickingPreview[distinct] header[ok share=1 download=1]
+  D    PreviewTabInStrip=Y landedTab=Preview bodyWhenLanded[distinct] bodyAfterClickingPreview[distinct] header[ok share=1 download=1]
+
+### G8 CONTROL unpinned LIVE-FAILED shell
+  REAL PreviewTabInStrip=N landedTab=Audit bodyWhenLanded[none] bodyAfterClickingPreview[-] header[RUN-FAILED+partial-chip share=0 download=0]
+  C    PreviewTabInStrip=N landedTab=Audit bodyWhenLanded[none] bodyAfterClickingPreview[-] header[RUN-FAILED+partial-chip share=0 download=0]
+  D    PreviewTabInStrip=N landedTab=Audit bodyWhenLanded[none] bodyAfterClickingPreview[-] header[RUN-FAILED+partial-chip share=0 download=0]
+
+
+########## PROBE 3 (row G9: Version-menu flow, tagged family) - REAL vs A, D ##########
+
+### G9 shell=failed(v2, reopened) -> pick v1 (completed, WITH content) via Version menu
+  REAL before-pick hdr={"runFailed":true,"share":false,"download":false}  after-pick hdr: runFailed=True share=False download=False tabs=['Preview', 'Steps', 'Workspace', 'Audit']
+  A    before-pick hdr={"runFailed":true,"share":false,"download":false}  after-pick hdr: runFailed=True share=False download=False tabs=['Preview', 'Steps', 'Workspace', 'Audit']
+  D    before-pick hdr={"runFailed":true,"share":false,"download":false}  after-pick hdr: runFailed=False share=True download=True tabs=['Preview', 'Steps', 'Workspace', 'Audit']
+
+### G9 CONTROL shell=completed(v2, prototypeContent) -> pick v1 via Version menu
+  REAL before-pick hdr={"runFailed":false,"share":true,"download":true}  after-pick hdr: runFailed=False share=True download=True tabs=['Preview', 'Steps', 'Workspace', 'Audit']
+  A    before-pick hdr={"runFailed":false,"share":true,"download":true}  after-pick hdr: runFailed=False share=True download=True tabs=['Preview', 'Steps', 'Workspace', 'Audit']
+  D    before-pick hdr={"runFailed":false,"share":true,"download":true}  after-pick hdr: runFailed=False share=True download=True tabs=['Preview', 'Steps', 'Workspace', 'Audit']
+
+
+########## PROBE 3 addendum (row G9, failed shell then pick v1 via the Version menu) - the same flow on variants B1 and C, run after the table above ##########
+  B1   before-pick hdr={"runFailed":true,"share":false,"download":false}  after-pick hdr: runFailed=False share=True download=True tabs=['Preview', 'Steps', 'Workspace', 'Audit']
+  C    before-pick hdr={"runFailed":true,"share":false,"download":false}  after-pick hdr: runFailed=False share=True download=True tabs=['Preview', 'Steps', 'Workspace', 'Audit']

@@ -152,9 +152,6 @@ _PLANNER_SKIP_IDS = _RUN_REVISION_DISPATCHED | {
     "ex_test_transitive_skip",
     "ex_validation_retry",
     # ── planner: skip because the manifest plans for itself ─────────────────
-    # prototype_v2 plans for itself too (fi-planner custom step) - planner: skip.
-    "prototype_v2",
-    "backlog",
     # spec 018: a genuinely temporary smoke-test pipeline for the playwright
     # tool set — minimal by design, and expected to be deleted once that tool
     # set is covered by real pipelines.
@@ -165,6 +162,13 @@ _PLANNER_SKIP_IDS = _RUN_REVISION_DISPATCHED | {
     "prototype_v2_revision",
     "prototype_v2_feature_revision",
     "backlog_revision",
+    # spec 022: the prototype_v2 and backlog BASE pipelines also declare planner:
+    # skip — they carry their own in-pipeline reading/planner step (prototype_v2
+    # opens with a "Reading Planner" agent; backlog reads a prototype + docs through
+    # its own writer agents), so the engine deep-planner would be redundant. Not
+    # run_revision-dispatched; unioned in here like the self-planning cases above.
+    "prototype_v2",
+    "backlog",
 }
 
 # Hard-copied VERBATIM from each pipeline's `agents/workflows/<id>/workflow.yaml`
@@ -287,9 +291,6 @@ _ENGINE_PIPELINE_DEFAULTS: dict[str, list[str]] = {
     "ex_test_loop_reachable_skip": [],
     "ex_test_transitive_skip": [],
     "ex_validation_retry": [],
-    # clarify.mode: skip - prototype_v2 reads requirements from uploaded documents.
-    "prototype_v2": [],
-    "backlog": [],
     # clarify.mode: skip — spec 018 temporary playwright smoke test.
     "ex_playwright_smoke_test": [],
     # clarify.mode: disabled — a compile-shape fixture, not a runnable pipeline.
@@ -304,6 +305,11 @@ _ENGINE_PIPELINE_DEFAULTS: dict[str, list[str]] = {
     "prototype_v2_revision": [],
     "prototype_v2_feature_revision": [],
     "backlog_revision": [],
+    # clarify.mode: skip — spec 022 base pipelines. prototype_v2 and backlog take
+    # their topic straight from the run input via their own in-pipeline reading
+    # step, so they declare defaults: [] rather than the custom fallback list.
+    "prototype_v2": [],
+    "backlog": [],
 }
 # The fallback for any id absent from the dict above — the *_revision manifests
 # (ppt_revision, prototype_revision, user_stories_revision, app_builder_revision),

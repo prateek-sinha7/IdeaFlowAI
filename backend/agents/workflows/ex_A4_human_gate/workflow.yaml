@@ -7,10 +7,12 @@
 #   1. ask          "(awaiting language choice)"   ← a placeholder the human overwrites
 #        |
 #   2. pick-language   gates: [human, conditional]
-#        |   PRE  human gate  -> run pauses; the human's approve-with-edits payload
-#        |                       replaces `ask`'s output (a NEW artifact version)
-#        |   generates        -> consumes human_choice, emits {"decision": ...}
-#        |   POST conditional -> routes on the line it just generated
+#        |   PRE  human gate  -> run pauses; the human's approve-with-edits payload, a
+#        |                       {"decision": ...} JSON string, replaces `ask`'s output
+#        |                       (a NEW artifact version)
+#        |   generates        -> consumes route_decision, emits {"decision": ...}
+#        |   POST conditional -> routes on `ask`'s artifact (condition_agent: ask), NOT
+#        |                       on the line it just generated
 #        |
 #        |__ english ___> 3a. say-hello   "Hello, world!"
 #        |__ spanish ___> 3b. say-hola    "Hola, mundo!"
@@ -22,17 +24,18 @@
 # artifact. So a human cannot hand text forward directly; they can only overwrite the
 # artifact of the step being reviewed. `ask` exists to BE that artifact — a slot whose
 # placeholder the human replaces. The edit lands as a new ref version and
-# `_latest_typed_content` serves it to downstream consumers (ART-03), so
-# `consumes: [human_choice]` is what carries the human's words forward.
+# `_latest_typed_content` serves it (ART-03) to the conditional gate, which reads
+# `ask` directly and parses it as strict JSON: the answer must be
+# {"decision": "<outcome>"}, and a bare word blocks the gate and fails the run.
 #
 # NOTE both gates sit on ONE step on purpose: `human` is a PRE-step gate and
 # `conditional` is POST-step (`_POST_STEP_GATES`), and `_evaluate_gates` filters by
 # phase — so they fire on opposite sides of the same generation without interfering.
 #
-# `condition_agent` is deliberately ABSENT. An earlier draft pointed it at the human
-# gate's own step, which cannot work: that step's output is model prose, not the JSON
-# the gate parses, so the gate failed closed to GATE_BLOCK on every run. Here
-# pick-language judges its OWN output, exactly like ex_A1_loop's `check`.
+# `condition_agent: ask` (ADR-0026) points the gate at the human's answer, not at
+# pick-language's reply. Routing on that reply made a model re-emit a decision the
+# human already made, and the run failed closed whenever it answered with prose.
+# pick-language's own output is NOT read by the gate.
 #
 # ORDERING: every step after `ask` declares `depends_on` explicitly. `consumes` gives the
 # resolver a REAL dag edge (ask -> pick-language, artifact_type human_choice), and it then

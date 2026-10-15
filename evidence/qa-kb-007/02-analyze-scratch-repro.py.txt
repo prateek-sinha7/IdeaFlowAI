@@ -1,0 +1,230 @@
+"""QA-KB-007 analyzer scratch repro. Lives in the scratchpad, NOT in the repo.
+
+Offline, in-memory SQLite (same fixture shape as tests/integration/repositories/test_run_events_db.py).
+Part 1 (test_A/B/C): reproduce the defect against the REAL code at HEAD (expected: FAIL today).
+Part 2 (test_D/E/F/G): model the BUGS.md "agreed minimal fix" with a patched COPY of
+append_event_at_or_after (subclass, scratch only) and check it behaves correctly and
+does not mutate the caller's dict.
+"""
+
+from __future__ import annotations
+
+import uuid
+
+import pytest
+from sqlalchemy import create_engine, text
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
+
+from agents.authz import ScopedStore
+from agents.execution_engine.engine import ExecutionEngine, _RunEventSink
+from app.models.database import Base
+from app.models.run_event import RunEvent
+from app.models.workflow import WorkflowRun
+
+
+@pytest.fixture
+def db_session():
+    engine = create_engine(
+        "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
+    )
+    Base.metadata.create_all(bind=engine)
+    Session = sessionmaker(bind=engine, autocommit=False, autoflush=False)
+    session = Session()
+    try:
+        yield session
+    finally:
+        session.close()
+        Base.metadata.drop_all(bind=engine)
+
+
+def _seed_run(session, *, run_id="run-1", owner_id="alice", workspace_id="ws-1"):
+    session.add(
+        WorkflowRun(
+            id=run_id, user_id=owner_id, title="t", type="prototype",
+            status="running", input="idea", owner_id=owner_id, workspace_id=workspace_id,
+        )
+    )
+    session.commit()
+
+
+def _stored(session, event_id):
+    """Raw SQL read: what is ACTUALLY in the table, bypassing any ORM identity map."""
+    import json
+
+    session.expire_all()
+    seq, payload = session.execute(
+        text("SELECT seq, payload_json FROM run_events WHERE event_id = :e"), {"e": event_id}
+    ).one()
+    payload = json.loads(payload) if isinstance(payload, str) else payload
+    return seq, payload
+
+
+# ───────────────────────── Part 1: the defect at HEAD ─────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_A_store_level_retry_leaves_stale_payload_seq(db_session):
+    """The validator's repro: collision at seq 1, retry lands at 2, payload keeps 1."""
+    _seed_run(db_session)
+    store = ScopedStore(owner_id="alice", workspace_id="ws-1", session=db_session)
+    await store.append_event("run-1", 1, "a", "t", {"seq": 1})
+    landed = await store.append_event_at_or_after("run-1", 1, "b", "t", {"seq": 1})
+    row_seq, payload = _stored(db_session, "b")
+    print(f"\n[A] LANDED {landed} row.seq {row_seq} payload.seq {payload['seq']}")
+    assert landed == row_seq == 2
+    assert payload["seq"] == row_seq, "payload.seq diverged from row.seq after the retry"
+
+
+@pytest.mark.asyncio
+async def test_B_sink_level_mimicking_the_execute_loop(db_session):
+    """Exactly the execute() boundary: stamp data, persist(data), re-stamp data in memory."""
+    _seed_run(db_session)
+    store = ScopedStore(owner_id="alice", workspace_id="ws-1", session=db_session)
+    sink = _RunEventSink()
+    sink.arm(store, "run-1")
+    await sink.persist(1, "e1", "agent_complete", {"seq": 1, "event_id": "e1"})
+    # chat lane takes seq 2
+    await store.append_event_next_seq("run-1", event_id="chat:m1", type="chat_message",
+                                      payload_json={"text": "stop"})
+    data = {"gate_key": "g"}
+    seq, eid = 2, "e2"
+    data["seq"], data["event_id"] = seq, eid          # engine.py:4192-4193
+    actual = await sink.persist(seq, eid, "pipeline_cancelled", data)   # :4205
+    if actual is not None and actual != seq:          # :4208
+        data["seq"] = actual                          # :4209  (in-memory only)
+    row_seq, payload = _stored(db_session, eid)
+    print(f"\n[B] live frame seq={data['seq']}  row.seq={row_seq}  stored payload.seq={payload['seq']}")
+    assert data["seq"] == row_seq == 3                 # the live frame is right
+    assert payload["seq"] == row_seq, "stored payload kept the REQUESTED seq"
+
+
+@pytest.mark.asyncio
+async def test_C_through_the_real_execute_wrapper(db_session, monkeypatch):
+    """Drive the REAL ExecutionEngine.execute() wrapper (same seam the repo's own test uses)."""
+    _seed_run(db_session)
+    store = ScopedStore(owner_id="alice", workspace_id="ws-1", session=db_session)
+
+    async def _scripted_impl(self, **kwargs):
+        kwargs["_sink"].arm(store, "run-1")
+        yield {"type": "review_gate_ready", "data": {"gate_key": "run-1:a"}}
+        await store.append_event_next_seq("run-1", event_id="chat:m1", type="chat_message",
+                                          payload_json={"t": "stop"})
+        yield {"type": "pipeline_cancelled", "data": {}}
+        yield {"type": "agent_chunk", "data": {}}
+
+    monkeypatch.setattr(ExecutionEngine, "_execute_impl", _scripted_impl)
+    yielded = [e async for e in ExecutionEngine().execute(agents=[], user_message="",
+                                                           pipeline_run_id="run-1")]
+    db_session.expire_all()
+    rows = db_session.query(RunEvent).order_by(RunEvent.seq.asc()).all()
+    report = [(r.type, r.seq, (r.payload_json or {}).get("seq")) for r in rows]
+    print("\n[C] (type, row.seq, payload.seq):", report)
+    print("[C] yielded frame seqs:", [(e["type"], e["data"]["seq"]) for e in yielded])
+    # frames agree with rows (FIX-240 contract holds) ...
+    by_type = {r.type: r.seq for r in rows}
+    assert [e["data"]["seq"] for e in yielded] == [
+        by_type["review_gate_ready"], by_type["pipeline_cancelled"], by_type["agent_chunk"]]
+    # ... but the stored payloads do not:
+    for r in rows:
+        if "seq" in (r.payload_json or {}):
+            assert r.payload_json["seq"] == r.seq, f"{r.type}: payload.seq != row.seq"
+
+
+# ───────────── Part 2: model the agreed minimal fix on a patched COPY ─────────────
+
+
+class PatchedStore(ScopedStore):
+    """Scratch-only copy of append_event_at_or_after + the BUGS.md agreed fix (3 lines)."""
+
+    async def append_event_at_or_after(self, run_id, seq, event_id, type, payload_json,
+                                       _max_attempts=8):
+        attempt_seq = int(seq)
+        last_rejection = None
+        for _ in range(max(1, _max_attempts)):
+            try:
+                await self.append_event(run_id, attempt_seq, event_id, type, payload_json)
+                return attempt_seq
+            except IntegrityError as rejected:
+                last_rejection = rejected
+                if self._session is not None:
+                    self._session.rollback()
+                tail = await self._max_event_seq(run_id)
+                if tail < attempt_seq:
+                    raise
+                attempt_seq = tail + 1
+                # ---- the agreed minimal fix -------------------------------------------
+                if isinstance(payload_json, dict) and "seq" in payload_json:
+                    payload_json = {**payload_json, "seq": attempt_seq}
+                # -----------------------------------------------------------------------
+        raise last_rejection
+
+
+@pytest.mark.asyncio
+async def test_D_fix_single_hop(db_session):
+    _seed_run(db_session)
+    store = PatchedStore(owner_id="alice", workspace_id="ws-1", session=db_session)
+    await store.append_event("run-1", 1, "a", "t", {"seq": 1})
+    landed = await store.append_event_at_or_after("run-1", 1, "b", "t", {"seq": 1})
+    row_seq, payload = _stored(db_session, "b")
+    assert landed == row_seq == payload["seq"] == 2
+
+
+@pytest.mark.asyncio
+async def test_E_fix_multi_hop_restamps_every_retry(db_session, monkeypatch):
+    """Two successive collisions: the FINAL attempt's seq must be what is stored."""
+    _seed_run(db_session)
+    store = PatchedStore(owner_id="alice", workspace_id="ws-1", session=db_session)
+    for s in (1, 2, 3):
+        await store.append_event("run-1", s, f"x{s}", "t", {"seq": s})
+    real_max = ScopedStore._max_event_seq
+    probes = {"n": 0}
+
+    async def _stale_first_probe(self, rid):
+        probes["n"] += 1
+        return 1 if probes["n"] == 1 else await real_max(self, rid)   # first probe: stale tail
+
+    monkeypatch.setattr(ScopedStore, "_max_event_seq", _stale_first_probe)
+    landed = await store.append_event_at_or_after("run-1", 1, "b", "t", {"seq": 1})
+    row_seq, payload = _stored(db_session, "b")
+    print(f"\n[E] hops={probes['n']} landed={landed} row.seq={row_seq} payload.seq={payload['seq']}")
+    assert probes["n"] == 2                      # two collisions -> two tail probes
+    assert landed == row_seq == payload["seq"] == 4
+
+
+@pytest.mark.asyncio
+async def test_F_fix_leaves_seqless_payloads_and_the_callers_dict_untouched(db_session):
+    _seed_run(db_session)
+    store = PatchedStore(owner_id="alice", workspace_id="ws-1", session=db_session)
+    await store.append_event("run-1", 1, "a", "t", {"seq": 1})
+    marker = {"pipeline_run_id": "run-1", "reason": "r"}          # resume-marker / cancel shape
+    await store.append_event_at_or_after("run-1", 1, "m", "run_resuming", marker)
+    _, stored = _stored(db_session, "m")
+    assert stored == {"pipeline_run_id": "run-1", "reason": "r"} and "seq" not in marker
+    # caller's own dict is NOT mutated (it is the live frame object; the caller re-stamps it)
+    mine = {"seq": 1, "event_id": "c"}
+    landed = await store.append_event_at_or_after("run-1", 1, "c", "t", mine)
+    assert landed == 3 and mine["seq"] == 1
+
+
+@pytest.mark.asyncio
+async def test_G_fix_exhaustion_leaves_callers_frame_seq_alone(db_session, monkeypatch):
+    """All attempts rejected -> raises; with a COPY the live frame keeps its requested seq
+    (the persist() 'degraded => no re-stamp' contract at engine.py:4203)."""
+    _seed_run(db_session)
+    store = PatchedStore(owner_id="alice", workspace_id="ws-1", session=db_session)
+    await store.append_event("run-1", 1, "a", "t", {"seq": 1})
+    frame = {"seq": 1, "event_id": "z"}
+
+    async def _always_tail_ahead(self, rid):
+        return 10**6                      # every probe says "tail reached" -> keeps retrying
+
+    monkeypatch.setattr(ScopedStore, "_max_event_seq", _always_tail_ahead)
+    # also force every append to be rejected
+    async def _reject(self, *a, **k):
+        raise IntegrityError("x", None, Exception("forced"))
+    monkeypatch.setattr(ScopedStore, "append_event", _reject)
+    with pytest.raises(IntegrityError):
+        await store.append_event_at_or_after("run-1", 1, "z", "t", frame, _max_attempts=3)
+    assert frame["seq"] == 1

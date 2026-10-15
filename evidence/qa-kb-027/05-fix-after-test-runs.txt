@@ -1,0 +1,61 @@
+QA-KB-027 fix phase, after-state. Each file run alone from backend/ with:
+  .venv/bin/python -m pytest <file> -q -rxXfE -p no:cacheprovider
+Working tree HEAD: 024c03ef8, date: 2026-10-01 21:43
+
+===== tests/integration/api/test_sandbox_ref_scoped_endpoints_api.py
+[XPASS(strict)] ISS-893 unfixed
+XFAIL tests/integration/api/test_sandbox_ref_scoped_endpoints_api.py::TestISS697CompletedRunAlwaysHasARealTag::test_a_completed_runs_db_tag_is_present_in_sandbox_refs - ISS-697 unfixed
+FAILED tests/integration/api/test_sandbox_ref_scoped_endpoints_api.py::test_pinned_ref_listing_of_swept_sandbox_is_expired_payload
+1 failed, 9 passed, 1 xfailed, 3 warnings in 8.57s
+
+===== tests/integration/api/test_run_files_ref_family_scope_api.py
+3 passed, 3 warnings in 2.53s
+
+===== tests/agents/test_revision_routes_v3.py
+12 passed, 4 warnings in 3.64s
+
+===== tests/agents/test_restore_guard_v3.py
+4 passed, 4 warnings in 2.76s
+
+===== tests/integration/test_gate_redo_enforcement.py
+2 passed, 3 warnings in 1.14s
+
+===== tests/agents/test_conditional_trigger_depth_v4_ac06.py
+1 passed, 2 warnings in 1.15s
+
+===== tests/agents/test_conditional_divert_v4_validation.py
+1 passed, 5 warnings in 3.72s
+
+===== tests/agents/test_conditional_trigger_budget_t33.py
+1 passed, 2 warnings in 1.32s
+
+===== tests/agents/test_iss720_ref_scoped_sizes.py
+6 passed, 3 warnings in 3.57s
+
+===== tests/agents/test_phase6_sandbox_versioning.py
+48 passed, 2 warnings in 1.64s
+
+===== tests/unit/test_run_sandbox_api.py
+28 passed, 5 warnings in 2.41s
+
+===== tests/integration/api/test_duplicate_context_guard_api.py
+FAILED tests/integration/api/test_duplicate_context_guard_api.py::TestDuplicateContextStripped::test_legacy_block_stripped_when_source_run_id_present
+FAILED tests/integration/api/test_duplicate_context_guard_api.py::TestDuplicateContextStripped::test_brief_preserved_after_strip
+FAILED tests/integration/api/test_duplicate_context_guard_api.py::TestDuplicateContextStripped::test_strip_audit_row_recorded
+FAILED tests/integration/api/test_duplicate_context_guard_api.py::TestDuplicateContextStripped::test_strip_audit_row_references_source_run
+FAILED tests/integration/api/test_duplicate_context_guard_api.py::TestLegacyBlockPreservedWithoutSourceId::test_legacy_block_not_stripped_without_source_run_id
+FAILED tests/integration/api/test_duplicate_context_guard_api.py::TestLegacyBlockPreservedWithoutSourceId::test_run_minted_with_legacy_block_intact
+FAILED tests/integration/api/test_duplicate_context_guard_api.py::TestSourceRunIdOnlyNoStrip::test_no_strip_without_legacy_block
+FAILED tests/integration/api/test_duplicate_context_guard_api.py::TestSourceRunIdOnlyNoStrip::test_v2_native_launch_content_unchanged
+8 failed, 3 warnings in 1.45s
+
+===== tests/unit/test_iss401_reset_password_message.py
+ERROR tests/unit/test_iss401_reset_password_message.py::test_reset_password_409_does_not_claim_credentials_are_managed_externally
+1 warning, 1 error in 1.91s
+
+===== tests/integration/test_git_versioning_e2e.py -k restore
+1 passed, 8 deselected, 3 warnings in 2.58s
+
+===== ISS-697 pin under --runxfail (real failure reason, not setup)
+E       assert 'v1' in []
+1 failed, 3 warnings in 2.06s

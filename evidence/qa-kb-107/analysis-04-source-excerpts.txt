@@ -1,0 +1,219 @@
+# analysis-04: source excerpts read for QA-KB-107 (line numbers are each file's own)
+
+--- backend/app/agents/model_factory.py:111,118
+ 111:     token = settings.AWS_BEARER_TOKEN_BEDROCK
+ 112:     if not token:
+ 113:         return True, None
+ 114:     # Mirrors build_model()'s own precedence: a set ANTHROPIC_API_KEY is ALWAYS
+ 115:     # used regardless of Bedrock config, so a stale bearer token sitting in the
+ 116:     # env is irrelevant to a run that will never touch Bedrock.
+ 117:     if settings.ANTHROPIC_API_KEY:
+ 118:         return True, None
+
+--- backend/app/agents/model_factory.py:323,345
+ 323:     # --- LOCAL OLLAMA OVERRIDE (temp, dev-only — comment out or delete when done) ---
+ 324:     # Off unless USE_LOCAL_OLLAMA is explicitly truthy, so this block can stay
+ 325:     # pasted in without hijacking runs that should hit the real provider.
+ 326:     # Reads .env directly: pydantic loads .env into settings WITHOUT exporting to
+ 327:     # os.environ (same trap the AWS_BEARER_TOKEN_BEDROCK bridge below works around),
+ 328:     # so os.getenv alone would never see a value set in the file.
+ 329:     import os
+ 330: 
+ 331:     from dotenv import dotenv_values
+ 332: 
+ 333:     from app.core.config import ENV_FILE
+ 334: 
+ 335:     _ollama_env = {**dotenv_values(ENV_FILE), **os.environ}  # real env wins
+ 336:     if _ollama_env.get("USE_LOCAL_OLLAMA", "").strip().lower() in (
+ 337:         "1",
+ 338:         "true",
+ 339:         "yes",
+ 340:         "on",
+ 341:     ):
+ 342:         from langchain_ollama import ChatOllama
+ 343: 
+ 344:         ollama_model = _ollama_env.get("OLLAMA_MODEL") or "qwen3.5:4b"
+ 345:         ollama_url = _ollama_env.get("OLLAMA_BASE_URL") or "http://localhost:11434"
+
+--- backend/app/agents/model_factory.py:367,367
+ 367:         return ChatOllama(
+
+--- backend/app/agents/model_factory.py:413,413
+ 413:     if settings.ANTHROPIC_API_KEY:
+
+--- backend/app/agents/model_factory.py:457,481
+ 457:     bedrock_configured = bool(
+ 458:         (settings.BEDROCK_INFERENCE_PROFILE_ID or settings.BEDROCK_MODEL_ID)
+ 459:         and settings.AWS_REGION
+ 460:     )
+ 461:     if not bedrock_configured:
+ 462:         if settings.MISTRAL_API_KEY:
+ 463:             from langchain_mistralai import ChatMistralAI
+ 464: 
+ 465:             mistral_model_id = model or settings.MISTRAL_MODEL_ID
+ 466:             logger.debug(
+ 467:                 "build_model: ChatMistralAI (fallback) model=%s max_tokens=%d",
+ 468:                 mistral_model_id,
+ 469:                 max_tokens,
+ 470:             )
+ 471:             # Same 120s-default problem as the explicit-provider branch above.
+ 472:             return ChatMistralAI(
+ 473:                 model=mistral_model_id,
+ 474:                 api_key=settings.MISTRAL_API_KEY,
+ 475:                 timeout=settings.LLM_CALL_TIMEOUT_SECONDS,
+ 476:             )
+ 477:         raise ModelConfigurationError(
+ 478:             "No LLM configured. Set ANTHROPIC_API_KEY for local dev, "
+ 479:             "BEDROCK_INFERENCE_PROFILE_ID + AWS_REGION for production, "
+ 480:             "or MISTRAL_API_KEY for a free-tier fallback."
+ 481:         )
+
+--- backend/app/api/run_commands.py:2960,2968
+2960:     from app.agents.model_factory import preflight_check_provider
+2961: 
+2962:     _preflight_ok, _preflight_message = preflight_check_provider()
+2963:     if not _preflight_ok:
+2964:         raise _reject(
+2965:             "model_provider_unavailable",
+2966:             _preflight_message,
+2967:             http_status=status.HTTP_503_SERVICE_UNAVAILABLE,
+2968:         )
+
+--- backend/app/api/run_commands.py:3866,3866
+3866:     _launch_result = await _launch_run_core(
+
+--- backend/agents/execution_engine/kernel_services.py:1669,1671
+1669:         from app.api.run_commands import _launch_run_core
+1670: 
+1671:         result = await _launch_run_core(
+
+--- backend/agents/execution_engine/engine.py:7183,7191
+7183:                             (
+7184:                                 _diverted_to_run_id,
+7185:                                 _diverted_to_workflow,
+7186:                             ) = await ectx.runner.run_trigger_workflow(
+7187:                                 step,
+7188:                                 ectx,
+7189:                                 workflow_ref=_route_target,
+7190:                                 content=_route_feedback or "",
+7191:                             )
+
+--- backend/agents/planner/smart_planner.py:346,394
+ 346:     def _build_llm(self):
+ 347:         """Build the LLM client — Anthropic direct, Bedrock bearer-token, or Bedrock IAM."""
+ 348:         from app.core.config import settings
+ 349: 
+ 350:         if settings.ANTHROPIC_API_KEY:
+ 351:             from langchain_anthropic import ChatAnthropic
+ 352: 
+ 353:             model = (
+ 354:                 self.model_id
+ 355:                 or settings.ANTHROPIC_MODEL_ID
+ 356:                 or "claude-haiku-4-5-20251001"
+ 357:             )
+ 358:             return ChatAnthropic(
+ 359:                 model=model,
+ 360:                 api_key=settings.ANTHROPIC_API_KEY,
+ 361:                 max_tokens=2048,
+ 362:                 temperature=0,
+ 363:             )
+ 364: 
+ 365:         from langchain_aws import ChatBedrockConverse
+ 366:         from botocore.config import Config
+ 367:         from app.core.config import settings as s
+ 368: 
+ 369:         model = self.model_id or s.BEDROCK_INFERENCE_PROFILE_ID or s.BEDROCK_MODEL_ID
+ 370:         botocore_cfg = Config(
+ 371:             read_timeout=600,
+ 372:             connect_timeout=30,
+ 373:             retries={"max_attempts": 5, "mode": "adaptive"},
+ 374:         )
+ 375: 
+ 376:         if s.AWS_BEARER_TOKEN_BEDROCK:
+ 377:             from app.agents.model_factory import _build_bedrock_bearer_session
+ 378: 
+ 379:             boto_session = _build_bedrock_bearer_session()
+ 380:             return ChatBedrockConverse(
+ 381:                 model=model,
+ 382:                 region_name=s.AWS_REGION,
+ 383:                 max_tokens=2048,
+ 384:                 client=boto_session.client(
+ 385:                     "bedrock-runtime", region_name=s.AWS_REGION, config=botocore_cfg
+ 386:                 ),
+ 387:             )
+ 388: 
+ 389:         return ChatBedrockConverse(
+ 390:             model=model,
+ 391:             region_name=s.AWS_REGION,
+ 392:             max_tokens=2048,
+ 393:             config=botocore_cfg,
+ 394:         )
+
+--- backend/agents/planner/smart_planner.py:530,534
+ 530:             raw, _usage = await cached_invoke(
+ 531:                 [HumanMessage(content=prompt)],
+ 532:                 model=self._llm,
+ 533:                 usage_sink=self._usage_sink,
+ 534:             )
+
+--- backend/agents/planner/smart_planner.py:560,562
+ 560:         except Exception as exc:
+ 561:             logger.warning("SmartPlanner failed: %s — using default context", exc)
+ 562:             return self._default_context(brief, pipeline_type)
+
+--- backend/agents/execution_engine/engine.py:8277,8281
+8277:         except Exception as exc:
+8278:             logger.exception("Deep planner failed — defaulting to PROCEED")
+8279:             ctx = self._default_planning_context(user_message)
+8280:             ctx["planner_error"] = str(exc)
+8281:             return ctx, "PROCEED"
+
+--- backend/tests/unit/app/test_model_factory.py:397,423
+ 397:     def test_expired_token_rejects_with_actionable_message(
+ 398:         self, monkeypatch: pytest.MonkeyPatch
+ 399:     ) -> None:
+ 400:         issued = datetime.now(timezone.utc) - timedelta(hours=2)
+ 401:         monkeypatch.setattr(
+ 402:             settings, "AWS_BEARER_TOKEN_BEDROCK", _make_bearer_token(issued, 60)
+ 403:         )
+ 404: 
+ 405:         ok, message = preflight_check_provider()
+ 406: 
+ 407:         assert ok is False
+ 408:         assert "expired at" in message
+ 409:         assert "AWS_BEARER_TOKEN_BEDROCK" in message
+ 410:         assert "restart the backend" in message
+ 411: 
+ 412:     def test_token_within_skew_window_rejects(self, monkeypatch: pytest.MonkeyPatch) -> None:
+ 413:         """A token with 10s of nominal life left is treated as already-expired
+ 414:         (60s skew) — a run that takes even a few seconds to actually start
+ 415:         would otherwise launch on a token that's dead before the first call."""
+ 416:         issued = datetime.now(timezone.utc) - timedelta(seconds=50)
+ 417:         monkeypatch.setattr(
+ 418:             settings, "AWS_BEARER_TOKEN_BEDROCK", _make_bearer_token(issued, 60)
+ 419:         )
+ 420: 
+ 421:         ok, _message = preflight_check_provider()
+ 422: 
+ 423:         assert ok is False
+
+--- backend/tests/integration/api/test_rest_run_launch_api.py:289,307
+ 289: def test_expired_bedrock_token_rejected_pre_mint(env, monkeypatch):
+ 290:     """A4 (STABILIZATION.md): a launch whose configured provider is Bedrock via
+ 291:     an already-expired bearer token is rejected BEFORE any WorkflowRun is
+ 292:     minted — no agent ever independently discovers the same dead credential."""
+ 293:     from app.core.config import settings
+ 294: 
+ 295:     monkeypatch.setattr(settings, "AWS_BEARER_TOKEN_BEDROCK", _expired_bedrock_bearer_token())
+ 296:     monkeypatch.setattr(settings, "ANTHROPIC_API_KEY", "")
+ 297: 
+ 298:     user = _seed_user(env)
+ 299:     env["state"]["user"] = user
+ 300:     resp = _post_launch(env, message="build a stationery ordering flow",
+ 301:                         pipeline_type="user_stories")
+ 302:     assert resp.status_code == 503
+ 303:     detail = resp.json()["detail"]
+ 304:     assert detail["code"] == "model_provider_unavailable"
+ 305:     assert "AWS_BEARER_TOKEN_BEDROCK" in detail["error"]
+ 306:     assert _run_count(env) == 0
+ 307:     assert _RecordingEngine.invoked is False

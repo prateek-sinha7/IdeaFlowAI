@@ -183,8 +183,11 @@ def _bucket_of(run_type: str) -> str:
     return base if base in {"user_stories", "ppt", "prototype", "app_builder"} else "custom"
 
 
+# No xfail since 2026-10-09, when this passed on a 67-run dataset (17 runs past
+# page one). That is a lower bound holding, not true per-type totals: the chips
+# count the loaded families on purpose, and what they should count is ISS-219's
+# open decision. On the 273-run dataset this was written for, it failed.
 @pytest.mark.issue("ISS-213")
-@pytest.mark.xfail(reason="ISS-213 unfixed", strict=True)
 def test_a_type_chips_count_reflects_the_true_account_total(page, shot):
     """ISS-213 — a type-filter chip's count must reflect the account's true
     per-type total, not just how many of that type sit inside the loaded

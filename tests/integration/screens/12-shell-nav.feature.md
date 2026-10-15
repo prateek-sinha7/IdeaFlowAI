@@ -16,7 +16,7 @@ owns.
 | Home | `button` "Home" | → `/dashboard` |
 | Library | `button` "Library" | → `/library` |
 | My Workflows | `button` "My Workflows" | → `/workflows` |
-| Running-pipeline badge | `button` `<Workflow> <done>/<total>` | e.g. `Pitch an idea (Detailed) 0/4`; only while a run is live |
+| Running-pipeline badge | `button` `<Workflow> <done>/<total>` | e.g. `Pitch an idea (Depth) 0/4`; only while a run is live |
 | Notifications | `button[aria-label="Notifications"]` | |
 | Account menu | `button[aria-label="Account menu"]` | |
 

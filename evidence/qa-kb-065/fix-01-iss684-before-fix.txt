@@ -1,0 +1,11 @@
+x.                                                                       [100%]
+=============================== warnings summary ===============================
+app/core/config.py:94
+tests/conftest.py:484
+tests/agents/test_iss684_unhandled_mechanical_kind.py::test_unhandled_mechanical_kind_fails_the_run
+tests/agents/test_iss684_unhandled_mechanical_kind.py::test_unhandled_mechanical_kind_fails_the_run
+==================================== PASSES ====================================
+=========================== short test summary info ============================
+PASSED tests/agents/test_iss684_unhandled_mechanical_kind.py::test_engine_dispatch_matches_registered_kinds
+XFAIL tests/agents/test_iss684_unhandled_mechanical_kind.py::test_unhandled_mechanical_kind_fails_the_run - ISS-684 unfixed
+1 passed, 1 xfailed, 4 warnings in 2.43s

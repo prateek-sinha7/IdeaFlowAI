@@ -154,65 +154,6 @@ describe("IdeaInputPage attachments", () => {
     expect(onRun).toHaveBeenCalledTimes(1);
     expect(onRun.mock.calls[0][3]).toEqual({ gate_agent_ids: [], staged_upload_ids: ["stage-xyz"] });
   });
-
-  it("stages a text-only attachment and launches with its stage id and inlined text", async () => {
-    let resolveStage!: (v: { stage_id: string; files: string[] }) => void;
-    api.stageRunFile.mockReturnValue(new Promise((r) => (resolveStage = r)));
-    const user = userEvent.setup();
-    const { onRun, fileInput } = renderPage();
-    await user.type(screen.getByRole("textbox", { name: "Brief description" }), "Build from the notes.");
-    await user.upload(fileInput, new File(["# Requirements"], "requirements.md", { type: "text/markdown" }));
-    expect(screen.getByRole("button", { name: /run workflow/i })).toBeDisabled();
-
-    await act(async () => resolveStage({ stage_id: "stage-md", files: ["requirements.md"] }));
-    await user.click(screen.getByRole("button", { name: /run workflow/i }));
-
-    expect(api.stageRunFile).toHaveBeenCalledWith("test-token", expect.objectContaining({ name: "requirements.md" }));
-    expect(api.extractFileText).not.toHaveBeenCalled();
-    expect(onRun).toHaveBeenCalledTimes(1);
-    expect(onRun.mock.calls[0][0]).toContain(
-      "=== Attached: requirements.md ===\n# Requirements\n=== End: requirements.md ===",
-    );
-    expect(onRun.mock.calls[0][3]).toEqual({ gate_agent_ids: [], staged_upload_ids: ["stage-md"] });
-  });
-});
-
-describe("IdeaInputPage upload fail-fast", () => {
-  const runButton = () => screen.getByRole("button", { name: /run workflow/i });
-
-  it("disables Run with a visible reason while a document is staging", async () => {
-    api.stageRunFile.mockReturnValue(new Promise(() => {}));
-    const user = userEvent.setup();
-    const { onRun, fileInput } = renderPage();
-    await user.type(screen.getByRole("textbox", { name: "Brief description" }), "Use the plan.");
-
-    await user.upload(fileInput, new File(["%PDF"], "plan.pdf", { type: "application/pdf" }));
-
-    expect(await screen.findByText("Uploading…")).toBeInTheDocument();
-    expect(runButton()).toBeDisabled();
-    expect(runButton()).toHaveAccessibleDescription(/uploading 1 document/i);
-    await user.keyboard("{Control>}{Enter}{/Control}");
-    expect(onRun).not.toHaveBeenCalled();
-  });
-
-  it("disables Run after a document failed to stage and names it on the chip", async () => {
-    api.stageRunFile.mockRejectedValue(Object.assign(new Error("HTTP 413"), { name: "ApiError", status: 413 }));
-    const user = userEvent.setup();
-    const { onRun, fileInput } = renderPage();
-    await user.type(screen.getByRole("textbox", { name: "Brief description" }), "Use the plan.");
-
-    await user.upload(fileInput, new File(["%PDF"], "plan.pdf", { type: "application/pdf" }));
-
-    expect(await screen.findByText("File is too large for this server (limit 10 MB)")).toBeInTheDocument();
-    expect(runButton()).toBeDisabled();
-    expect(runButton()).toHaveAccessibleDescription(/upload failed for plan\.pdf/i);
-
-    await user.click(screen.getByRole("button", { name: "Remove plan.pdf" }));
-    expect(runButton()).toBeEnabled();
-    await user.click(runButton());
-    expect(onRun).toHaveBeenCalledTimes(1);
-    expect(onRun.mock.calls[0][3]).toEqual({ gate_agent_ids: [] });
-  });
 });
 
 describe("IdeaInputPage submit shortcut and run guards", () => {

@@ -1,0 +1,20 @@
+## tests that anchor on a dependency list (grep)
+./app/[...view]/page.iss657.test.tsx:42:    const depsMarker = "[recentRuns, runConnection, seedRunChatTranscript, handleWebSocketMessage],";
+./app/[...view]/authEffectGuard.iss844.source.test.ts:35:    const endMarker = "}, [router, dispatch]);";
+./app/[...view]/page.iss856.test.tsx:65:    const end = src.indexOf("}, [onOpenRun]);", start);
+./app/[...view]/page.qaSg004.test.tsx:113:      const depsMarker =
+./app/[...view]/runTabShallowNav.test.ts:29:  const end = dashboardSource.indexOf("}, [contentSourceRunId]);", start);
+
+## occurrences of each literal in the file it slices (grep -c -F)
+1   x  components/layout/DashboardLayout.tsx :: }, [contentSourceRunId]);
+2   x  app/[...view]/page.tsx :: }, [router, dispatch]);
+1   x  components/history/WorkflowHistory.tsx :: }, [onOpenRun]);
+1   x  app/[...view]/page.tsx :: [recentRuns, runConnection, seedRunChatTranscript, handleWebSocketMessage],
+1   x  app/[...view]/page.tsx :: }, [viewPathKey, isAuthenticated, handleSelectWorkflowRun, runTabDeepLink.requestOpenTab]);
+1   x  app/[...view]/page.tsx :: }, [viewPathKey, isAuthenticated, handleSelectWorkflowRun]);
+1   x  app/[...view]/page.tsx :: [runStore.viewed.pipelineState.pipelineRunId, resetPipeline, setWaveGroups, handleWebSocketMessage, setSubmittedBrief, seedRunChatTranscript, runConnection]
+
+## where the two '}, [router, dispatch]);' hits are
+960:  }, [router, dispatch]);
+3440:  }, [router, dispatch]);
+932:  // Auth check on mount — redirect if no token, otherwise fetch user profile.

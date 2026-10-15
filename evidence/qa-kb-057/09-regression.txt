@@ -1,0 +1,16 @@
+# 09 regression, 2026-10-02T10:58:24Z, AWS_BEARER_TOKEN_BEDROCK blanked, one file at a time; 'after' = shared tree, 'before' = scratch copy with this fix's hunks reversed
+tests/integration/api/test_rest_run_launch_api.py
+  after:  4 failed, 20 passed, 1 xfailed, 5 warnings in 1.92s
+  before: 4 failed, 20 passed, 1 xfailed, 5 warnings in 1.70s
+tests/agents/test_b3_saved_workflow_chain_launch.py
+  after:  8 passed, 2 warnings in 0.98s
+  before: 8 passed, 2 warnings in 0.89s
+tests/agents/test_chain_context_v3.py
+  after:  1 failed, 14 passed, 2 warnings in 2.35s
+  before: 1 failed, 14 passed, 2 warnings in 2.20s
+tests/agents/test_conditional_divert_v4_validation.py
+  after:  1 passed, 5 warnings in 2.70s
+  before: 1 passed, 5 warnings in 2.78s
+tests/agents/test_prompt_ledger_v2.py
+  after:  1 failed, 53 passed, 2 warnings in 1.76s
+  before: 1 failed, 50 passed, 3 skipped, 2 warnings in 1.81s

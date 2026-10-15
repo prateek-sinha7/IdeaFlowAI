@@ -1,0 +1,8 @@
+functions calling .chip( with a pytest.skip before it (GREEN): 1
+   suites/06_run_history/test_run_history.py:154 test_filtering_by_type_narrows_the_list (first .chip( at line 164)
+functions calling .chip( with NO pytest.skip before it (RED): 5
+   suites/06_run_history/test_run_history.py:185 test_the_chip_label_and_its_url_value_are_different_words (first .chip( at line 190)
+   suites/06_run_history/test_run_history.py:349 test_refresh_re_reads_without_losing_filters (first .chip( at line 353)
+   suites/07_run_detail/test_run_detail.py:835 test_a_prototype_run_offers_its_own_renderer_mode (first .chip( at line 843)
+   suites/07_run_detail/test_run_detail.py:867 test_a_prototype_run_previews_its_validated_deliverable (first .chip( at line 877)
+   suites/15_overlays/test_overlays.py:736 test_a_prototype_deliverable_offers_source_and_tweaks (first .chip( at line 746)

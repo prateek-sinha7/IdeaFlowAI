@@ -1,0 +1,19 @@
+# QA-KB-102 fix — regression files that drive the resume tier, one file per run, 2026-10-08 15:29, HEAD 2461935f5 + working tree
+# cmd: cd backend && .venv/bin/python -m pytest <file> -q -p no:cacheprovider
+tests/integration/agents/test_restart_resume_db.py: 85 passed, 17 warnings in 20.29s 
+tests/integration/api/test_rest_resume_api.py: 10 passed, 3 warnings in 1.32s 
+tests/integration/api/test_rest_answers_cancel_api.py: 29 passed, 3 warnings in 1.47s 
+tests/integration/agents/test_resume_marker_workspace_db.py: 5 passed, 2 warnings in 2.45s 
+tests/integration/agents/test_cancel_stops_resumed_run_db.py: 5 passed, 3 warnings in 3.13s 
+tests/integration/agents/test_resume_ws_bridge_db.py: FAILED tests/integration/agents/test_resume_ws_bridge_db.py::test_engine_module_does_not_import_app_api 1 failed, 3 passed, 3 warnings in 3.90s 
+tests/integration/agents/test_specs_from_plan_db.py: FAILED tests/integration/agents/test_specs_from_plan_db.py::test_resume_run_builds_display_names_for_a_real_composed_workflow 1 failed, 1 warning in 1.27s 
+tests/agents/test_resume_context_v3.py: FAILED tests/agents/test_resume_context_v3.py::test_resume_run_uses_context_file_over_diverging_db_column FAILED tests/agents/test_resume_context_v3.py::test_resume_run_falls_back_to_db_column_when_context_absent 2 failed, 2 warnings in 1.25s 
+tests/agents/test_resume_run_offset_log.py: 2 passed, 2 warnings in 0.96s 
+tests/agents/test_resume_seed_bounded_aggregate.py: 4 passed, 2 warnings in 0.98s 
+tests/agents/test_run_trace.py: 16 passed, 2 warnings in 0.93s 
+tests/agents/test_ttl_sweep_loop_v3.py: 4 passed, 2 warnings in 3.76s 
+tests/unit/agents/execution_engine/test_resumability.py: 7 passed, 1 warning in 0.88s 
+tests/unit/app/test_gate_agent_ids_survives_resume.py: 6 passed, 1 warning in 0.89s 
+tests/unit/services/test_shutdown_reachability.py: 8 passed, 1 warning in 7.69s 
+tests/unit/test_run_shutdown_stale_citations.py: 15 passed, 1 warning in 1.80s 
+tests/integration/repositories/test_run_events_db.py: 10 passed, 1 warning in 1.03s 

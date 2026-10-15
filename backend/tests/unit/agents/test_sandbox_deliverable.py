@@ -633,3 +633,18 @@ def test_skills_nested_file_excluded_from_deliverable(tmp_path: Path) -> None:
     assert "skills" not in out
     assert "output.html" in out
     assert count_sandbox_deliverables(tmp_path) == 1
+
+
+def test_revisions_records_excluded_from_deliverable(tmp_path: Path) -> None:
+    """A revision's own records under revisions/<run_id>/ (the planner's plan.md)
+    must not ship in the serialized bundle; a normal file still does."""
+    pairs = {
+        "index.html": "<h1>app</h1>\n",
+        "revisions/run-42/plan.md": "# Revision Plan\n",
+    }
+    _write_to_disk(tmp_path, pairs)
+    out = serialize_sandbox_deliverable(tmp_path)
+    assert "revisions/" not in out
+    assert "plan.md" not in out
+    assert "index.html" in out
+    assert count_sandbox_deliverables(tmp_path) == 1

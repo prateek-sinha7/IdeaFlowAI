@@ -1,0 +1,90 @@
+// QA-KB-052 fixer scratch: the controls ISS-472's analysis asks for, plus ISS-968's IdeaInputPage half.
+import { describe, expect, it, vi } from "vitest";
+import { screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { IdeaInputPage } from "@/components/workflow/IdeaInputPage";
+import { SkillsHooksProvider } from "@/context/SkillsHooksContext";
+import renderWithProviders from "@/test/renderWithProviders";
+
+vi.mock("@/hooks/useSpeechRecognition", () => ({
+  useSpeechRecognition: () => ({ isListening: false, transcript: "", startListening: vi.fn(), stopListening: vi.fn(), isSupported: false }),
+}));
+vi.mock("@/components/workflow/AgentsPopup", () => ({ AgentsPopup: () => null }));
+vi.mock("@/components/workflow/ReviewGatesSection", () => ({ ReviewGatesSection: () => null }));
+vi.mock("@/lib/api", () => ({
+  getToken: () => "test-token",
+  isNotFoundError: () => false,
+  createUserWorkflow: vi.fn(),
+  getWorkflowDetail: vi.fn(() => new Promise(() => {})),
+  setWorkflowOverrideEnabled: vi.fn(),
+}));
+
+const agent = (pipeline_type: string) => ({
+  id: `${pipeline_type}-agent`, name: "A", role: "r", description: "d",
+  pipeline_type, order: 1, icon: "x", estimated_duration: 60, has_skill: false,
+});
+
+async function mount(type: string, userTier: unknown, workflowId?: string) {
+  const onRun = vi.fn();
+  const extra = { userTier } as Record<string, unknown>;
+  renderWithProviders(
+    <SkillsHooksProvider>
+      <IdeaInputPage workflowType={type} workflowId={workflowId} onBack={vi.fn()} onRun={onRun} {...extra} />
+    </SkillsHooksProvider>,
+    { preloadedState: { agents: { agents: [agent(type)], totalCount: 1, pipelines: {}, status: "succeeded", error: null } } },
+  );
+  const user = userEvent.setup();
+  await user.type(screen.getByRole("textbox"), "Build a todo app.");
+  return { onRun, user };
+}
+const lockText = () => screen.queryByText(/requires .* plan|does not include/i);
+
+describe("QA-KB-052 controls", () => {
+  it("pro on app_builder: no lock, Run enabled, Cmd+Enter launches", async () => {
+    const { onRun, user } = await mount("app_builder", "pro");
+    expect(lockText()).toBeNull();
+    expect(screen.getByRole("button", { name: /run workflow/i })).toBeEnabled();
+    await user.keyboard("{Meta>}{Enter}{/Meta}");
+    expect(onRun).toHaveBeenCalledTimes(1);
+  });
+  it("basic on user_stories: no lock, Run click launches", async () => {
+    const { onRun, user } = await mount("user_stories", "basic");
+    expect(lockText()).toBeNull();
+    await user.click(screen.getByRole("button", { name: /run workflow/i }));
+    expect(onRun).toHaveBeenCalledTimes(1);
+  });
+  it("unknown tier (null) on app_builder never locks", async () => {
+    const { onRun, user } = await mount("app_builder", null);
+    expect(lockText()).toBeNull();
+    await user.click(screen.getByRole("button", { name: /run workflow/i }));
+    expect(onRun).toHaveBeenCalledTimes(1);
+  });
+  it("absent tier prop on app_builder never locks", async () => {
+    const { onRun, user } = await mount("app_builder", undefined);
+    expect(lockText()).toBeNull();
+    await user.click(screen.getByRole("button", { name: /run workflow/i }));
+    expect(onRun).toHaveBeenCalledTimes(1);
+  });
+  it("basic on app_builder: lock copy names Pro; Run click does nothing", async () => {
+    const { onRun, user } = await mount("app_builder", "basic");
+    expect(lockText()?.textContent).toBe("Requires Pro plan — your plan does not include this deliverable.");
+    const run = screen.getByRole("button", { name: /run workflow/i });
+    expect(run).toBeDisabled();
+    await user.click(run);
+    expect(onRun).not.toHaveBeenCalled();
+  });
+  it("ISS-968 half: basic on app_builder disables Save workflow and Save as my version", async () => {
+    await mount("app_builder", "basic", "app_builder");
+    expect(screen.getByRole("button", { name: /save workflow/i })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /save as my version/i })).toBeDisabled();
+  });
+  it("ISS-968 control: pro on app_builder leaves both Save buttons enabled", async () => {
+    await mount("app_builder", "pro", "app_builder");
+    expect(screen.getByRole("button", { name: /save workflow/i })).toBeEnabled();
+    expect(screen.getByRole("button", { name: /save as my version/i })).toBeEnabled();
+  });
+  it("basic on custom locks with Enterprise copy (custom is enterprise-only)", async () => {
+    await mount("custom", "basic");
+    expect(lockText()?.textContent).toMatch(/^Requires Enterprise plan/);
+  });
+});

@@ -1,0 +1,72 @@
+# QA-KB-073 / FIX-731 hunks only (the file also carries concurrent QA-KB-075 hunks at :4315+ and :6103+, not mine)
+diff --git a/backend/tests/integration/agents/test_restart_resume_db.py b/backend/tests/integration/agents/test_restart_resume_db.py
+index 9bd36d011..1edf92706 100644
+--- a/backend/tests/integration/agents/test_restart_resume_db.py
++++ b/backend/tests/integration/agents/test_restart_resume_db.py
+@@ -4092,6 +4092,7 @@ def test_apply_terminal_output_columns_populates_all_columns():
+     a REAL registry key's agent ids (user_stories, non-aliased). BUG-R03 coverage."""
+     import json as _json
+ 
++    from agents.capabilities.token_usage import USAGE_VERSION
+     from app.api.run_commands import _apply_terminal_output_columns
+     from app.models.workflow import WorkflowRun
+ 
+@@ -4106,16 +4107,21 @@ def test_apply_terminal_output_columns_populates_all_columns():
+                 "icon": "🧠",
+             },
+         ),
+-        ("agent_chunk", {"chunk": "domain analysis body"}),
++        (
++            "agent_chunk",
++            {"agent_id": "domain-analyst", "chunk": "domain analysis body"},
++        ),
+         (
+             "agent_complete",
+             {
++                "agent_id": "domain-analyst",
+                 "duration": 1.5,
+                 "input_tokens": 100,
+                 "output_tokens": 50,
+                 "total_tokens": 150,
+                 "cache_read_tokens": 10,
+                 "cache_write_tokens": 5,
++                "usage_version": USAGE_VERSION,
+             },
+         ),
+         (
+@@ -4127,16 +4133,21 @@ def test_apply_terminal_output_columns_populates_all_columns():
+                 "icon": "📋",
+             },
+         ),
+-        ("agent_chunk", {"chunk": "# Backlog\n- story 1"}),
++        (
++            "agent_chunk",
++            {"agent_id": "backlog-compiler", "chunk": "# Backlog\n- story 1"},
++        ),
+         (
+             "agent_complete",
+             {
++                "agent_id": "backlog-compiler",
+                 "duration": 2.0,
+                 "input_tokens": 200,
+                 "output_tokens": 80,
+                 "total_tokens": 280,
+                 "cache_read_tokens": 0,
+                 "cache_write_tokens": 0,
++                "usage_version": USAGE_VERSION,
+             },
+         ),
+         (
+@@ -4191,10 +4202,11 @@ def test_apply_terminal_output_columns_captures_per_agent_model_id():
+ 
+     events = [
+         ("agent_start", {"agent_id": "prototype-build", "name": "Build Agent"}),
+-        ("agent_chunk", {"chunk": "built it"}),
++        ("agent_chunk", {"agent_id": "prototype-build", "chunk": "built it"}),
+         (
+             "agent_complete",
+             {
++                "agent_id": "prototype-build",
+                 "duration": 1.0,
+                 "input_tokens": 10,
+                 "output_tokens": 5,

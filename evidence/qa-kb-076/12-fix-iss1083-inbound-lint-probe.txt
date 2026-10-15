@@ -1,0 +1,36 @@
+# QA-KB-076 fix: ISS-1083 step-2 lint (test_no_line_number_cites_into_shutdown_path_files_from_elsewhere), red on the pre-edit text, green now
+# tree: /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2   HEAD: 2254c5ef5   date: 2026-10-07 22:45 CEST
+# run: cd backend && .venv/bin/python inbound_probe.py tests/unit/test_run_shutdown_stale_citations.py
+
+########## output
+pre-edit (HEAD) text of the five files: FAILED -> line-number cites into shutdown-path files: | tests/conftest.py:197: core/config.py:130 | agents/authz.py:445: run_stream.py:251 | tests/unit/test_checkpointer_shutdown_budget.py:55: checkpointer.py:140 | tests/integration/api/test_sse_stream_api.py:902: run_stream.py:197 | tests/integration/api/test_sse_stream_api.py:903: run_stream.py:281 | tests/unit/app/test_iss102_live_model_guard.py:5: core/config.py:118
+real tree now: PASSED (guard green)
+
+########## inbound_probe.py
+"""QA-KB-076 fix probe for ISS-1083's lint: HEAD text of the five citing files in a TEMP root (red), then the real tree (green)."""
+import importlib.util, subprocess, sys, tempfile
+from pathlib import Path
+
+spec = importlib.util.spec_from_file_location("guard_fixed", sys.argv[1])
+fixed = importlib.util.module_from_spec(spec); spec.loader.exec_module(fixed)
+real_root = fixed._ROOT
+files = ["backend/tests/unit/test_checkpointer_shutdown_budget.py",
+         "backend/tests/integration/api/test_sse_stream_api.py",
+         "backend/agents/authz.py", "backend/tests/conftest.py",
+         "backend/tests/unit/app/test_iss102_live_model_guard.py"]
+tmp_root = Path(tempfile.mkdtemp())
+for rel in files:
+    (tmp_root / rel).parent.mkdir(parents=True, exist_ok=True)
+    (tmp_root / rel).write_text(subprocess.run(["git", "show", f"HEAD:{rel}"], cwd=real_root,
+                                               capture_output=True, text=True, check=True).stdout)
+
+def call():
+    try:
+        fixed.test_no_line_number_cites_into_shutdown_path_files_from_elsewhere(); return "PASSED (guard green)"
+    except AssertionError as e:
+        return "FAILED -> " + str(e).replace("\n", " | ")
+
+fixed._ROOT = tmp_root
+print("pre-edit (HEAD) text of the five files:", call())
+fixed._ROOT = real_root
+print("real tree now:", call())

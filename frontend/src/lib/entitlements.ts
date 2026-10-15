@@ -112,6 +112,46 @@ export function canRunPipeline(tier: Tier, pipelineType: string): boolean {
   return TIER_PIPELINES[tier]?.has(pipelineType) ?? false;
 }
 
+/**
+ * Engine demonstrations, not product capability. The backend's conditional-gate
+ * fixtures use an `ex_` / `sample_` / `sc001` id prefix and stay
+ * `user_launchable` because they genuinely run — but on a flat grid "Spanish
+ * Greeter" read like a peer of "Build an end-to-end application". Classifying
+ * on the prefix is presentation only: no manifest changes, nothing stops being
+ * launchable, and a new fixture following the convention is sorted automatically.
+ * A beta row stays under Coming Soon even when it matches.
+ */
+const EXAMPLE_ID_PREFIX = /^(ex_|sample_|sc001)/i;
+export const isExampleWorkflow = (id: string): boolean => EXAMPLE_ID_PREFIX.test(id);
+
+/** The fields of a live catalog row (`GET /api/workflows`) the split below reads. */
+type CatalogRow = { id: string; user_launchable: boolean; is_beta?: boolean };
+
+/**
+ * The home catalog's split of the live workflow list: launchable rows as product
+ * workflows, Engine examples, or Coming Soon (beta wins over the example prefix).
+ */
+export function splitCatalog<W extends CatalogRow>(workflows: readonly W[]) {
+  const launchable = workflows.filter((w) => w.user_launchable);
+  return {
+    productRows: launchable.filter((w) => !w.is_beta && !isExampleWorkflow(w.id)),
+    exampleRows: launchable.filter((w) => !w.is_beta && isExampleWorkflow(w.id)),
+    betaRows: launchable.filter((w) => w.is_beta),
+  };
+}
+
+/**
+ * What a tier's plan includes, read off that same split: the product and example
+ * rows the catalog enables for `tier`. The Usage & Limits deliverable-access grid
+ * lists them and the plan modal counts them, so neither can disagree with the
+ * catalog (ISS-1195).
+ */
+export function catalogAccess<W extends CatalogRow>(workflows: readonly W[], tier: Tier) {
+  const { productRows, exampleRows } = splitCatalog(workflows);
+  const runnable = (w: W) => canRunPipeline(tier, w.id);
+  return { productRows: productRows.filter(runnable), exampleRows: exampleRows.filter(runnable) };
+}
+
 export function getRequiredTier(pipelineType: string): Tier | null {
   for (const tier of ["basic", "pro", "enterprise", "hexaware"] as Tier[]) {
     if (TIER_PIPELINES[tier].has(pipelineType)) return tier;

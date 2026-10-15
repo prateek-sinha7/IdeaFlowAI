@@ -1,0 +1,45 @@
+"""Runs each it.fails file twice, one file at a time: (a) in place, as shipped; (b) in the scan mirror with the marker removed.
+Writes one JSON line per file to scan_results.jsonl. Offline vitest only."""
+import json, re, subprocess, sys, time
+from pathlib import Path
+
+SP = Path("/private/tmp/claude-502/-Users-bilala-Developer-Projects-VELOCITY-AI-worktrees-feat-user-stories-v2/2d1a1575-310a-48fd-8155-2763a084604d/scratchpad")
+FE = Path("/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/frontend")
+MIRROR = SP / "scan" / "frontend"
+OUT = SP / "scan_out"; OUT.mkdir(exist_ok=True)
+VT = str(FE / "node_modules/.bin/vitest")
+
+CODE_USE = re.compile(r"^\s*(?!//|\*)[^/\n]*\b(it|test)\.fails\b|^\s*(it|test)\.fails\b", re.M)
+files = [l.strip() for l in (SP / "scan_files.txt").read_text().split("\n") if l.strip()]
+files = [f for f in files if CODE_USE.search((FE / f).read_text())]
+start, end = int(sys.argv[1]), int(sys.argv[2])
+res_path = SP / "scan_results.jsonl"
+
+def run(cwd, cfg, rel, tag):
+    out = OUT / (re.sub(r"[^A-Za-z0-9]+", "_", rel) + f".{tag}.json")
+    cmd = [VT, "run"] + (["--config", cfg] if cfg else []) + [rel, "--reporter=json", f"--outputFile={out}"]
+    t0 = time.time()
+    try:
+        p = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, timeout=240)
+        rc = p.returncode
+    except subprocess.TimeoutExpired:
+        return {"timeout": True, "secs": 240}
+    secs = round(time.time() - t0, 1)
+    try:
+        j = json.loads(out.read_text())
+    except Exception as e:
+        return {"error": f"no json: {e}", "rc": rc, "secs": secs, "stderr": p.stderr[-400:]}
+    cases = []
+    for tr in j.get("testResults", []):
+        for a in tr.get("assertionResults", []):
+            cases.append({"name": a["fullName"], "status": a["status"], "msg": (a.get("failureMessages") or [""])[0][:900]})
+    return {"rc": rc, "secs": secs, "passed": j.get("numPassedTests"), "failed": j.get("numFailedTests"), "total": j.get("numTotalTests"), "cases": cases}
+
+for rel in files[start:end]:
+    rec = {"file": rel}
+    rec["inplace"] = run(str(FE), None, rel, "inplace")
+    rec["mirror"] = run(str(MIRROR), "vitest.scan.config.mts", rel, "mirror")
+    with res_path.open("a") as fh:
+        fh.write(json.dumps(rec) + "\n")
+    ip, mi = rec["inplace"], rec["mirror"]
+    print(f"{rel}\n   in place: rc={ip.get('rc')} passed={ip.get('passed')} failed={ip.get('failed')} ({ip.get('secs')}s)   mirror(marker removed): passed={mi.get('passed')} failed={mi.get('failed')} ({mi.get('secs')}s)", flush=True)

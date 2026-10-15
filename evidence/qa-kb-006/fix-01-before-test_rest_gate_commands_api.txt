@@ -1,0 +1,13 @@
+# BEFORE (control): pre-fix ArtifactStore.set_review_response body restored per-test by scratchpad plugin kb006_orig_store; shared tree untouched
+$ cd backend && PYTHONPATH=<scratchpad>/kb006_plugin ./.venv/bin/python -m pytest tests/integration/api/test_rest_gate_commands_api.py -rxX -q -p no:cacheprovider -p kb006_orig_store
+........xx...................                                            [100%]
+=============================== warnings summary ===============================
+    class Settings(BaseSettings):
+.venv/lib/python3.13/site-packages/fastapi/testclient.py:1
+    from starlette.testclient import TestClient as TestClient  # noqa
+.venv/lib/python3.13/site-packages/starlette/testclient.py:53
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+XFAIL tests/integration/api/test_rest_gate_commands_api.py::test_reject_persists_reject_action_not_approve - ISS-128 unfixed
+XFAIL tests/integration/api/test_rest_gate_commands_api.py::test_approve_action_with_approved_false_persists_reject - ISS-865 unfixed
+27 passed, 2 xfailed, 3 warnings in 3.01s

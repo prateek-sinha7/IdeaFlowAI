@@ -59,7 +59,8 @@ const PALETTE: CapabilitiesPalette = {
     { kind: "gate", name: "conditional", user_allowed: true, description: "Branch on a decision.", security_gated: false, config_schema: {} },
     { kind: "gate", name: "validation", user_allowed: true, description: "Coupled to the Validator lever.", security_gated: false, config_schema: {} },
     { kind: "task_parser", name: "heading_tasks", user_allowed: true, description: "Parses `## Task N:` headings from the source step's output.", security_gated: false, config_schema: {} },
-    { kind: "task_parser", name: "screen_plan", user_allowed: true, description: "Expands a screens.json plan into one task per screen.", security_gated: false, config_schema: {} },
+    // ISS-686: the parser's default file comes from its registry config_schema, as the backend serves it.
+    { kind: "task_parser", name: "screen_plan", user_allowed: true, description: "Expands a screens.json plan into one task per screen.", security_gated: false, config_schema: { type: "object", properties: { target: { type: "string", default: "build/screens.json" } } } },
     { kind: "mechanical", name: "publish", user_allowed: true, description: "Code step: copy the highest publish_from_glob match onto the deliverable — no model.", security_gated: false, config_schema: {} },
     { kind: "mechanical", name: "assemble_prototype", user_allowed: true, description: "Code step: assemble parts/*.html into the fixed shell — no model.", security_gated: false, config_schema: {} },
   ],

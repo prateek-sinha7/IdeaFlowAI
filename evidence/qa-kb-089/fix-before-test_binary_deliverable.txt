@@ -1,0 +1,16 @@
+### tests/unit/app/test_binary_deliverable.py (before fix, 2026-10-07T18:23:05Z, HEAD cec17f2f7)
+    class Settings(BaseSettings):
+
+tests/unit/app/test_binary_deliverable.py::test_the_chain_payload_carries_the_text_form_with_the_pdf
+  /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/agents/execution_engine/engine.py:1179: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    _ts = _dt.datetime.utcnow().isoformat(timespec="seconds") + "Z"
+
+tests/unit/app/test_binary_deliverable.py::test_the_flat_chain_payload_carries_the_text_form_with_the_pdf
+tests/unit/app/test_binary_deliverable.py::test_a_text_form_that_is_not_a_plain_file_on_disk_is_not_staged
+tests/unit/app/test_binary_deliverable.py::test_a_text_form_that_is_not_a_plain_file_on_disk_is_not_staged
+tests/unit/app/test_binary_deliverable.py::test_a_text_form_that_is_not_a_plain_file_on_disk_is_not_staged
+  /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/agents/execution_engine/engine.py:1324: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    _ts = _dt.datetime.utcnow().isoformat(timespec="seconds") + "Z"
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+8 passed, 6 warnings in 1.57s

@@ -1,0 +1,20 @@
+// Scratch vitest config for the QA-KB-081 analyzer probe (not part of the repo).
+// jsdom + frontend/vitest.setup.ts + '@' -> frontend/src, scoped to the probe file only.
+import { defineConfig } from "vitest/config";
+import path from "path";
+
+const FE = "/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/frontend";
+const SCRATCH = "/private/tmp/claude-502/-Users-bilala-Developer-Projects-VELOCITY-AI-worktrees-feat-user-stories-v2/2d1a1575-310a-48fd-8155-2763a084604d/scratchpad/qa-kb-081";
+
+export default defineConfig({
+  root: FE,
+  server: { fs: { strict: false } },
+  test: {
+    environment: "jsdom",
+    globals: true,
+    setupFiles: [path.join(FE, "vitest.setup.ts")],
+    include: [path.join(SCRATCH, "probe.test.tsx")],
+    coverage: { enabled: false },
+  },
+  resolve: { alias: { "@": path.join(FE, "src") } },
+});

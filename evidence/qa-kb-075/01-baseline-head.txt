@@ -1,0 +1,27 @@
+# QA-KB-075 analyze evidence (3-analyzer, 2026-10-02). Real command output, tree feat/user-stories-v2 @ 024c03ef8, working tree (uncommitted FIX-689 edits present).
+# One file, offline (tests/conftest.py:87-88 pins DATABASE_URL to a temp sqlite file), -p no:cacheprovider, from backend/ with .venv python.
+
+$ .venv/bin/python -m pytest tests/integration/agents/test_restart_resume_db.py -k "reconcile_degraded_tracks_latest_completion_only" -q -p no:cacheprovider -v
+rootdir: /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend
+configfile: pyproject.toml
+plugins: cov-7.1.0, xdist-3.8.0, timeout-2.4.0, asyncio-1.4.0, hypothesis-6.122.3, langsmith-0.8.18, anyio-4.15.1
+asyncio: mode=Mode.AUTO, debug=False, asyncio_default_fixture_loop_scope=function, asyncio_default_test_loop_scope=function
+collected 83 items / 79 deselected / 4 selected
+
+tests/integration/agents/test_restart_resume_db.py ....                  [100%]
+
+=============================== warnings summary ===============================
+app/core/config.py:94
+  /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/app/core/config.py:94: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+    class Settings(BaseSettings):
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+================= 4 passed, 79 deselected, 1 warning in 1.22s ==================
+
+$ .venv/bin/python -m pytest tests/integration/agents/test_restart_resume_db.py -k "reconcile" -q -p no:cacheprovider
+app/core/config.py:94
+  /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/app/core/config.py:94: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+    class Settings(BaseSettings):
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+22 passed, 61 deselected, 1 warning in 1.45s

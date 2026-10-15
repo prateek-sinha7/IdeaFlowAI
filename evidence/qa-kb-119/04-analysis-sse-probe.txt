@@ -1,0 +1,16 @@
+# QA-KB-119 analysis: SSE fresh attach (no Last-Event-ID) to the same run, 2026-10-09, backend :8000
+# Script: evidence/qa-kb-119/04-analysis-sse-probe.py (same as 02 but GET /api/runs/{id}/events/stream; read-only)
+# Run 78e185fb is terminal, so the stream is replay + stream_attached + close (run_stream.py:508-509 live_queue is None).
+# Reading: 198 /health probes: 192 answered in <= 10 ms, 2 in 45 and 66 ms, and 4 hiccups of 114-471 ms (all within the first 1.5 s, i.e. while the worker-thread read_events .all() ran).
+#          So the SSE twin does NOT freeze the loop (session-less store -> worker thread, authz.py:164-177) but takes 12.35 s and streams 50 MB.
+
+baseline /health (idle, n=8): max=2ms median=1ms
+big call: status=200 bytes=49998763 ttfb=0.11s total=12.35s
+/health probes during the big call: n=198
+  t+ 0.15s  latency=      3ms  200
+  ... (198 probes, per-probe lines elided; the four slow ones:)
+  t+ 0.48s  latency=    247ms  200
+  t+ 0.79s  latency=    114ms  200
+  t+ 0.96s  latency=    392ms  200
+  t+ 1.41s  latency=    471ms  200
+WORST /health latency while /events in flight: 471ms (idle baseline max 2ms)

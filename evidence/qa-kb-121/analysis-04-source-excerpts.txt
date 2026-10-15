@@ -1,0 +1,428 @@
+QA-KB-121 analysis-04: source excerpts, quoted with file:line (read 2026-10-12 on branch feat/stale-bug-fixes @ 76f336e9, working tree).
+Each block is awk 'NR>=a && NR<=b' of the named file, so the line numbers are exact for this tree.
+
+=== backend/app/agents/model_factory.py:119-139
+backend/app/agents/model_factory.py:119: def preflight_check_provider() -> "tuple[bool, str | None]":
+backend/app/agents/model_factory.py:120:     """No-network check that the provider ``build_model()`` would select is
+backend/app/agents/model_factory.py:121:     usable right now. Call once at run launch, before the engine starts any
+backend/app/agents/model_factory.py:122:     agent (STABILIZATION.md A4) — an expired Bedrock bearer token then fails
+backend/app/agents/model_factory.py:123:     the launch in milliseconds instead of after every parallel reader has
+backend/app/agents/model_factory.py:124:     independently discovered it via a failed model call.
+backend/app/agents/model_factory.py:125: 
+backend/app/agents/model_factory.py:126:     Only the Bedrock bearer-token path has a check this cheap: its expiry is
+backend/app/agents/model_factory.py:127:     embedded in the token itself (``decode_bedrock_bearer_token_expiry``), so
+backend/app/agents/model_factory.py:128:     nothing leaves the process. Anthropic's/Mistral's API keys and Bedrock's
+backend/app/agents/model_factory.py:129:     IAM/SSO credential chain carry no equivalent structural signal — checking
+backend/app/agents/model_factory.py:130:     those would mean a live model call on every launch, which the failure
+backend/app/agents/model_factory.py:131:     class this guards against (an expired bearer token) doesn't justify
+backend/app/agents/model_factory.py:132:     paying for on every run. ``build_model()`` already raises
+backend/app/agents/model_factory.py:133:     ``ModelConfigurationError`` for a wholly unconfigured provider;
+backend/app/agents/model_factory.py:134:     unaffected by this function.
+backend/app/agents/model_factory.py:135: 
+backend/app/agents/model_factory.py:136:     Returns ``(True, None)`` when there is nothing to check, or the token is
+backend/app/agents/model_factory.py:137:     still valid; ``(False, message)`` with a secret-free, actionable message
+backend/app/agents/model_factory.py:138:     otherwise.
+backend/app/agents/model_factory.py:139:     """
+
+=== backend/app/agents/model_factory.py:153-170
+backend/app/agents/model_factory.py:153:     try:
+backend/app/agents/model_factory.py:154:         expiry = decode_bedrock_bearer_token_expiry(token)
+backend/app/agents/model_factory.py:155:     except BedrockTokenDecodeError as exc:
+backend/app/agents/model_factory.py:156:         logger.warning(
+backend/app/agents/model_factory.py:157:             "preflight_check_provider: could not decode Bedrock bearer token "
+backend/app/agents/model_factory.py:158:             "structure (%s) — skipping the expiry check for this launch.",
+backend/app/agents/model_factory.py:159:             exc,
+backend/app/agents/model_factory.py:160:         )
+backend/app/agents/model_factory.py:161:         return True, None
+backend/app/agents/model_factory.py:162:     skew = timedelta(seconds=60)
+backend/app/agents/model_factory.py:163:     now = datetime.now(timezone.utc)
+backend/app/agents/model_factory.py:164:     if now >= expiry - skew:
+backend/app/agents/model_factory.py:165:         stamp = expiry.strftime("%Y-%m-%dT%H:%MZ")
+backend/app/agents/model_factory.py:166:         return False, (
+backend/app/agents/model_factory.py:167:             f"Bedrock bearer token expired at {stamp} — rotate "
+backend/app/agents/model_factory.py:168:             "AWS_BEARER_TOKEN_BEDROCK and restart the backend."
+backend/app/agents/model_factory.py:169:         )
+backend/app/agents/model_factory.py:170:     return True, None
+
+=== backend/app/api/run_commands.py:2974-2982
+backend/app/api/run_commands.py:2974:     from app.agents.model_factory import preflight_check_provider
+backend/app/api/run_commands.py:2975: 
+backend/app/api/run_commands.py:2976:     _preflight_ok, _preflight_message = preflight_check_provider()
+backend/app/api/run_commands.py:2977:     if not _preflight_ok:
+backend/app/api/run_commands.py:2978:         raise _reject(
+backend/app/api/run_commands.py:2979:             "model_provider_unavailable",
+backend/app/api/run_commands.py:2980:             _preflight_message,
+backend/app/api/run_commands.py:2981:             http_status=status.HTTP_503_SERVICE_UNAVAILABLE,
+backend/app/api/run_commands.py:2982:         )
+
+=== backend/agents/model_policy.py:448-458
+backend/agents/model_policy.py:448: _PERMANENT_ERROR_CODES: frozenset[str] = frozenset(
+backend/agents/model_policy.py:449:     {
+backend/agents/model_policy.py:450:         "AccessDeniedException",
+backend/agents/model_policy.py:451:         "UnauthorizedException",
+backend/agents/model_policy.py:452:         "UnrecognizedClientException",
+backend/agents/model_policy.py:453:         "ExpiredTokenException",
+backend/agents/model_policy.py:454:         "InvalidSignatureException",
+backend/agents/model_policy.py:455:         "ValidationException",
+backend/agents/model_policy.py:456:         "ResourceNotFoundException",
+backend/agents/model_policy.py:457:     }
+backend/agents/model_policy.py:458: )
+
+=== backend/app/agents/deep_agent_runner.py:1390-1416
+backend/app/agents/deep_agent_runner.py:1390:         except Exception as exc:  # noqa: BLE001 — mirror the legacy swallow
+backend/app/agents/deep_agent_runner.py:1391:             # B1 (06-05 / MODEL-02, APPROACH B): a classified TRANSIENT THROTTLE is
+backend/app/agents/deep_agent_runner.py:1392:             # RE-RAISED so the engine's rebuild-and-retry loop can advance the model
+backend/app/agents/deep_agent_runner.py:1393:             # resolver to the next fallback chain id and re-invoke. This is the
+backend/app/agents/deep_agent_runner.py:1394:             # documented "promote to raise" the docstring above (and 451/307) already
+backend/app/agents/deep_agent_runner.py:1395:             # anticipates — scoped STRICTLY to transient throttles. Everything else
+backend/app/agents/deep_agent_runner.py:1396:             # (validation/auth/generic errors) keeps the existing swallow path:
+backend/app/agents/deep_agent_runner.py:1397:             # ``yield {"type":"error", ...}`` UNCHANGED. Phase 16 (ISS-016) REVERSED
+backend/app/agents/deep_agent_runner.py:1398:             # the old assumption: the engine's ``_run_agent`` consume loop now has an
+backend/app/agents/deep_agent_runner.py:1399:             # ``error`` arm that turns this yield into a recoverable ``agent_error``
+backend/app/agents/deep_agent_runner.py:1400:             # (and a ``pipeline_failed`` / ``status:degraded`` terminal) — it no longer
+backend/app/agents/deep_agent_runner.py:1401:             # ignores the event. INV-3 parity for the non-throttle path therefore holds
+backend/app/agents/deep_agent_runner.py:1402:             # NOT because the engine drops the event, but because the scripted golden
+backend/app/agents/deep_agent_runner.py:1403:             # model never raises, so this swallow (and the engine's new arm) is DORMANT
+backend/app/agents/deep_agent_runner.py:1404:             # on every characterization golden — the runner's output bytes are unchanged.
+backend/app/agents/deep_agent_runner.py:1405:             from agents.model_policy import _is_transient_throttle
+backend/app/agents/deep_agent_runner.py:1406: 
+backend/app/agents/deep_agent_runner.py:1407:             if _is_transient_throttle(exc, self.model_id):
+backend/app/agents/deep_agent_runner.py:1408:                 logger.warning(
+backend/app/agents/deep_agent_runner.py:1409:                     "DeepAgentRunner.astream_events: re-raising transient throttle "
+backend/app/agents/deep_agent_runner.py:1410:                     "for engine fallback (model=%s): %s",
+backend/app/agents/deep_agent_runner.py:1411:                     self.model_id,
+backend/app/agents/deep_agent_runner.py:1412:                     exc,
+backend/app/agents/deep_agent_runner.py:1413:                 )
+backend/app/agents/deep_agent_runner.py:1414:                 raise
+backend/app/agents/deep_agent_runner.py:1415:             logger.exception("DeepAgentRunner.astream_events failed: %s", exc)
+backend/app/agents/deep_agent_runner.py:1416:             yield {"type": "error", "error": str(exc)}
+
+=== backend/agents/execution_engine/engine.py:179-179
+backend/agents/execution_engine/engine.py:179: _GENERIC_AGENT_ERROR_MESSAGE = "The model rejected this request."
+
+=== backend/agents/execution_engine/engine.py:195-199
+backend/agents/execution_engine/engine.py:195: _THROTTLED_AGENT_ERROR = "The model was rate-limited."
+backend/agents/execution_engine/engine.py:196: _CREDENTIAL_AGENT_ERROR = (
+backend/agents/execution_engine/engine.py:197:     "The model could not be reached — a provider credential or permission problem "
+backend/agents/execution_engine/engine.py:198:     "(the run's cloud session may have expired)."
+backend/agents/execution_engine/engine.py:199: )
+
+=== backend/agents/execution_engine/engine.py:231-247
+backend/agents/execution_engine/engine.py:231:     (
+backend/agents/execution_engine/engine.py:232:         (
+backend/agents/execution_engine/engine.py:233:             "credential",
+backend/agents/execution_engine/engine.py:234:             "unauthoriz",
+backend/agents/execution_engine/engine.py:235:             "access denied",
+backend/agents/execution_engine/engine.py:236:             "expiredtoken",
+backend/agents/execution_engine/engine.py:237:             "invalidclienttokenid",
+backend/agents/execution_engine/engine.py:238:             "accessdenied",
+backend/agents/execution_engine/engine.py:239:             "unrecognizedclient",
+backend/agents/execution_engine/engine.py:240:             "authentication failed",
+backend/agents/execution_engine/engine.py:241:             "security token",
+backend/agents/execution_engine/engine.py:242:             "not authorized",
+backend/agents/execution_engine/engine.py:243:             "forbidden",
+backend/agents/execution_engine/engine.py:244:             "signature",
+backend/agents/execution_engine/engine.py:245:         ),
+backend/agents/execution_engine/engine.py:246:         _CREDENTIAL_AGENT_ERROR,
+backend/agents/execution_engine/engine.py:247:     ),
+
+=== backend/agents/execution_engine/engine.py:278-295
+backend/agents/execution_engine/engine.py:278: def _sanitize_agent_error(raw: str) -> str:
+backend/agents/execution_engine/engine.py:279:     """Return a bounded, secret-free client-facing message for a runner error.
+backend/agents/execution_engine/engine.py:280: 
+backend/agents/execution_engine/engine.py:281:     ``raw`` is the runner's ``str(exc)`` (already bounded to 500 chars upstream).
+backend/agents/execution_engine/engine.py:282:     It can carry provider ARNs / region / model-id / internal config for a
+backend/agents/execution_engine/engine.py:283:     non-throttle Bedrock fault, so it is NEVER returned verbatim — the caller
+backend/agents/execution_engine/engine.py:284:     keeps it in the server log only. We return one of a fixed set of hardcoded
+backend/agents/execution_engine/engine.py:285:     messages (WR-02 / T-16-01-ID: bounded, no stack frames, no secrets).
+backend/agents/execution_engine/engine.py:286: 
+backend/agents/execution_engine/engine.py:287:     The category match reads ``raw`` but never REPRODUCES it: every return value
+backend/agents/execution_engine/engine.py:288:     is a literal defined above. Matching is on generic provider-fault vocabulary
+backend/agents/execution_engine/engine.py:289:     only — no provider/model/workflow name (SC-001).
+backend/agents/execution_engine/engine.py:290:     """
+backend/agents/execution_engine/engine.py:291:     lowered = (raw or "").lower()
+backend/agents/execution_engine/engine.py:292:     for needles, message in _AGENT_ERROR_CATEGORIES:
+backend/agents/execution_engine/engine.py:293:         if any(n in lowered for n in needles):
+backend/agents/execution_engine/engine.py:294:             return message
+backend/agents/execution_engine/engine.py:295:     return _GENERIC_AGENT_ERROR_MESSAGE
+
+=== backend/agents/execution_engine/engine.py:6532-6541
+backend/agents/execution_engine/engine.py:6532:                 _credential_failed_id: str | None = None
+backend/agents/execution_engine/engine.py:6533:                 async for event in self._guarded_step(step, ectx, strategy, spec.id, pipeline_run_id):
+backend/agents/execution_engine/engine.py:6534:                     # F3 (13-06): observe agent_error events for the terminal
+backend/agents/execution_engine/engine.py:6535:                     # semantics decision (no mutation — the event flows unchanged).
+backend/agents/execution_engine/engine.py:6536:                     if event.get("type") == "agent_error":
+backend/agents/execution_engine/engine.py:6537:                         _failed_id = event.get("data", {}).get("agent_id")
+backend/agents/execution_engine/engine.py:6538:                         if _failed_id:
+backend/agents/execution_engine/engine.py:6539:                             _failed_agent_ids.add(_failed_id)
+backend/agents/execution_engine/engine.py:6540:                         if event.get("data", {}).get("error") == _CREDENTIAL_AGENT_ERROR:
+backend/agents/execution_engine/engine.py:6541:                             _credential_failed_id = _failed_id or spec.id
+
+=== backend/agents/execution_engine/engine.py:6568-6590
+backend/agents/execution_engine/engine.py:6568:                 if _credential_failed_id:
+backend/agents/execution_engine/engine.py:6569:                     # Every later step would call the same provider with the same dead
+backend/agents/execution_engine/engine.py:6570:                     # credential and fail within a second (run 715c1279: 8 steps, then
+backend/agents/execution_engine/engine.py:6571:                     # a missing-file error that hid the cause). Stop here, naming the
+backend/agents/execution_engine/engine.py:6572:                     # cause, so a resume after the credential is fixed starts at this step.
+backend/agents/execution_engine/engine.py:6573:                     _cur = self._state_machine.get_state(pipeline_run_id)
+backend/agents/execution_engine/engine.py:6574:                     if _cur not in ("cancelled", "failed", "diverted"):
+backend/agents/execution_engine/engine.py:6575:                         self._state_machine.transition(pipeline_run_id, "failed")
+backend/agents/execution_engine/engine.py:6576:                     await self._persist_budget_snapshot_if_active(ectx, force=True)
+backend/agents/execution_engine/engine.py:6577:                     yield {
+backend/agents/execution_engine/engine.py:6578:                         "type": "pipeline_failed",
+backend/agents/execution_engine/engine.py:6579:                         "data": {
+backend/agents/execution_engine/engine.py:6580:                             "pipeline_type": pipeline_type,
+backend/agents/execution_engine/engine.py:6581:                             "pipeline_run_id": pipeline_run_id,
+backend/agents/execution_engine/engine.py:6582:                             "total_duration": round(time.time() - total_start, 2),
+backend/agents/execution_engine/engine.py:6583:                             "agents_completed": cursor,
+backend/agents/execution_engine/engine.py:6584:                             "agents_total": len(ordered_agents),
+backend/agents/execution_engine/engine.py:6585:                             "agents_failed": [_credential_failed_id],
+backend/agents/execution_engine/engine.py:6586:                             "error": _CREDENTIAL_AGENT_ERROR,
+backend/agents/execution_engine/engine.py:6587:                             "timestamp": _now(),
+backend/agents/execution_engine/engine.py:6588:                         },
+backend/agents/execution_engine/engine.py:6589:                     }
+backend/agents/execution_engine/engine.py:6590:                     return
+
+=== backend/agents/execution_engine/engine.py:10425-10432
+backend/agents/execution_engine/engine.py:10425:                                     agent_errored = True
+backend/agents/execution_engine/engine.py:10426:                                     agent_error_raw = str(event.get("error", "") or "")[
+backend/agents/execution_engine/engine.py:10427:                                         :500
+backend/agents/execution_engine/engine.py:10428:                                     ]
+backend/agents/execution_engine/engine.py:10429:                                     agent_error_message = _sanitize_agent_error(
+backend/agents/execution_engine/engine.py:10430:                                         agent_error_raw
+backend/agents/execution_engine/engine.py:10431:                                     )
+backend/agents/execution_engine/engine.py:10432:                                     break
+
+=== backend/agents/execution_engine/engine.py:10585-10622
+backend/agents/execution_engine/engine.py:10585:                 if agent_errored:
+backend/agents/execution_engine/engine.py:10586:                     # WR-02 (16 review): log the RAW provider message server-side for
+backend/agents/execution_engine/engine.py:10587:                     # operator triage (the warning log is not client-visible), but emit
+backend/agents/execution_engine/engine.py:10588:                     # only the sanitized, leak-free message on the agent_error event.
+backend/agents/execution_engine/engine.py:10589:                     logger.warning(
+backend/agents/execution_engine/engine.py:10590:                         "Agent %s: runner surfaced an error event — marking failed (no "
+backend/agents/execution_engine/engine.py:10591:                         "completion). raw=%s | client=%s",
+backend/agents/execution_engine/engine.py:10592:                         spec.id,
+backend/agents/execution_engine/engine.py:10593:                         agent_error_raw,
+backend/agents/execution_engine/engine.py:10594:                         agent_error_message,
+backend/agents/execution_engine/engine.py:10595:                     )
+backend/agents/execution_engine/engine.py:10596:                     _log_event(
+backend/agents/execution_engine/engine.py:10597:                         "agent_error",
+backend/agents/execution_engine/engine.py:10598:                         pipeline_run_id,
+backend/agents/execution_engine/engine.py:10599:                         agent_id=spec.id,
+backend/agents/execution_engine/engine.py:10600:                         error=agent_error_message,
+backend/agents/execution_engine/engine.py:10601:                     )
+backend/agents/execution_engine/engine.py:10602:                     RunLog(getattr(sandbox, "run_log_path", None)).write(
+backend/agents/execution_engine/engine.py:10603:                         "agent_error",
+backend/agents/execution_engine/engine.py:10604:                         agent_id=spec.id,
+backend/agents/execution_engine/engine.py:10605:                         error=agent_error_message,
+backend/agents/execution_engine/engine.py:10606:                     )
+backend/agents/execution_engine/engine.py:10607:                     # ISS-028: record the (agent_id, task_number) failure pair. This arm
+backend/agents/execution_engine/engine.py:10608:                     # RETURNS without a results.append, so the pair stays UNRECOVERED — a
+backend/agents/execution_engine/engine.py:10609:                     # task_loop where an earlier task of this same agent_id completed no
+backend/agents/execution_engine/engine.py:10610:                     # longer masks this hard failure (the agent_id-only subtraction at the
+backend/agents/execution_engine/engine.py:10611:                     # terminal zeroed it → a half-built deliverable lied as clean
+backend/agents/execution_engine/engine.py:10612:                     # pipeline_complete). All-fail still maps to pipeline_failed via the
+backend/agents/execution_engine/engine.py:10613:                     # untouched _failed_agent_ids branch.
+backend/agents/execution_engine/engine.py:10614:                     self._record_failed_invocation(ectx, spec.id)
+backend/agents/execution_engine/engine.py:10615:                     yield {
+backend/agents/execution_engine/engine.py:10616:                         "type": "agent_error",
+backend/agents/execution_engine/engine.py:10617:                         "data": {
+backend/agents/execution_engine/engine.py:10618:                             "agent_id": spec.id,
+backend/agents/execution_engine/engine.py:10619:                             "error": agent_error_message or "Agent run failed",
+backend/agents/execution_engine/engine.py:10620:                             "recoverable": True,
+backend/agents/execution_engine/engine.py:10621:                         },
+backend/agents/execution_engine/engine.py:10622:                     }
+
+=== backend/agents/execution_engine/engine.py:14370-14380
+backend/agents/execution_engine/engine.py:14370:         except Exception as exc:  # noqa: BLE001 — made visible, then re-raised as StepRaised
+backend/agents/execution_engine/engine.py:14371:             if self._state_machine.get_state(run_id) in TERMINAL_STATES:
+backend/agents/execution_engine/engine.py:14372:                 raise
+backend/agents/execution_engine/engine.py:14373:             message = str(exc) or type(exc).__name__
+backend/agents/execution_engine/engine.py:14374:             logger.error("step %s raised: %s", step_id, message, exc_info=True)
+backend/agents/execution_engine/engine.py:14375:             if not reported:
+backend/agents/execution_engine/engine.py:14376:                 yield {
+backend/agents/execution_engine/engine.py:14377:                     "type": "agent_error",
+backend/agents/execution_engine/engine.py:14378:                     "data": {"agent_id": step_id, "error": message, "recoverable": False},
+backend/agents/execution_engine/engine.py:14379:                 }
+backend/agents/execution_engine/engine.py:14380:             raise StepRaised(step_id, message) from exc
+
+=== backend/agents/execution_engine/fanout.py:136-139
+backend/agents/execution_engine/fanout.py:136:     def __init__(self, failed: list[dict]):
+backend/agents/execution_engine/fanout.py:137:         self.failed = failed
+backend/agents/execution_engine/fanout.py:138:         names = ", ".join(f"{w.get('agent')}#{w.get('worker')}" for w in failed)
+backend/agents/execution_engine/fanout.py:139:         super().__init__(f"{len(failed)} fan-out worker(s) failed: {names}")
+
+=== backend/agents/execution_engine/fanout.py:604-612
+backend/agents/execution_engine/fanout.py:604:             if agent_error_msg is not None and not saw_complete:
+backend/agents/execution_engine/fanout.py:605:                 status = "failed"
+backend/agents/execution_engine/fanout.py:606:                 worker_error = agent_error_msg[:400]
+backend/agents/execution_engine/fanout.py:607:             if (
+backend/agents/execution_engine/fanout.py:608:                 status == "failed"
+backend/agents/execution_engine/fanout.py:609:                 and not saw_complete
+backend/agents/execution_engine/fanout.py:610:                 and agent_error_msg in TRANSIENT_AGENT_ERRORS
+backend/agents/execution_engine/fanout.py:611:                 and attempt < _TRANSIENT_WORKER_RETRIES
+backend/agents/execution_engine/fanout.py:612:             ):
+
+=== backend/app/api/run_commands.py:4379-4379
+backend/app/api/run_commands.py:4379:                         wr.error = first_agent_error_msg or pipeline_error_msg
+
+=== backend/agents/planner/smart_planner.py:566-568
+backend/agents/planner/smart_planner.py:566:         except Exception as exc:
+backend/agents/planner/smart_planner.py:567:             logger.warning("SmartPlanner failed: %s — using default context", exc)
+backend/agents/planner/smart_planner.py:568:             return self._default_context(brief, pipeline_type)
+
+=== backend/agents/execution_engine/clarify_engine.py:654-659
+backend/agents/execution_engine/clarify_engine.py:654:         except Exception as exc:
+backend/agents/execution_engine/clarify_engine.py:655:             logger.warning(
+backend/agents/execution_engine/clarify_engine.py:656:                 "ClarifyEngine LLM generation failed: %s — falling back to static library",
+backend/agents/execution_engine/clarify_engine.py:657:                 exc,
+backend/agents/execution_engine/clarify_engine.py:658:             )
+backend/agents/execution_engine/clarify_engine.py:659:             return None
+
+=== backend/app/agents/chat/concierge.py:654-689
+backend/app/agents/chat/concierge.py:654:         # The runner SWALLOWS a non-throttle failure into ``{"type":"error"}``
+backend/app/agents/chat/concierge.py:655:         # (deep_agent_runner.astream_events) rather than raising. Ignoring that event
+backend/app/agents/chat/concierge.py:656:         # here — as this loop used to — left ``full_output`` empty, so an auth /
+backend/app/agents/chat/concierge.py:657:         # validation failure reached the user as a BLANK assistant reply with the
+backend/app/agents/chat/concierge.py:658:         # cause visible only in the server log. Capture it and answer honestly below.
+backend/app/agents/chat/concierge.py:659:         stream_error = ""
+backend/app/agents/chat/concierge.py:660:         async for event in runner.astream_events(user_message):
+backend/app/agents/chat/concierge.py:661:             etype = event["type"]
+backend/app/agents/chat/concierge.py:662:             if etype == "error":
+backend/app/agents/chat/concierge.py:663:                 stream_error = str(event.get("error") or "").strip()
+backend/app/agents/chat/concierge.py:664:                 continue
+backend/app/agents/chat/concierge.py:665:             if etype == "usage":
+backend/app/agents/chat/concierge.py:666:                 for key in (
+backend/app/agents/chat/concierge.py:667:                     "input_tokens",
+backend/app/agents/chat/concierge.py:668:                     "output_tokens",
+backend/app/agents/chat/concierge.py:669:                     "cache_read_tokens",
+backend/app/agents/chat/concierge.py:670:                     "cache_write_tokens",
+backend/app/agents/chat/concierge.py:671:                 ):
+backend/app/agents/chat/concierge.py:672:                     usage_total[key] += int(event.get(key, 0) or 0)
+backend/app/agents/chat/concierge.py:673:                 continue
+backend/app/agents/chat/concierge.py:674:             if etype != "chunk":
+backend/app/agents/chat/concierge.py:675:                 continue
+backend/app/agents/chat/concierge.py:676:             delta = event["chunk"]
+backend/app/agents/chat/concierge.py:677:             full_output += delta
+backend/app/agents/chat/concierge.py:678:             if on_chunk is not None:
+backend/app/agents/chat/concierge.py:679:                 res = on_chunk(delta)
+backend/app/agents/chat/concierge.py:680:                 if inspect.isawaitable(res):
+backend/app/agents/chat/concierge.py:681:                     await res
+backend/app/agents/chat/concierge.py:682:         answer = full_output
+backend/app/agents/chat/concierge.py:683:         if not answer and stream_error:
+backend/app/agents/chat/concierge.py:684:             # No text AND a captured failure: say what went wrong instead of
+backend/app/agents/chat/concierge.py:685:             # returning "" (which renders as an empty message / apparent crash).
+backend/app/agents/chat/concierge.py:686:             answer = (
+backend/app/agents/chat/concierge.py:687:                 "I could not answer that — the model call failed:\n\n"
+backend/app/agents/chat/concierge.py:688:                 f"{stream_error[:500]}"
+backend/app/agents/chat/concierge.py:689:             )
+
+=== backend/app/agents/llm_errors.py:50-73
+backend/app/agents/llm_errors.py:50: _BEDROCK_CODE_MAP: dict[str, tuple[str, bool]] = {
+backend/app/agents/llm_errors.py:51:     # Throttling / quota
+backend/app/agents/llm_errors.py:52:     "ThrottlingException": ("rate_limit", True),
+backend/app/agents/llm_errors.py:53:     "ServiceQuotaExceededException": ("rate_limit", True),
+backend/app/agents/llm_errors.py:54:     "TooManyRequestsException": ("rate_limit", True),
+backend/app/agents/llm_errors.py:55:     # Service-side errors
+backend/app/agents/llm_errors.py:56:     "ServiceUnavailableException": ("connection_error", True),
+backend/app/agents/llm_errors.py:57:     "InternalServerException": ("internal_error", True),
+backend/app/agents/llm_errors.py:58:     "ModelNotReadyException": ("connection_error", True),
+backend/app/agents/llm_errors.py:59:     "ModelStreamErrorException": ("connection_error", True),
+backend/app/agents/llm_errors.py:60:     "ModelTimeoutException": ("timeout", True),
+backend/app/agents/llm_errors.py:61:     # Auth / config
+backend/app/agents/llm_errors.py:62:     "AccessDeniedException": ("auth_error", False),
+backend/app/agents/llm_errors.py:63:     "UnauthorizedException": ("auth_error", False),
+backend/app/agents/llm_errors.py:64:     # A4 (STABILIZATION.md): the two codes an expired/invalid Bedrock bearer
+backend/app/agents/llm_errors.py:65:     # token actually raises alongside AccessDeniedException — previously
+backend/app/agents/llm_errors.py:66:     # unmapped, so they fell through to the generic internal_error message.
+backend/app/agents/llm_errors.py:67:     "UnrecognizedClientException": ("auth_error", False),
+backend/app/agents/llm_errors.py:68:     "ExpiredTokenException": ("auth_error", False),
+backend/app/agents/llm_errors.py:69:     "ResourceNotFoundException": ("api_key_missing", False),
+backend/app/agents/llm_errors.py:70:     # Validation (caller-side; not retryable)
+backend/app/agents/llm_errors.py:71:     "ValidationException": ("internal_error", False),
+backend/app/agents/llm_errors.py:72:     "ModelErrorException": ("internal_error", True),
+backend/app/agents/llm_errors.py:73: }
+
+=== backend/app/agents/llm_errors.py:86-96
+backend/app/agents/llm_errors.py:86:         if isinstance(exc, botocore_exc.ClientError):
+backend/app/agents/llm_errors.py:87:             error = getattr(exc, "response", {}).get("Error", {}) or {}
+backend/app/agents/llm_errors.py:88:             aws_code = error.get("Code") or "Unknown"
+backend/app/agents/llm_errors.py:89:             mapped = _BEDROCK_CODE_MAP.get(aws_code)
+backend/app/agents/llm_errors.py:90:             if mapped:
+backend/app/agents/llm_errors.py:91:                 code, recoverable = mapped
+backend/app/agents/llm_errors.py:92:                 return LLMErrorPayload(_message_for(code), code, recoverable)
+backend/app/agents/llm_errors.py:93:             logger.warning("Unmapped Bedrock error code: %s", aws_code)
+backend/app/agents/llm_errors.py:94:             return LLMErrorPayload(
+backend/app/agents/llm_errors.py:95:                 _message_for("internal_error"), "internal_error", True
+backend/app/agents/llm_errors.py:96:             )
+
+=== backend/app/agents/deep_agent_runner.py:1597-1608
+backend/app/agents/deep_agent_runner.py:1597:     async def astream(self, user_message: "str | list") -> AsyncGenerator[str, None]:
+backend/app/agents/deep_agent_runner.py:1598:         """Stream only text chunks (mirrors the legacy text-only interface).
+backend/app/agents/deep_agent_runner.py:1599: 
+backend/app/agents/deep_agent_runner.py:1600:         Delegates to :meth:`astream_events` and yields ``event["chunk"]`` for
+backend/app/agents/deep_agent_runner.py:1601:         every ``chunk`` event, ignoring all other event types (``usage`` /
+backend/app/agents/deep_agent_runner.py:1602:         ``tool_call`` / ``tool_result`` / ``done`` / ``gate`` / ``error``). Like
+backend/app/agents/deep_agent_runner.py:1603:         the legacy ``DeepAgent.astream``, it simply ends when the stream ends —
+backend/app/agents/deep_agent_runner.py:1604:         an ``error`` event just terminates the useful output without raising.
+backend/app/agents/deep_agent_runner.py:1605:         """
+backend/app/agents/deep_agent_runner.py:1606:         async for event in self.astream_events(user_message):
+backend/app/agents/deep_agent_runner.py:1607:             if event["type"] == "chunk":
+backend/app/agents/deep_agent_runner.py:1608:                 yield event["chunk"]
+
+=== frontend/src/components/results/StepsOverviewSpine.tsx:362-365
+frontend/src/components/results/StepsOverviewSpine.tsx:362: function isSecurityBlock(error: string | null): boolean {
+frontend/src/components/results/StepsOverviewSpine.tsx:363:   if (!error) return false;
+frontend/src/components/results/StepsOverviewSpine.tsx:364:   return /security.*gate|blocked.*security|exec.*denied|exec.*off|secret.*scan|secret.*blocked|credential.*blocked|hook.*block/i.test(error);
+frontend/src/components/results/StepsOverviewSpine.tsx:365: }
+
+=== frontend/src/components/results/AgentDetailPanel.tsx:1581-1584
+frontend/src/components/results/AgentDetailPanel.tsx:1581:                 {isError && agent.error && (
+frontend/src/components/results/AgentDetailPanel.tsx:1582:                   <div className="mt-3 rounded-[10px] bg-status-failed-fill border border-status-failed-border px-3.5 py-3">
+frontend/src/components/results/AgentDetailPanel.tsx:1583:                     <p className="m-0 mb-1 text-[11px] font-semibold text-status-failed-strong font-[Manrope]">What went wrong</p>
+frontend/src/components/results/AgentDetailPanel.tsx:1584:                     <p className="m-0 text-[12px] leading-[1.55] text-[#6E4A46]">{agent.error}</p>
+
+=== frontend/src/hooks/useWorkflow.ts:1212-1214
+frontend/src/hooks/useWorkflow.ts:1212:     case "agent_error": {
+frontend/src/hooks/useWorkflow.ts:1213:       const agentId = msg.agent_id as string;
+frontend/src/hooks/useWorkflow.ts:1214:       const error = (msg.error as string) || "Unknown error";
+
+=== frontend/src/hooks/useWorkflow.ts:1236-1241
+frontend/src/hooks/useWorkflow.ts:1236:         updated[agentIdx] = {
+frontend/src/hooks/useWorkflow.ts:1237:           ...settleWaveWorkers(updated[agentIdx]),
+frontend/src/hooks/useWorkflow.ts:1238:           status: "error",
+frontend/src/hooks/useWorkflow.ts:1239:           error,
+frontend/src/hooks/useWorkflow.ts:1240:           thinking: "",
+frontend/src/hooks/useWorkflow.ts:1241:         };
+
+=== backend/tests/agents/test_credential_failure_stops_run.py:61-61
+backend/tests/agents/test_credential_failure_stops_run.py:61:     assert _sanitize_agent_error("Read timeout on endpoint URL") == "The model did not respond in time."
+
+=== backend/tests/agents/test_image_payload_guard.py:211-237
+backend/tests/agents/test_image_payload_guard.py:211: def test_throttle_and_auth_and_timeout_are_named():
+backend/tests/agents/test_image_payload_guard.py:212:     assert "rate-limited" in _sanitize_agent_error("ThrottlingException: rate limit exceeded")
+backend/tests/agents/test_image_payload_guard.py:213:     assert "credential" in _sanitize_agent_error("UnrecognizedClientException: unauthorized")
+backend/tests/agents/test_image_payload_guard.py:214:     assert "did not respond" in _sanitize_agent_error("Read timeout on endpoint URL")
+backend/tests/agents/test_image_payload_guard.py:215: 
+backend/tests/agents/test_image_payload_guard.py:216: 
+backend/tests/agents/test_image_payload_guard.py:217: def test_access_denied_and_authentication_failed_are_named():
+backend/tests/agents/test_image_payload_guard.py:218:     """A4: the literal raw text from STABILIZATION.md's 12 auth-failed runs.
+backend/tests/agents/test_image_payload_guard.py:219: 
+backend/tests/agents/test_image_payload_guard.py:220:     Neither ``"accessdeniedexception"`` (no space) nor ``"authentication failed"``
+backend/tests/agents/test_image_payload_guard.py:221:     matched any needle before this fix — both fell through to the generic
+backend/tests/agents/test_image_payload_guard.py:222:     message, hiding an expired-credential run behind "The model rejected this
+backend/tests/agents/test_image_payload_guard.py:223:     request."
+backend/tests/agents/test_image_payload_guard.py:224:     """
+backend/tests/agents/test_image_payload_guard.py:225:     msg = _sanitize_agent_error(
+backend/tests/agents/test_image_payload_guard.py:226:         "botocore.errorfactory.AccessDeniedException: An error occurred "
+backend/tests/agents/test_image_payload_guard.py:227:         "(AccessDeniedException) when calling the InvokeModelWithResponseStream "
+backend/tests/agents/test_image_payload_guard.py:228:         "operation: Authentication failed for the request."
+backend/tests/agents/test_image_payload_guard.py:229:     )
+backend/tests/agents/test_image_payload_guard.py:230:     assert msg != _GENERIC_AGENT_ERROR_MESSAGE
+backend/tests/agents/test_image_payload_guard.py:231:     assert "credential" in msg
+backend/tests/agents/test_image_payload_guard.py:232: 
+backend/tests/agents/test_image_payload_guard.py:233: 
+backend/tests/agents/test_image_payload_guard.py:234: def test_unrecognised_fault_keeps_the_generic_message():
+backend/tests/agents/test_image_payload_guard.py:235:     """Additive by construction — anything unmatched behaves exactly as before."""
+backend/tests/agents/test_image_payload_guard.py:236:     assert _sanitize_agent_error("something entirely new") == _GENERIC_AGENT_ERROR_MESSAGE
+backend/tests/agents/test_image_payload_guard.py:237:     assert _sanitize_agent_error("") == _GENERIC_AGENT_ERROR_MESSAGE

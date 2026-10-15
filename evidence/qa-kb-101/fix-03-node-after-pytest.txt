@@ -1,0 +1,4 @@
+# HEAD 874686ece + working-tree edit of test_workflows_api.py:217-218, after the fix, 2026-10-08 15:06:46
+# DATABASE_URL=sqlite:///:memory: .venv/bin/python -m pytest tests/integration/api/test_workflows_api.py::TestList::test_list_carries_launchable_flags -p no:cacheprovider -q --tb=line -W ignore
+.                                                                        [100%]
+1 passed in 2.13s

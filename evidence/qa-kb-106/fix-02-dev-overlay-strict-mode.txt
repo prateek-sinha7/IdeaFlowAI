@@ -1,0 +1,36 @@
+# QA-KB-106 fix phase — why the .catch dev log is console.warn, not console.error
+
+# 1. Next 16.3.4 dev overlay patches ONLY console.error:
+35:    window.console.error = function error(...args) {
+55:                (0, _useerrorhandler.handleConsoleError)(// replayed errors have their own complex format string that should be used,
+
+# 2. Pre-fix, the test's locator resolved to that overlay node (hidden):
+tests/integration/test-runs/2026-10-09T03-17-local/0-report.html: 10 x locator resolved to <div id="nextjs__container_errors_desc" ...> unexpected value "hidden"
+
+# 3. A hidden overlay node plus a visible banner with the same text = Playwright strict-mode violation.
+#    Script (/private/tmp/claude-502/-Users-bilala-Developer-Projects-VELOCITY-AI-worktrees-feat-user-stories-v2/2d1a1575-310a-48fd-8155-2763a084604d/scratchpad/strict_check.py):
+from playwright.sync_api import sync_playwright, expect
+html = """<div id="nextjs__container_errors_desc" style="display:none">Pipeline launch failed: ApiError: {"error":"Provider ZZ is unavailable right now","code":"x"}</div>
+<div role="status">Provider ZZ is unavailable right now <button>Dismiss</button></div>"""
+with sync_playwright() as p:
+    b = p.chromium.launch(channel="chrome", headless=True)
+    pg = b.new_page()
+    pg.set_content(html)
+    try:
+        expect(pg.get_by_text("Provider ZZ is unavailable right now")).to_be_visible(timeout=2000)
+        print("RESULT: passed (no strict-mode violation)")
+    except Exception as e:
+        print("RESULT: raised", type(e).__name__, str(e)[:900])
+    b.close()
+
+#    Output (tests/integration/e2e/.venv/bin/python -I strict_check.py):
+RESULT: raised AssertionError Locator expected to be visible
+Actual value: None
+Error: strict mode violation: get_by_text("Provider ZZ is unavailable right now") resolved to 2 elements:
+    1) <div id="nextjs__container_errors_desc">Pipeline launch failed: ApiError: {"error":"Provi…</div> aka get_by_text("Pipeline launch failed:")
+    2) <div role="status">…</div> aka get_by_text("Provider ZZ is unavailable right now Dismiss")
+ 
+Call log:
+  - Expect "to_be_visible" get_by_text("Provider ZZ is unavailable right now") with timeout 2000ms
+  - waiting for get_by_text("Provider ZZ is unavailable right now")
+

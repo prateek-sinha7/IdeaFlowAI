@@ -1,0 +1,42 @@
+# Regression, AFTER the fix — 2026-10-07 — backend/.venv/bin/python -m pytest <file> -q -m 'not live', ONE FILE PER RUN (driver: run_each.py)
+tests/integration/api/test_run_files_ref_family_scope_api.py: rc=0 3 passed in 2.27s (3.9s)
+tests/agents/test_phase4_tagging.py: rc=0 41 passed in 5.20s (6.7s)
+tests/agents/test_phase6_sandbox_versioning.py: rc=0 48 passed in 1.48s (3.1s)
+tests/unit/test_figma_export_ref_render_iss974.py: rc=0 3 passed in 0.96s (2.6s)
+tests/agents/test_iss720_ref_scoped_sizes.py: rc=0 6 passed in 1.73s (3.3s)
+tests/agents/test_version_family_v5.py: rc=1 2 failed in 1.62s (3.2s)
+    FAILED tests/agents/test_version_family_v5.py::TestFiveDistinctVersionFamily::test_five_versions_distinct_content_tags_and_reread
+    FAILED tests/agents/test_version_family_v5.py::TestConcurrentBrowseDuringInFlightRevision::test_browsing_v1_v2_while_v4_in_flight_does_not_affect_it
+tests/agents/test_chain_exact_ref.py: rc=0 28 passed in 1.44s (2.9s)
+tests/agents/test_streamed_text_payload_parity.py: rc=0 3 passed in 2.25s (3.9s)
+tests/agents/test_rollback_safety.py: rc=1 4 failed, 19 passed in 4.32s (5.8s)
+    FAILED tests/agents/test_rollback_safety.py::TestR1IgnoresUnknownChainFiles::test_legacy_payload_selection_ignores_flat_chain_files
+    FAILED tests/agents/test_rollback_safety.py::TestR4FeatureDetectionNoBooleanFlag::test_summary_md_carries_schema_version_field
+    FAILED tests/agents/test_rollback_safety.py::TestR6LegacySelectDoesNotConfuseV2Layout::test_flat_chain_files_not_selected_as_legacy_payload
+    FAILED tests/agents/test_rollback_safety.py::TestR6LegacySelectDoesNotConfuseV2Layout::test_chain_legacy_dir_selected_not_chain_flat
+tests/agents/test_finalizer_v2.py: rc=0 47 passed in 24.77s (26.2s)
+tests/agents/test_phase2_git_versioning.py: rc=0 8 passed in 1.59s (3.1s)
+tests/agents/test_revision_ordinal_v3.py: rc=1 2 failed, 6 passed in 3.02s (4.7s)
+    FAILED tests/agents/test_revision_ordinal_v3.py::TestSequentialTagsAcrossRealFinalization::test_three_completed_revisions_tag_v1_v2_v3
+    FAILED tests/agents/test_revision_ordinal_v3.py::TestSequentialTagsAcrossSiblingRevisions::test_two_sibling_revisions_tag_v1_v2_v3_not_v1_v2_v2
+tests/agents/test_family_lock.py: rc=1 1 failed, 25 passed in 4.20s (5.8s)
+    FAILED tests/agents/test_family_lock.py::TestRestoreLockTimeout::test_upload_handler_timeout_returns_409
+tests/integration/api/test_sandbox_ref_scoped_endpoints_api.py: rc=0 10 passed, 1 xfailed in 5.16s (6.9s)
+tests/agents/test_revision_routes_v3.py: rc=0 12 passed in 2.60s (4.2s)
+tests/agents/test_sandbox_commit_all.py: rc=1 5 failed, 1 passed in 0.98s (2.3s)
+    FAILED tests/agents/test_sandbox_commit_all.py::test_commit_all_delegates_to_workspace_and_returns_sha
+    FAILED tests/agents/test_sandbox_commit_all.py::test_commit_all_warns_not_a_git_repo_when_git_dir_missing
+    FAILED tests/agents/test_sandbox_commit_all.py::test_commit_all_warns_nothing_to_commit_when_git_dir_present
+    FAILED tests/agents/test_sandbox_commit_all.py::test_commit_all_no_warning_on_successful_commit
+    FAILED tests/agents/test_sandbox_commit_all.py::test_commit_all_forwards_message_verbatim
+tests/agents/test_serialized_sandbox_payload_v3.py: rc=0 3 passed in 2.11s (3.6s)
+tests/agents/test_streamed_text_payload_v3.py: rc=0 8 passed in 4.23s (5.7s)
+tests/agents/test_nameless_deliverable_v3.py: rc=0 3 passed in 2.37s (3.7s)
+tests/agents/test_cancel_paths_v3.py: rc=0 4 passed in 3.05s (4.4s)
+tests/agents/test_event_contract.py: rc=0 24 passed in 1.59s (3.3s)
+tests/unit/agents/test_banned_patterns.py: rc=1 2 failed, 16 passed in 1.75s (3.2s)
+    FAILED tests/unit/agents/test_banned_patterns.py::test_capabilities_do_not_import_kernel_or_web_layer
+    FAILED tests/unit/agents/test_banned_patterns.py::TestSC001RevisionPipelineCompliance::test_no_revision_pipeline_names_in_kernel
+E           agents/capabilities/prototype_ui_extract.py:333: from app.agents.tools.html_extract import materialise_html
+E       assert not [('agents/capabilities/prototype_ui_extract.py', 333, 'from app.agents.tools.html_extract import materialise_html')]
+E           agents/execution_engine/engine.py:981: with a ``prototype_revision`` child and a ``custom_revision`` child tagged

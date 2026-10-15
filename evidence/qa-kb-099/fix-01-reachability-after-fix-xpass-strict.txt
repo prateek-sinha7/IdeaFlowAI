@@ -1,0 +1,24 @@
+# QA-KB-099 fix 01: ISS-896 test file after the fix (allow_io + audit note on the SIGTERM test). HEAD 7adb69a3f + working tree, 2026-10-08T12:32:32Z
+# Before the fix, same command: 7 passed, 1 xfailed in 1.30s (XFAIL ... ISS-896 unfixed)
+$ .venv/bin/python -m pytest tests/unit/services/test_shutdown_reachability.py -q -p no:cacheprovider -rxXf --durations=3
+F.......                                                                 [100%]
+=================================== FAILURES ===================================
+____ test_sigterm_reaches_the_lifespan_shutdown_half_while_a_stream_is_live ____
+[XPASS(strict)] ISS-896 unfixed
+=============================== warnings summary ===============================
+app/core/config.py:94
+  /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/app/core/config.py:94: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+    class Settings(BaseSettings):
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+============================= slowest 3 durations ==============================
+6.79s call     tests/unit/services/test_shutdown_reachability.py::test_sigterm_reaches_the_lifespan_shutdown_half_while_a_stream_is_live
+0.98s setup    tests/unit/services/test_shutdown_reachability.py::test_sigterm_reaches_the_lifespan_shutdown_half_while_a_stream_is_live
+
+(1 durations < 0.005s hidden.  Use -vv to show these durations.)
+=========================== short test summary info ============================
+FAILED tests/unit/services/test_shutdown_reachability.py::test_sigterm_reaches_the_lifespan_shutdown_half_while_a_stream_is_live
+1 failed, 7 passed, 1 warning in 7.89s
+exit=1
+$ pgrep -fl reachability_probe_app
+(no probe process left behind)

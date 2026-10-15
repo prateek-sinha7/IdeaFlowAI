@@ -1,0 +1,4 @@
+PASS  ISS-345 single: not contain [Attached:  => ""
+PASS  ISS-583 one of two: a gone, [Attached: zz-hunt-b.txt] kept  => "[Attached: zz-hunt-b.txt]"
+PASS  ISS-579 run brief: no [Attached:  => "My actual brief text"
+3/3 (string-level proxy of attachmentRemove.test.tsx assertions, live source)

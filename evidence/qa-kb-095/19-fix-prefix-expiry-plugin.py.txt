@@ -1,0 +1,19 @@
+"""Scratch baseline: patch the PRE-FIX expiry test (`not root.is_dir()`) back into every route
+module, in-process, so a file can be run against pre-fix behaviour without reverting the tree.
+Imports app lazily in pytest_runtest_setup so collection never binds a live DB."""
+import pytest
+
+@pytest.hookimpl(tryfirst=True)
+def pytest_runtest_setup(item):
+    from app.agents import sandbox
+    from app.api import run_figma_export, run_files, runs
+    mp = pytest.MonkeyPatch()
+    old = lambda root: not root.is_dir()
+    for mod in (sandbox, run_files, run_figma_export, runs):
+        mp.setattr(mod, "run_dir_expired", old)
+    item._prefix_mp = mp
+
+def pytest_runtest_teardown(item):
+    mp = getattr(item, "_prefix_mp", None)
+    if mp is not None:
+        mp.undo()

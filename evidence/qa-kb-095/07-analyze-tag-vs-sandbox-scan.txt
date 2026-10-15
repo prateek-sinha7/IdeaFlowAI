@@ -1,0 +1,13 @@
+# QA-KB-095 analysis, 2026-10-07 — which older family members pin ?ref=<DB git_tag> against a sandbox that does not have it
+# Read-only: DB session is readonly=True; 'git tag --list' only runs when <dir>/.git exists, with GIT_CEILING_DIRECTORIES set (FIX-522).
+# Script: 08-analyze-scratch-db-queries.py.txt (second script). Scope: every workflow_runs row in velocity-local-db and the runs/ tree of this worktree.
+# Rule used: PreviewPanel.tsx:890-891 sets displayRef = member.git_tag only for a member that is NOT the family's last (revision_index) member.
+
+older family members that have a DB git_tag (these pin ?ref=<tag> on their own /runs/{id} page):
+    11  git: tag present
+     4  absent(expired)
+     1  husk(empty,no .git)
+
+git: tag present [('463e6c0b', 'v1', '463e6c0b', 4, 'v1,v2,v3,v4'), ('86e6bcf8', 'v2', '463e6c0b', 4, 'v1,v2,v3,v4'), ('dc60f462', 'v3', '463e6c0b', 4, 'v1,v2,v3,v4')]
+absent(expired) [('87e02c32', 'v1', '87e02c32', 6, ''), ('36ebfbe1', 'v2', '87e02c32', 6, ''), ('8f36b400', 'v5', '87e02c32', 6, '')]
+husk(empty,no .git) [('0f62f7bc', 'v1', '0f62f7bc', 2, '')]

@@ -1,0 +1,106 @@
+F.                                                                       [100%]
+=================================== FAILURES ===================================
+_________________ test_unhandled_mechanical_kind_fails_the_run _________________
+[XPASS(strict)] ISS-684 unfixed
+------------------------------ Captured log call -------------------------------
+WARNING  agents.execution_engine.engine:engine.py:3597 _resolve_root_id: error resolving root for run=harness-ex_publish_step-56340970 ((builtins.Exception) offline harness
+[SQL: offline scripted harness: no database]
+(Background on this error at: https://sqlalche.me/e/20/e3q8)) — degrading to run_id
+WARNING  agents.execution_engine.engine:engine.py:3597 _resolve_root_id: error resolving root for run=harness-ex_publish_step-56340970 ((builtins.Exception) offline harness
+[SQL: offline scripted harness: no database]
+(Background on this error at: https://sqlalche.me/e/20/e3q8)) — degrading to run_id
+WARNING  agents.execution_engine.engine:engine.py:4895 execute(): workspace/capabilities persist failed ((builtins.Exception) offline harness
+[SQL: offline scripted harness: no database]
+(Background on this error at: https://sqlalche.me/e/20/e3q8)) — proceeding (typed-substrate DB writes degrade; deliverable/events unaffected)
+WARNING  app.agents.checkpointer:checkpointer.py:61 Checkpointer: DATABASE_URL is not Postgres — using InMemorySaver. HITL pauses work within the process but do NOT survive a restart.
+WARNING  agents.workflow_memory.memory:memory.py:90 WorkflowMemory.get_entry failed: (builtins.Exception) offline harness
+[SQL: offline scripted harness: no database]
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+WARNING  agents.execution_engine.engine:engine.py:3355 run_events persist failed for run harness-ex_publish_step-56340970 seq 1 ((builtins.Exception) offline harness
+[SQL: offline scripted harness: no database]
+(Background on this error at: https://sqlalche.me/e/20/e3q8)) — DB write degraded (offline harness / schema unavailable); stream unaffected (PERSIST-03 best-effort)
+WARNING  agents.execution_engine.engine:engine.py:5759 pipeline_start created_at lookup failed ((builtins.Exception) offline harness
+[SQL: offline scripted harness: no database]
+(Background on this error at: https://sqlalche.me/e/20/e3q8)) — emitting without it
+WARNING  agents.execution_engine.engine:engine.py:3355 run_events persist failed for run harness-ex_publish_step-56340970 seq 2 ((builtins.Exception) offline harness
+[SQL: offline scripted harness: no database]
+(Background on this error at: https://sqlalche.me/e/20/e3q8)) — DB write degraded (offline harness / schema unavailable); stream unaffected (PERSIST-03 best-effort)
+WARNING  agents.execution_engine.kernel_services:kernel_services.py:480 record_hook_run(hook=audit_logger event=before_step outcome=continue) failed: (builtins.Exception) offline harness
+[SQL: offline scripted harness: no database]
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+WARNING  agents.execution_engine.engine:engine.py:3355 run_events persist failed for run harness-ex_publish_step-56340970 seq 3 ((builtins.Exception) offline harness
+[SQL: offline scripted harness: no database]
+(Background on this error at: https://sqlalche.me/e/20/e3q8)) — DB write degraded (offline harness / schema unavailable); stream unaffected (PERSIST-03 best-effort)
+WARNING  agents.execution_engine.engine:engine.py:3597 _resolve_root_id: error resolving root for run=harness-ex_publish_step-56340970 ((builtins.Exception) offline harness
+[SQL: offline scripted harness: no database]
+(Background on this error at: https://sqlalche.me/e/20/e3q8)) — degrading to run_id
+WARNING  agents.execution_engine.engine:engine.py:3355 run_events persist failed for run harness-ex_publish_step-56340970 seq 4 ((builtins.Exception) offline harness
+[SQL: offline scripted harness: no database]
+(Background on this error at: https://sqlalche.me/e/20/e3q8)) — DB write degraded (offline harness / schema unavailable); stream unaffected (PERSIST-03 best-effort)
+WARNING  agents.execution_engine.engine:engine.py:3355 run_events persist failed for run harness-ex_publish_step-56340970 seq 5 ((builtins.Exception) offline harness
+[SQL: offline scripted harness: no database]
+(Background on this error at: https://sqlalche.me/e/20/e3q8)) — DB write degraded (offline harness / schema unavailable); stream unaffected (PERSIST-03 best-effort)
+WARNING  agents.execution_engine.engine:engine.py:3355 run_events persist failed for run harness-ex_publish_step-56340970 seq 6 ((builtins.Exception) offline harness
+[SQL: offline scripted harness: no database]
+(Background on this error at: https://sqlalche.me/e/20/e3q8)) — DB write degraded (offline harness / schema unavailable); stream unaffected (PERSIST-03 best-effort)
+WARNING  agents.execution_engine.engine:engine.py:3355 run_events persist failed for run harness-ex_publish_step-56340970 seq 7 ((builtins.Exception) offline harness
+[SQL: offline scripted harness: no database]
+(Background on this error at: https://sqlalche.me/e/20/e3q8)) — DB write degraded (offline harness / schema unavailable); stream unaffected (PERSIST-03 best-effort)
+WARNING  agents.execution_engine.kernel_services:kernel_services.py:480 record_hook_run(hook=audit_logger event=tool_call outcome=continue) failed: (builtins.Exception) offline harness
+[SQL: offline scripted harness: no database]
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+WARNING  agents.execution_engine.engine:engine.py:3355 run_events persist failed for run harness-ex_publish_step-56340970 seq 8 ((builtins.Exception) offline harness
+[SQL: offline scripted harness: no database]
+(Background on this error at: https://sqlalche.me/e/20/e3q8)) — DB write degraded (offline harness / schema unavailable); stream unaffected (PERSIST-03 best-effort)
+WARNING  agents.execution_engine.kernel_services:kernel_services.py:480 record_hook_run(hook=audit_logger event=tool_result outcome=continue) failed: (builtins.Exception) offline harness
+[SQL: offline scripted harness: no database]
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+WARNING  agents.execution_engine.engine:engine.py:3355 run_events persist failed for run harness-ex_publish_step-56340970 seq 9 ((builtins.Exception) offline harness
+[SQL: offline scripted harness: no database]
+(Background on this error at: https://sqlalche.me/e/20/e3q8)) — DB write degraded (offline harness / schema unavailable); stream unaffected (PERSIST-03 best-effort)
+WARNING  agents.execution_engine.kernel_services:kernel_services.py:480 record_hook_run(hook=secret_scan event=before_write outcome=continue) failed: (builtins.Exception) offline harness
+[SQL: offline scripted harness: no database]
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+WARNING  agents.execution_engine.engine:engine.py:13965 artifact_refs persist failed for run harness-ex_publish_step-56340970 kind summary ((builtins.Exception) offline harness
+[SQL: offline scripted harness: no database]
+(Background on this error at: https://sqlalche.me/e/20/e3q8)) — DB write degraded (offline harness / schema unavailable); typed graph unaffected (PERSIST-02 best-effort)
+WARNING  agents.execution_engine.engine:engine.py:3355 run_events persist failed for run harness-ex_publish_step-56340970 seq 10 ((builtins.Exception) offline harness
+[SQL: offline scripted harness: no database]
+(Background on this error at: https://sqlalche.me/e/20/e3q8)) — DB write degraded (offline harness / schema unavailable); stream unaffected (PERSIST-03 best-effort)
+WARNING  agents.execution_engine.engine:engine.py:3355 run_events persist failed for run harness-ex_publish_step-56340970 seq 11 ((builtins.Exception) offline harness
+[SQL: offline scripted harness: no database]
+(Background on this error at: https://sqlalche.me/e/20/e3q8)) — DB write degraded (offline harness / schema unavailable); stream unaffected (PERSIST-03 best-effort)
+WARNING  agents.execution_engine.kernel_services:kernel_services.py:480 record_hook_run(hook=audit_logger event=after_step outcome=continue) failed: (builtins.Exception) offline harness
+[SQL: offline scripted harness: no database]
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+WARNING  agents.execution_engine.kernel_services:kernel_services.py:480 record_hook_run(hook=audit_logger event=before_step outcome=continue) failed: (builtins.Exception) offline harness
+[SQL: offline scripted harness: no database]
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+ERROR    agents.execution_engine.engine:engine.py:6515 step custom-agent:publish: Code step kind 'zz_new_kind' has no engine dispatch branch
+WARNING  agents.execution_engine.engine:engine.py:3355 run_events persist failed for run harness-ex_publish_step-56340970 seq 12 ((builtins.Exception) offline harness
+[SQL: offline scripted harness: no database]
+(Background on this error at: https://sqlalche.me/e/20/e3q8)) — DB write degraded (offline harness / schema unavailable); stream unaffected (PERSIST-03 best-effort)
+WARNING  agents.execution_engine.kernel_services:kernel_services.py:842 persist_budget_snapshot failed: (builtins.Exception) offline harness
+[SQL: offline scripted harness: no database]
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+WARNING  agents.execution_engine.engine:engine.py:1762 build_flat_payload: stage_exact failed for run=harness-ex_publish_step-56340970
+Traceback (most recent call last):
+subprocess.CalledProcessError: Command '['git', '-c', 'user.name=Velocity Runtime', '-c', 'user.email=runtime@velocity.local', '-c', 'commit.gpgsign=false', 'add', '--force', '--', '.chain/prototype.html', '.chain/summary.md', '.chain/logs.jsonl']' returned non-zero exit status 128.
+WARNING  agents.execution_engine.engine:engine.py:2349 finalize_terminal_run: metadata_only_snapshot run=harness-ex_publish_step-56340970 trigger=output_unmaterializable
+ERROR    agents.execution_engine.engine:engine.py:2603 finalize_terminal_run: create_run_ref FAILED run=harness-ex_publish_step-56340970 (run_id must be a UUID (hex digits and hyphens only): 'harness-ex_publish_step-56340970')
+ERROR    agents.execution_engine.engine:engine.py:2790 finalize_terminal_run: DB session creation FAILED run=harness-ex_publish_step-56340970 ((builtins.Exception) offline harness
+[SQL: offline scripted harness: no database]
+(Background on this error at: https://sqlalche.me/e/20/e3q8)) — departure N1: returning in-memory record
+WARNING  agents.execution_engine.engine:engine.py:3355 run_events persist failed for run harness-ex_publish_step-56340970 seq 13 ((builtins.Exception) offline harness
+[SQL: offline scripted harness: no database]
+(Background on this error at: https://sqlalche.me/e/20/e3q8)) — DB write degraded (offline harness / schema unavailable); stream unaffected (PERSIST-03 best-effort)
+=============================== warnings summary ===============================
+app/core/config.py:94
+tests/conftest.py:484
+tests/agents/test_iss684_unhandled_mechanical_kind.py::test_unhandled_mechanical_kind_fails_the_run
+tests/agents/test_iss684_unhandled_mechanical_kind.py::test_unhandled_mechanical_kind_fails_the_run
+==================================== PASSES ====================================
+=========================== short test summary info ============================
+PASSED tests/agents/test_iss684_unhandled_mechanical_kind.py::test_engine_dispatch_matches_registered_kinds
+FAILED tests/agents/test_iss684_unhandled_mechanical_kind.py::test_unhandled_mechanical_kind_fails_the_run
+1 failed, 1 passed, 4 warnings in 2.43s

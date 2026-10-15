@@ -1,0 +1,399 @@
+# QA-KB-077 fix — the change, against HEAD 11f580358 (2026-10-07T17:44Z). Tests, fixtures and test docs only.
+
+## git diff --stat (tracked paths this fix touched)
+ backend/tests/agents/test_per_run_paths_v3.py      |   2 +-
+ backend/tests/agents/test_revision_ordinal_v3.py   |   8 +-
+ backend/tests/agents/test_version_family_v5.py     |   8 +-
+ backend/tests/factories/user_factory.py            |   5 +-
+ backend/tests/integration/api/test_handoff_api.py  |   4 +-
+ backend/tests/integration/api/test_logout_api.py   |   4 +-
+ .../unit/test_iss401_reset_password_message.py     | 110 --------------
+ backend/tests/unit/test_register_password_echo.py  |  82 ----------
+ ...gister_password_echo_fixture_mounts_real_app.py |  86 -----------
+ .../unit/test_settings_api_key_whitespace_name.py  |  73 ---------
+ .../tests/unit/test_settings_github_pat_race.py    | 165 ---------------------
+ tests/integration/capture/API-CONTRACT.json        |   9 --
+ .../suites/24_api_contract/test_api_contract.py    |  13 +-
+ .../integration/screens/24-api-contract.feature.md |  26 ++--
+ 14 files changed, 34 insertions(+), 561 deletions(-)
+
+## new: backend/tests/unit/app/test_main.py
+"""app/main.py's 422 handler never echoes a rejected value (FIX-332; ISS-257, ISS-357, ISS-1017).
+
+``_validation_error_handler`` (``app/main.py``) drops Pydantic's ``input`` key, the
+complete value that failed validation, from every 422 body. The test mounts the
+real ``app.main.app``: a bare ``FastAPI()`` falls back to FastAPI's stock handler,
+which still echoes the value, so it could never see this one (ISS-357).
+
+The vehicle is ``PUT /api/settings/github-pat`` (``GithubPATRequest.pat``,
+``min_length=10``). ISS-257's original vehicle, ``POST /api/auth/register``, was
+removed by the Cognito-only migration (ISS-1017). Auth and ``get_db`` are
+overridden with stubs: body validation fails before the route body runs, so no
+engine is opened, and the client is not entered as a context manager, so the
+lifespan never runs.
+"""
+
+from __future__ import annotations
+
+from types import SimpleNamespace
+
+import pytest
+from fastapi.testclient import TestClient
+
+from app.core.dependencies import get_current_user
+from app.models.database import get_db
+
+
+@pytest.fixture
+def client():
+    from app.main import app
+
+    app.dependency_overrides[get_current_user] = lambda: SimpleNamespace(
+        id="u1", email="u@example.com"
+    )
+    app.dependency_overrides[get_db] = lambda: None
+    yield TestClient(app)
+    app.dependency_overrides.clear()
+
+
+@pytest.mark.issue("ISS-1017")
+def test_validation_error_handler_omits_rejected_value_when_credential_too_short(client):
+    rejected = "short7!"  # 7 chars, below GithubPATRequest.pat min_length=10
+
+    resp = client.put("/api/settings/github-pat", json={"pat": rejected})
+
+    assert resp.status_code == 422, resp.text
+    assert rejected not in resp.text, (
+        f"the rejected PAT was echoed back in the 422 body: {resp.text[:300]!r}"
+    )
+
+## moved (mv) + seed: tests/unit/test_settings_api_key_whitespace_name.py -> tests/integration/api/test_settings_api_key_whitespace_name_api.py
+@@ -20,6 +20,8 @@
+ 
+ from __future__ import annotations
+ 
++import uuid
++
+ import pytest
+ from sqlalchemy import create_engine
+ from sqlalchemy.orm import sessionmaker
+@@ -48,7 +50,7 @@
+ def session(engine):
+     Session = sessionmaker(bind=engine, autocommit=False, autoflush=False)
+     s = Session()
+-    user = User(id="user-apikey", email="apikey@example.com", tier="enterprise")
++    user = User(id="user-apikey", email="apikey@example.com", cognito_sub=str(uuid.uuid4()), tier="enterprise")
+     s.add(user)
+     s.commit()
+     yield s
+
+## moved (mv) + seed: tests/unit/test_settings_github_pat_race.py -> tests/integration/api/test_settings_github_pat_race_api.py
+@@ -26,6 +26,7 @@
+ 
+ import asyncio
+ import threading
++import uuid
+ 
+ import httpx
+ import pytest
+@@ -92,7 +93,7 @@
+ def seeded_user_id(engine):
+     Session = sessionmaker(bind=engine, autocommit=False, autoflush=False)
+     s = Session()
+-    user = User(id="user-race", email="race@example.com", tier="enterprise")
++    user = User(id="user-race", email="race@example.com", cognito_sub=str(uuid.uuid4()), tier="enterprise")
+     s.add(user)
+     s.add(
+         UserGithubCredential(
+
+## git diff (modified files; deletions shown as --stat only above)
+diff --git a/backend/tests/agents/test_per_run_paths_v3.py b/backend/tests/agents/test_per_run_paths_v3.py
+index 61f7946d9..737d4c5d2 100644
+--- a/backend/tests/agents/test_per_run_paths_v3.py
++++ b/backend/tests/agents/test_per_run_paths_v3.py
+@@ -115,7 +115,7 @@ def _seed_family_rows(*, db_user_id: str, root_id: str, revision_ids: list[str])
+ 
+     db = SessionLocal()
+     try:
+-        db.add(User(id=db_user_id, email=f"{db_user_id}@test.local"))
++        db.add(User(id=db_user_id, email=f"{db_user_id}@test.local", cognito_sub=str(uuid.uuid4())))
+         db.add(
+             WorkflowRun(
+                 id=root_id, user_id=db_user_id, title="v7 fixture root",
+diff --git a/backend/tests/agents/test_revision_ordinal_v3.py b/backend/tests/agents/test_revision_ordinal_v3.py
+index 824f6b30f..62999e7a7 100644
+--- a/backend/tests/agents/test_revision_ordinal_v3.py
++++ b/backend/tests/agents/test_revision_ordinal_v3.py
+@@ -332,7 +332,7 @@ class TestSequentialTagsAcrossRealFinalization:
+         real_db = _RealSessionLocal()
+         try:
+             if real_db.query(User).filter(User.id == _owner).first() is None:
+-                real_db.add(User(id=_owner, email=f"{_owner}@test.local"))
++                real_db.add(User(id=_owner, email=f"{_owner}@test.local", cognito_sub=str(uuid.uuid4())))
+                 real_db.commit()
+             # GAPS T6: distinct created_offset per row — the family-wide
+             # counting rule (BFS down from root, sorted by (created_at, id))
+@@ -359,7 +359,7 @@ class TestSequentialTagsAcrossRealFinalization:
+             drive_kwargs = {"pipeline_run_id": run_id}
+             if parent_run_id:
+                 drive_kwargs["parent_run_id"] = parent_run_id
+-            events = asyncio.run(_drive("custom", **drive_kwargs))
++            events = asyncio.run(_drive("custom", offline_db=False, **drive_kwargs))
+ 
+             completes = [e for e in events if e.get("type") == "pipeline_complete"]
+             assert len(completes) == 1, (
+@@ -419,7 +419,7 @@ class TestSequentialTagsAcrossSiblingRevisions:
+         real_db = _RealSessionLocal()
+         try:
+             if real_db.query(User).filter(User.id == _owner).first() is None:
+-                real_db.add(User(id=_owner, email=f"{_owner}@test.local"))
++                real_db.add(User(id=_owner, email=f"{_owner}@test.local", cognito_sub=str(uuid.uuid4())))
+                 real_db.commit()
+             _seed_run(real_db, run_id=root_id, parent_run_id=None, user_id=_owner)
+             # Both siblings parented directly on the ROOT — NOT on each other.
+@@ -438,7 +438,7 @@ class TestSequentialTagsAcrossSiblingRevisions:
+             drive_kwargs = {"pipeline_run_id": run_id}
+             if parent_run_id:
+                 drive_kwargs["parent_run_id"] = parent_run_id
+-            events = asyncio.run(_drive("custom", **drive_kwargs))
++            events = asyncio.run(_drive("custom", offline_db=False, **drive_kwargs))
+ 
+             completes = [e for e in events if e.get("type") == "pipeline_complete"]
+             assert len(completes) == 1, (
+diff --git a/backend/tests/agents/test_version_family_v5.py b/backend/tests/agents/test_version_family_v5.py
+index f106f7e5b..f2dc9f382 100644
+--- a/backend/tests/agents/test_version_family_v5.py
++++ b/backend/tests/agents/test_version_family_v5.py
+@@ -98,7 +98,7 @@ def _seed_chain(real_db, run_ids: list[str]) -> None:
+     from app.models.user import User  # noqa: PLC0415
+ 
+     if real_db.query(User).filter(User.id == _OWNER).first() is None:
+-        real_db.add(User(id=_OWNER, email=f"{_OWNER}@test.local"))
++        real_db.add(User(id=_OWNER, email=f"{_OWNER}@test.local", cognito_sub=str(uuid.uuid4())))
+         real_db.commit()
+     parent: str | None = None
+     # GAPS T6: distinct created_offset per row — the family-wide counting
+@@ -122,7 +122,7 @@ def _drive_version(run_id: str, parent_run_id: str | None, marker: str) -> dict:
+     if parent_run_id:
+         drive_kwargs["parent_run_id"] = parent_run_id
+     with patch.object(scripted_model_mod, "_scripts_for", _scripts_for_with_marker(marker)):
+-        events = asyncio.run(_drive("custom", **drive_kwargs))
++        events = asyncio.run(_drive("custom", offline_db=False, **drive_kwargs))
+     completes = [e for e in events if e.get("type") == "pipeline_complete"]
+     assert len(completes) == 1, (
+         f"run {run_id}: expected exactly 1 pipeline_complete, got {completes}"
+@@ -147,7 +147,9 @@ async def _drive_v4_paused(rev3_id: str, rev2_id: str, sandbox, *, pause_after_c
+     ``asyncio.run(...)`` at the call site — agent scripts are looked up
+     lazily, per-step, as the generator is pulled on BOTH sides of the pause).
+     """
+-    agen, restore = _prepare_engine_run("custom", pipeline_run_id=rev3_id, parent_run_id=rev2_id)
++    agen, restore = _prepare_engine_run(
++        "custom", offline_db=False, pipeline_run_id=rev3_id, parent_run_id=rev2_id
++    )
+     events: list[dict] = []
+     snapshot: dict = {}
+     try:
+diff --git a/backend/tests/factories/user_factory.py b/backend/tests/factories/user_factory.py
+index 4e04944cd..b19893c20 100644
+--- a/backend/tests/factories/user_factory.py
++++ b/backend/tests/factories/user_factory.py
+@@ -1,8 +1,7 @@
+ """Shared helper for creating Cognito-backed users in tests.
+ 
+-``POST /api/auth/register`` is a permanent 403 by design (see
+-``app/api/auth.py``) — account creation is administrator-only, the endpoint
+-only still exists so legacy clients get a clear error instead of a 404.
++``POST /api/auth/register`` no longer exists (removed by the Cognito-only
++migration, b2a621f84; it answers 404) — account creation is administrator-only.
+ Cognito is the sole authentication authority (Cognito-only auth migration,
+ ``.kiro/specs/login/prompt.md`` Phase 1): there is no local password to
+ hash, so a test user needs BOTH a local ``User`` row (with a ``cognito_sub``)
+diff --git a/backend/tests/integration/api/test_handoff_api.py b/backend/tests/integration/api/test_handoff_api.py
+index 770bfe3a3..6bfcd6fbf 100644
+--- a/backend/tests/integration/api/test_handoff_api.py
++++ b/backend/tests/integration/api/test_handoff_api.py
+@@ -119,8 +119,8 @@ def _register_and_login(
+ ) -> str:
+     """Create a fresh user directly in the test DB and return their JWT.
+ 
+-    ``/api/auth/register`` is a permanent 403 (self-registration is disabled
+-    by design — see app/api/auth.py). The account is created directly and
++    ``/api/auth/register`` was removed by the Cognito-only migration
++    (self-registration is disabled by design). The account is created directly and
+     the JWT comes from the real ``/api/auth/login`` flow, which is what
+     these tests actually need to exercise the handoff/API-key surface.
+     """
+diff --git a/backend/tests/integration/api/test_logout_api.py b/backend/tests/integration/api/test_logout_api.py
+index 3100206d7..2dd95bd5f 100644
+--- a/backend/tests/integration/api/test_logout_api.py
++++ b/backend/tests/integration/api/test_logout_api.py
+@@ -111,8 +111,8 @@ def _register(
+     """Create a Cognito-linked user directly in the test DB, then log in and
+     return the parsed AuthResponse JSON.
+ 
+-    ``POST /api/auth/register`` is a permanent 403 (self-registration is
+-    admin-only by design), so this helper can no longer exercise it. It
++    ``POST /api/auth/register`` was removed by the Cognito-only migration
++    (self-registration is admin-only by design), so this helper cannot use it. It
+     inserts directly instead, with a ``cognito_sub`` that matches what
+     ``FakeCognitoAuth`` will mint for this email — see
+     ``tests/factories/user_factory.py``.
+diff --git a/tests/integration/capture/API-CONTRACT.json b/tests/integration/capture/API-CONTRACT.json
+index 6105dbbb8..96bce768f 100644
+--- a/tests/integration/capture/API-CONTRACT.json
++++ b/tests/integration/capture/API-CONTRACT.json
+@@ -260,15 +260,6 @@
+     "status_code": null,
+     "response_model": "RefreshResponse"
+   },
+-  {
+-    "method": "POST",
+-    "path": "/api/auth/register",
+-    "handler": "register",
+-    "file": "backend/app/api/auth.py",
+-    "auth": "public",
+-    "status_code": "HTTP_403_FORBIDDEN",
+-    "response_model": null
+-  },
+   {
+     "method": "GET",
+     "path": "/api/capabilities",
+diff --git a/tests/integration/e2e/suites/24_api_contract/test_api_contract.py b/tests/integration/e2e/suites/24_api_contract/test_api_contract.py
+index a95984302..0d90c25b9 100644
+--- a/tests/integration/e2e/suites/24_api_contract/test_api_contract.py
++++ b/tests/integration/e2e/suites/24_api_contract/test_api_contract.py
+@@ -141,7 +141,7 @@ def test_no_endpoint_loses_its_authentication_silently(page, shot):
+ 
+ @pytest.mark.scenario("S-24-03")
+ def test_the_public_list_is_exactly_eighteen_and_each_is_deliberate(page, shot):
+-    """Scenario: The public list is exactly eighteen, and each is deliberate
++    """Scenario: The public list is exactly seventeen, and each is deliberate
+ 
+     A NEW public endpoint fails this and forces the reason to be written down
+     before it ships.
+@@ -186,14 +186,13 @@ def test_a_request_with_no_credentials_is_answered_401_not_403(page, shot):
+ def test_registration_is_permanently_closed(page, shot):
+     """Scenario: Registration is permanently closed
+ 
+-    Declared as `status_code=HTTP_403_FORBIDDEN` on the route itself, not as a
+-    runtime check — it cannot succeed by configuration.
++    The route is gone: the Cognito-only migration (b2a621f84) removed it, so it
++    answers 404 and there is no self-registration path left to configure open.
+     """
+     with shot("register-closed", "When I POST /api/auth/register"):
+         page.goto("/dashboard")
+-        # With a well-formed body: FastAPI validates the payload BEFORE the
+-        # route's declared status is reached, so an empty POST answers 422 and
+-        # never proves the route is closed.
++        # With a well-formed body, so a route re-added here would reach its
++        # handler instead of stopping at a 422.
+         result = api.full(
+             page,
+             "POST",
+@@ -201,7 +200,7 @@ def test_registration_is_permanently_closed(page, shot):
+             {"email": "nobody@example.com", "password": "not-a-real-password"},
+         )
+ 
+-    assert result["status"] == 403, (
++    assert result["status"] == 404, (
+         f"registration answered {result['status']}: {result['body'][:200]}"
+     )
+ 
+diff --git a/tests/integration/screens/24-api-contract.feature.md b/tests/integration/screens/24-api-contract.feature.md
+index 398b720f3..2b2061304 100644
+--- a/tests/integration/screens/24-api-contract.feature.md
++++ b/tests/integration/screens/24-api-contract.feature.md
+@@ -1,7 +1,7 @@
+ # Feature: The API contract
+ 
+ **Screenshots:** none — this is the layer beneath the UI.
+-**Snapshot:** `capture/API-CONTRACT.json` — all 111 endpoints with method, path, auth
++**Snapshot:** `capture/API-CONTRACT.json` — all 110 endpoints with method, path, auth
+ requirement, status code and response model, extracted from source.
+ 
+ ```
+@@ -26,20 +26,20 @@ discovered in production.
+ 
+ ## The surface
+ 
+-**111 endpoints.** By auth requirement:
++**110 endpoints.** By auth requirement:
+ 
+ | | Count |
+ |---|---:|
+ | Requires a signed-in user | **87** |
+ | Requires an admin | **6** |
+-| Public | **18** |
++| Public | **17** |
+ 
+ By area:
+ 
+ | Area | Endpoints | Auth |
+ |---|---:|---|
+ | `runs` | 26 | all user |
+-| `auth` | 14 | 6 public, 8 user |
++| `auth` | 13 | 5 public, 8 user |
+ | `settings` | 11 | all user |
+ | `prototype` | 10 | 4 public, 6 user |
+ | `agents` | 9 | all user |
+@@ -52,9 +52,9 @@ By area:
+ | `analytics`, `capabilities`, `files`, `hooks`, `skills` | 1 each | all user |
+ 
+ Declared status codes: 7 × `201_CREATED`, 8 × `204_NO_CONTENT`, 7 × `200_OK`,
+-1 × `202_ACCEPTED`, 1 × `403_FORBIDDEN` (`/api/auth/register`, permanently).
++1 × `202_ACCEPTED`.
+ 
+-## The 18 public endpoints, and why each is public
++## The 17 public endpoints, and why each is public
+ 
+ This is the list that matters most — anything wrongly on it is an authorization hole.
+ 
+@@ -63,7 +63,6 @@ This is the list that matters most — anything wrongly on it is an authorizatio
+ | `POST /api/auth/login` | you have no token yet |
+ | `POST /api/auth/login/challenge` | mid-authentication |
+ | `POST /api/auth/logout` | must work with an already-invalid token |
+-| `POST /api/auth/register` | **answers 403 by design** — self-registration is closed |
+ | `POST /api/auth/forgot-password` | pre-authentication; refuses when email is a second factor |
+ | `POST /api/auth/forgot-password/confirm` | pre-authentication |
+ | `GET /api/ppt/templates/{id}/preview` · `/thumbnail` | loaded by a sandboxed iframe |
+@@ -125,7 +124,7 @@ arriving unlisted. **A** = auth: `P`ublic, `U`ser, `A`dmin.
+ |---|---|---|---|
+ | U | `GET` | `/api/analytics/summary` | AnalyticsSummary |
+ 
+-### `auth` — 14
++### `auth` — 13
+ 
+ | A | Method | Path | Returns |
+ |---|---|---|---|
+@@ -142,7 +141,6 @@ arriving unlisted. **A** = auth: `P`ublic, `U`ser, `A`dmin.
+ | U | `POST` | `/api/auth/mfa/totp/associate` | 200 Ok |
+ | U | `POST` | `/api/auth/mfa/totp/verify` | 200 Ok |
+ | U | `POST` | `/api/auth/refresh` | RefreshResponse |
+-| P | `POST` | `/api/auth/register` | 403 Forbidden |
+ 
+ ### `capabilities` — 1
+ 
+@@ -325,8 +323,8 @@ Feature: The API contract holds
+ 
+   @S-24-03
+   @sourced
+-  Scenario: The public list is exactly eighteen, and each is deliberate
+-    Then exactly 18 endpoints require no authentication
++  Scenario: The public list is exactly seventeen, and each is deliberate
++    Then exactly 17 endpoints require no authentication
+     And each appears in the table above with a stated reason
+     # A NEW public endpoint should fail this and force the reason to be written
+     # down before it ships.
+@@ -348,9 +346,9 @@ Feature: Authentication endpoints
+   @sourced
+   Scenario: Registration is permanently closed
+     When I POST /api/auth/register
+-    Then the response status is 403
+-    # Declared as status_code=HTTP_403_FORBIDDEN on the route itself — not a
+-    # runtime check. It cannot succeed by configuration.
++    Then the response status is 404
++    # The route is gone: the Cognito-only migration (b2a621f84) removed it, so
++    # there is no self-registration path left to configure open.
+ 
+   @S-24-06
+   @sourced

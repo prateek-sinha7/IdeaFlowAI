@@ -85,6 +85,37 @@ def decode_bedrock_bearer_token_expiry(token: str):
     return issued_at + timedelta(seconds=int(expires_match.group(1)))
 
 
+def _local_ollama_env() -> "dict | None":
+    """The merged ``.env`` + process env when the USE_LOCAL_OLLAMA dev override is on,
+    else ``None`` (temp, dev-only, goes with the override block in ``build_model``).
+
+    The one reading of the flag, so ``build_model``, ``preflight_check_provider`` and
+    the planner cannot disagree about it (ISS-1133). Reads .env directly: pydantic
+    loads .env into settings WITHOUT exporting to os.environ (same trap the
+    AWS_BEARER_TOKEN_BEDROCK bridge below works around), so os.getenv alone would
+    never see a value set in the file.
+    """
+    import os
+
+    from dotenv import dotenv_values
+
+    from app.core.config import ENV_FILE
+
+    env = {**dotenv_values(ENV_FILE), **os.environ}  # real env wins
+    if env.get("USE_LOCAL_OLLAMA", "").strip().lower() in ("1", "true", "yes", "on"):
+        return env
+    return None
+
+
+def _bedrock_configured() -> bool:
+    """Settings alone, deliberately NOT the ``model`` override — otherwise a
+    Mistral-only environment would read as Bedrock config and skip the fallback."""
+    return bool(
+        (settings.BEDROCK_INFERENCE_PROFILE_ID or settings.BEDROCK_MODEL_ID)
+        and settings.AWS_REGION
+    )
+
+
 def preflight_check_provider() -> "tuple[bool, str | None]":
     """No-network check that the provider ``build_model()`` would select is
     usable right now. Call once at run launch, before the engine starts any
@@ -111,10 +142,13 @@ def preflight_check_provider() -> "tuple[bool, str | None]":
     token = settings.AWS_BEARER_TOKEN_BEDROCK
     if not token:
         return True, None
-    # Mirrors build_model()'s own precedence: a set ANTHROPIC_API_KEY is ALWAYS
-    # used regardless of Bedrock config, so a stale bearer token sitting in the
-    # env is irrelevant to a run that will never touch Bedrock.
-    if settings.ANTHROPIC_API_KEY:
+    # Mirrors build_model()'s own precedence: the USE_LOCAL_OLLAMA override and a
+    # set ANTHROPIC_API_KEY are ALWAYS used regardless of Bedrock config, and the
+    # Mistral fallback whenever Bedrock is unconfigured, so a stale bearer token
+    # sitting in the env is irrelevant to a run that will never touch Bedrock.
+    if _local_ollama_env() is not None or settings.ANTHROPIC_API_KEY:
+        return True, None
+    if settings.MISTRAL_API_KEY and not _bedrock_configured():
         return True, None
     try:
         expiry = decode_bedrock_bearer_token_expiry(token)
@@ -323,22 +357,8 @@ def build_model(
     # --- LOCAL OLLAMA OVERRIDE (temp, dev-only — comment out or delete when done) ---
     # Off unless USE_LOCAL_OLLAMA is explicitly truthy, so this block can stay
     # pasted in without hijacking runs that should hit the real provider.
-    # Reads .env directly: pydantic loads .env into settings WITHOUT exporting to
-    # os.environ (same trap the AWS_BEARER_TOKEN_BEDROCK bridge below works around),
-    # so os.getenv alone would never see a value set in the file.
-    import os
-
-    from dotenv import dotenv_values
-
-    from app.core.config import ENV_FILE
-
-    _ollama_env = {**dotenv_values(ENV_FILE), **os.environ}  # real env wins
-    if _ollama_env.get("USE_LOCAL_OLLAMA", "").strip().lower() in (
-        "1",
-        "true",
-        "yes",
-        "on",
-    ):
+    _ollama_env = _local_ollama_env()
+    if _ollama_env is not None:
         from langchain_ollama import ChatOllama
 
         ollama_model = _ollama_env.get("OLLAMA_MODEL") or "qwen3.5:4b"
@@ -452,13 +472,7 @@ def build_model(
     ):
         os.environ["AWS_BEARER_TOKEN_BEDROCK"] = settings.AWS_BEARER_TOKEN_BEDROCK
 
-    # Settings alone, deliberately NOT the ``model`` override — otherwise a
-    # Mistral-only environment would read as Bedrock config and skip the fallback.
-    bedrock_configured = bool(
-        (settings.BEDROCK_INFERENCE_PROFILE_ID or settings.BEDROCK_MODEL_ID)
-        and settings.AWS_REGION
-    )
-    if not bedrock_configured:
+    if not _bedrock_configured():
         if settings.MISTRAL_API_KEY:
             from langchain_mistralai import ChatMistralAI
 

@@ -1,0 +1,57 @@
+# fix-06 — AFTER the fix: the four FIX-601..604 guard files (section 5b). one file per run -> all exit 0, counts identical to fix-03
+
+######## npx vitest run src/components/preview/PreviewPanel.pinSurvival.test.tsx   -> exit 0
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - ESM syntax in a file loaded as CommonJS (vitest.config.ts:1:1). Use a `.mjs` extension or set `"type": "module"` in the closest package.json
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+
+ RUN  v4.1.11 /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/frontend
+
+
+ Test Files  1 passed (1)
+      Tests  2 passed | 1 expected fail (3)
+   Start at  18:47:53
+   Duration  1.78s (transform 178ms, setup 106ms, import 542ms, tests 248ms, environment 770ms)
+
+
+######## npx vitest run src/components/preview/PreviewPanel.refSurfaces.test.tsx   -> exit 0
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - ESM syntax in a file loaded as CommonJS (vitest.config.ts:1:1). Use a `.mjs` extension or set `"type": "module"` in the closest package.json
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+
+ RUN  v4.1.11 /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/frontend
+
+
+ Test Files  1 passed (1)
+      Tests  4 passed (4)
+   Start at  18:47:55
+   Duration  1.34s (transform 165ms, setup 59ms, import 400ms, tests 289ms, environment 425ms)
+
+
+######## npx vitest run src/components/preview/PreviewPanel.versionRunInput.test.tsx   -> exit 0
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - ESM syntax in a file loaded as CommonJS (vitest.config.ts:1:1). Use a `.mjs` extension or set `"type": "module"` in the closest package.json
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+
+ RUN  v4.1.11 /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/frontend
+
+
+ Test Files  1 passed (1)
+      Tests  2 passed (2)
+   Start at  18:47:57
+   Duration  1.27s (transform 165ms, setup 59ms, import 395ms, tests 160ms, environment 468ms)
+
+
+######## npx vitest run src/components/preview/RunHeader.test.tsx   -> exit 0
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - ESM syntax in a file loaded as CommonJS (vitest.config.ts:1:1). Use a `.mjs` extension or set `"type": "module"` in the closest package.json
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+
+ RUN  v4.1.11 /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/frontend
+
+
+ Test Files  1 passed (1)
+      Tests  14 passed (14)
+   Start at  18:47:59
+   Duration  1.00s (transform 88ms, setup 55ms, import 204ms, tests 230ms, environment 415ms)
+

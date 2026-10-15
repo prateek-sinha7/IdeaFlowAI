@@ -320,3 +320,37 @@ class TestApprovedExemption:
         assert (
             "approval" in reason.lower() or "secret" in reason.lower()
         ), f"Block reason must mention secret detection in exempted file; got: {reason!r}"
+
+
+# ---------------------------------------------------------------------------
+# 8. Engine-rendered PDFs under .chain/ are approved; every other PDF is not
+# ---------------------------------------------------------------------------
+
+from agents.capabilities.hooks.secret_scan import scan_staged_binary  # noqa: E402
+
+_PDF = b"%PDF-1.7\n\x00\x01binary\n%%EOF\n"
+
+
+def test_a_pdf_in_the_engine_chain_payload_passes() -> None:
+    assert scan_staged_binary(".chain/Backlog.pdf", _PDF) is None
+
+
+def test_a_pdf_anywhere_else_is_blocked() -> None:
+    for name in (
+        "Backlog.pdf",
+        "build/Backlog.pdf",
+        "x/.chain/Backlog.pdf",
+        ".chain/../Backlog.pdf",
+    ):
+        assert scan_staged_binary(name, _PDF), name
+
+
+def test_a_chain_pdf_carrying_a_secret_is_still_blocked() -> None:
+    reason = scan_staged_binary(
+        ".chain/Backlog.pdf", _PDF + b"aws_access_key_id = AKIAQ3EGRL7ZXBV2WK4P\n"
+    )
+    assert reason and "secret" in reason.lower()
+
+
+def test_jsonl_is_scanned_as_text() -> None:
+    assert scan_staged_binary("logs.jsonl", b'{"a": 1}\n') is None

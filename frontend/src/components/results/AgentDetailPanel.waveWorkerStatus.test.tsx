@@ -287,7 +287,9 @@ describe("AgentDetailPanel — a wave member's page carries the same sections", 
     // Same sections a step page has, in the same collapsed/expanded states.
     expect(body).toContain("4 files written");        // its own output, expanded
     expect(body).toContain("Reasoning");              // its own reasoning card
-    expect(body).toContain("Task message");           // its own input, collapsed (file-based context)
+    // ISS-866: a file-based member (run_input source, no systemPrompt) labels its input
+    // "Task message", as a step does (AgentDetailPanel.tsx:524, Req 13 AC 9).
+    expect(body).toContain("Task message");           // its own input, collapsed
     expect(body).toContain("Context received");       // its own context rail
     expect(body).toContain("prompt.md");              // that context source
     expect(body).toContain("Tool calls");             // its own tool calls
@@ -326,6 +328,8 @@ describe("AgentDetailPanel — a member page is the step page, every section", (
   it("renders every section a step page renders", () => {
     render(<AgentDetailPanel onBack={() => {}} agent={full} breadcrumb={crumbs} />);
     const body = document.body.textContent ?? "";
+    // ISS-866: the input section of a file-based member reads "Task message"
+    // (AgentDetailPanel.tsx:524), not "Full input prompt".
     for (const section of [
       "Reasoning", "Tool calls", "Task message", "Agent output", "Context received",
     ]) expect(body, `missing section: ${section}`).toContain(section);

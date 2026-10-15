@@ -1,0 +1,68 @@
+# QA-KB-076 fix probe: HEAD guard vs fixed guard, on temp files only (ISS-1082 shapes, ISS-1084 missing path, negatives)
+# tree: /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2   HEAD: cb8edba2c   date: 2026-10-07 22:37 CEST
+# HEAD guard = git show HEAD:backend/tests/unit/test_run_shutdown_stale_citations.py (its _LINE_CITE and lint loop are the pre-fix ones)
+# run: cd backend && .venv/bin/python sibling_probe.py guard_head.py tests/unit/test_run_shutdown_stale_citations.py
+
+########## output
+ISS-1084  missing scanned file gone.py
+  HEAD : PASSED (guard green)
+  FIXED: FAILED -> scanned file moved or deleted: /var/folders/fv/36z8hwhx79zbmd06_pbk4bvm0000gp/T/tmpl0qzuoqr/gone.py
+ISS-1082  prose / wrapped / other-extension cites in cites.py
+  HEAD : PASSED (guard green)
+  FIXED: FAILED -> line-number cites found: | cites.py:2: line | 292 | cites.py:5: line | # 191 | cites.py:7: agents/workflows/prototype/workflow.yaml:12 | cites.py:8: backend/pyproject.toml:174 | cites.py:9: :2045
+negatives clean.py
+  FIXED: PASSED (guard green)
+
+########## sibling_probe.py
+"""QA-KB-076 fix probe: old (HEAD) guard vs fixed guard on temp inputs. Never touches the real tree."""
+import importlib.util, sys, tempfile
+from pathlib import Path
+
+def load(name, path):
+    spec = importlib.util.spec_from_file_location(name, path)
+    mod = importlib.util.module_from_spec(spec); spec.loader.exec_module(mod); return mod
+
+head = load("guard_head", sys.argv[1])
+fixed = load("guard_fixed", sys.argv[2])
+tmp = Path(tempfile.mkdtemp())
+
+def run_lint(mod, paths):
+    mod._SCANNED = paths
+    try:
+        mod.test_no_line_number_cites_in_shutdown_path_files()
+        return "PASSED (guard green)"
+    except AssertionError as e:
+        return "FAILED -> " + str(e).replace("\n", " | ")
+
+# ISS-1084: a scanned path that no longer exists
+gone = tmp / "gone.py"
+print("ISS-1084  missing scanned file", gone.name)
+print("  HEAD :", run_lint(head, [gone]))
+print("  FIXED:", run_lint(fixed, [gone]))
+
+# ISS-1082: prose / wrapped / other-extension cites
+f = tmp / "cites.py"
+f.write_text(
+    '"""Docstring.\n'
+    "and ``await self.lifespan.shutdown()`` on line\n"
+    '292 is never reached.\n"""\n'
+    "# the restore call sits on line\n"
+    "# 191 of the lifespan\n"
+    "# see agents/workflows/prototype/workflow.yaml:12\n"
+    "# see backend/pyproject.toml:174\n"
+    "x = 1  # registers the queue at :2045\n"
+)
+print("ISS-1082  prose / wrapped / other-extension cites in", f.name)
+print("  HEAD :", run_lint(head, [f]))
+print("  FIXED:", run_lint(fixed, [f]))
+
+# negatives must stay clean under the fixed guard, whole-text
+n = tmp / "clean.py"
+n.write_text(
+    "# http://localhost:3000 and 127.0.0.1:53650, host 0.0.0.0:8000\n"
+    "# timestamp 12:30:45; ISS-104: see FIX-690; key: 100\n"
+    "# symbol-style cite: _drain_then_cancel first wait; the pipeline 2 deadline 30s\n"
+    "max_lines = 3  # 120 chars\n"
+)
+print("negatives", n.name)
+print("  FIXED:", run_lint(fixed, [n]))

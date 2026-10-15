@@ -62,7 +62,7 @@ is what makes it the useful control.
 |---|---|---|---|
 | Generate product requirements | — | — | — |
 | Pitch an idea (Fast) | Pro | — | — |
-| Pitch an idea (Detailed) | Pro | — | — |
+| Pitch an idea (Depth) | Pro | — | — |
 | Build an interactive prototype (Fast) | Pro | — | — |
 | Build an end-to-end application | Pro | — | — |
 | Compose a custom workflow | Enterprise | Enterprise | — |
@@ -81,13 +81,12 @@ is what makes it the useful control.
 on ppt — the one column that would disprove "higher tier ⇒ more cards". Fill it in
 once a fixture exists (D-16).
 
-**Deliverable access** on `/settings/usage` per tier: basic lists Product
-Requirements and Presentation; enterprise lists those plus Interactive Prototype,
-App Builder, Custom Workflow, Platform Workflows, Mulesoft Migration and
-.NET Migration.
-
-Note the two lists disagree with the catalog: the seven `ex_A*` fixtures are
-launchable for enterprise but appear nowhere in Deliverable Access (D-04).
+**Deliverable access** on `/settings/usage` lists what the catalog enables for the
+tier, read from the same list (QA-KB-117): basic lists Product Requirements,
+Presentation and Pitch an idea (Depth); enterprise lists every launchable product
+workflow plus, under "Engine examples", every engine example the catalog offers.
+Coming Soon workflows (MuleSoft to Spring Boot, .NET to Azure) are not plan access
+and are not listed, and neither is Platform Workflows, which has no manifest.
 
 ---
 
@@ -179,16 +178,16 @@ Feature: Tier and role gating
       | enterprise@velocity.ai | Enterprise | Custom Workflow       |
 
   @S-17-08
-  @defect
-  # D-04. Deliverable Access and the home catalog disagree for enterprise: the
-  # seven ex_A* fixtures are launchable on the catalog but listed nowhere here.
-  # One of the two surfaces is wrong about what the plan includes.
-  Scenario: Deliverable Access omits workflows the catalog offers
+  # D-04, settled 2026-10-09 (QA-KB-117): the engine examples are demos, and
+  # Deliverable Access is driven by the catalog's own list, so every example
+  # the catalog offers an enterprise user is listed here too.
+  Scenario: Deliverable Access lists the engine examples the catalog offers
     Given I am signed in as "enterprise@velocity.ai"
     When I cold-load "/dashboard"
+    And I open "Engine examples"
     Then "Branch on a decision" is launchable
     When I cold-load "/settings/usage"
-    Then Deliverable Access does NOT mention it
+    Then Deliverable Access lists every engine example the catalog offered
 
   @S-17-09
   @defect

@@ -1,0 +1,63 @@
+import { describe, expect, it, vi } from "vitest";
+import fs from "node:fs";
+import { renderWithProviders, screen } from "@/test/renderWithProviders";
+import userEvent from "@testing-library/user-event";
+
+import { IdeaInputPage } from "@/components/workflow/IdeaInputPage";
+import { SkillsHooksProvider } from "@/context/SkillsHooksContext";
+import type { AgentDef, WorkflowType } from "@/types/index";
+
+const WF = "prototype_v2" as WorkflowType;
+
+vi.mock("@/hooks/useSpeechRecognition", () => ({
+  useSpeechRecognition: () => ({
+    isListening: false, transcript: "", startListening: vi.fn(), stopListening: vi.fn(), isSupported: false,
+  }),
+}));
+vi.mock("@/components/workflow/AgentsPopup", () => ({ AgentsPopup: () => null }));
+vi.mock("@/components/workflow/composer/DesignPickerModal", () => ({ DesignPickerModal: () => null }));
+// ReviewGatesSection is deliberately NOT mocked: this probe runs the REAL section.
+
+const mockAgents: AgentDef[] = [
+  { id: "reading-planner", name: "Reading Planner", role: "Plans reading", description: "x",
+    pipeline_type: "prototype_v2", order: 1, icon: "search", estimated_duration: 60, has_skill: false },
+];
+
+function renderPage(onRun = vi.fn()) {
+  renderWithProviders(
+    <SkillsHooksProvider>
+      <IdeaInputPage workflowType={WF} onBack={vi.fn()} onRun={onRun} />
+    </SkillsHooksProvider>,
+    {
+      preloadedState: {
+        agents: { agents: mockAgents, totalCount: 1, pipelines: {}, status: "succeeded", error: null },
+        global: { workflows: [{ id: "prototype_v2", name: "PDF to Prototype", description: "d", step_count: 1, steps: [],
+          user_launchable: true, context_providers: [], design_mode: "web" }] } as never,
+      },
+    },
+  );
+  return { onRun };
+}
+
+describe("PROBE real ReviewGatesSection inside IdeaInputPage", () => {
+  it("untouched Run: what does the real wiring send?", async () => {
+    const user = userEvent.setup();
+    const { onRun } = renderPage();
+    await user.type(screen.getByRole("textbox"), "Build the prototype.");
+    await user.click(screen.getByRole("button", { name: /run workflow/i }));
+    expect(onRun).toHaveBeenCalledTimes(1);
+    const [, , , extraParams] = onRun.mock.calls[0];
+    fs.appendFileSync("<SCRATCH>/out.txt", "PROBE_UNTOUCHED_extraParams=" + JSON.stringify(extraParams === undefined ? "__undefined__" : extraParams) + "\n");
+  });
+
+  it("touched Run (tick one review gate): what does the real wiring send?", async () => {
+    const user = userEvent.setup();
+    const { onRun } = renderPage();
+    await user.type(screen.getByRole("textbox"), "Build the prototype.");
+    await user.click(screen.getByRole("button", { name: /review gates/i }));
+    await user.click(screen.getAllByRole("checkbox")[0]);
+    await user.click(screen.getByRole("button", { name: /run workflow/i }));
+    const [, , , extraParams] = onRun.mock.calls[0];
+    fs.appendFileSync("<SCRATCH>/out.txt", "PROBE_TOUCHED_extraParams=" + JSON.stringify(extraParams === undefined ? "__undefined__" : extraParams) + "\n");
+  });
+});

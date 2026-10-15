@@ -81,19 +81,16 @@ const FEATURE_CARDS = [
 
 /** Strip one attached filename out of the `[Attached: ...]` marker block(s) the
  *  attach handler wrote into the idea text, leaving the markers for files that
- *  are still attached intact (ISS-345, ISS-583). */
+ *  are still attached intact (ISS-345, ISS-583). Matches the literal filename,
+ *  because a name may itself contain "]" or ", " (ISS-579). */
 function stripAttachmentMarker(text: string, filename: string): string {
-  let removed = false;
+  const n = filename.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   return text
-    .replace(/(\n\n)?\[Attached: ([^\]]*)\]/g, (match, sep: string | undefined, names: string) => {
-      if (removed) return match;
-      const remaining = names.split(", ");
-      const at = remaining.indexOf(filename);
-      if (at === -1) return match;
-      removed = true;
-      remaining.splice(at, 1);
-      return remaining.length ? `${sep ?? ""}[Attached: ${remaining.join(", ")}]` : "";
-    })
+    .replace(
+      // sole entry | later entry | first of several; each anchored on "[Attached: ", none looks for the closing "]"
+      new RegExp(`(\\n\\n)?\\[Attached: ${n}\\]|(\\[Attached: [^\\n]*?), ${n}(?=, |\\])|(\\[Attached: )${n}, `),
+      (_m, _sep, keepMid, keepHead) => keepMid ?? keepHead ?? "",
+    )
     .trim();
 }
 

@@ -37,6 +37,12 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
+# Audit note: this belongs in tests/integration/api/; it stays here under an
+# explicit exemption until that move is approved.
+pytestmark = pytest.mark.allow_io(
+    "the owner check runs against an in-memory SQLite engine"
+)
+
 
 class _FakeUser:
     def __init__(self, id: str):
@@ -95,9 +101,7 @@ def _seed_user(env, tag: str) -> _FakeUser:
         u = User(
             id=str(uuid.uuid4()),
             email=f"sbx-{tag}-{uuid.uuid4().hex[:8]}@example.com",
-            # users.cognito_sub is NOT NULL since the Cognito-only auth migration
-            # (b2a621f8), which also dropped password_hash.
-            cognito_sub=f"sub-{uuid.uuid4()}",
+            cognito_sub=f"sbx-{tag}",
         )
         db.add(u)
         db.commit()
@@ -218,15 +222,22 @@ class TestListing:
         assert body["expired"] is False
         assert body["truncated"] is False
 
-    def test_the_reserved_subtrees_are_never_listed(self, env):
+    def test_every_file_is_listed_reserved_and_git_metadata_included(self, env):
         user = _seed_user(env, "u")
         run_id = _owned_run(env, user)
-        _seed_ppt_v2_workspace(env, user, run_id)
+        sb = _seed_ppt_v2_workspace(env, user, run_id)
+        sb.write(".extract/pdf/brief/document.md", "# page 1")
+        (sb.root / ".git").mkdir(exist_ok=True)
+        (sb.root / ".git" / "HEAD").write_text("ref: refs/heads/main\n")
+        (sb.root / ".gitignore").write_text(".uploads/\n")
         env["state"]["user"] = user
 
         paths = [f["path"] for f in _list(env, run_id).json()["files"]]
         assert ".uploads/brief.txt" in paths
         assert ".logs/run-logs.jsonl" in paths
+        assert ".extract/pdf/brief/document.md" in paths
+        assert ".git/HEAD" in paths
+        assert ".gitignore" in paths
 
     def test_it_marks_which_files_the_viewer_can_render_as_text(self, env):
         user = _seed_user(env, "u")
@@ -332,7 +343,7 @@ class TestRead:
         assert _read(env, run_id, path).status_code in (400, 404)
 
     @pytest.mark.parametrize("path", [".uploads/brief.txt", ".logs/run-logs.jsonl"])
-    def test_the_reserved_subtrees_are_not_readable_either(self, env, path):
+    def test_a_listed_reserved_file_is_readable(self, env, path):
         user = _seed_user(env, "u")
         run_id = _owned_run(env, user)
         _seed_ppt_v2_workspace(env, user, run_id)
@@ -351,6 +362,21 @@ class TestRead:
         env["state"]["user"] = user
 
         assert _read(env, run_id, "huge.md").status_code == 413
+
+    def test_a_backlog_sized_pdf_reads(self, env):
+        # Backlog.pdf runs 14-18 MB; the old 8 MB cap refused it in the viewer
+        # and on download.
+        user = _seed_user(env, "u")
+        run_id = _owned_run(env, user)
+        sb = _sandbox(env, user.id, run_id)
+        sb.ensure()
+        with open(sb.root / "Backlog.pdf", "wb") as f:
+            f.truncate(20 * 1024 * 1024)
+        env["state"]["user"] = user
+
+        r = _read(env, run_id, "Backlog.pdf")
+        assert r.status_code == 200
+        assert len(r.content) == 20 * 1024 * 1024
 
     def test_reading_from_a_swept_workspace_is_404(self, env):
         user = _seed_user(env, "u")
@@ -483,7 +509,7 @@ class TestWorkspaceZip:
         assert all(n.startswith(f"{stem}/") for n in names)
         inner = sorted(n.split("/", 1)[1] for n in names)
         assert inner == sorted(f["path"] for f in _list(env, run_id).json()["files"])
-        # The reserved subtrees are listed and therefore archived too.
+        # The reserved subtrees are listed, and so archived too.
         assert ".uploads/brief.txt" in inner
         assert ".logs/run-logs.jsonl" in inner
 

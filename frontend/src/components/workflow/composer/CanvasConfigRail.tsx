@@ -23,8 +23,10 @@ import {
   effortLevelsFor,
   effortLabel,
   modelChangePatch,
+  parserTarget,
   KNOWN_PRODUCERS,
   TOOL_GRANT_LEVERS,
+  withToolGrant,
   type StepSelection,
   type SelectionsMap,
   type MechanicalOption,
@@ -65,11 +67,6 @@ const FRIENDLY_NAMES: Record<string, string> = {
   heading_tasks: "## Task headings",
   json_tasks: "JSON task list — build/tasks.json",
   screen_plan: "Screen list — build/screens.json",
-};
-/** The file each parser reads from the sandbox (heading_tasks reads the reply). */
-const PARSER_TARGET: Record<string, string> = {
-  json_tasks: "build/tasks.json",
-  screen_plan: "build/screens.json",
 };
 /** Waves only: the 4th task source — a JSON task list read from exactly the file the
  *  author names (task_source kind `custom_path`). `{revision_n}` is the current
@@ -940,7 +937,7 @@ export function CanvasConfigRail({
                   on={toolGrants[key]}
                   label={label}
                   disabled={loading}
-                  onToggle={() => patch({ tools: { ...toolGrants, [key]: !toolGrants[key] } })}
+                  onToggle={() => patch({ tools: withToolGrant(sel, key, !toolGrants[key]) })}
                 />
               </div>
             ))}
@@ -1574,7 +1571,7 @@ Higher effort costs more and takes longer.`}</InfoHint>
                 const chosenParser =
                   prev && prev !== "heading_tasks" && prev !== "json_tasks" ? prev : undefined;
                 const parser = chosenParser ?? (wave ? "json_tasks" : "heading_tasks");
-                const target = chosenParser ? sel.task_source?.target : PARSER_TARGET[parser];
+                const target = chosenParser ? sel.task_source?.target : parserTarget(taskParserOptions, parser);
                 patch({
                   strategy: mode,
                   task_source: {
@@ -1627,7 +1624,7 @@ Higher effort costs more and takes longer.`}</InfoHint>
                   // author's `screen_plan` choice back to a mode default.
                   const chosenParser = sel.task_source?.parser;
                   const parser = chosenParser ?? (waveOn ? "json_tasks" : "heading_tasks");
-                  const target = chosenParser ? sel.task_source?.target : PARSER_TARGET[parser];
+                  const target = chosenParser ? sel.task_source?.target : parserTarget(taskParserOptions, parser);
                   patch({
                     task_source: {
                       kind: "parsed",
@@ -1657,7 +1654,7 @@ Higher effort costs more and takes longer.`}</InfoHint>
                 <span>
                   {(() => {
                     const parser = sel.task_source?.parser ?? (waveOn ? "json_tasks" : "heading_tasks");
-                    const file = sel.task_source?.kind === CUSTOM_PATH ? sel.task_source.path : PARSER_TARGET[parser];
+                    const file = sel.task_source?.kind === CUSTOM_PATH ? sel.task_source.path : parserTarget(taskParserOptions, parser);
                     const expects = file
                       ? <>write <code>{file}</code></>
                       : <>end its reply with <code>## Task N:</code> headings</>;
@@ -1709,7 +1706,7 @@ Custom path (waves only): the agent wrote a JSON task list to a file you name, a
                   return;
                 }
                 const parser = e.target.value;
-                const target = PARSER_TARGET[parser] ?? sel.task_source?.target;
+                const target = parserTarget(taskParserOptions, parser);
                 patch({
                   task_source: {
                     kind: "parsed",

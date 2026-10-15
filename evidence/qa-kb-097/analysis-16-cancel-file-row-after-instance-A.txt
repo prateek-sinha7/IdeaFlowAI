@@ -1,0 +1,2 @@
+test_cancel_stops_a_resumed_drive_and_writes_the_terminal_row: after instance A the row is status='failed'
+test_a_cancelled_resumed_run_is_not_re_adopted_by_auto_resume: after instance A the row is status='failed'

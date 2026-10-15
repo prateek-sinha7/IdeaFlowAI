@@ -1,13 +1,20 @@
 # WONTFIX
 <!-- STATE -->
-
-| Bug | Ledger status | Updated |
-|---|---|---|
-| [QA-PS-007](#qa-ps-007) | CLOSED | 2026-09-23 |
-| [QA-PS-026](#qa-ps-026) | PARKED | 2026-09-17 |
-
-Last synced: 2026-09-23T00:48:22Z
-
+| Bug | Ledger status | Updated | Evidence |
+|---|---|---|---|
+| QA-PS-006 | CLOSED | 2026-09-17 | n/a |
+| QA-PS-009 | CLOSED | 2026-09-22 | n/a |
+| QA-PS-007 | CLOSED | 2026-09-23 | n/a |
+| QA-PS-021 | CLOSED | 2026-09-23 | n/a |
+| QA-KB-032 | ESCALATED | 2026-10-01 | missing |
+| QA-PS-026 | PARKED | 2026-09-17 | n/a |
+| QA-KB-047 | PARKED | 2026-10-02 | n/a |
+| QA-KB-055 | CLOSED | 2026-10-09 | n/a |
+| QA-KB-112 | ANALYZED | 2026-10-12 | n/a |
+| QA-KB-121 | CLOSED | 2026-10-12 | n/a |
+| QA-KB-114 | ESCALATED | 2026-10-09 | ok |
+| QA-KB-117 | CLOSED | 2026-10-12 | n/a |
+Last synced: 2026-10-12T08:20:13Z
 <!-- /STATE -->
 
 
@@ -22,8 +29,6 @@ Current ledger status is the truth; a section here only says a ruling is wanted.
 
 ## QA-PS-006
 > **Now CLOSED** (2026-09-17) — kept for the trace.
-
-
 
 **Candidate:** QA-PS-006 — "Review required" messages in concierge chat show no agent name
 
@@ -66,8 +71,6 @@ Current ledger status is the truth; a section here only says a ruling is wanted.
 
 ## QA-PS-009
 > **Now CLOSED** (2026-09-22) — kept for the trace.
-
-
 
 **Candidate:** QA-PS-009 — Analytics Model Details card shows a "Thinking" row for Sonnet 5
 
@@ -234,7 +237,7 @@ version. QA-PS-007 closes.
 ---
 
 ## QA-PS-021
-> **Now FIXED** (2026-09-23) — kept for the trace.
+> **Now CLOSED** (2026-09-23) — kept for the trace.
 
 ### ISS-734 won't fix (user decision 1a, recorded 2026-09-23 01:34)
 
@@ -285,8 +288,10 @@ pass a step whose real input never arrived. The run carries the signal, not the 
 For this case the run is flagged only when the compiling step declares `consumes`,
 which is FIX-634's scope. The base `custom` manifest declares no `consumes`.
 
-## QA-PS-026
+## QA-KB-032
+> **Evidence missing** — claims below are unproven.
 
+## QA-PS-026
 
 **Candidate:** QA-PS-026 — Custom workflow validator runs on Sonnet 5 instead of Haiku 4.5
 
@@ -295,3 +300,111 @@ which is FIX-634's scope. The base `custom` manifest declares no `consumes`.
 **Title:** Custom workflow validator runs on Sonnet 5 instead of Haiku 4.5 — intentional model declaration, not a bug
 
 **Rationale:** The custom workflow validator was declared to use Sonnet 5 as the reasoning model, not as a bug. This is an intentional product design decision.
+
+## QA-KB-047
+> **Section missing** — the worker did not write its trace.
+
+## QA-KB-055
+> **Now CLOSED** (2026-10-09) — kept for the trace.
+
+## QA-KB-112
+> **Now ANALYZED** (2026-10-12) — kept for the trace.
+
+**Title:** Admin sees the MFA enrollment wall on /settings/security and gets a new TOTP secret on every visit · **Route:** /settings/security · **Stage:** validate · **Date:** 2026-10-09
+
+### Why it looks intentional
+Reproduced 3/3 from cold start (admin@velocity.ai): /settings/security renders the "Two-factor authentication" enrollment page instead of the Account Settings Security tab (no `tab-security` element), and each load shows a different setup key. This is what the code is written to do, and it was added deliberately by commit b2a621f84 ("Fix/cognito login (#8)").
+- `frontend/src/app/settings/security/page.tsx:3-11` docstring: "This page exists because Cognito provides no enrolment UI without the hosted UI, and because `require_admin` refuses an admin who holds no second factor. It is the destination the backend names in that 403's `enroll_path`..."
+- `page.tsx` `begin()` calls `associateTotp(token)` from a mount effect, so every visit mints a new secret; the page copy says "This key is shown once and is not stored. If you leave this page before finishing, start again."
+- Nothing is enrolled until `verifyTotp` succeeds, so the repeated secrets are unverified associations, not account changes.
+- The route is a bare page (`frontend/src/app/settings/` contains only `security/`), so it shadows the Security tab route listed in velocity.json (`/settings/security`, `tab-security`). `SecuritySection.tsx` is still used by `AccountSettings.tsx`.
+
+### Evidence
+- evidence/qa-kb-112/01-validate-attempt1-mfa-enrollment-wall-secret-XNAG.png (key XNAGDTGH...)
+- evidence/qa-kb-112/02-validate-attempt2-mfa-enrollment-wall-new-secret.png (key 2QU32AL4...)
+- evidence/qa-kb-112/03-validate-attempt3-mfa-enrollment-wall-third-secret.png (key AH2DMHYL...)
+- Related open card: ISS-1018 (e2e specs for this tab broken by the same commit).
+
+### Decision needed
+Should /settings/security remain a pure TOTP enrollment page that always associates a new secret, or should it show the Account Settings Security tab and only enrol when the admin has no second factor?
+
+### Options
+- Keep as is: update velocity.json and the 09_settings e2e suite to the new behaviour (8 e2e failures become test fixes).
+- Show the Security tab when MFA is already enabled, enrol only when not: changes the page and avoids minting a secret on each visit.
+- Move the enrollment wall to a different route (e.g. /settings/security/enroll) and restore the tab at /settings/security.
+
+### What happens after the decision
+Keep: bug closed as WONTFIX, tests and velocity.json updated. Otherwise: re-enter analysis with the chosen behaviour.
+
+## QA-KB-121
+> **Now CLOSED** (2026-10-12) — kept for the trace.
+
+**Title:** Launch preflight passes a Bedrock key that Bedrock rejects · **Route:** POST /api/runs · **Stage:** validate · **Date:** 2026-10-09
+
+### Why it looks intentional
+`preflight_check_provider` is documented as a no-network, expiry-only check. A token that decodes as unexpired but is revoked or invalid server-side can only be detected by a live Bedrock call, which the docstring deliberately declines to pay for on every launch. The reported behaviour (accepted at launch, then fails cleanly at the first model call) is the documented trade-off. No browser repro was run: the reporter's evidence is a direct converse call outside the app, and a live call with the shared credential is not something this phase should make.
+
+### Evidence
+- backend/app/agents/model_factory.py:119-120 `def preflight_check_provider() -> "tuple[bool, str | None]": """No-network check that the provider ``build_model()`` would select is usable right now.`
+- backend/app/agents/model_factory.py:126 `Only the Bedrock bearer-token path has a check this cheap: its expiry is embedded in the token itself`; the same docstring says anything beyond expiry "would mean a live model call on every launch".
+- Related: ISS-1133, ISS-1135 (other preflight gaps, expiry-based).
+
+### Decision needed
+Is expiry-only preflight acceptable, with a revoked-but-unexpired key failing cleanly at first model call, or should launch do a live cheap Bedrock probe?
+
+### Options
+- Keep as is: close WONTFIX, optionally improve the failure message for AccessDenied "API Key invalid".
+- Add a cached live probe (for example one converse call per N minutes) to the preflight: costs a network call and tokens, needs a decision on the cache window.
+
+### What happens after the decision
+Keep: closed WONTFIX. Probe: re-enter analysis with the chosen design.
+
+## QA-KB-114
+
+**Title:** Composer shows the blank "Custom Agent" template while authoring an override · **Route:** /workflows/{id}/canvas · **Stage:** validate · **Date:** 2026-10-09
+
+### Why it looks intentional
+Reproduced 3/3 cold on :3000 (the Add agent panel lists "Custom Agent" under the All and Custom categories of /workflows/ppt/canvas; the default PPT category hides it). But the composer canvas offering the blank template is a recorded, locked design decision (FIX-306): the guard was applied only to the LaunchWizard, and the composer canvas was deliberately left out because it launches via USER_WORKFLOW_MANIFEST. The e2e scenario S-04-18 asserts the opposite for the composer's override editor, so the test and the card contradict each other.
+
+### Evidence
+- Screenshots: evidence/qa-kb-114/03-validate-attempt1-custom-category-lists-custom-agent.png, 05-validate-attempt2-custom-category-lists-custom-agent.png, 06-validate-attempt3-all-category-lists-custom-agent.png (default-category contrast: 04-validate-attempt2-add-agent-panel-open.png, 02-validate-attempt1-canvas-add-disabled.png)
+- .knowledge/cards/20260825-2115-FIX-306.md locked_constraints: "The blank template stays available on the composer canvas, which launches via USER_WORKFLOW_MANIFEST and has no flat allow-list."
+- Same card, Decision and fix: "`AgentLibrary` gained `allowCustomAgentTemplate`, default `true`, passed `false` from `LaunchWizard`. The composer canvas keeps the template — a user-defined step is the point there".
+- frontend/src/components/workflow/AgentLibrary.tsx:37-49 (`allowCustomAgentTemplate?` default true; doc names only LaunchWizard); frontend/src/components/workflow/LaunchWizard.tsx:1559 `allowCustomAgentTemplate={false}`; frontend/src/components/workflow/composer/ComposerPage.tsx:1713 `<AgentLibrary` passes no such prop.
+- tests/integration/e2e/suites/04_composer_canvas/test_composer_canvas.py:444-461 asserts `expect(page.get_by_text("Custom Agent", exact=True)).to_have_count(0)` on the composer override editor, and its docstring itself notes the template is "not offered on /workflows/new either".
+- Related: ISS-182 (resolved), ISS-687 (resolved).
+
+### Decision needed
+Should the composer canvas withhold the blank Custom Agent template when it is editing/copying a built-in (S-04-18), or is the FIX-306 rule (offered on the composer canvas) correct and the e2e scenario wrong?
+
+### Options
+- Keep FIX-306 as is: close WONTFIX and correct e2e S-04-18 (it asserts something the card says is not the design).
+- Withhold the template in the composer when the base is a built-in (pass allowCustomAgentTemplate=false from ComposerPage in canvas/override mode): reverses a locked constraint, and "Save as copy" of a built-in with a custom step stops being possible.
+
+### What happens after the decision
+Keep: closed WONTFIX plus a test-only fix of S-04-18. Withhold: re-enter analysis with ComposerPage.tsx as the target.
+
+## QA-KB-117
+> **Now CLOSED** (2026-10-12) — kept for the trace.
+
+**Title:** Deliverable access hides "Branch on a decision" · **Route:** /settings/usage (deliverable access) · **Stage:** validate · **Date:** 2026-10-09
+
+### Why escalated
+The omission reproduces 3/3 from cold, but it looks intentional by construction and it is one face of an already-open product decision, [ISS-187](.knowledge/cards/20260826-1547-ISS-187.md) (status partially_resolved): the seven ex_A* engine-example fixtures are user-launchable and entitled to enterprise, so the home catalog offers them, while the Deliverable access grid is a fixed list of 8 base deliverable types that never includes them. Which of the two surfaces is "right" is the ISS-187 / D-04 decision, not a defect with one correct answer. The e2e scenario S-17-08 is tagged `@defect` and pins today's behaviour as "Deliverable Access does NOT mention it".
+
+### Evidence
+- Attempt 1/2/3 (admin, enterprise tier, cold navigations): `evidence/qa-kb-117/01-validate-attempt1-settings-usage-initial.png`, `02-validate-attempt1-dashboard-catalog.png`, `03-validate-attempt2-dashboard-catalog-full.png`, `04-validate-attempt2-usage-omits-branch.png`, `05-validate-attempt3-usage-omits-branch.png`. Catalog innerText includes "Branch on a decision" (under "Engine examples"); /settings/usage DELIVERABLE ACCESS lists exactly: Product Requirements, Presentation, Interactive Prototype, App Builder, Custom Workflow, Platform Workflows, Mulesoft Migration, .NET Migration.
+- `frontend/src/components/settings/AccountSettings.tsx:65-74` `PIPELINE_DISPLAY` is a fixed 8-entry map; `:85-88` `getBasePipelines` = `TIER_PIPELINES[tier]` filtered by `.filter(p => PIPELINE_DISPLAY[p])`, so any pipeline without a display entry (all ex_A*) is dropped by design.
+- `frontend/src/lib/entitlements.ts:79` and `backend/app/core/entitlements.py:78` both list `"ex_A2_branch"` ("Branch on a decision") for enterprise.
+- `tests/integration/DEFECTS-OBSERVED.md:95-113` D-04; `tests/integration/e2e/suites/17_theme_and_tiers/test_theme_and_tiers.py:235-256` asserts the omission as today's behaviour.
+
+### Decision needed
+Should the engine-example fixtures be customer-visible deliverables at all?
+
+### Options
+1. Fixtures are QA-only: set `user_launchable: false` and de-entitle on both sides (ISS-187 option 2); the catalog and Deliverable access then agree, this report closes.
+2. Fixtures are demos: keep them launchable and add them (or an "Engine examples" row) to PIPELINE_DISPLAY; update S-17-08.
+3. Keep as is: Deliverable access lists deliverable types, not individual workflows; close as intended and retire the S-17-08 defect pin.
+
+### What happens after the decision
+Option 1/2 become a small FIX under ISS-187 plus a test update; option 3 closes the row as won't-fix.

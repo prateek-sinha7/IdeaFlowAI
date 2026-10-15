@@ -1,0 +1,214 @@
+QA-KB-090 analysis: source quotes, read at HEAD 024c03ef8 + working tree (2026-10-02). Line numbers are the ones read.
+
+== backend/agents/execution_engine/engine.py:15669-15703  (resume_run: roster resolution; plan fallback only when the registry roster is EMPTY) ==
+15669:         from agents.registry import get_pipeline_agents
+15670: 
+15671:         try:
+15672:             if resumed_compiled is not None:
+15673:                 agents = self._specs_from_plan(resumed_compiled.steps)
+15674:             else:
+15675:                 agents = get_pipeline_agents(resolve_alias(pipeline_type))
+15676:         except Exception as exc:  # noqa: BLE001 — unknown pipeline → cannot resume
+15677:             logger.warning("resume_run(%s): cannot resolve agents (%s)", run_id, exc)
+15678:             # WR-01: drop the task entry registered at the create_task site.
+15679:             self._fire_resume_cleanup(run_id)
+15680:             return
+15681:         if not agents:
+15682:             # ── Roster seam (twin of the execute() roster seam at ~line 1473): the
+15683:             # compiled plan is the single source of the run's agent roster. For a
+15684:             # composed workflow (steps are instances of an agent template, e.g.
+15685:             # `custom-agent:facts`, with no AGENT.md on disk) the registry has no
+15686:             # static membership and returns `[]` above — that alone doesn't mean
+15687:             # there's nothing to resume, so fall back to the compiled plan before
+15688:             # giving up.
+15689:             try:
+15690:                 compiled = compile_for_run(pipeline_type)
+15691:             except Exception as exc:  # noqa: BLE001 — cannot compile → cannot resume
+15692:                 logger.warning("resume_run(%s): cannot compile plan (%s)", run_id, exc)
+15693:                 self._fire_resume_cleanup(run_id)
+15694:                 return
+15695:             if compiled.steps:
+15696:                 agents = self._specs_from_plan(compiled.steps)
+15697:         if not agents:
+15698:             logger.warning(
+15699:                 "resume_run(%s): empty agent list — nothing to resume", run_id
+15700:             )
+15701:             # WR-01: drop the task entry registered at the create_task site.
+15702:             self._fire_resume_cleanup(run_id)
+15703:             return
+
+== backend/agents/execution_engine/engine.py:15709-15729  (resume_run: plan-relative offset, then the progress line and all-complete test against len(agents)) ==
+15709:         offset = await self._compute_resume_offset(
+15710:             run_id,
+15711:             user_id,
+15712:             session_id,
+15713:             pipeline_type,
+15714:             agents,
+15715:             compiled=resumed_compiled,
+15716:         )
+15717: 
+15718:         logger.info(
+15719:             "resume_run(%s): resuming pipeline=%s at step offset %d/%d",
+15720:             run_id,
+15721:             pipeline_type,
+15722:             offset,
+15723:             len(agents),
+15724:         )
+15725:         if offset >= len(agents):
+15726:             # Every step already complete — finalize without re-driving any agent.
+15727:             logger.info(
+15728:                 "resume_run(%s): all steps complete — nothing to re-drive", run_id
+15729:             )
+
+== backend/agents/execution_engine/engine.py:16303-16326  (_compute_resume_offset: rebuilds the roster from the plan, offset is an index into THAT list) ==
+16303:             if compiled is None:
+16304:                 compiled = compile_for_run(pipeline_type)
+16305:             # ── Roster seam (twin of the execute() roster seam at ~line 1473): the
+16306:             # compiled plan is the single source of the run's agent roster. For a
+16307:             # composed workflow (steps are instances of an agent template, e.g.
+16308:             # `custom-agent:facts`, with no AGENT.md on disk) the registry-sourced
+16309:             # `agents` passed in here is `[]`, so `self._resolver.validate(agents)`
+16310:             # below would validate an empty roster and resume would die with "empty
+16311:             # agent list — nothing to resume". Rebuild `agents` from the compiled
+16312:             # plan exactly as execute() does, guarded the same way.
+16313:             if compiled.steps:
+16314:                 agents = self._specs_from_plan(compiled.steps)
+16315:             from agents.execution_engine.resolver import WorkflowResolver  # noqa: F401
+16316: 
+16317:             validation = self._resolver.validate(agents)
+16318:             ordered_agents = validation.dag or list(agents)
+16319:             # ISS-685: tmp has no runner, so pass the run's sandbox (built as resume_run
+16320:             # builds it; RunSandbox.__init__ does no I/O) for the task_loop total.
+16321:             return await self._first_incomplete_step(
+16322:                 tmp,
+16323:                 ordered_agents,
+16324:                 compiled,
+16325:                 sandbox=RunSandbox(user_id or "anon", _resolve_root_id(run_id, owner_id)),
+16326:             )
+
+== backend/agents/execution_engine/engine.py:15315-15316  (_first_incomplete_step: all steps complete => len(ordered_agents), the plan length) ==
+15315:         # Every step already complete → nothing left to drive.
+15316:         return len(ordered_agents)
+
+== backend/agents/execution_engine/engine.py:5004-5015  (_execute_impl roster seam: expands a non-empty strict-subset roster to the plan (set rule)) ==
+5004:         _plan_ids = {s.agent_id for s in compiled.steps}
+5005:         _roster_is_partial = bool(agents) and {a.id for a in agents} < _plan_ids
+5006:         if compiled.steps and (not agents or _roster_is_partial):
+5007:             if _roster_is_partial:  # `not agents` is the normal path; never log it
+5008:                 logger.info(
+5009:                     "roster expanded from plan: run=%s pipeline=%s requested=%s plan=%s",
+5010:                     pipeline_run_id,
+5011:                     pipeline_type,
+5012:                     [a.id for a in agents],
+5013:                     [s.agent_id for s in compiled.steps],
+5014:                 )
+5015:             agents = self._specs_from_plan(compiled.steps)
+
+== backend/agents/execution_engine/engine.py:5752-5775  (pipeline_start: agent_count and resume_offset are post-seam, plan-relative, consistent) ==
+5752:         yield {
+5753:             "type": "pipeline_start",
+5754:             "data": {
+5755:                 "pipeline_type": pipeline_type,
+5756:                 "pipeline_run_id": pipeline_run_id,
+5757:                 "agent_count": len(ordered_agents),
+5758:                 "agents": [
+5759:                     {
+5760:                         "id": s.id,
+5761:                         "name": s.name,
+5762:                         "role": s.role,
+5763:                         "icon": s.icon,
+5764:                         "order": getattr(s, "order", 0),
+5765:                     }
+5766:                     for s in ordered_agents
+5767:                 ],
+5768:                 # KAN-120 BUG-2: surface the resume offset so the FE can mark
+5769:                 # already-completed agents as "done" immediately on resume, rather
+5770:                 # than waiting for the durable SSE replay to restore their statuses.
+5771:                 # 0 on every normal (non-resumed) run → byte/event-identical (INV-3).
+5772:                 "resume_offset": _resume_from,
+5773:                 # ISS-276: the run's real start time. The client folds this frame from
+5774:                 # BOTH the live SSE stream and the durable REST replay, so without it a
+5775:                 # replayed start is indistinguishable from a live one and the lane
+
+== backend/agents/execution_engine/engine.py:15812-15830  (resume_run hands the partial roster and the plan-relative offset to the drive) ==
+15812:         await self._drive_resumed_stream(
+15813:             run_id,
+15814:             agents=agents,
+15815:             user_message=user_message,
+15816:             pipeline_type=pipeline_type,
+15817:             user_id=user_id,
+15818:             session_id=session_id,
+15819:             parent_run_id=parent_run_id,
+15820:             selections=selections,
+15821:             od_context=od_context,
+15822:             gate_agent_ids=gate_agent_ids,
+15823:             start_seq=start,
+15824:             live_queue=live_queue,
+15825:             _resume_from=offset,
+15826:             _is_resume=True,
+15827:             # Migration 0040: the recompiled launch manifest (None for registry/
+15828:             # file runs — byte/event-identical resume for those).
+15829:             resumed_compiled=resumed_compiled,
+15830:         )
+
+== backend/agents/execution_engine/engine.py:16139-16167  (_replay_clarify_run twin: same empty-only completion, prints no length-based line) ==
+16139:         from agents.registry import get_pipeline_agents
+16140: 
+16141:         try:
+16142:             if resumed_compiled is not None:
+16143:                 agents = self._specs_from_plan(resumed_compiled.steps)
+16144:             else:
+16145:                 agents = get_pipeline_agents(resolve_alias(pipeline_type))
+16146:         except Exception as exc:  # noqa: BLE001 — unknown pipeline → cannot replay
+16147:             logger.warning(
+16148:                 "_replay_clarify_run(%s): cannot resolve agents (%s)", run_id, exc
+16149:             )
+16150:             self._fire_resume_cleanup(run_id)
+16151:             return
+16152:         if not agents and resumed_compiled is None:
+16153:             # ── Roster seam (twin of resume_run's ~10818): the registry has no static
+16154:             # membership for some custom-workflow types — fall back to the compiled
+16155:             # plan before giving up. Scoped to resumed_compiled is None ONLY: a
+16156:             # DB-manifest replay's roster IS the compiled plan already, so it must
+16157:             # never fall through to the generic compile_for_run(pipeline_type) roster.
+16158:             try:
+16159:                 compiled = compile_for_run(pipeline_type)
+16160:             except Exception as exc:  # noqa: BLE001 — cannot compile → cannot replay
+16161:                 logger.warning(
+16162:                     "_replay_clarify_run(%s): cannot compile plan (%s)", run_id, exc
+16163:                 )
+16164:                 self._fire_resume_cleanup(run_id)
+16165:                 return
+16166:             if compiled.steps:
+16167:                 agents = self._specs_from_plan(compiled.steps)
+
+== backend/app/api/run_commands.py:3617-3622  (launch_run: the length rule that completes a partial registry roster from the plan) ==
+3617:             try:
+3618:                 _plan = compile_for_run(base_pipeline_type)
+3619:             except Exception:
+3620:                 _plan = None
+3621:             if _plan is not None and _plan.steps and len(agents) < len(_plan.steps):
+3622:                 agents = get_execution_engine()._specs_from_plan(_plan.steps)
+
+== backend/app/api/run_commands.py:3046-3046  (workflow_runs.type = the raw pipeline_type: the revision type for a revision run) ==
+3046:             type=pipeline_type,
+
+== backend/app/api/run_commands.py:3070-3070  (the mint stores manifest_json, None for a file/registry launch) ==
+3070:             manifest_json=manifest_json,
+
+== backend/app/api/run_commands.py:3287-3287  (persisted_manifest starts None (migration 0040); set only for a DB/inline manifest launch) ==
+3287:     persisted_manifest = None  # migration 0040 — set alongside `compiled`
+
+== backend/app/api/run_commands.py:792-792  (user POST /resume: _drive_user_resume -> engine.resume_run) ==
+792:         await engine.resume_run(run_id)  # SOLE drive path — armed-singleton hooks fire.
+
+== backend/agents/execution_engine/engine.py:12844-12844  (restore_non_terminal_runs branch b -> resume_run) ==
+12844:                                 await self.resume_run(_run_id)
+
+== backend/agents/execution_engine/engine.py:12975-12975  (_rearm_gate_run review re-entry -> resume_run) ==
+12975:                 await self.resume_run(run_id)
+
+== backend/agents/execution_engine/engine.py:3593-3594  (compile_for_run is lru_cached) ==
+3593: @_functools.lru_cache(maxsize=None)
+3594: def compile_for_run(pipeline_type: str) -> CompiledWorkflow:
+

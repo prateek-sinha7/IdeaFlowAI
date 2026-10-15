@@ -1,0 +1,92 @@
+diff --git a/frontend/src/app/[...view]/page.tsx b/frontend/src/app/[...view]/page.tsx
+index 62856ed4e..32d5a9bd5 100644
+--- a/frontend/src/app/[...view]/page.tsx
++++ b/frontend/src/app/[...view]/page.tsx
+@@ -4252,6 +4252,8 @@ export default function DashboardPage({
+       initialWorkflowType={initialWorkflowTypeFor(parsedView) ?? builtinCanvasType}
+       // Copy-only: the canvas is showing a file-backed manifest, not a row the user owns.
+       builtinCanvasType={builtinCanvasType}
++      // ISS-923: the row /edit names; the composer holds Save until it has loaded.
++      expectedUserWorkflowId={workflowEditIdFor(parsedView)}
+       initialSavedComposition={initialSavedComposition}
+       initialSettingsSection={initialSettingsSectionFor(parsedView)}
+       pinnedVersion={pinnedVersionFor(parsedView)}
+diff --git a/frontend/src/components/layout/DashboardLayout.tsx b/frontend/src/components/layout/DashboardLayout.tsx
+index dd8cd0e3f..b220cea84 100644
+--- a/frontend/src/components/layout/DashboardLayout.tsx
++++ b/frontend/src/components/layout/DashboardLayout.tsx
+@@ -353,6 +353,9 @@ export interface DashboardLayoutProps {
+    *  own instead of overwriting anything. Undefined for a saved workflow, whose Save
+    *  legitimately overwrites its own row. */
+   builtinCanvasType?: string;
++  /** ISS-923: the saved-workflow id from `/workflows/{id}/edit`, forwarded to
++   *  ComposerPage, which holds Save until that row has loaded. */
++  expectedUserWorkflowId?: string;
+   /**
+    * T8 (015-frontend-routing, FR-011): a saved workflow's composition,
+    * fetched by page.tsx on a cold mount of `/workflows/{id}/edit`. Seeds
+@@ -507,6 +510,7 @@ export function DashboardLayout({
+   initialMainView,
+   initialWorkflowType,
+   builtinCanvasType,
++  expectedUserWorkflowId,
+   initialSavedComposition,
+   initialSettingsSection,
+   pinnedVersion,
+@@ -3246,6 +3250,7 @@ export function DashboardLayout({
+                 initialManifestSteps={savedComposition?.manifestSteps}
+                 initialManifest={savedComposition?.manifest}
+                 builtinCanvasType={builtinCanvasType}
++                expectedUserWorkflowId={expectedUserWorkflowId}
+                 initialSelections={
+                   savedComposition?.selections
+                     ? (Object.fromEntries(
+diff --git a/frontend/src/components/workflow/composer/ComposerPage.iss923.test.tsx b/frontend/src/components/workflow/composer/ComposerPage.iss923.test.tsx
+index 529467978..8bec2f7b0 100644
+--- a/frontend/src/components/workflow/composer/ComposerPage.iss923.test.tsx
++++ b/frontend/src/components/workflow/composer/ComposerPage.iss923.test.tsx
+@@ -60,7 +60,8 @@ describe("ComposerPage — Save workflow gated on the /edit seed (ISS-923)", ()
+   // Guards against over-blocking: green today and after the fix.
+   it("ISS-923: Save workflow is enabled once the row id arrives", () => {
+     const { rerender } = render({ expectedUserWorkflowId: "wf-123", initialName: "renamed" });
+-    rerender(ui({ expectedUserWorkflowId: "wf-123", initialUserWorkflowId: "wf-123", initialName: "renamed", initialManifestSteps: PPT_STEPS }));
++    // `key`: the seed arrives by DashboardLayout's key flip (a remount); a plain rerender never re-runs useState initializers.
++    rerender(ui({ key: "wf-123", expectedUserWorkflowId: "wf-123", initialUserWorkflowId: "wf-123", initialName: "renamed", initialManifestSteps: PPT_STEPS }));
+     expect(screen.getByRole("button", { name: /Save workflow/i })).toBeEnabled();
+   });
+ });
+diff --git a/frontend/src/components/workflow/composer/ComposerPage.tsx b/frontend/src/components/workflow/composer/ComposerPage.tsx
+index 5c0bd9e66..0bf8d6bb0 100644
+--- a/frontend/src/components/workflow/composer/ComposerPage.tsx
++++ b/frontend/src/components/workflow/composer/ComposerPage.tsx
+@@ -160,6 +160,9 @@ interface ComposerPageProps {
+    *  is explore-and-copy: edits Run fine, but Save creates a NEW workflow the user owns
+    *  rather than overwriting anything. Undefined for a saved workflow. */
+   builtinCanvasType?: string;
++  /** ISS-923: the saved row `/workflows/{id}/edit` names. Save is held until that row
++   *  has loaded, so a failed or pending fetch cannot POST a new workflow instead. */
++  expectedUserWorkflowId?: string;
+   initialSelections?: SelectionsMap;
+   initialName?: string;
+   initialDescription?: string;
+@@ -219,6 +222,7 @@ export function ComposerPage({
+   initialManifestSteps,
+   initialManifest,
+   builtinCanvasType,
++  expectedUserWorkflowId,
+   initialSelections,
+   initialName,
+   initialDescription,
+@@ -1254,8 +1258,11 @@ export function ComposerPage({
+   // ISS-410 — a built-in canvas whose manifest has not seeded (still loading, or
+   // the fetch failed for a non-403/404 reason) would Save as copy a blank
+   // composition. Gate on the seed props so the button releases when they land.
++  // ISS-923 — same for /workflows/{id}/edit: until the row id arrives, Save would
++  // POST a new workflow instead of updating the one the URL names.
+   const seedUnresolved =
+-    !!builtinCanvasType && !initialManifestSteps?.length && !initialAgentIds?.length;
++    (!!builtinCanvasType && !initialManifestSteps?.length && !initialAgentIds?.length) ||
++    (!!expectedUserWorkflowId && !userWorkflowId);
+ 
+   return (
+     <div className="flex h-full flex-col overflow-hidden bg-surface-paper text-ink-900">

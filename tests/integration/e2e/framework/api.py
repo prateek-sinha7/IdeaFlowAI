@@ -98,7 +98,7 @@ def full(page, method: str, url: str, body: dict | None = None, limit: int = 200
     this instead.
     """
     return page.evaluate(
-        _FETCH_FULL, [method, _absolute(url), json.dumps(body) if body else None, limit]
+        _FETCH_FULL, [method, _absolute(url), json.dumps(body) if body is not None else None, limit]
     )
 
 

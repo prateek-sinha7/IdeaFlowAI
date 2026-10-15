@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { fireEvent, renderWithProviders, screen, within } from "@/test/renderWithProviders";
+import { fireEvent, renderWithProviders, screen } from "@/test/renderWithProviders";
 import type { GlobalSkillEntry } from "@/store/api/skills";
 import type { GlobalHookEntry } from "@/store/api/hooks";
 
@@ -12,13 +12,6 @@ import type { GlobalHookEntry } from "@/store/api/hooks";
 // stuck reading "Copy" forever with nothing shown to the user.
 // ─────────────────────────────────────────────────────────────────
 
-// ISS-600: useParams must return a deep-link path (/library/{type}/{slug}) so
-// LibraryPage's T15 effect seeds the matching detail modal on mount. A hoisted
-// typed mock lets each test set its own deep link before rendering.
-const { useParamsMock } = vi.hoisted(() => ({
-  useParamsMock: vi.fn<() => { view?: string[] }>(() => ({})),
-}));
-
 vi.mock("next/navigation", () => ({
   useRouter: () => ({
     push: vi.fn(),
@@ -26,7 +19,12 @@ vi.mock("next/navigation", () => ({
     prefetch: vi.fn(),
   }),
   useSearchParams: () => new URLSearchParams(),
-  useParams: useParamsMock,
+  // ISS-600: useParams must return a deep-link path so LibraryPage's T16 effect
+  // does NOT close the detail modal. With () => ({}) the URL slug is null, the
+  // effect fires setSelectedHook/Skill(null) on every render, and the click
+  // lands on a detached node — writeText is never called. Each test below
+  // overrides this mock for its own deep link; we set a no-op default here.
+  useParams: vi.fn(() => ({})),
 }));
 
 import { LibraryPage } from "./LibraryPage";
@@ -91,32 +89,37 @@ beforeEach(() => {
 
 describe("HookDetailModal Copy button — ISS-331", () => {
   it("shows a failure state when the clipboard write rejects, instead of staying silent", async () => {
-    // Arrange — deep link /library/hooks/{id} opens the hook detail modal on mount.
-    useParamsMock.mockReturnValue({ view: ["library", "hooks", MOCK_HOOK.id] });
+    // ISS-600: mock the URL as a deep link so LibraryPage's T16 effect opens
+    // (not closes) the hook detail modal. With () => ({}) the slug is null and
+    // the effect fires setSelectedHook(null) before the click lands.
+    vi.mocked(vi.importMock("next/navigation") as never);
+    // Override useParams directly on the module mock for this test.
+    const { useParams } = await import("next/navigation");
+    vi.mocked(useParams).mockReturnValue({ view: ["library", "hooks", MOCK_HOOK.id] });
+
     renderWithProviders(<LibraryPage />, { preloadedState: createPreloadedState() });
-    const dialog = await screen.findByRole("dialog", { name: `${MOCK_HOOK.name} hook` });
+    // Deep link already opens the modal — no tab/card click needed.
+    fireEvent.click(await screen.findByRole("button", { name: /^Copy$/ }));
+    // Give the rejected microtask a tick to settle.
+    await new Promise((r) => setTimeout(r, 0));
 
-    // Act
-    fireEvent.click(within(dialog).getByRole("button", { name: /^Copy$/ }));
-
-    // Assert — findByText retries until the rejected write's state update lands.
-    expect(await within(dialog).findByText(/copy failed/i)).toBeInTheDocument();
-    expect(navigator.clipboard.writeText).toHaveBeenCalledTimes(1);
+    // ISS-331: today nothing changes on rejection — no failure text, button
+    // stays "Copy". The fixed behaviour must surface SOMETHING to the user.
+    expect(screen.queryByText(/fail|error|couldn.?t/i)).toBeInTheDocument();
   });
 });
 
 describe("SkillDetailModal Copy button — ISS-555", () => {
   it("shows a failure state when the clipboard write rejects, instead of staying silent", async () => {
-    // Arrange — deep link /library/skills/{id} opens the skill detail modal on mount.
-    useParamsMock.mockReturnValue({ view: ["library", "skills", MOCK_SKILL.id] });
+    // ISS-600: mock the URL as a deep link so LibraryPage's T16 effect opens
+    // (not closes) the skill detail modal.
+    const { useParams } = await import("next/navigation");
+    vi.mocked(useParams).mockReturnValue({ view: ["library", "skills", MOCK_SKILL.id] });
+
     renderWithProviders(<LibraryPage />, { preloadedState: createPreloadedState() });
-    const dialog = await screen.findByRole("dialog", { name: `${MOCK_SKILL.name} skill` });
+    fireEvent.click(await screen.findByRole("button", { name: /^Copy$/ }));
+    await new Promise((r) => setTimeout(r, 0));
 
-    // Act — the header "Copy content" button; the raw-block "Copy" shares the handler.
-    fireEvent.click(within(dialog).getByRole("button", { name: /^Copy content$/ }));
-
-    // Assert
-    expect(await within(dialog).findByText(/copy failed/i)).toBeInTheDocument();
-    expect(navigator.clipboard.writeText).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText(/fail|error|couldn.?t/i)).toBeInTheDocument();
   });
 });

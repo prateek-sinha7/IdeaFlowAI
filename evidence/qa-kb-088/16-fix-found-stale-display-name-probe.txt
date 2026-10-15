@@ -1,0 +1,14 @@
+# QA-KB-088 fix, 2026-10-07. Probe of GET /api/workflows display_name vs the labels test_list_carries_launchable_flags asserts (found once the file was relocated and ran).
+# cmd: cd backend && DATABASE_URL=sqlite:///:memory: .venv/bin/python <scratch>/probe_display_names.py (source: 16b-...probe.py.txt; it mounts app.api.workflows on an in-memory SQLite session, as the test fixture does)
+OK       user_stories: asserted='Generate product requirements' served='Generate product requirements'
+MISMATCH prototype: asserted='Build an interactive prototype' served='Build an interactive prototype (Fast)'
+MISMATCH ppt: asserted='Pitch an idea' served='Pitch an idea (Fast)'
+OK       app_builder: asserted='Build an end-to-end application' served='Build an end-to-end application'
+OK       mulesoft_to_springboot: asserted='MuleSoft to Spring Boot' served='MuleSoft to Spring Boot'
+OK       dotnet_to_azure: asserted='.NET to Azure' served='.NET to Azure'
+OK       custom: asserted='Compose a custom workflow' served='Compose a custom workflow'
+# manifests:
+agents/workflows/prototype/workflow.yaml:5:display_name: "Build an interactive prototype (Fast)"
+agents/workflows/ppt/workflow.yaml:22:display_name: "Pitch an idea (Fast)"
+# renamed by: 1a1b720b7 2026-09-25 feat(dashboard): split the catalog into Start from / Engine examples / Coming Soon, with user-facing names
+# unit I/O guard (file errored at setup from then on): 09270703b 2026-09-22 Fix/testcases (#9)

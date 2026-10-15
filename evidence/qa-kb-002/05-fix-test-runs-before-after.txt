@@ -1,0 +1,133 @@
+QA-KB-002 / BUG-023 fix phase - observed test runs, 2026-10-01, worktree feat/user-stories-v2 (HEAD 024c03ef8 + uncommitted tree).
+Each file run on its own from frontend/ with: npx vitest --run <file>. 'before' = page.tsx without this fix; 'after' = with it.
+
+=== src/app/[...view]/initialWorkflowType.bug023.source.test.ts — BEFORE
+ Test Files  1 passed (1)
+      Tests  2 passed | 3 expected fail (5)
+EXIT=0
+
+=== src/app/[...view]/initialWorkflowType.bug023.source.test.ts — AFTER (it.fails now XPASS = 'Expect test to fail')
+     × /create/app seeds app_builder 2ms
+     × /create/user-stories seeds user_stories 0ms
+     × the URL the app_builder tile pushes seeds app_builder on remount 0ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+Error: Expect test to fail
+ Test Files  1 failed (1)
+      Tests  3 failed | 2 passed (5)
+EXIT=1
+
+=== launch/create neighbours — BEFORE
+== src/app/[...view]/launchImageAndRecents.source.test.ts
+ Test Files  1 passed (1)
+      Tests  3 passed (3)
+== src/app/[...view]/freshLaunchTranscriptReset.source.test.ts
+ Test Files  1 passed (1)
+      Tests  6 passed (6)
+== src/app/[...view]/contentSourceRunType.source.test.ts
+ Test Files  1 passed (1)
+      Tests  8 passed (8)
+== src/app/[...view]/contentSourceRunScope.source.test.ts
+ Test Files  1 passed (1)
+      Tests  3 passed (3)
+== src/lib/routes.test.ts
+ Test Files  1 passed (1)
+      Tests  62 passed | 4 expected fail (66)
+
+=== launch/create neighbours — AFTER
+== src/app/[...view]/launchImageAndRecents.source.test.ts
+ Test Files  1 passed (1)
+      Tests  3 passed (3)
+== src/app/[...view]/freshLaunchTranscriptReset.source.test.ts
+ Test Files  1 passed (1)
+      Tests  6 passed (6)
+== src/app/[...view]/contentSourceRunType.source.test.ts
+ Test Files  1 passed (1)
+      Tests  8 passed (8)
+== src/app/[...view]/contentSourceRunScope.source.test.ts
+ Test Files  1 passed (1)
+      Tests  3 passed (3)
+== src/lib/routes.test.ts
+ Test Files  1 passed (1)
+      Tests  62 passed | 4 expected fail (66)
+
+=== every other page.tsx-reading test — AFTER only (see note)
+== attachRunOnOpen.source.test.ts
+ Test Files  1 passed (1)
+      Tests  3 passed (3)
+== authEffectGuard.iss844.source.test.ts
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+== bridgeTerminality.source.test.ts
+ Test Files  1 passed (1)
+      Tests  11 passed (11)
+== deadRevisionRefs.source.test.ts
+ Test Files  1 passed (1)
+      Tests  6 passed (6)
+== liveRunSwitch.fix201.test.ts
+ Test Files  1 passed (1)
+      Tests  26 passed (26)
+== page.iss657.test.tsx
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+== page.iss856.test.tsx
+ Test Files  1 passed (1)
+      Tests  2 passed (2)
+== page.qaSg004.test.tsx
+ Test Files  1 passed (1)
+      Tests  5 passed (5)
+== reviseGuard.source.test.ts
+ Test Files  1 passed (1)
+      Tests  3 passed (3)
+== revisionFamilyLinkage.source.test.ts
+ Test Files  1 passed (1)
+      Tests  4 passed (4)
+== runTabShallowNav.test.ts
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+ FAIL  src/app/[...view]/runTabShallowNav.test.ts > BUG-030 — run tab switching stays shallow > the tab handler pushes history directly, never through the router
+ Test Files  1 failed (1)
+      Tests  1 failed | 2 passed (3)
+== runViewEffects.qaSg004.source.test.ts
+ Test Files  1 passed (1)
+      Tests  3 passed (3)
+== savedCompositionManifest.source.test.ts
+ Test Files  1 passed (1)
+      Tests  2 passed (2)
+== terminalReopenReconcile.source.test.ts
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 5 ⎯⎯⎯⎯⎯⎯⎯
+ FAIL  src/app/[...view]/terminalReopenReconcile.source.test.ts > ISS-126 reopen reconciles a terminal run (source-lock) > gates the reconciliation on the EXISTING REOPEN_TERMINAL_STATUSES set
+ Test Files  1 failed (1)
+      Tests  5 failed | 5 passed (10)
+ FAIL  src/app/[...view]/terminalReopenReconcile.source.test.ts > ISS-126 reopen reconciles a terminal run (source-lock) > reconciles BOTH containers — the store AND the legacy reducer state
+ FAIL  src/app/[...view]/terminalReopenReconcile.source.test.ts > ISS-126 reopen reconciles a terminal run (source-lock) > writes to the run STORE — the state the UI actually reads
+ FAIL  src/app/[...view]/terminalReopenReconcile.source.test.ts > ISS-126 reopen reconciles a terminal run (source-lock) > runs AFTER the durable replay loop, never before it
+ FAIL  src/app/[...view]/terminalReopenReconcile.source.test.ts > ISS-126 reopen reconciles a terminal run (source-lock) > stays inside the reopen handler, after the durable fetch
+== workflowDetailCatch.source.test.ts
+ Test Files  1 passed (1)
+      Tests  5 passed (5)
+== src/hooks/__tests__/terminalStatusReconcile.test.ts
+ Test Files  1 passed (1)
+      Tests  14 passed (14)
+
+NOTE on the two red files above (not caused by this fix):
+ - runTabShallowNav.test.ts:44 asserts only on a slice of DashboardLayout.tsx (handlePreviewPanelTabSelect). Both inputs to that assertion, the test file and DashboardLayout.tsx, are unchanged vs HEAD (git status clean), and it never reads the page.tsx region this fix touched. Not re-run at HEAD.
+ - terminalReopenReconcile.source.test.ts ISS-126 block expects 'applyTerminalStatus(prev, fullRun.status)' in page.tsx; count at HEAD page.tsx = 0, count in working tree = 0. The fix hunk (page.tsx 378-396) removes only the old docblock + one ternary line.
+
+=== tsc --noEmit -p . (frontend/)
+before: 13 errors in 7 files
+after:  13 errors in 7 files
+error lines: IDENTICAL before/after
+  src/components/analytics/AnalyticsPage.test.tsx
+  src/components/DashboardLayout.chain.test.tsx
+  src/components/history/WorkflowHistory.modelChip.test.tsx
+  src/components/preview/PreviewPanel.liveVersion.test.tsx
+  src/components/results/AgentDetailPanel.waveWorkerStatus.test.tsx
+  src/hooks/useWorkflow.imagePayload.test.ts
+  src/providers/RunConnectionProvider.test.tsx
+
+=== static e2e doc gates (no browser): tests/integration/capture/_scenarios.py and _verify.py, after the test/spec edits
+scenarios with an id: 511
+  implemented:        511
+  awaiting a test:    0
+still untagged:       0
+
+PROBLEMS: none

@@ -1,0 +1,10 @@
+SLICED SOURCE:
+function initialWorkflowTypeFor(parsed: ParsedView): string | undefined {
+  return parsed.screen === "create-workflow" ? parsed.pipelineType : undefined;
+}
+
+/create/app              {"screen":"create-app"}                              -> initialWorkflowType = undefined
+/create/user-stories     {"screen":"create-user-stories"}                     -> initialWorkflowType = undefined
+/create/app_builder      {"screen":"create-workflow","pipelineType":"app_builder"} -> initialWorkflowType = "app_builder"
+/create/user_stories     {"screen":"create-workflow","pipelineType":"user_stories"} -> initialWorkflowType = "user_stories"
+/create/ex_A2_branch     {"screen":"create-workflow","pipelineType":"ex_A2_branch"} -> initialWorkflowType = "ex_A2_branch"

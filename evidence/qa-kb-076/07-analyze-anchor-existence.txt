@@ -1,0 +1,42 @@
+# QA-KB-076 analyze: do the SYMBOL anchors FIX-690 wrote into the shutdown-path comments still resolve? (sibling: nothing asserts it)
+# tree: /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2   HEAD: e93aa40ed   date: 2026-10-07 22:09 CEST
+# method: for each name FIX-690's card says the comments now cite, count def/class/assignment lines under backend/app, backend/agents, backend/tests/integration. 0 would mean a dangling anchor.
+
+post_message                             1
+_drive                                   14
+ExecutionEngine                          1
+execute                                  11
+_run_agent                               2
+_execute_impl                            1
+_run_review_gate                         1
+_run_validation_fix_loop                 1
+_run_spec_revision_sub_pipeline          1
+TaskLoopStrategy                         1
+_check_cancel                            1
+_drive_launch_to_queue                   1
+_drive_revision_to_queue                 1
+build_model                              1
+shutdown_run_infrastructure              1
+_drain_then_cancel                       1
+stop_pipeline_drivers                    1
+runs_left_for_boot_restore               0
+close_checkpointer                       1
+_drive_resumed_stream                    1
+resume_run_endpoint                      1
+_dispose_concierge_proposal              1
+_launch_run_core                         1
+create_revision                          1
+restore_non_terminal_runs                1
+ScopedStore                              1
+assert_owns                              1
+test_resume_already_running_409          1
+_cleanup_pipeline                        1
+_is_run_live                             1
+_resolve_owned_parent_run_id             1
+stream_run_events                        1
+REVIEW_RESOLUTIONS                       1
+NON_TERMINAL_RUN_STATUSES                1
+
+# runs_left_for_boot_restore shows 0 above because it is a dict KEY, not a def/class/assignment line:
+227:    summary["runs_left_for_boot_restore"] = (
+# => an anchor check must be a plain 'name in file text' test; an AST def lookup would false-fail on this one.

@@ -1,0 +1,72 @@
+# 18 — fix, the two FIXTURE edits (assertions untouched), audit trail (2026-10-07, 5-fixer)
+# Both tests guard the ref gate (_validate_ref). Their fixture was an ensure()-only, EMPTY run dir, which
+# ISS-1072 redefines as an expired workspace. Each fixture now writes one payload file so the gate answers again.
+
+## (a) fix applied, fixtures NOT yet edited — observed in this session (both were green in 16):
+   tests/integration/api/test_run_files_ref_family_scope_api.py::TestRefValidationIsScopedToTheSandbox::test_an_enclosing_repo_tag_is_rejected
+     E AssertionError: ... must be rejected with 400 'invalid ref' — got 404 with body b'{"detail":"Workspace expired"}'
+     E assert 404 == 400
+   tests/agents/test_revision_routes_v3.py::TestRefParameterOnRoutes::test_ref_validation_rejects_invalid_ref
+     E assert 404 in (400, 422)
+
+## (b) fixtures edited, PRE-FIX predicate patched back (19-fix-prefix-expiry-plugin.py.txt): the edit is neutral on old code
+$ python -m pytest -p prefix_expiry_plugin tests/integration/api/test_run_files_ref_family_scope_api.py -q
+3 passed in 1.50s
+$ python -m pytest -p prefix_expiry_plugin tests/agents/test_revision_routes_v3.py -q
+12 passed in 2.54s
+
+## (c) fixtures edited, fix applied, _validate_ref made a pass-through (gate_off_plugin.py source at the end of this file):
+##     both FAIL, so they still depend on the ref gate answering 400; neither passes vacuously
+$ python -m pytest -p gate_off_plugin <A> <B> -q
+E       AssertionError: a tag that exists only in the repo ENCLOSING the sandbox must be rejected with 400 'invalid ref' — got 404 with body b'{"detail":"File not found"}' (ISS-671: the enclosing checkout's file was served at its own tag)
+E       assert 404 == 400
+E       assert 404 in (400, 422)
+2 failed in 1.34s
+
+## (d) fixtures edited, fix applied: both files green — see 17 (3 passed; 12 passed)
+
+## The two test diffs
+diff --git a/backend/tests/agents/test_revision_routes_v3.py b/backend/tests/agents/test_revision_routes_v3.py
+index 88983a5bd..aab5e9acb 100644
+--- a/backend/tests/agents/test_revision_routes_v3.py
++++ b/backend/tests/agents/test_revision_routes_v3.py
+@@ -436,6 +436,8 @@ class TestRefParameterOnRoutes:
+ 
+         sb = _sandbox(env, user.id, run_id)
+         sb.ensure()
++        # ISS-1072: an EMPTY run dir is an expired workspace (404 before the ref gate).
++        (sb.root / "file.txt").write_text("content", encoding="utf-8")
+ 
+         env["state"]["user"] = user
+ 
+diff --git a/backend/tests/integration/api/test_run_files_ref_family_scope_api.py b/backend/tests/integration/api/test_run_files_ref_family_scope_api.py
+index d28a82d5a..90df6bc40 100644
+--- a/backend/tests/integration/api/test_run_files_ref_family_scope_api.py
++++ b/backend/tests/integration/api/test_run_files_ref_family_scope_api.py
+@@ -177,6 +177,9 @@ def _make_family_in_host_checkout(env, user):
+     # Chain root == v1_id. ensure() only creates the dir — never git_init_sandbox().
+     sb = RunSandbox(user.id, v1_id, runs_root=env["runs_root"])
+     sb.ensure()
++    # ISS-1072: an EMPTY run dir is an expired workspace (404 before the ref gate),
++    # so give it the payload a live sandbox without its own .git still has.
++    (sb.root / "notes.md").write_text("payload", encoding="utf-8")
+     assert not (sb.root / ".git").exists()
+     _assert_nearest_repo_is(sb.root, outer)
+ 
+
+## gate_off_plugin.py (scratch, not in the repo)
+"""Scratch probe: disable _validate_ref (pass-through) to prove a test depends on the ref gate.
+Imports app lazily in pytest_runtest_setup so collection never binds a live DB."""
+import pytest
+
+@pytest.hookimpl(tryfirst=True)
+def pytest_runtest_setup(item):
+    from app.api import run_files as rf
+    mp = pytest.MonkeyPatch()
+    mp.setattr(rf, "_validate_ref", lambda ref, sandbox: ref)
+    item._gate_off_mp = mp
+
+def pytest_runtest_teardown(item):
+    mp = getattr(item, "_gate_off_mp", None)
+    if mp is not None:
+        mp.undo()

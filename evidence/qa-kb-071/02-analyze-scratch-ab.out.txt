@@ -1,0 +1,58 @@
+# QA-KB-071 analysis A/B, 2026-10-02 05:38 CEST, tree: feat/user-stories-v2 @ 024c03ef8 + uncommitted edits
+# Every run below uses COPIES of page.tsx and the test under a scratch dir. The repo files were not edited.
+# The section 3 mutation is evidence/qa-kb-071/03-analyze-mutate-reopen-block.cjs <in page.tsx> <out page.tsx> (writes the out file only).
+# page.tsx copy: 251523 bytes (JS string length is smaller, see section 5), sha1 cea0847ef49a
+
+## 0. REPO test file, run in place (no edit): cd frontend && vitest --run 'src/app/[...view]/terminalReopenReconcile.source.test.ts' --reporter=verbose
+✓ terminalReopenReconcile.source.test.ts > ISS-126 reopen reconciles a terminal run (source-lock) > imports the shared terminal reducer rather than re-deriving markers inline 1ms
+× terminalReopenReconcile.source.test.ts > ISS-126 reopen reconciles a terminal run (source-lock) > gates the reconciliation on the EXISTING REOPEN_TERMINAL_STATUSES set 9ms
+× terminalReopenReconcile.source.test.ts > ISS-126 reopen reconciles a terminal run (source-lock) > reconciles BOTH containers — the store AND the legacy reducer state 5ms
+✓ terminalReopenReconcile.source.test.ts > ISS-126 reopen reconciles a terminal run (source-lock) > clears the lingering clarify panel — the one branch not gated on isRunning 0ms
+✓ terminalReopenReconcile.source.test.ts > ISS-126 reopen reconciles a terminal run (source-lock) > does NOT clear reviewGateData — that would erase the historical gate card 0ms
+× terminalReopenReconcile.source.test.ts > ISS-126 reopen reconciles a terminal run (source-lock) > writes to the run STORE — the state the UI actually reads 0ms
+× terminalReopenReconcile.source.test.ts > ISS-126 reopen reconciles a terminal run (source-lock) > runs AFTER the durable replay loop, never before it 0ms
+× terminalReopenReconcile.source.test.ts > ISS-126 reopen reconciles a terminal run (source-lock) > stays inside the reopen handler, after the durable fetch 0ms
+✓ terminalReopenReconcile.source.test.ts > ISS-126 reopen reconciles a terminal run (source-lock) > deleted the formerly-unreachable pipeline_cancelled/pipeline_failed switch arm (ISS-139) 1ms
+✓ terminalReopenReconcile.source.test.ts > page.tsx pipelineTypes includes hook_run (ISS-870) > lists hook_run 0ms
+Test Files  1 failed (1)
+Tests  5 failed | 5 passed (10)
+
+## 1. CONTROL: unmodified test copy vs current page.tsx copy (must equal run 0)
+Test Files  1 failed (1)
+Tests  5 failed | 5 passed (10)
+
+## 2. RE-ANCHORED (sed: drop the closing paren / semicolon from the 6 literals), vs current page.tsx copy
+   <     expect(pageSource).toContain("applyTerminalStatus(prev, fullRun.status)");
+   >     expect(pageSource).toContain("applyTerminalStatus(prev, fullRun.status");
+   <     expect(pageSource).toContain("reconcileTerminalStatus(fullRun.status);");
+   >     expect(pageSource).toContain("reconcileTerminalStatus(fullRun.status");
+   <     const call = pageSource.indexOf("applyTerminalStatus(prev, fullRun.status)");
+   >     const call = pageSource.indexOf("applyTerminalStatus(prev, fullRun.status");
+   <     const call = pageSource.indexOf("applyTerminalStatus(prev, fullRun.status)");
+   >     const call = pageSource.indexOf("applyTerminalStatus(prev, fullRun.status");
+   <     const call = pageSource.indexOf("applyTerminalStatus(prev, fullRun.status)");
+   >     const call = pageSource.indexOf("applyTerminalStatus(prev, fullRun.status");
+   <     const call = pageSource.indexOf("applyTerminalStatus(prev, fullRun.status)");
+   >     const call = pageSource.indexOf("applyTerminalStatus(prev, fullRun.status");
+Test Files  1 passed (1)
+Tests  10 passed (10)
+
+## 3. MUTATED page.tsx copy (reconcile block moved before the reopen loop) + the RE-ANCHORED test
+   mutated: reconcile call line 3093 | reopen fetch line 3069 | reopen loop line 3111 | FIRST loop in file (other handler) line 2824
+   reconcile is BEFORE the reopen loop: true
+Test Files  1 passed (1)
+Tests  10 passed (10)
+   (no x lines above = every case, including 'runs AFTER the durable replay loop', stayed green on the regression it exists to catch)
+
+## 4a. HARDENED test (re-anchor + 'expect(call).toBeGreaterThan(-1)' in the reviewGateData case + loop searched from the reopen fetch) vs CURRENT page.tsx copy
+Test Files  1 passed (1)
+Tests  10 passed (10)
+## 4b. HARDENED test vs MUTATED page.tsx copy
+× ISS-126 reopen reconciles a terminal run (source-lock) > runs AFTER the durable replay loop, never before it 2ms
+Test Files  1 failed (1)
+Tests  1 failed | 9 passed (10)
+
+## 5. Why the 'does NOT clear reviewGateData' case is green on the repo: indexOf -> -1, slice(-1, 1599) -> empty window
+   page.tsx length: 250512 | indexOf(stale anchor): -1 | window length: 0 | window === "": true
+   expect("").not.toContain("reviewGateData: null") passes: true
+   lines of every `for (const frame of durableFrames)` in page.tsx: 2824, 3074, 3657 (the lock compares against the first)

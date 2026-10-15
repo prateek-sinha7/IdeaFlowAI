@@ -70,19 +70,8 @@ def test_limit_conn_zone_declared_for_the_stream():
     assert "limit_conn_zone $binary_remote_addr zone=velocityai_stream:10m;" in limits
 
 
-_SSE_PATTERN = r"^/api/runs/[^/]+/events/stream/?$"
-_LIVE_RUN_FILES_PATTERN = r"^/api/runs/[^/]+/files/?$"
-
-
 def test_sse_location_exists_and_is_the_only_regex_location():
-    """Exactly one regex location matches the SSE endpoint, and no other regex
-    location can compete for it.
-
-    The live-run upload route (``POST /api/runs/{id}/files``) is the one other
-    regex location. nginx tries regex locations in definition order, so the set
-    of regex patterns is pinned and the two are proven disjoint on sample URIs:
-    neither can capture the other's requests.
-    """
+    """Exactly one regex location should exist, matching the SSE endpoint."""
     site = _render_site()
     blocks = _SSE_LOCATION_RE.findall(site)
     assert len(blocks) == 1, "expected exactly one SSE regex location"
@@ -90,17 +79,9 @@ def test_sse_location_exists_and_is_the_only_regex_location():
     # legitimately names these tokens, and a prose match is a false ratchet trip
     # (the Phase-8 "keep prose off the bare tokens" lesson).
     directives = re.findall(r"^\s*location\s+(\S+)", site, re.M)
-    regex_patterns = set(re.findall(r"^\s*location\s+~\s+(\S+)\s*\{", site, re.M))
-    assert regex_patterns == {_SSE_PATTERN, _LIVE_RUN_FILES_PATTERN}, (
-        "an unexpected regex location would compete for the SSE URI by "
-        f"definition order: {sorted(regex_patterns)}"
-    )
-    sse_uri = "/api/runs/abc/events/stream"
-    files_uri = "/api/runs/abc/files"
-    assert re.match(_SSE_PATTERN, sse_uri)
-    assert not re.match(_LIVE_RUN_FILES_PATTERN, sse_uri)
-    assert re.match(_LIVE_RUN_FILES_PATTERN, files_uri)
-    assert not re.match(_SSE_PATTERN, files_uri)
+    assert (
+        directives.count("~") == 1
+    ), "a second regex location would compete for the SSE URI by definition order"
     assert (
         "^~" not in directives
     ), "a caret-tilde prefix location would suppress regex matching entirely"
@@ -174,109 +155,20 @@ def test_general_api_rate_limit_survives():
     assert "limit_req_status 429;" in api_block
 
 
-# ── Upload routes: per-location body caps (dev 413 on document uploads) ─────
-# The server-wide `client_max_body_size 1m;` 413'd every document over 1 MiB on
-# the two wizard upload routes before the request reached FastAPI. These tests
-# pin per-route caps against the backend's own limits so the default can never
-# silently shadow an upload route again.
+def test_share_link_location_proxies_to_the_backend():
+    """ISS-1037: the public share link GET /s/{token} (ADR-0035) is a FastAPI route.
 
-_STAGE_HEADER = r"location\s+=\s+/api/runs/uploads/stage"
-_EXTRACT_HEADER = r"location\s+=\s+/api/files/extract-text"
-_LIVE_RUN_FILES_HEADER = r"location\s+~\s+\^/api/runs/\[\^/\]\+/files/\?\$"
-_UPLOAD_HEADERS = (_STAGE_HEADER, _EXTRACT_HEADER, _LIVE_RUN_FILES_HEADER)
-
-_SIZE_UNITS = {"": 1, "k": 1024, "m": 1024 * 1024, "g": 1024 * 1024 * 1024}
-
-
-def _location_block(site: str, header_regex: str) -> str:
-    """Return the body of the single location block whose header matches.
-
-    Same `\\{(.*?)\\n    \\}` idiom as the SSE extraction above: a location block
-    closes at the first 4-space-indented brace.
+    Without its own location it falls to `location /` and reaches the frontend,
+    which has no /s/ page. No add_header (D3): one would drop the server-level
+    security headers from every share response.
     """
-    blocks = re.findall(header_regex + r"\s*\{(.*?)\n    \}", site, re.S)
-    assert len(blocks) == 1, f"expected exactly one location matching {header_regex!r}"
-    return blocks[0]
-
-
-def _body_cap_bytes(block_body: str) -> int:
-    """Parse the block's `client_max_body_size <N>[k|m|g];` into bytes."""
-    caps = [d for d in _directives(block_body) if d.startswith("client_max_body_size")]
-    assert len(caps) == 1, f"expected exactly one client_max_body_size, got {caps}"
-    match = re.fullmatch(r"client_max_body_size\s+(\d+)([kKmMgG]?);", caps[0])
-    assert match, f"unparseable body cap: {caps[0]!r}"
-    return int(match.group(1)) * _SIZE_UNITS[match.group(2).lower()]
-
-
-def _seconds(directive: str, block_body: str) -> int:
-    """Parse `<directive> <N>s;` from the block into seconds."""
-    values = [d for d in _directives(block_body) if d.split()[0] == directive]
-    assert len(values) == 1, f"expected exactly one {directive}, got {values}"
-    match = re.fullmatch(rf"{directive}\s+(\d+)s;", values[0])
-    assert match, f"unparseable {directive}: {values[0]!r}"
-    return int(match.group(1))
-
-
-def test_site_template_stage_cap_covers_backend_aggregate_when_rendered():
-    from app.api.run_files import _MAX_AGGREGATE_BYTES
-
-    block = _location_block(_render_site(), _STAGE_HEADER)
-    assert _body_cap_bytes(block) >= _MAX_AGGREGATE_BYTES
-
-
-def test_site_template_extract_cap_covers_backend_file_limit_when_rendered():
-    from app.api.file_extract import _MAX_FILE_BYTES
-
-    block = _location_block(_render_site(), _EXTRACT_HEADER)
-    assert _body_cap_bytes(block) >= _MAX_FILE_BYTES
-
-
-def test_site_template_live_run_files_cap_covers_backend_aggregate_when_rendered():
-    from app.api.run_files import _MAX_AGGREGATE_BYTES
-
-    block = _location_block(_render_site(), _LIVE_RUN_FILES_HEADER)
-    assert _body_cap_bytes(block) >= _MAX_AGGREGATE_BYTES
-
-
-def test_site_template_upload_locations_keep_api_contract_when_rendered():
-    """Each upload block keeps everything the generic /api/ block gives a
-    request: the shared rate limit, the backend upstream, the proxy headers and
-    unbuffered streaming. No add_header: it is replace-not-merge, so one here
-    would drop the five server-level security headers."""
     site = _render_site()
-    for header in _UPLOAD_HEADERS:
-        directives = _directives(_location_block(site, header))
-        assert "limit_req zone=velocityai_api burst=20 nodelay;" in directives, header
-        assert "limit_req_status 429;" in directives, header
-        assert "proxy_pass         http://velocityai_backend;" in directives, header
-        assert (
-            "include            /etc/nginx/snippets/velocityai-proxy-headers.conf;"
-            in directives
-        ), header
-        assert "proxy_request_buffering off;" in directives, header
-        assert _seconds("client_body_timeout", "\n".join(directives)) >= 120, header
-        assert _seconds("proxy_read_timeout", "\n".join(directives)) >= 300, header
-        offenders = [d for d in directives if d.startswith("add_header")]
-        assert (
-            offenders == []
-        ), f"{header}: add_header drops security headers {offenders}"
-
-
-def test_site_template_upload_routes_use_exact_match_when_rendered():
-    """The two wizard routes are exact-match locations. nginx stops at an exact
-    match before it looks at any prefix or regex location, so neither the 1m
-    server default nor the `/api/` prefix block can shadow them."""
-    site = _render_site()
-    exact = set(re.findall(r"^\s*location\s+=\s+(\S+)\s*\{", site, re.M))
-    assert "/api/runs/uploads/stage" in exact
-    assert "/api/files/extract-text" in exact
-
-
-def test_site_template_server_default_stays_one_mebibyte_when_rendered():
-    """Only the upload routes are widened: the server-scope default stays 1m and
-    the generic /api/ block does not override it."""
-    site = _render_site()
-    server_scope = re.findall(r"^    client_max_body_size\s+(\S+);", site, re.M)
-    assert server_scope == ["1m"], server_scope
-    api_block = _location_block(site, r"location /api/")
-    assert not any(d.startswith("client_max_body_size") for d in _directives(api_block))
+    match = re.search(r"location /s/ \{(.*?)\n    \}", site, re.S)
+    assert match, "no `location /s/` in the site template"
+    directives = _directives(match.group(1))
+    assert "proxy_pass         http://velocityai_backend;" in directives
+    assert (
+        "include            /etc/nginx/snippets/velocityai-proxy-headers.conf;"
+        in directives
+    )
+    assert [d for d in directives if d.startswith("add_header")] == []

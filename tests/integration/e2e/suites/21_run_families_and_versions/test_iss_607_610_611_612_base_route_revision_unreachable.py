@@ -4,21 +4,17 @@ From a root run's base (unversioned) Steps route, neither the version picker
 nor the chat's deep-link buttons can reach a revision's own content — the
 revision's agent step becomes unreachable through any normal-user path.
 
-One live fixture: the family rooted at `2708dbf1-50d0-465d-9bed-56b651ea1abf`.
+One family, discovered at runtime (`a_revised_family`), mounted at its root.
 
 These checks deliberately do NOT name a member or a version number. Revising
 the root again adds a member and renumbers nothing, but it does change which
 member is NEWEST — and the header's version menu is driven by GIT TAGS
 (`GET /api/runs/{id}/sandbox/refs`), not by the family, so a member that never
-reached `completed` with a sandbox carries no `vN` tag at all. This family's
-own tags run v1 / untagged / v3. Naming "v2" asserts the fixture rather than
+reached `completed` with a sandbox carries no `vN` tag at all (a family's
+tags can run v1 / untagged / v3). Naming "v2" asserts the fixture rather than
 the behaviour, and the behaviour is all ISS-607/610/612 claim: a deep link from
 an un-pinned route must reach SOME other member instead of silently no-opping
 on the root.
-
-(An earlier revision of this file described a "5-member family" with
-`3839720c…` as v5. That was never true — it is a 3-member family and that run
-is v3.)
 """
 
 from __future__ import annotations
@@ -31,15 +27,7 @@ from playwright.sync_api import expect
 from framework import settings
 from framework.locators import run_detail as RD
 
-# The one family root these checks mount. Rots if the database is pruned; the
-# durable fix is runtime discovery via a_run_with_status(page, "completed").
-# Individual MEMBER ids are deliberately not pinned here — see the module
-# docstring.
-ROOT_RUN_ID = "2708dbf1-50d0-465d-9bed-56b651ea1abf"
-
-# ISS-611's skipped test needs a version pinned in the MIDDLE of a family.
-MID_FAMILY_ROOT_ID = "2708dbf1-50d0-465d-9bed-56b651ea1abf"
-MID_FAMILY_LATEST_ID = "3839720c-0287-48c0-90cb-4385d910f460"
+from .test_run_families_and_versions import a_revised_family
 
 
 def _newest_revision_card(page):
@@ -66,7 +54,7 @@ def _newest_revision_card(page):
     return card
 
 
-def _assert_targeted_a_revision(page, requests: list[str], what: str) -> None:
+def _assert_targeted_a_revision(page, requests: list[str], what: str, root: str) -> None:
     """The deep link must reach a DIFFERENT family member, not stay on the root.
 
     ISS-607/ISS-612 are both "the link silently no-ops and the root's content
@@ -83,10 +71,10 @@ def _assert_targeted_a_revision(page, requests: list[str], what: str) -> None:
         m.group(1)
         for u in requests
         if (m := re.search(r"/api/runs/([0-9a-f-]{36})", u))
-        and m.group(1) != ROOT_RUN_ID
+        and m.group(1) != root
     }
     assert others, (
-        f"{what} never fetched any run but the ROOT ({ROOT_RUN_ID}) — the card "
+        f"{what} never fetched any run but the ROOT ({root}) — the card "
         f"has no way to target a different run in the family. "
         f"requests seen: {requests}"
     )
@@ -131,7 +119,8 @@ def _pick_a_tagged_version(page, shot, shot_name: str, where: str) -> None:
 def test_version_picker_navigates_to_revision_from_base_steps_route(page, shot):
     """Picking a version from the base (unversioned) Steps route must
     navigate to the revision's own content, not silently no-op."""
-    page.goto(f"/runs/{ROOT_RUN_ID}/steps")
+    root, _ = a_revised_family(page)
+    page.goto(f"/runs/{root}/steps")
     expect(page.locator(RD.LANE)).to_be_visible()
     page.wait_for_timeout(settings.SETTLE_MS)
     assert "/versions/" not in page.url
@@ -151,7 +140,8 @@ def test_version_picker_navigates_to_revision_from_base_steps_route(page, shot):
 def test_chat_answer_in_steps_navigates_to_revision_from_base_route(page, shot):
     """The chat transcript's "Answer in Steps" link on the "Revision started"
     entry must navigate to the revision's own Steps content, not no-op."""
-    page.goto(f"/runs/{ROOT_RUN_ID}/steps")
+    root, _ = a_revised_family(page)
+    page.goto(f"/runs/{root}/steps")
     expect(page.locator(RD.LANE)).to_be_visible()
     page.wait_for_timeout(settings.SETTLE_MS)
 
@@ -167,7 +157,7 @@ def test_chat_answer_in_steps_navigates_to_revision_from_base_route(page, shot):
         answer_link.click()
         page.wait_for_timeout(settings.SETTLE_MS)
 
-    _assert_targeted_a_revision(page, requests, "'Answer in Steps'")
+    _assert_targeted_a_revision(page, requests, "'Answer in Steps'", root)
 
 
 @pytest.mark.issue("ISS-610")
@@ -176,7 +166,8 @@ def test_version_picker_noop_is_not_steps_specific(page, shot):
     documents for Steps must be FIXED on every tab, not just Steps — proven
     here on the Files tab, which shares the one PreviewPanel/RunHeader
     mount app-wide."""
-    page.goto(f"/runs/{ROOT_RUN_ID}/files")
+    root, _ = a_revised_family(page)
+    page.goto(f"/runs/{root}/files")
     expect(page.locator(RD.LANE)).to_be_visible()
     page.wait_for_timeout(settings.SETTLE_MS)
     assert "/versions/" not in page.url
@@ -210,7 +201,8 @@ def test_chat_deliverable_card_deep_link_carries_the_revisions_run_id(page, shot
     its "Open in Preview" link is clicked, not silently stay on the root's
     v1 content. This is ISS-612's generalization of ISS-607's chat no-op to
     a non-"Revision started" card kind."""
-    page.goto(f"/runs/{ROOT_RUN_ID}/steps")
+    root, _ = a_revised_family(page)
+    page.goto(f"/runs/{root}/steps")
     expect(page.locator(RD.LANE)).to_be_visible()
     page.wait_for_timeout(settings.SETTLE_MS)
 
@@ -229,5 +221,5 @@ def test_chat_deliverable_card_deep_link_carries_the_revisions_run_id(page, shot
         page.wait_for_timeout(settings.SETTLE_MS)
 
     _assert_targeted_a_revision(
-        page, requests, "the revision's Deliverable card's 'Open in Preview'"
+        page, requests, "the revision's Deliverable card's 'Open in Preview'", root
     )

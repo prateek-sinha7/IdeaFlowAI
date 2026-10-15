@@ -100,7 +100,7 @@ def _seed_chain(real_db, run_ids: list[str]) -> None:
 
     if real_db.query(User).filter(User.id == _OWNER).first() is None:
         real_db.add(
-            User(id=_OWNER, email=f"{_OWNER}@test.local", cognito_sub=f"sub-{_OWNER}")
+            User(id=_OWNER, email=f"{_OWNER}@test.local", cognito_sub=str(uuid.uuid4()))
         )
         real_db.commit()
     parent: str | None = None
@@ -132,10 +132,6 @@ def _drive_version(run_id: str, parent_run_id: str | None, marker: str) -> dict:
     with patch.object(
         scripted_model_mod, "_scripts_for", _scripts_for_with_marker(marker)
     ):
-        # ``offline_db=False``: keep the real hermetic SessionLocal ``_seed_chain``
-        # seeded in place. The harness default swaps in a no-database seam, under
-        # which root resolution and the finalizer's tag DB mapping both fail and
-        # every run publishes ``degraded``.
         events = asyncio.run(_drive("custom", offline_db=False, **drive_kwargs))
     completes = [e for e in events if e.get("type") == "pipeline_complete"]
     assert (

@@ -1,0 +1,36 @@
+# QA-KB-100 analysis 02: which registered capabilities are user_allowed=False, by kind (HEAD f06129262, 2026-10-08T12:04Z)
+# cmd: cd backend && PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=. DATABASE_URL=sqlite:///:memory: .venv/bin/python ../evidence/qa-kb-100/analysis-plugins/probe_inventory.py
+# read-only: imports the registry and prints agents.capabilities.registry._TRUST
+registered (kind,name) pairs with a recorded flag: 91
+user_allowed=False (these are what CAP-03 keeps off a user manifest):
+  chat             ['concierge']
+  compaction       ['chat_history', 'html_skeleton']
+  context_pack     ['default']
+  context_provider ['conversation', 'previous_run', 'repo', 'uploaded_files']
+  deliverable      ['ppt', 'repo_diff']
+  gate             ['approval', 'security']
+  hook             ['provenance_audit']
+  mcp_server       ['filesystem', 'postgres']
+  post_step        ['api_prefix_audit', 'revision_validation']
+  repo_index       ['tree_sitter']
+  repo_inventory   ['default']
+  runtime          ['langchain_deepagents']
+  runtime_env      ['local']
+  tool             ['ask_user', 'playwright', 'pptx', 'spawn_subagents']
+user_allowed=True:
+  context_provider ['chain_context', 'opendesign']
+  deliverable      ['serialized_sandbox', 'single_file', 'streamed_text']
+  gate             ['before-human', 'conditional', 'human', 'validation']
+  hook             ['audit_logger', 'behavioral', 'otel_tracing', 'secret_scan']
+  input_provider   ['pdf_pages', 'run_images']
+  integration_provider ['github', 'gitlab', 'jira', 'slack']
+  mcp_server       ['github', 'gitlab', 'jira', 'slack']
+  mechanical       ['assemble_backlog', 'assemble_prototype', 'extract_prototype_ui', 'publish']
+  merge            ['copy_disjoint', 'git_3way', 'html_fragment', 'json']
+  prompt           ['body_only', 'default', 'governance']
+  skill            ['disk', 'repo', 'template', 'ui']
+  strategy         ['fanout_batch', 'parallel_group', 'single_shot', 'task_loop', 'wave_scheduler']
+  task_parser      ['heading_tasks', 'json_tasks', 'screen_plan']
+  tool             ['file_extract', 'internet', 'planning', 'prototype', 'prototype_emit_only', 'workspace']
+  validator        ['api_prefix', 'backlog_plan_coverage', 'code_compile', 'code_lint', 'code_test', 'design_quality', 'fragment_field_coverage', 'html_element_floor', 'html_render', 'html_static', 'journeys_coverage', 'screens_plan_coverage', 'spec_plan_coverage', 'task_done_when']
+registered but no flag recorded (is_user_allowed() defaults False): [('model_catalog', 'default')]

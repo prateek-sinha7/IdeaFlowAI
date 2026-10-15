@@ -1,0 +1,85 @@
+QA-KB-070 / ISS-897 analyzer evidence, 2026-10-07. NO repo file was edited: every "mutation" below is applied
+IN MEMORY by evidence/qa-kb-070/mutate_task_loop.py (a pytest plugin) or by the probe/drive scripts in this directory.
+All runs: cwd backend/, interpreter backend/.venv/bin/python (3.13.14), pytest 9.0.3, ONE test file per run, offline
+(conftest pins DATABASE_URL to a scratch SQLite file; scripted models; zero LLM calls).
+
+Each mutated run prints a self-proving line, e.g. "QA-KB-070 mutation applied during this run: True".
+Command shape (mutated):  PYTHONPATH=../evidence/qa-kb-070 MUTATE_TASK_LOOP=1 \
+    .venv/bin/python -m pytest <file> -q -p no:cacheprovider -p mutate_task_loop
+
+======================================================================================================
+A. THE BUG: delete `invocation_gated=False,` (task_loop.py:364). Does any offline test notice?  NO.
+======================================================================================================
+file                                                                         mutated result        control (no mutation)
+tests/unit/agents/test_strategies.py                                         11 passed             11 passed
+tests/unit/agents/test_task_loop_declared_gate_iss132.py                      3 passed              (not needed)
+tests/integration/agents/test_sc001_nonprototype_task_loop.py                 3 passed              (not needed)
+tests/integration/agents/test_engine_runner_error_arm.py                      1 failed, 5 passed    1 failed, 5 passed  <- SAME failure, pre-existing:
+                                                                                                   test_task_loop_all_tasks_succeed_stays_clean
+                                                                                                   (run ends status "degraded"; finalize_terminal_run:
+                                                                                                   create_run_ref run_id must be a UUID) - unrelated
+tests/contract/agents/test_characterization_prototype.py                      2 passed              (not needed)
+tests/contract/agents/test_characterization_prototype_feature_revision.py     4 passed              (not needed)
+tests/contract/agents/test_characterization_prototype_large_revision.py       2 passed              (not needed)
+tests/integration/agents/test_routing_parity.py                               5 passed              (not needed)
+tests/integration/agents/test_sc001_reconcile.py                              3 passed              (not needed)
+Not run (read instead): tests/integration/agents/test_restart_resume_db.py task_loop-driving cases pass gate_agent_ids=[]
+(line 548), as do the other task_loop-driving files named in section A. A grep of backend/tests for a NON-EMPTY
+gate_agent_ids list naming a build/sc001/prototype agent finds exactly one hit: test_task_loop_declared_gate_iss132.py:38,
+which calls _evaluate_gates directly and never run_agent.
+
+======================================================================================================
+B. 01-analyze-pin-probe.py : the proposed pin (record the flag in the fake, assert False per task)
+======================================================================================================
+as shipped : run_agent calls 3 ; invocation_gated per call [False, False, False] ; proposed pin PASS
+--mutate   : run_agent calls 3 ; invocation_gated per call [True, True, True]    ; proposed pin FAIL <- revert visible
+(The fake's run_agent default MUST stay True, mirroring KernelServices.run_agent kernel_services.py:1964; a False default
+would make the pin pass vacuously.)
+
+======================================================================================================
+C. 02-analyze-gate-count-drive.py : what the revert does to a REAL run (engine.execute, SC-001 task_loop fixture, 2 tasks,
+   wizard tick = gate_agent_ids=[sc001-build] + selections[sc001-build].gates=["human"], recording _run_review_gate)
+======================================================================================================
+[AS SHIPPED - kwarg present ] review gates entered for sc001-build: 1  tasks=[(1, 2), (2, 2)]  pipeline_complete=True errors=0
+[MUTATED    - kwarg deleted ] review gates entered for sc001-build: 3  tasks=[(1, 2), (2, 2)]  pipeline_complete=True errors=0
+=> N inline (one per task) + 1 declared = N+1, exactly as ISS-897 states.
+
+======================================================================================================
+D. THE PAIRING MATRIX (every cell mutation-verified). "caught by" = a test that FAILS under the mutation
+======================================================================================================
+cell                                              mutation                                   caught by
+task_loop.py:364   call-site                      strip kwarg                                NOTHING (section A)            <- QA-KB-070 / ISS-897
+task_loop.py:164   step-scope declaration         set runs_agent_inline=True                 test_task_loop_declared_gate_iss132.py (3 failed)
+fanout_batch.py:71 step-scope declaration         set True                                   tests/agents/test_composed_fanout_declared_gate.py (1 failed)
+wave_scheduler.py:245 step-scope declaration      set True                                   NOTHING (section E)            <- sibling ISS-1078
+kernel_services.py:1311 run_worker call-site      strip kwarg                                tests/unit/agents/test_fanout.py::test_run_worker_passes_wave_width_and_single_shot_view (1 failed, 30 passed)
+kernel_services.py:1125 run_merge_agent call-site strip kwarg                                tests/unit/agents/workflows/test_merge_conflict.py::test_kernel_services_run_merge_agent_opts_out_of_the_inline_gate (1 failed, 12 passed)
+kernel_services.py:2065 forward to _run_agent     KernelServices.run_agent forces True       tests/integration/agents/test_restart_resume_db.py::test_fanout_workers_do_not_arm_the_inline_review_gate
+                                                                                             (control: 2 passed ; mutated: 1 failed, 1 passed ; "armed the inline review gate: ['sample-wave-worker' x4]")
+
+======================================================================================================
+E. SIBLING: delete WaveSchedulerStrategy.runs_agent_inline = False (wave_scheduler.py:245). Does any offline test notice?  NO.
+======================================================================================================
+MUTATE_UNDECLARE=wave_scheduler, one file per run:
+tests/unit/agents/test_wave_scheduler.py                       13 passed
+tests/unit/agents/test_gates.py                                46 passed
+tests/agents/test_conditional_human_gate_source_t26.py          2 passed
+tests/agents/test_composed_fanout_declared_gate.py              1 passed   (it only exercises fanout_batch)
+tests/integration/agents/test_composed_fanout.py                6 passed
+tests/integration/agents/test_sample_wave_workflow_db.py        1 failed, 2 passed  = SAME as control (test_sample_wave_kernel_names_no_workflow; engine.py:2382 comment names sample_wave)
+tests/integration/agents/test_restart_resume_db.py              4 failed, 81 passed = IDENTICAL failed set to control (diff empty); the four, with no mutation too:
+                                                                 test_midwave_resume_does_not_reinvoke_completed_workers, test_failed_run_resumes_skips_completed_tasks,
+                                                                 test_user_resume_persists_output_columns, test_resume_dispatch_carries_rehydrated_planning_context
+tests/unit/test_backlog_revision.py                            34 passed
+tests/unit/agents/test_phase3_cutover_verify.py                 1 failed, 3 passed  = SAME as control (UnitIsolationError: git init in a unit test)
+tests/unit/agents/test_fanout_cancel.py                         9 passed
+tests/unit/agents/execution_engine/test_compiler.py            35 passed
+tests/integration/agents/test_step_raises_visibly.py            3 passed
+tests/agents/test_wave_scheduler_cancel_row.py                  1 passed
+Controls that prove the mutation harness can catch things: task_loop undeclared -> 3 failed ; fanout_batch undeclared -> 1 failed.
+
+03-analyze-wave-declaration-drive.py (ISS-097 harness, sample_wave single-wave plan; wizard tick = gate_agent_ids=[sample-wave-worker]
++ selections[sample-wave-worker].gates=["human"]; counts _run_review_gate entries):
+[AS SHIPPED - runs_agent_inline = False ] review-gate entries: 1 ['sample-wave-worker']  pipeline_complete=True errors=0
+[UNDECLARED - runs_agent_inline deleted ] review-gate entries: 0 []                      pipeline_complete=True errors=0
+=> the ticked wave step silently gets NO review gate (ISS-131's symptom), and the run completes without error.

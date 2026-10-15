@@ -1,0 +1,18 @@
+# QA-KB-102 fix — frontend, one file per run, 2026-10-08 15:32, HEAD 2461935f5 + working tree
+# cmd: cd frontend && npx vitest run <file>
+# before the change (observed this session): DashboardLayout.iss1121.test.tsx -> Tests 1 expected fail (1)
+src/components/layout/DashboardLayout.iss1121.test.tsx (after): Error: Expect test to fail  Tests 1 failed (1) 
+src/components/layout/DashboardLayout.bug024.test.tsx:  Tests 12 passed (12)
+src/components/layout/DashboardLayout.catalogHome.test.tsx:  Tests 2 passed (2)
+src/components/layout/DashboardLayout.fix194.test.tsx:  Tests 11 passed (11)
+src/components/layout/DashboardLayout.iss644.test.tsx:  Tests 1 expected fail (1)
+src/components/layout/DashboardLayout.iss648.test.tsx:  Tests 1 passed (1)
+src/components/layout/DashboardLayout.iss649.test.tsx:  Tests 1 passed (1)
+src/components/layout/DashboardLayout.iss656.test.tsx:  Tests 1 passed (1)
+src/components/layout/DashboardLayout.iss769.test.tsx:  Tests 1 passed (1)
+src/components/layout/DashboardLayout.laneTitle.test.tsx:  Tests 8 passed (8)
+src/components/layout/DashboardLayout.launchLatch.test.tsx:  Tests 3 passed (3)
+src/components/layout/DashboardLayout.revisionRouting.test.tsx:  Tests 5 passed (5)
+# scratch check (temporary file, deleted after the run): same agents array + new dagEdges (the workflow_validated shape) after the click keeps 'Restarting run…' -> Tests 1 passed (1)
+# tsc --noEmit: 0 errors in src/components/layout/DashboardLayout.tsx (remaining errors are pre-existing, in *.test.tsx files only)
+# eslint per-rule counts, HEAD copy vs changed copy (both unsuppressed): identical {no-unused-vars 11, set-state-in-effect 10, exhaustive-deps 7, immutability 2}

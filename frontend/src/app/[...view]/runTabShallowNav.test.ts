@@ -26,8 +26,11 @@ const dashboardSource = readFileSync(
 function tabSelectBody(): string {
   const start = dashboardSource.indexOf("const handlePreviewPanelTabSelect = useCallback(");
   expect(start).toBeGreaterThan(-1);
-  const end = dashboardSource.indexOf("}, [contentSourceRunId, pinnedVersion]);", start);
+  // End at this handler's own close, never at a dependency list: the same deps
+  // literal closes other hooks, so it overshoots once the deps change (ISS-942).
+  const end = dashboardSource.indexOf("\n  }, [", start);
   expect(end).toBeGreaterThan(start);
+  expect(dashboardSource.slice(start, end).match(/\buse(Callback|Effect)\(/g)).toHaveLength(1);
   // Comments in this handler name `router.push` as the thing it must NOT do,
   // so strip them before asserting on what it actually calls.
   return dashboardSource

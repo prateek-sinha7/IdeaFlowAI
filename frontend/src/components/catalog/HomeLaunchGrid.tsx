@@ -24,7 +24,7 @@ import type { WorkflowType } from "@/types/index";
 import type { WorkflowRun } from "@/types/index";
 import { WorkflowDialog } from "@/components/workflow/WorkflowDialog";
 import type { Tier } from "@/lib/entitlements";
-import { canRunPipeline, TIER_LABELS, getUpgradeTier } from "@/lib/entitlements";
+import { canRunPipeline, TIER_LABELS, getUpgradeTier, splitCatalog } from "@/lib/entitlements";
 import { baseWorkflowType } from "@/lib/workflowChaining";
 import { useWorkflowLabels } from "@/hooks/useWorkflowMetadata";
 import { fetchRecentRuns, selectWorkflowWizardPath } from "@/store/slices/globalSlice";
@@ -90,17 +90,9 @@ interface HomeLaunchGridProps {
 
 const RECENTS_LIMIT = 6;
 
-/**
- * Engine demonstrations, not product capability. The backend's conditional-gate
- * fixtures use an `ex_` / `sample_` / `sc001` id prefix and stay
- * `user_launchable` because they genuinely run — but on a flat grid "Spanish
- * Greeter" read like a peer of "Build an end-to-end application". Classifying
- * on the prefix is presentation only: no manifest changes, nothing stops being
- * launchable, and a new fixture following the convention is sorted automatically.
- * A beta row stays under Coming Soon even when it matches.
- */
-const EXAMPLE_ID_PREFIX = /^(ex_|sample_|sc001)/i;
-export const isExampleWorkflow = (id: string): boolean => EXAMPLE_ID_PREFIX.test(id);
+// The Engine examples classifier lives in lib/entitlements.ts (splitCatalog), so
+// the Usage & Limits deliverable-access grid reads the same split (ISS-1195).
+export { isExampleWorkflow } from "@/lib/entitlements";
 
 const STATUS_TONE: Record<string, { label: string; dot: string; text: string }> = {
   completed: { label: "Done",      dot: "bg-status-done",    text: "text-status-done"    },
@@ -287,9 +279,7 @@ export function HomeLaunchGrid({
             "Coming Soon" are visually distinct groups, not one blurred list
             where the only signal is a small per-card badge. */}
         {!loading && !error && workflows.length > 0 && (() => {
-          const productRows = workflows.filter((w) => !w.is_beta && !isExampleWorkflow(w.id));
-          const exampleRows = workflows.filter((w) => !w.is_beta && isExampleWorkflow(w.id));
-          const betaRows    = workflows.filter((w) => w.is_beta);
+          const { productRows, exampleRows, betaRows } = splitCatalog(workflows);
 
           const renderCard = (row: WorkflowSummary) => {
             const type      = row.id as WorkflowType;

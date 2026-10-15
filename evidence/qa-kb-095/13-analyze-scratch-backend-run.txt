@@ -1,0 +1,18 @@
+# QA-KB-095 analysis, 2026-10-07 — in-process probe (real RunSandbox, TestClient, temp RUNS_ROOT), 1 passed
+# Recipe (one file, offline): cd backend && ./.venv/bin/python -m pytest <scratch>/test_qa_kb_095_husk_scratch.py -q -p no:cacheprovider --rootdir=. -c pyproject.toml
+# The HUSK and ABSENT rows match the live server (evidence 06). TAGLESS is a live sandbox (31 files incl. .git, no v1 tag): it must keep answering 400.
+
+# in-process TestClient, real RunSandbox, temp RUNS_ROOT, in-memory SQLite (run row has git_tag='v1')
+  HUSK    GET /sandbox               -> 200 {'expired': False, 'files': 0}
+  HUSK    GET /sandbox?ref=v1        -> 400 {'detail': 'invalid ref'}
+  HUSK    GET /sandbox/zip?ref=v1    -> 400 {'detail': 'invalid ref'}
+  HUSK    GET /sandbox/file?ref=v1   -> 400 {'detail': 'invalid ref'}
+  ABSENT  GET /sandbox               -> 200 {'expired': True, 'files': 0}
+  ABSENT  GET /sandbox?ref=v1        -> 200 {'expired': True, 'files': 0}
+  ABSENT  GET /sandbox/zip?ref=v1    -> 404 {'detail': 'Workspace expired'}
+  ABSENT  GET /sandbox/file?ref=v1   -> 404 {'detail': 'Workspace expired'}
+  TAGLESS GET /sandbox               -> 200 {'expired': False, 'files': 31}
+  TAGLESS GET /sandbox?ref=v1        -> 400 {'detail': 'invalid ref'}
+  TAGLESS GET /sandbox/zip?ref=v1    -> 400 {'detail': 'invalid ref'}
+  TAGLESS GET /sandbox/file?ref=v1   -> 400 {'detail': 'invalid ref'}
+# husk dir still exists after the four reads: True

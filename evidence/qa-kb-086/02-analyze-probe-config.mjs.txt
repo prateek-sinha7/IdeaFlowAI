@@ -1,0 +1,13 @@
+import path from "node:path";
+const FE = "<FRONTEND>";
+export default {
+  root: FE,
+  test: {
+    environment: "jsdom",
+    globals: true,
+    setupFiles: [path.join(FE, "vitest.setup.ts")],
+    include: ["<SCRATCH>/*.probe.test.tsx"],
+  },
+  resolve: { alias: { "@": path.join(FE, "src") } },
+  server: { fs: { strict: false } },
+};

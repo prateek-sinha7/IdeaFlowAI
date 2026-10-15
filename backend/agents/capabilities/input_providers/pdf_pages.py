@@ -125,7 +125,7 @@ class PdfPagesProvider:
         """
         import json
 
-        page_images: list = []
+        images: list = []
         try:
             manifest_data = json.loads(
                 (slug_dir / "manifest.json").read_text(encoding="utf-8")
@@ -201,7 +201,7 @@ class PdfPagesProvider:
                         mime_type = "image/png"
 
                         # Add content block
-                        page_images.append(
+                        images.append(
                             {
                                 "type": "image",
                                 "source_type": "base64",
@@ -223,7 +223,7 @@ class PdfPagesProvider:
             # Any error reading directories or manifest -> degrade to []
             return []
 
-        return page_images
+        return images
 
     @staticmethod
     def _validate_pixel_ceiling(image_bytes: bytes, max_pixels: int) -> bytes | None:

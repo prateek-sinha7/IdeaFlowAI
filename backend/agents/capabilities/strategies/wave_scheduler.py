@@ -54,36 +54,25 @@ logger = logging.getLogger(__name__)
 # json_tasks parser (NOT heading_tasks; waves need the depends_on/conflict_keys surface).
 _DEFAULT_PARSER = "json_tasks"
 
-# A revision writes its own files under revisions/<n>/, n = 1, 2, 3 ... one folder per
-# revision of the run's family (spec 022 §11). A custom_path task source may name that
-# folder as {revision_n}: it resolves to the highest all-digit folder under revisions/,
-# which is the current revision's, since the family lock runs one revision at a time.
-REVISION_TOKEN = "{revision_n}"
-
-
-def latest_revision_number(sandbox: Any) -> int | None:
-    """The highest all-digit folder name under ``revisions/``, or None when there is none."""
-    try:
-        root = sandbox.path_for("revisions")
-    except (AttributeError, ValueError):
-        return None
-    if not root.is_dir():
-        return None
-    return max(
-        (int(p.name) for p in root.iterdir() if p.is_dir() and p.name.isdigit()),
-        default=None,
-    )
+# A revision writes its own files under revisions/<run_id>/. Every revision of a run's
+# family shares the root run's folder, so the folder is named by this revision's own
+# pipeline_run_id, which the engine writes to .context/run-id.txt at the start of each
+# run. A custom_path task source may name that folder as {run_id}. RUN_ID_PATH mirrors
+# agents.execution_engine.user_prompt.RUN_ID_PATH; this module may not import it.
+RUN_ID_PATH = ".context/run-id.txt"
+REVISION_TOKEN = "{run_id}"
 
 
 def resolve_revision_path(path: str, sandbox: Any) -> str:
-    """``path`` with ``{revision_n}`` replaced by the current revision's number."""
-    n = latest_revision_number(sandbox)
-    if n is None:
+    """``path`` with ``{run_id}`` replaced by this revision's run id."""
+    text = sandbox.read(RUN_ID_PATH) if sandbox is not None else None
+    run_id = (text or "").strip()
+    if not run_id:
         raise ValueError(
             f"wave_scheduler: task_source path {path!r} names the current revision, "
-            "but there is no revisions/<n>/ folder"
+            f"but {RUN_ID_PATH} is missing or empty"
         )
-    return path.replace(REVISION_TOKEN, str(n))
+    return path.replace(REVISION_TOKEN, run_id)
 
 
 def read_custom_path(path: str, sandbox: Any) -> str:
@@ -274,12 +263,10 @@ class WaveSchedulerStrategy:
         sandbox = getattr(runner, "sandbox", None)
         if getattr(task_source, "kind", None) == "custom_path":
             tasks = parser.parse(read_custom_path(task_source.path, sandbox))
-        elif hasattr(parser, "parse_preferring_target"):
-            tasks = parser.parse_preferring_target(
-                plan_output, sandbox=sandbox, target=target
-            )
         else:
-            tasks = parser.parse(plan_output)
+            tasks = task_identity.parse_step_tasks(
+                parser, plan_output, sandbox=sandbox, target=target
+            )
 
         if not tasks:
             logger.warning(

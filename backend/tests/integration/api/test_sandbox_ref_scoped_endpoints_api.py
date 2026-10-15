@@ -1,34 +1,18 @@
-"""tests/unit/test_sandbox_ref_scoped_endpoints.py — ref-scoped sandbox endpoints,
-against a REAL git-backed sandbox (not mocked, unlike test_phase6_sandbox_versioning.py)
-and a REAL FastAPI TestClient (unlike the mocked-subprocess coverage there).
+"""ISS-724 / ISS-893 (QA-KB-027) — pinned-ref workspace edge cases against REAL git.
 
-Builds a self-contained temp git sandbox with 2-3 tagged versions of differing
-content per test — never depends on the swept-eligible reference family
-(runs/c6b9b61f-.../4d55165d-.../) named in the bug brief.
-
-GREEN — lock in correct behaviour:
-  - GET /sandbox/file?path=X&ref=vN returns vN's bytes; a different ref returns
-    different bytes.
-  - The same path with NO ref returns the working tree (HEAD) — intentional,
-    see TestOmittingRefServesTheWorkingTree's docstring for why.
-  - An invalid/unknown ref is rejected 400, not silently served.
-  - GET /sandbox/refs lists exactly the tags git holds, not what the DB believes.
-  - QA-PS-032 / ISS-720: ref-scoped listing reports real byte sizes. Found ALREADY
-    FIXED (uncommitted, landed concurrently on this branch during authoring) —
-    kept as a GREEN `issue`-marked regression test, not xfail. See that test's
-    docstring for the observed evidence.
-
-xfail(strict) — pin the bug still open:
-  - ISS-697: a COMPLETED run's DB git_tag can point at a tag that was never
-    actually minted in the sandbox — tag creation is best-effort at finalize.
-
-Do NOT run the full suite (matches the convention set by
-test_run_files_ref_family_scope.py in this directory) — this file only.
+Relocated home of the dead tests/unit/test_sandbox_ref_scoped_endpoints.py (unit I/O guard
+refuses DB + git there). In-memory SQLite + real RunSandbox git + TestClient; never the live DB.
+The product is correct for ISS-724 cases (plain tests); ISS-893 is fixed (plain test).
+The classes at the bottom are that file's tests, moved verbatim apart from the fixture plumbing;
+ISS-697 stays a strict-xfail pin.
 """
 
 from __future__ import annotations
 
+import io
+import shutil
 import uuid
+import zipfile
 from datetime import datetime, timezone
 
 import pytest
@@ -39,116 +23,92 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 
-class _FakeUser:
-    def __init__(self, id: str):
-        self.id = id
-
-
 @pytest.fixture
 def env(monkeypatch, tmp_path):
     from app.api import run_engine as ws_module
     from app.api import run_files as rf_module
+    from app.api.run_files import router
     from app.core.config import settings
+    from app.core.dependencies import get_current_user
     from app.models import database as db_module
     from app.models.database import Base
+    from app.models.user import User
+    from app.models.workflow import WorkflowRun
 
-    db_engine = create_engine(
+    eng = create_engine(
         "sqlite:///:memory:",
         connect_args={"check_same_thread": False},
         poolclass=StaticPool,
     )
-    TestingSession = sessionmaker(autocommit=False, autoflush=False, bind=db_engine)
-    Base.metadata.create_all(bind=db_engine)
+    Session = sessionmaker(autocommit=False, autoflush=False, bind=eng)
+    Base.metadata.create_all(bind=eng)
+    monkeypatch.setattr(ws_module, "_get_db", lambda: Session())
+    monkeypatch.setattr(rf_module, "_get_db", lambda: Session())
+    monkeypatch.setattr(db_module, "SessionLocal", Session)
+    monkeypatch.setattr(settings, "RUNS_ROOT", str(tmp_path / "runs"))
 
-    monkeypatch.setattr(ws_module, "_get_db", lambda: TestingSession())
-    monkeypatch.setattr(rf_module, "_get_db", lambda: TestingSession())
-    monkeypatch.setattr(db_module, "SessionLocal", TestingSession)
-
-    runs_root = tmp_path / "runs"
-    monkeypatch.setattr(settings, "RUNS_ROOT", str(runs_root))
-
-    from app.api.run_files import router as run_files_router
-    from app.core.dependencies import get_current_user
-
-    app = FastAPI()
-    app.include_router(run_files_router)
-    state: dict = {"user": None}
-    app.dependency_overrides[get_current_user] = lambda: state["user"]
-    client = TestClient(app)
-
-    yield {
-        "client": client,
-        "state": state,
-        "Session": TestingSession,
-        "runs_root": str(runs_root),
-    }
-
-    Base.metadata.drop_all(bind=db_engine)
-    db_engine.dispose()
-
-
-def _seed_user(env) -> _FakeUser:
-    from app.models.user import User
-
-    db = env["Session"]()
-    try:
-        u = User(
-            id=str(uuid.uuid4()),
-            email=f"u-{uuid.uuid4().hex[:8]}@example.com",
-            # users.cognito_sub is NOT NULL since the Cognito-only auth migration
-            # (b2a621f8), which also dropped password_hash.
-            cognito_sub=f"sub-{uuid.uuid4()}",
+    uid, run_id = str(uuid.uuid4()), str(uuid.uuid4())
+    with Session() as db:
+        db.add(
+            User(
+                id=uid, email=f"u-{uid[:8]}@example.com", cognito_sub=str(uuid.uuid4())
+            )
         )
-        db.add(u)
         db.commit()
-        db.refresh(u)
-        return _FakeUser(id=u.id)
-    finally:
-        db.close()
-
-
-def _seed_run(env, *, user_id, run_id=None, parent_run_id=None, git_tag=None) -> str:
-    from app.models.workflow import WorkflowRun
-
-    run_id = run_id or str(uuid.uuid4())
-    db = env["Session"]()
-    try:
         db.add(
             WorkflowRun(
                 id=run_id,
-                user_id=user_id,
-                owner_id=user_id,
+                user_id=uid,
+                owner_id=uid,
                 workspace_id="ws-1",
                 title="t",
                 type="ppt_revision",
                 status="completed",
                 input="i",
                 agent_count=4,
-                session_id=user_id,
-                parent_run_id=parent_run_id,
-                git_tag=git_tag,
+                session_id=uid,
                 created_at=datetime.now(timezone.utc),
             )
         )
         db.commit()
-        return run_id
-    finally:
-        db.close()
+
+    app = FastAPI()
+    app.include_router(router)
+    app.dependency_overrides[get_current_user] = lambda: type("U", (), {"id": uid})()
+    yield {
+        "client": TestClient(app),
+        "uid": uid,
+        "run_id": run_id,
+        "root": str(tmp_path / "runs"),
+        "Session": Session,
+    }
+    Base.metadata.drop_all(bind=eng)
+    eng.dispose()
 
 
-def _make_tagged_sandbox(env, user, *, versions: list[str]):
+def _sandbox(env):
+    from app.agents.sandbox import RunSandbox
+
+    sb = RunSandbox(env["uid"], env["run_id"], runs_root=env["root"])
+    sb.ensure()
+    sb.git_init_sandbox()
+    return sb
+
+
+def _zip(env, ref):
+    r = env["client"].get(f"/api/runs/{env['run_id']}/sandbox/zip", params={"ref": ref})
+    assert r.status_code == 200, r.text
+    return zipfile.ZipFile(io.BytesIO(r.content))
+
+
+def _make_tagged_sandbox(env, *, versions: list[str]):
     """A real git-backed sandbox: one commit + one tag per entry in ``versions``.
 
     ``versions`` is the SEQUENCE of file contents written to
     ``presentation.html`` — ``versions[0]`` becomes v1's commit+tag,
     ``versions[1]`` becomes v2's, and so on. Returns ``(run_id, sandbox)``.
     """
-    from app.agents.sandbox import RunSandbox
-
-    run_id = _seed_run(env, user_id=user.id)
-    sb = RunSandbox(user.id, run_id, runs_root=env["runs_root"])
-    sb.ensure()
-    sb.git_init_sandbox()
+    sb = _sandbox(env)
     assert (sb.root / ".git").exists()
 
     for i, content in enumerate(versions, start=1):
@@ -156,18 +116,132 @@ def _make_tagged_sandbox(env, user, *, versions: list[str]):
         sb.commit_all(f"write v{i}")
         sb.create_tag(f"v{i}")
 
-    return run_id, sb
+    return env["run_id"], sb
+
+
+def _set_db_git_tag(env, tag: str) -> None:
+    from app.models.workflow import WorkflowRun
+
+    db = env["Session"]()
+    try:
+        row = db.query(WorkflowRun).filter(WorkflowRun.id == env["run_id"]).first()
+        row.git_tag = tag
+        db.commit()
+    finally:
+        db.close()
+
+
+def test_zip_under_two_tags_holds_each_tags_bytes(env):
+    """ISS-724 — zip ref=v1 / ref=v2 carry their own bytes; later edits invisible."""
+    sb = _sandbox(env)
+    (sb.root / "presentation.html").write_text("v1-bytes")
+    sb.commit_all("v1")
+    sb.create_tag("v1")
+    (sb.root / "presentation.html").write_text("v2-bytes")
+    (sb.root / "extra.txt").write_text("v2-only")
+    sb.commit_all("v2")
+    sb.create_tag("v2")
+    (sb.root / "presentation.html").write_text("later-edit")
+
+    z1, z2 = _zip(env, "v1"), _zip(env, "v2")
+    assert z1.read("presentation.html") == b"v1-bytes"
+    assert z2.read("presentation.html") == b"v2-bytes"
+    assert "extra.txt" not in z1.namelist() and z2.read("extra.txt") == b"v2-only"
+
+
+def test_chain_user_stories_md_is_served_per_ref(env):
+    """ISS-724 — user_stories_revision deliverable lives at .chain/user_stories.md."""
+    sb = _sandbox(env)
+    for tag in ("v1", "v2"):
+        (sb.root / ".chain").mkdir(exist_ok=True)
+        (sb.root / ".chain" / "user_stories.md").write_text(f"{tag}-stories")
+        sb.commit_all(tag, force_add=frozenset({".chain/user_stories.md"}))
+        sb.create_tag(tag)
+    c, rid = env["client"], env["run_id"]
+    for tag in ("v1", "v2"):
+        r = c.get(
+            f"/api/runs/{rid}/sandbox/file",
+            params={"path": ".chain/user_stories.md", "ref": tag},
+        )
+        assert r.status_code == 200 and r.content == f"{tag}-stories".encode()
+        r = c.get(
+            f"/api/runs/{rid}/sandbox/file",
+            params={"path": "user_stories.md", "ref": tag},
+        )
+        assert r.status_code == 404
+
+
+def test_valid_tag_missing_path_is_404(env):
+    """ISS-724 — fresh parent without presentation.html: 404, never 500."""
+    sb = _sandbox(env)
+    (sb.root / "other.txt").write_text("x")
+    sb.commit_all("v1")
+    sb.create_tag("v1")
+    r = env["client"].get(
+        f"/api/runs/{env['run_id']}/sandbox/file",
+        params={"path": "presentation.html", "ref": "v1"},
+    )
+    assert r.status_code == 404
+
+
+def test_tagless_git_sandbox_rejects_ref_400(env):
+    """ISS-724 — git-initialised but tagless: ref=v1 is 400 on file and zip."""
+    sb = _sandbox(env)
+    (sb.root / "a.txt").write_text("x")
+    sb.commit_all("c")
+    c, rid = env["client"], env["run_id"]
+    assert (
+        c.get(
+            f"/api/runs/{rid}/sandbox/file", params={"path": "a.txt", "ref": "v1"}
+        ).status_code
+        == 400
+    )
+    assert (
+        c.get(f"/api/runs/{rid}/sandbox/zip", params={"ref": "v1"}).status_code == 400
+    )
+
+
+@pytest.mark.issue("ISS-893")
+def test_pinned_ref_listing_of_swept_sandbox_is_expired_payload(env):
+    """ISS-893 — swept sandbox + ref=v1 listing must be 200 expired:true, not 400."""
+    sb = _sandbox(env)
+    (sb.root / "presentation.html").write_text("v1")
+    sb.commit_all("v1")
+    sb.create_tag("v1")
+    shutil.rmtree(sb.root)
+    r = env["client"].get(f"/api/runs/{env['run_id']}/sandbox", params={"ref": "v1"})
+    assert r.status_code == 200 and r.json()["expired"] is True, (r.status_code, r.text)
+
+
+@pytest.mark.issue("ISS-1072")
+def test_empty_husk_sandbox_with_ref_is_expired_not_400(env):
+    """ISS-1072 (QA-KB-095) — a swept dir re-created EMPTY must read as expired: no 400 on ?ref=v1."""
+    sb = _sandbox(env)
+    (sb.root / "presentation.html").write_text("v1")
+    sb.commit_all("v1")
+    sb.create_tag("v1")
+    shutil.rmtree(sb.root)
+    sb.root.mkdir(parents=True)  # the husk: directory present, nothing inside
+    c, rid = env["client"], env["run_id"]
+    r = c.get(f"/api/runs/{rid}/sandbox", params={"ref": "v1"})
+    assert r.status_code == 200 and r.json()["expired"] is True, (r.status_code, r.text)
+    assert c.get(f"/api/runs/{rid}/sandbox").json()["expired"] is True
+    assert (
+        c.get(f"/api/runs/{rid}/sandbox/zip", params={"ref": "v1"}).status_code == 404
+    )
+    assert (
+        c.get(
+            f"/api/runs/{rid}/sandbox/file", params={"path": "a.txt", "ref": "v1"}
+        ).status_code
+        == 404
+    )
 
 
 class TestRefScopedFileReadReturnsThatVersionsBytes:
     """A GET with ref=vN must return vN's own committed bytes — never today's."""
 
     def test_different_refs_return_different_bytes(self, env):
-        user = _seed_user(env)
-        env["state"]["user"] = user
-        run_id, _sb = _make_tagged_sandbox(
-            env, user, versions=["<h1>v1</h1>", "<h1>v2</h1>"]
-        )
+        run_id, _sb = _make_tagged_sandbox(env, versions=["<h1>v1</h1>", "<h1>v2</h1>"])
 
         r1 = env["client"].get(
             f"/api/runs/{run_id}/sandbox/file",
@@ -199,9 +273,7 @@ class TestOmittingRefServesTheWorkingTree:
     """
 
     def test_no_ref_returns_head_not_a_tagged_version(self, env):
-        user = _seed_user(env)
-        env["state"]["user"] = user
-        run_id, sb = _make_tagged_sandbox(env, user, versions=["<h1>v1</h1>"])
+        run_id, sb = _make_tagged_sandbox(env, versions=["<h1>v1</h1>"])
 
         # A further, UNTAGGED write past v1 — simulates HEAD having moved on
         # since the last tag (e.g. mid-revision, before the next tag lands).
@@ -232,9 +304,7 @@ class TestInvalidRefIsRejected:
     """An unknown ref string must be a 400, never silently served or 500'd."""
 
     def test_unknown_ref_is_rejected_400(self, env):
-        user = _seed_user(env)
-        env["state"]["user"] = user
-        run_id, _sb = _make_tagged_sandbox(env, user, versions=["<h1>v1</h1>"])
+        run_id, _sb = _make_tagged_sandbox(env, versions=["<h1>v1</h1>"])
 
         resp = env["client"].get(
             f"/api/runs/{run_id}/sandbox/file",
@@ -251,21 +321,9 @@ class TestSandboxRefsListsExactlyGitsTags:
     """GET /sandbox/refs must reflect git's own tag list, not the DB's belief."""
 
     def test_refs_matches_git_tags_even_when_db_git_tag_disagrees(self, env):
-        user = _seed_user(env)
-        env["state"]["user"] = user
-        run_id, sb = _make_tagged_sandbox(
-            env, user, versions=["<h1>v1</h1>", "<h1>v2</h1>"]
-        )
+        run_id, sb = _make_tagged_sandbox(env, versions=["<h1>v1</h1>", "<h1>v2</h1>"])
         # Corrupt the DB's belief on purpose — refs must come from git, not this.
-        from app.models.workflow import WorkflowRun
-
-        db = env["Session"]()
-        try:
-            row = db.query(WorkflowRun).filter(WorkflowRun.id == run_id).first()
-            row.git_tag = "v-does-not-exist-in-git"
-            db.commit()
-        finally:
-            db.close()
+        _set_db_git_tag(env, "v-does-not-exist-in-git")
 
         resp = env["client"].get(f"/api/runs/{run_id}/sandbox/refs")
         assert resp.status_code == 200
@@ -288,16 +346,14 @@ class TestQAPS032RefScopedListingReportsRealSizes:
     though the ``ISS-720`` card itself is still ``status: open``). Kept as
     ``issue`` documentation with no ``xfail`` per this suite's convention for
     a bug proven fixed at test-authoring time (see
-    ``test_run_files_ref_family_scope.py``'s ``TestVersionDropdownIsScopedToTheSandbox``
+    ``test_run_files_ref_family_scope_api.py``'s ``TestVersionDropdownIsScopedToTheSandbox``
     for the same pattern) — this is regression protection, not a red pin.
     """
 
     @pytest.mark.issue("QA-PS-032")
     def test_ref_scoped_listing_reports_the_real_file_size(self, env):
-        user = _seed_user(env)
-        env["state"]["user"] = user
         content = "<h1>v1</h1>"  # 11 bytes
-        run_id, _sb = _make_tagged_sandbox(env, user, versions=[content])
+        run_id, _sb = _make_tagged_sandbox(env, versions=[content])
 
         resp = env["client"].get(f"/api/runs/{run_id}/sandbox", params={"ref": "v1"})
         assert resp.status_code == 200
@@ -323,19 +379,14 @@ class TestISS697CompletedRunAlwaysHasARealTag:
     @pytest.mark.issue("ISS-697")
     @pytest.mark.xfail(reason="ISS-697 unfixed", strict=True)
     def test_a_completed_runs_db_tag_is_present_in_sandbox_refs(self, env):
-        from app.agents.sandbox import RunSandbox
-
-        user = _seed_user(env)
-        env["state"]["user"] = user
         # DB believes this completed run is tagged v1 (git_tag written eagerly
         # per the normal finalize path)...
-        run_id = _seed_run(env, user_id=user.id, git_tag="v1")
+        _set_db_git_tag(env, "v1")
+        run_id = env["run_id"]
 
         # ...but the actual tag mint at finalize silently failed (best-effort,
         # per ISS-697's root cause) — the sandbox got its commit, never its tag.
-        sb = RunSandbox(user.id, run_id, runs_root=env["runs_root"])
-        sb.ensure()
-        sb.git_init_sandbox()
+        sb = _sandbox(env)
         (sb.root / "presentation.html").write_text("<h1>v1</h1>", encoding="utf-8")
         sb.commit_all("write v1")
         # sb.create_tag("v1") deliberately NOT called.

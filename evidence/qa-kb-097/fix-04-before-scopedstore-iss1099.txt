@@ -1,0 +1,15 @@
+xx                                                                       [100%]
+=============================== warnings summary ===============================
+app/core/config.py:94
+  /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/app/core/config.py:94: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+    class Settings(BaseSettings):
+
+tests/conftest.py:484
+  /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/tests/conftest.py:484: PytestUnknownMarkWarning: Unknown pytest.mark.agents - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    item.add_marker(getattr(pytest.mark, suite))
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+XFAIL tests/agents/test_scopedstore_wave_merge_state_iss1099.py::test_update_wave_run_merge_state_persists_columns_owner_scoped - ISS-1099 unfixed
+XFAIL tests/agents/test_scopedstore_wave_merge_state_iss1099.py::test_scopedstore_methods_only_use_attributes_that_exist - ISS-1099 unfixed
+2 xfailed, 2 warnings in 1.15s

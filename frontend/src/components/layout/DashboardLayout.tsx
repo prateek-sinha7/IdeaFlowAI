@@ -36,13 +36,15 @@ import { parseRunInput } from "@/lib/runInput";
 import { getToken, getChainContext, getRunFamily, getWorkflow, postCancel, postRevision, postResume } from "@/lib/api";
 // T9 (015-frontend-routing, FR-001/FR-004): every mainView-setting call site
 // below additionally pushes the matching path via routes.*, additively.
-import { routes } from "@/lib/routes";
+import { routes, parseViewPath } from "@/lib/routes";
 import { backToOrigin, goBackOr, rememberBackOrigin } from "@/lib/navigation";
+import { markShallowNav } from "@/lib/shallowNavGuard";
 import { isComposerWorkflow, runConfigFromManifest } from "@/store/api/userWorkflows";
 import type { UserWorkflowSummary, WorkflowSummary } from "@/lib/api";
 import type { ConnectionStatus } from "@/hooks/useHandoffSocket";
 import type { ChatMode } from "@/components/chat/ChatInput";
 import { useSkillsHooks } from "@/context/SkillsHooksContext";
+import { useAppSelector } from "@/store/hooks";
 import { useRunConnection } from "@/providers/RunConnectionProvider";
 // KAN-128 (FIX-141): content-derived filename for the left chat panel deliverable card
 import { deriveDeliverableFilename } from "@/components/results/FilesTab";
@@ -109,9 +111,12 @@ export interface DashboardLayoutProps {
   chatTitleUpdate?: { chat_session_id: string; title: string } | null;
   processSteps?: ProcessStep[];
   pipelineState?: PipelineRunState;
-  /** Resolves to whether the launch was accepted (when the caller can tell). */
-  onStartPipeline?: (type: string, message: string, agentIds?: string[], attachedHooks?: import("@/types/index").AttachedHook[], extraParams?: Record<string, unknown>) => void | Promise<boolean>;
+  /** Resolves to the new run's id, or null when the launch was refused (ISS-1137). Never rejects. */
+  onStartPipeline?: (type: string, message: string, agentIds?: string[], attachedHooks?: import("@/types/index").AttachedHook[], extraParams?: Record<string, unknown>) => Promise<string | null>;
   onResetPipeline?: () => void;
+  /** ISS-1137: why the last launch was refused (page.tsx's onStartPipeline .catch), shown as a banner. */
+  launchError?: string | null;
+  onDismissLaunchError?: () => void;
   recentRuns?: WorkflowRun[];
   /** ISS-757: false until page.tsx's initial getWorkflows has settled. Lets the
    *  header tell "still loading" from "confirmed zero runs" — an empty
@@ -353,6 +358,9 @@ export interface DashboardLayoutProps {
    *  own instead of overwriting anything. Undefined for a saved workflow, whose Save
    *  legitimately overwrites its own row. */
   builtinCanvasType?: string;
+  /** ISS-923: the saved-workflow id from `/workflows/{id}/edit`, forwarded to
+   *  ComposerPage, which holds Save until that row has loaded. */
+  expectedUserWorkflowId?: string;
   /**
    * T8 (015-frontend-routing, FR-011): a saved workflow's composition,
    * fetched by page.tsx on a cold mount of `/workflows/{id}/edit`. Seeds
@@ -463,6 +471,8 @@ export function DashboardLayout({
   isLoadingRunData,
   onStartPipeline,
   onResetPipeline,
+  launchError,
+  onDismissLaunchError,
   recentRuns,
   recentRunsLoaded,
   homeWorkflows,
@@ -507,6 +517,7 @@ export function DashboardLayout({
   initialMainView,
   initialWorkflowType,
   builtinCanvasType,
+  expectedUserWorkflowId,
   initialSavedComposition,
   initialSettingsSection,
   pinnedVersion,
@@ -538,17 +549,11 @@ export function DashboardLayout({
     const targetRoute = routeMap[tab];
     if (!targetRoute || targetRoute === window.location.pathname) return;
 
-    // SHALLOW url update — deliberately NOT router.push. A run tab is a
-    // client-side view switch, not a navigation: the run, its stream and its
-    // panel are already mounted. router.push changes the [...view] catch-all
-    // params, which REMOUNTS page.tsx (see its T6/T7 comments — "confirmed
-    // live"), wiping every page-local run state (pipelineState, run type,
-    // brief) and forcing a full re-fetch/durable replay. Until that settled
-    // (~1s) the freshly-mounted PreviewPanel sat on its "preview" default and
-    // only then jumped to the clicked tab — the visible jerk on Steps/Files/
-    // Workspace/Audit. pushState keeps the URL shareable/refreshable and
-    // updates usePathname (Next patches it, app-router.js:252) without
-    // touching the router tree, so nothing remounts and nothing refetches.
+    // Mark this as a self-initiated shallow tab navigation before calling
+    // pushState, so page.tsx's viewPath effect can skip the redundant
+    // requestOpenTab that would override any card-link deep-link fired after
+    // the tab click (TS-CHAT-CARDS-01).
+    markShallowNav();
     window.history.pushState(null, "", targetRoute);
   }, [contentSourceRunId, pinnedVersion]);
 
@@ -566,6 +571,10 @@ export function DashboardLayout({
   // its REST up-channel; useRunStream owns Last-Event-ID replay.
   const runConnection = useRunConnection();
   const chainInto = useWorkflowChaining();
+  // ISS-472: the tier the Input panel locks on — the loaded profile, `null`
+  // until getMe resolves (or if it fails). Not `userTier`, which reads "basic"
+  // meanwhile and would lock an entitled account.
+  const profileTier = useAppSelector((s) => s.auth.user?.tier ?? null);
   const [mainView, setMainView] = useState<MainView>(() => {
     // T6 (015-frontend-routing): a cold-opened URL wins over the default —
     // page.tsx resolved this from the path via parseViewPath.
@@ -659,6 +668,11 @@ export function DashboardLayout({
   // (the run is accepted but not yet building). Shows an animated "Restarting run…"
   // indicator in the chat footer. Cleared on pipeline_start or error.
   const [runRestarting, setRunRestarting] = useState(false);
+  // ISS-1121: the agent roster the "Run Again" click saw. A resume that ends WITHOUT a
+  // pipeline_start still sends a terminal frame, and pipeline_failed / pipeline_cancelled
+  // both rewrite `agents` (their terminal sweep); workflow_validated, the one frame a
+  // starting resume sends before pipeline_start, leaves it alone.
+  const restartAgentsRef = useRef<PipelineRunState["agents"] | undefined>(undefined);
   const [questionnaireQuestions, setQuestionnaireQuestions] = useState<{
     id: string; question: string; options: string[]; answerType?: string;
     recommendedAnswer?: string; recommendedReasoning?: string;
@@ -860,7 +874,10 @@ export function DashboardLayout({
       // LATER pipeline_start frame that re-announces the SAME isRunning/type —
       // without that dependency this effect would run once (id still
       // undefined) and never again for that launch, silently dropping the push.
-      if (incomingRunId) {
+      // BUG-024: skip it when the URL already addresses this run, so a cold load
+      // or reopen of any /runs/{id}/<tab> of a live run keeps its URL and tab.
+      const here = parseViewPath(window.location.pathname.split("/").filter(Boolean));
+      if (incomingRunId && !("runId" in here && here.runId === incomingRunId)) {
         router.push(routes.runStream(incomingRunId));
       }
       if (incomingRunId && currentPipelineNotifId.current) {
@@ -1176,6 +1193,14 @@ export function DashboardLayout({
       setRunRestarting(false);
     }
   }, [isPipelineRunning]);
+
+  // ISS-1121: the resume ended without starting (a terminal frame swept the roster
+  // since the click) — drop "Restarting run…" so the failure copy and button return.
+  useEffect(() => {
+    if (runRestarting && !isPipelineRunning && pipelineState?.agents !== restartAgentsRef.current) {
+      setRunRestarting(false);
+    }
+  }, [runRestarting, isPipelineRunning, pipelineState?.agents]);
 
   // Extract Agent 3's (ppt-code-generator) output for early PPTX download
   const pptxCode = pipelineState?.agents.find(a => a.id === "ppt-code-generator" && a.status === "done")?.output || undefined;
@@ -1596,7 +1621,15 @@ export function DashboardLayout({
   // Fused Home (SHELL-02 SC-1) — the launcher-brief captured on the home landing,
   // and the pending brief handed to the input view for the generic launch path.
   const [homeBrief, setHomeBrief] = useState("");
-  const [pendingHomeBrief, setPendingHomeBrief] = useState<string | undefined>(undefined);
+  // ISS-1154: handleEditBrief's push to /create/<type> REMOUNTS this component
+  // (page.tsx:3547-3551), so a brief set in state before it is gone. It rides in
+  // the one-shot "idea.draft" instead: read here (a pure initializer, StrictMode
+  // calls it twice), cleared once mounted so a later visit is never pre-filled.
+  const [pendingHomeBrief, setPendingHomeBrief] = useState<string | undefined>(() => {
+    if (typeof window === "undefined") return undefined;
+    try { return JSON.parse(sessionStorage.getItem("idea.draft") ?? "null")?.brief || undefined; } catch { return undefined; }
+  });
+  useEffect(() => { sessionStorage.removeItem("idea.draft"); }, []);
 
   // Navigate from Home to Input page — EXCEPT the composer-enabled types above,
   // which (41-04, D-CMP-ENTRY) open the full-page Composer surface
@@ -1792,7 +1825,7 @@ export function DashboardLayout({
   // Spring Boot or .NET→Azure) before invoking us. We sync `workflowType`
   // here so downstream effects (chaining, sidebar labels, completion
   // tracking) see the real pipeline.
-  const handleRunPipeline = useCallback((message: string, agentIds: string[], resolvedType: WorkflowType, extraParams?: Record<string, unknown>): Promise<boolean> | undefined => {
+  const handleRunPipeline = useCallback((message: string, agentIds: string[], resolvedType: WorkflowType, extraParams?: Record<string, unknown>): Promise<string | null> | undefined => {
     const viewBeforeLaunch = mainView;
     setWorkflowInput(message);
     setMainView("execution");
@@ -1850,16 +1883,17 @@ export function DashboardLayout({
         ? { ...(extraParams || {}), _display_title: notifTitle.slice(0, 60) }
         : extraParams;
       if (connectionStatus === "connected") {
-        const launch = onStartPipeline(resolvedType, message, agentIds, attachedHooks, enrichedExtraParams);
-        // TS-Z3-02: a REJECTED launch (e.g. 503 host_capacity_exhausted) must not
+        // ISS-1137: hand the outcome back — IdeaInputPage releases its Run latch on a refusal.
+        // TS-Z3-02: a REFUSED launch (e.g. 503 host_capacity_exhausted) must not
         // strand the user on an empty execution lane — return to the screen the
         // launch came from (the brief is still there) so Run can be retried.
-        if (launch) {
-          return launch.then((accepted) => {
-            if (!accepted) setMainView(viewBeforeLaunch);
-            return accepted;
-          });
-        }
+        // Promise.resolve: a caller that returns nothing (tests, older wiring) is not a refusal.
+        return Promise.resolve(
+          onStartPipeline(resolvedType, message, agentIds, attachedHooks, enrichedExtraParams),
+        ).then((runId) => {
+          if (runId === null) setMainView(viewBeforeLaunch);
+          return runId ?? null;
+        });
       } else {
         pendingStartOnConnectRef.current = { type: resolvedType, message, agentIds, extraParams: enrichedExtraParams };
       }
@@ -2394,8 +2428,8 @@ export function DashboardLayout({
   // possible destinations: `/create/{ppt|ppt_v2|prototype}` renders LaunchWizard
   // (page.tsx's `wizardModeFor` early-return, OUTSIDE this component), which
   // seeds its brief from the same one-shot `*.draft` hand-off handleLaunchSaved
-  // already writes; every other type stays in this component's "input" view,
-  // where IdeaInputPage's `initialInput` reads `pendingHomeBrief`.
+  // already writes; every other type lands on a REMOUNTED copy of this
+  // component (ISS-1154), whose `pendingHomeBrief` reads the one-shot "idea.draft".
   // ISS-218/ISS-235 — "Edit brief & run again" must open the composer holding
   // THIS run's brief.
   //
@@ -2416,11 +2450,13 @@ export function DashboardLayout({
     setResumeError(null);
     setQuestionnaireQuestions([]);
 
-    const reviseBase = baseWorkflowType(effectiveReviseType);
     const openComposerWith = (editedBrief: string) => {
       setPendingHomeBrief(editedBrief || undefined);
-      // Which sessionStorage slot the wizard will read, or undefined when this
-      // type stays on IdeaInputPage (which reads `pendingHomeBrief` instead).
+      // Which sessionStorage slot the pushed route reads: the wizard's draft, or
+      // "idea.draft" for IdeaInputPage on a remounted DashboardLayout (ISS-1154).
+      // Keyed on the SAME type the route is built from (ISS-1171): keyed on its
+      // base, a `*_revision` run staged a wizard draft and pushed a non-wizard
+      // route, leaving the draft for whatever wizard opened next.
       //
       // This MUST agree with LaunchWizard's own `STEPPER_MODE`
       // ({prototype, prototype_v2} -> "web" -> prototype.draft;
@@ -2435,10 +2471,8 @@ export function DashboardLayout({
       // `reviseBase === "prototype" ? ... : "ppt.draft"` ternary would have put
       // it in the DECK slot even if the gate had let it through.
       const draftKey = { prototype: "prototype.draft", prototype_v2: "prototype.draft",
-                         ppt: "ppt.draft", ppt_v2: "ppt.draft" }[reviseBase];
-      if (draftKey) {
-        sessionStorage.setItem(draftKey, JSON.stringify({ brief: editedBrief }));
-      }
+                         ppt: "ppt.draft", ppt_v2: "ppt.draft" }[effectiveReviseType as string] ?? "idea.draft";
+      sessionStorage.setItem(draftKey, JSON.stringify({ brief: editedBrief }));
       setMainView("input");
       router.push(createRouteForType(effectiveReviseType));
     };
@@ -2582,6 +2616,7 @@ export function DashboardLayout({
     // Clear any prior inline resume error before attempting.
     setResumeError(null);
     // FIX-226: show "Restarting run…" indicator immediately.
+    restartAgentsRef.current = pipelineState?.agents;
     setRunRestarting(true);
 
     const doResume = (token: string, id: string): Promise<void> =>
@@ -2829,6 +2864,20 @@ export function DashboardLayout({
             <button onClick={onReconnect} className="ml-1 underline hover:no-underline">Reconnect</button>
           </motion.div>
         )}
+        {/* ISS-1137: a refused launch says why, whichever of the launch paths sent it. */}
+        {launchError && (
+          <motion.div
+            key="launch-error"
+            role="status"
+            initial={{ y: -40, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            exit={{ y: -40, opacity: 0 }}
+            className="fixed top-0 left-0 right-0 z-50 flex items-center justify-center gap-2 bg-red-600/90 px-4 py-2 text-xs text-white backdrop-blur-sm"
+          >
+            {launchError}
+            <button onClick={onDismissLaunchError} className="ml-1 underline hover:no-underline">Dismiss</button>
+          </motion.div>
+        )}
       </AnimatePresence>
 
       {/* Global Header — visible on all pages */}
@@ -2947,17 +2996,9 @@ export function DashboardLayout({
                 setMainView("execution");
                 router.push(routes.runStream(runId));
               } else {
-                const token = getToken();
-                if (token && onSelectWorkflowRun) {
-                  setMainView("execution");
-                  router.push(routes.runStream(runId));
-                  void getWorkflow(token, runId)
-                    .then((fetchedRun) => { onSelectWorkflowRun(fetchedRun); })
-                    .catch(() => { /* non-fatal */ });
-                } else {
-                  setMainView("execution");
-                  router.push(routes.runStream(runId));
-                }
+                // ISS-840: the remounted page's T11 effect fetches and opens it.
+                setMainView("execution");
+                router.push(routes.runStream(runId));
               }
             };
 
@@ -3161,7 +3202,7 @@ export function DashboardLayout({
               transition={{ duration: 0.2 }}
               className="h-full"
             >
-              <AccountSettings initialSection={settingsRequest.section} onBack={handleBackNav} />
+              <AccountSettings initialSection={settingsRequest.section} onBack={handleBackNav} onUnsavedChange={handleUnsavedChange} />
             </motion.div>
           )}
 
@@ -3206,6 +3247,8 @@ export function DashboardLayout({
               <IdeaInputPage
                 workflowType={workflowType}
                 onBack={handleBackNav}
+                onUnsavedChange={handleUnsavedChange}
+                userTier={profileTier}
                 onRun={handleRunPipeline}
                 initialAgentIds={savedComposition?.agentIds}
                 initialModelOverrides={savedComposition?.modelOverrides}
@@ -3265,12 +3308,13 @@ export function DashboardLayout({
                 // the revision launch sites (reset → onStartPipeline with the SAME arg
                 // convention). `type` is the composer's fixed-at-entry base_pipeline_type
                 // ("custom" for the compose entry, ND-AH) — the SAME value Save persists.
-                // startPipeline flips pipelineState.isRunning → the surface auto-transitions
-                // to mainView='execution'. No new contract / endpoint / fabricated cost (ND-AG).
+                // The surface leaves the canvas only once the run id arrives, so a refused
+                // launch leaves it mounted: the outcome is returned for ComposerPage to
+                // release its Run-once latch (ISS-1137). No new endpoint / fabricated cost (ND-AG).
                 onRun={(type, brief, agentIds, extraParams) => {
                   if (onResetPipeline) onResetPipeline();
                   if (onStartPipeline) {
-                    onStartPipeline(type, brief, agentIds, attachedHooks, extraParams);
+                    return onStartPipeline(type, brief, agentIds, attachedHooks, extraParams);
                   }
                 }}
                 initialAgentIds={savedComposition?.agentIds}
@@ -3283,6 +3327,7 @@ export function DashboardLayout({
                 initialManifestSteps={savedComposition?.manifestSteps}
                 initialManifest={savedComposition?.manifest}
                 builtinCanvasType={builtinCanvasType}
+                expectedUserWorkflowId={expectedUserWorkflowId}
                 initialSelections={
                   savedComposition?.selections
                     ? (Object.fromEntries(
@@ -3499,16 +3544,10 @@ export function DashboardLayout({
           // Falls back to setMainView("execution") if workflowRunId is absent.
           if (toast.workflowRunId) {
             const completedRun = recentRuns?.find(r => r.id === toast.workflowRunId);
+            // ISS-840: no fetch for an uncached run — the remounted page's T11
+            // effect fetches and opens it.
             if (completedRun) {
               onSelectWorkflowRun?.(completedRun);
-            } else {
-              // FIX-215: same as notification panel — fetch run if not in recentRuns.
-              const token = getToken();
-              if (token && onSelectWorkflowRun) {
-                void getWorkflow(token, toast.workflowRunId)
-                  .then((fetchedRun) => { onSelectWorkflowRun(fetchedRun); })
-                  .catch(() => { /* non-fatal */ });
-              }
             }
           }
           setMainView("execution");

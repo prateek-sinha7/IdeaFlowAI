@@ -1,0 +1,30 @@
+##### BEFORE
+engine source: HEAD (git show HEAD:...engine.py, fix absent=True)
+
+== Q4a: resume_run, REAL offset, registry roster + no workflow.yaml ==
+file_analyst                   reached_drive=True roster_len=1 resume_from=0 log=['WARNING:offset computation failed (workflow.yaml not found: backend/agents/workflows/file_analyst/workflow.yaml) → resuming from 0', 'INFO:resuming pipeline=file_analyst at step offset 0/1']
+spec_kit                       reached_drive=True roster_len=8 resume_from=0 log=['WARNING:offset computation failed (workflow.yaml not found: backend/agents/workflows/spec_kit/workflow.yaml) → resuming from 0', 'INFO:resuming pipeline=spec_kit at step offset 0/8']
+
+== Q4b: _replay_clarify_run, seeded open questionnaire ==
+prototype_v2_revision          reached_drive=True roster=['prototype-revision-analyzer'] log=[]
+prototype_v2_feature_revision  reached_drive=True roster=['prototype-revision-analyzer'] log=[]
+user_stories                   reached_drive=True roster=['domain-analyst', 'epic-architect', 'story-estimator', 'nfr-specialist', 'backlog-reviewer', 'backlog-compiler'] log=[]
+prototype_v2                   reached_drive=True roster=['custom-agent:fi-planner', 'custom-agent:fi-readers', 'custom-agent:fi-synth', 'custom-agent:fi-gaps', 'custom-agent:fi-close', 'custom-agent:pb-spec', 'custom-agent:pb-design', 'custom-agent:pb-build', 'custom-agent:pb-assemble', 'custom-agent:pb-validate', 'custom-agent:pb-present'] log=[]
+file_analyst                   reached_drive=True roster=['file-analyst'] log=[]
+spec_kit                       reached_drive=True roster=['deep-planner', 'constitution-agent', 'specify-agent', 'clarify-agent', 'research-agent', 'plan-agent', 'tasks-agent', 'analyze-agent'] log=[]
+exit=0
+##### AFTER
+engine source: working tree
+
+== Q4a: resume_run, REAL offset, registry roster + no workflow.yaml ==
+file_analyst                   reached_drive=True roster_len=1 resume_from=0 log=['WARNING:offset computation failed (workflow.yaml not found: backend/agents/workflows/file_analyst/workflow.yaml) → resuming from 0', 'INFO:resuming pipeline=file_analyst at step offset 0/1']
+spec_kit                       reached_drive=True roster_len=8 resume_from=0 log=['WARNING:offset computation failed (workflow.yaml not found: backend/agents/workflows/spec_kit/workflow.yaml) → resuming from 0', 'INFO:resuming pipeline=spec_kit at step offset 0/8']
+
+== Q4b: _replay_clarify_run, seeded open questionnaire ==
+prototype_v2_revision          reached_drive=True roster=['prototype-revision-analyzer', 'custom-agent:v2-fix', 'custom-agent:v2-validate'] log=[]
+prototype_v2_feature_revision  reached_drive=True roster=['prototype-revision-analyzer', 'custom-agent:v2-specify', 'custom-agent:v2-plan', 'custom-agent:v2-build', 'custom-agent:v2-validate'] log=[]
+user_stories                   reached_drive=True roster=['domain-analyst', 'epic-architect', 'story-estimator', 'nfr-specialist', 'backlog-reviewer', 'backlog-compiler'] log=[]
+prototype_v2                   reached_drive=True roster=['custom-agent:fi-planner', 'custom-agent:fi-readers', 'custom-agent:fi-synth', 'custom-agent:fi-gaps', 'custom-agent:fi-close', 'custom-agent:pb-spec', 'custom-agent:pb-design', 'custom-agent:pb-build', 'custom-agent:pb-assemble', 'custom-agent:pb-validate', 'custom-agent:pb-present'] log=[]
+file_analyst                   reached_drive=True roster=['file-analyst'] log=[]
+spec_kit                       reached_drive=True roster=['deep-planner', 'constitution-agent', 'specify-agent', 'clarify-agent', 'research-agent', 'plan-agent', 'tasks-agent', 'analyze-agent'] log=[]
+exit=0

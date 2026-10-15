@@ -1,0 +1,51 @@
+# QA-KB-104 fix 02: the card test file and the regression files, one file at a time, 2026-10-08T23:17Z, HEAD 511d71c28 + working tree
+# env for every run: cd backend && PYTHONDONTWRITEBYTECODE=1 DATABASE_URL=sqlite:///:memory: .venv/bin/python -m pytest <file> -p no:cacheprovider -q -W ignore
+
+## BEFORE the change (observed this session on the clean tree, verbatim summary lines)
+test_iss1117_sync_from_file_entitlement.py -rxXfE        -> 4 passed, 8 xfailed in 2.16s
+test_iss1117_sync_from_file_entitlement.py --runxfail    -> 8 failed, 4 passed in 2.05s (sync: assert 200 == 403 x5; save: assert 201 == 403 x2; launch: AssertionError {"run_id":"STUB-NOT-MINTED"} assert 200 in (403, 422))
+
+## AFTER: card test file, markers in place (XPASS(strict) = the fix works; 6-verifier removes the markers)
+_____ test_launch_of_stored_row_triggering_unentitled_pipeline_is_refused ______
+[XPASS(strict)] ISS-1131 unfixed
+=========================== short test summary info ============================
+FAILED tests/integration/api/test_iss1117_sync_from_file_entitlement.py::test_sync_from_unentitled_pipeline_is_403_and_leaves_row_untouched[basic-ppt-None-sample_subagents_parallel]
+FAILED tests/integration/api/test_iss1117_sync_from_file_entitlement.py::test_sync_from_unentitled_pipeline_is_403_and_leaves_row_untouched[basic-ppt-None-app_builder]
+FAILED tests/integration/api/test_iss1117_sync_from_file_entitlement.py::test_sync_from_unentitled_pipeline_is_403_and_leaves_row_untouched[hexaware-prototype-None-ppt]
+FAILED tests/integration/api/test_iss1117_sync_from_file_entitlement.py::test_sync_from_unentitled_pipeline_is_403_and_leaves_row_untouched[pro-ppt-None-custom]
+FAILED tests/integration/api/test_iss1117_sync_from_file_entitlement.py::test_sync_from_unentitled_pipeline_is_403_and_leaves_row_untouched[basic-ppt-ppt-prototype_v2]
+FAILED tests/integration/api/test_iss1117_sync_from_file_entitlement.py::test_save_of_row_triggering_unentitled_pipeline_is_403[app_builder]
+FAILED tests/integration/api/test_iss1117_sync_from_file_entitlement.py::test_save_of_row_triggering_unentitled_pipeline_is_403[sample_subagents_parallel]
+FAILED tests/integration/api/test_iss1117_sync_from_file_entitlement.py::test_launch_of_stored_row_triggering_unentitled_pipeline_is_refused
+8 failed, 4 passed in 1.51s
+
+## AFTER: card test file with --runxfail (raw assertions)
+PASSED tests/integration/api/test_iss1117_sync_from_file_entitlement.py::test_sync_from_unentitled_pipeline_is_403_and_leaves_row_untouched[basic-ppt-None-sample_subagents_parallel]
+PASSED tests/integration/api/test_iss1117_sync_from_file_entitlement.py::test_sync_from_unentitled_pipeline_is_403_and_leaves_row_untouched[basic-ppt-None-app_builder]
+PASSED tests/integration/api/test_iss1117_sync_from_file_entitlement.py::test_sync_from_unentitled_pipeline_is_403_and_leaves_row_untouched[hexaware-prototype-None-ppt]
+PASSED tests/integration/api/test_iss1117_sync_from_file_entitlement.py::test_sync_from_unentitled_pipeline_is_403_and_leaves_row_untouched[pro-ppt-None-custom]
+PASSED tests/integration/api/test_iss1117_sync_from_file_entitlement.py::test_sync_from_unentitled_pipeline_is_403_and_leaves_row_untouched[basic-ppt-ppt-prototype_v2]
+PASSED tests/integration/api/test_iss1117_sync_from_file_entitlement.py::test_sync_from_entitled_pipeline_still_200[basic-ppt-ppt]
+PASSED tests/integration/api/test_iss1117_sync_from_file_entitlement.py::test_sync_from_entitled_pipeline_still_200[hexaware-prototype-prototype]
+PASSED tests/integration/api/test_iss1117_sync_from_file_entitlement.py::test_sync_from_entitled_pipeline_still_200[enterprise-ppt-sample_subagents_parallel]
+PASSED tests/integration/api/test_iss1117_sync_from_file_entitlement.py::test_save_of_row_triggering_unentitled_pipeline_is_403[app_builder]
+PASSED tests/integration/api/test_iss1117_sync_from_file_entitlement.py::test_save_of_row_triggering_unentitled_pipeline_is_403[sample_subagents_parallel]
+PASSED tests/integration/api/test_iss1117_sync_from_file_entitlement.py::test_launch_of_stored_row_triggering_unentitled_pipeline_is_refused
+PASSED tests/integration/api/test_iss1117_sync_from_file_entitlement.py::test_save_of_row_triggering_entitled_pipeline_still_201
+============================== 12 passed in 1.20s ==============================
+
+## AFTER: regression files
+tests/integration/api/test_user_workflows_api.py -> 39 passed in 2.51s
+tests/integration/api/test_iss1112_override_writers_trust.py -> 3 passed in 1.43s
+tests/integration/api/test_iss1113_override_row_launch_trust.py -> 1 passed in 1.18s
+tests/integration/api/test_model_tier_gate_workflows_api.py -> 21 passed in 1.81s
+tests/integration/api/test_entitlement_authority_api.py -> 3 passed in 0.96s
+tests/integration/api/test_rest_resume_api.py -> 10 passed in 1.20s
+tests/integration/api/test_rest_run_launch_api.py -> 27 passed in 1.76s
+tests/integration/api/test_workflow_override_e2e_api.py -> 7 passed in 2.71s
+tests/integration/api/test_user_workflows_selections_api.py -> 9 passed in 1.26s
+tests/integration/api/test_iss687_custom_agent_roster.py -> 5 passed in 1.46s
+tests/integration/agents/test_qa_kb_102_silent_resume.py -> 6 passed in 2.13s
+tests/agents/test_b3_saved_workflow_chain_launch.py -> 8 passed in 0.98s
+tests/integration/api/test_capacity_gate_endpoints_api.py -> 11 passed in 1.42s
+tests/agents/test_conditional_divert_v4_validation.py -> 1 passed in 2.74s

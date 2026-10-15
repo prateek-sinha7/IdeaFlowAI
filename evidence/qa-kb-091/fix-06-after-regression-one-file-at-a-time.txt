@@ -1,0 +1,37 @@
+# QA-KB-091 fixer: AFTER the fix (PreviewPanel.tsx md5 79228a6ba58e4acde2d3eafe2f46f2be), one vitest process per file, 2026-10-07T18:44:37Z
+src/components/preview/PreviewPanel.pinSurvival.test.tsx | exit=0 | Test Files  1 passed (1) | Tests  2 passed | 1 expected fail (3) 
+src/components/preview/PreviewPanel.refSurfaces.test.tsx | exit=0 | Test Files  1 passed (1) | Tests  4 passed (4) 
+src/components/preview/PreviewPanel.versionRunInput.test.tsx | exit=0 | Test Files  1 passed (1) | Tests  2 passed (2) 
+src/components/preview/RunHeader.test.tsx | exit=0 | Test Files  1 passed (1) | Tests  14 passed (14) 
+src/components/preview/PreviewPanel.olderVersionNullOutput.test.tsx | exit=0 | Test Files  1 passed (1) | Tests  11 passed (11) 
+src/components/preview/PreviewPanel.degraded.test.tsx | exit=0 | Test Files  1 passed (1) | Tests  11 passed (11) 
+src/components/preview/PreviewPanel.clarifyPin.test.tsx | exit=0 | Test Files  1 passed (1) | Tests  6 passed (6) 
+src/components/preview/PreviewPanel.memberRef.test.tsx | exit=0 | Test Files  1 passed (1) | Tests  6 passed (6) 
+src/components/preview/PreviewPanel.loadingGap.test.tsx | exit=0 | Test Files  1 passed (1) | Tests  2 passed (2) 
+src/components/preview/PreviewPanel.liveVersion.test.tsx | exit=0 | Test Files  1 passed (1) | Tests  2 passed (2) 
+src/components/preview/PreviewPanel.workspaceDuringRun.test.tsx | exit=0 | Test Files  1 passed (1) | Tests  1 passed (1) 
+src/components/preview/PreviewPanel.staleVersionPick.test.tsx | exit=0 | Test Files  1 passed (1) | Tests  2 passed | 1 expected fail (3) 
+src/components/preview/PreviewPanel.test.tsx | exit=1 | Test Files  1 failed (1) | Tests  1 failed | 18 passed (19) 
+         × mounts the run header and exactly ONE version affordance (INV-3) in the settled state 10ms
+     FAIL  src/components/preview/PreviewPanel.test.tsx > PreviewPanel — Phase 39 run header + tabs > mounts the run header and exactly ONE version affordance (INV-3) in the settled state
+    TestingLibraryElementError: Unable to find a label with the text of: /choose version/
+src/components/preview/PreviewPanel.genericDeliverable.test.tsx | exit=0 | Test Files  1 passed (1) | Tests  13 passed (13) 
+src/components/preview/PreviewPanel.pdfDeliverable.test.tsx | exit=0 | Test Files  1 passed (1) | Tests  3 passed (3) 
+src/components/preview/PreviewPanel.phantomFile.test.tsx | exit=0 | Test Files  1 passed (1) | Tests  1 passed (1) 
+src/components/preview/PreviewPanel.revisionChip.test.tsx | exit=0 | Test Files  1 passed (1) | Tests  2 passed (2) 
+src/components/preview/PreviewPanel.sandboxRef.test.tsx | exit=0 | Test Files  1 passed (1) | Tests  5 passed (5) 
+src/components/preview/PreviewPanel.themeRemount.test.tsx | exit=0 | Test Files  1 passed (1) | Tests  3 passed (3) 
+src/components/preview/PreviewPanel.versionChip.test.tsx | exit=1 | Test Files  1 failed (1) | Tests  5 failed (5) 
+         × chip visibility: present as v{N} for a ≥2-member family; absent when no family 32ms
+         × dropdown + read-only load: selecting an older version fetches it via getWorkflow and shows the read-only banner; Back to latest restores live 5ms
+         × keyboard nav: opening focuses the listbox, ArrowUp moves focus, Enter loads a version, Escape closes + returns focus to the chip 4ms
+         × chip tick: when the family grows the chip label increments v2 → v3 4ms
+         × a11y: chip carries aria-haspopup/aria-expanded; the dropdown is a listbox with aria-selected options 4ms
+     FAIL  src/components/preview/PreviewPanel.versionChip.test.tsx > Live version chip (B3 / D5) — PreviewPanel > chip visibility: present as v{N} for a ≥2-member family; absent when no family
+    TestingLibraryElementError: Unable to find a label with the text of: /Version v3, choose version/
+     FAIL  src/components/preview/PreviewPanel.versionChip.test.tsx > Live version chip (B3 / D5) — PreviewPanel > dropdown + read-only load: selecting an older version fetches it via getWorkflow and shows the read-only banner; Back to latest restores live
+src/components/preview/PreviewPanel.appBuilderSearch.test.tsx | exit=1 | Test Files  1 failed (1) | Tests  1 failed (1) 
+         × ISS-500 — a folder with zero matching descendants is hidden by an active search in the embedded IDE tab, same as ISS-332 189ms
+     FAIL  src/components/preview/PreviewPanel.appBuilderSearch.test.tsx > PreviewPanel — app_builder embedded Preview tab search (ISS-500) > ISS-500 — a folder with zero matching descendants is hidden by an active search in the embedded IDE tab, same as ISS-332
+src/components/preview/VersionSwitch.integration.test.tsx | exit=0 | Test Files  1 passed (1) | Tests  10 passed (10) 
+src/components/preview/__tests__/PreviewPanel.switcher.test.tsx | exit=0 | Test Files  1 passed (1) | Tests  5 passed (5) 

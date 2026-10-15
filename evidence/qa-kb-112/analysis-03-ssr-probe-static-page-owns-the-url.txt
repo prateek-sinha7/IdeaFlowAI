@@ -1,0 +1,31 @@
+QA-KB-112 analysis evidence 03: which Next route owns /settings/security on a DOCUMENT request (read-only, unauthenticated, no browser)
+Run at 2026-10-12T09:42:24+02:00. Both dev frontends answer identically.
+What it proves: the server-rendered HTML of /settings/security contains the enrolment page's heading and its loading text, while /settings/profile
+(served by the [...view] catch-all, whose screens render client-side) does not. A static route outranks the catch-all, exactly as routes.ts:180 already documents for /admin.
+It does not prove the SOFT navigation case (router.replace from Account Settings); that is evidenced by the e2e screenshot in analysis-05.
+
+----- probe script (python3 -I, urllib only) -----
+import sys, urllib.request, urllib.error
+for port in (3000, 3001):
+    for path in ("/settings/security", "/settings/profile"):
+        url = f"http://localhost:{port}{path}"
+        try:
+            req = urllib.request.Request(url, headers={"Accept": "text/html"})
+            with urllib.request.urlopen(req, timeout=90) as r:
+                body = r.read().decode("utf-8", "replace")
+                code = r.status
+        except urllib.error.HTTPError as e:
+            body = e.read().decode("utf-8", "replace"); code = e.code
+        except Exception as e:
+            print(f"port={port} path={path} ERROR {type(e).__name__}: {e}")
+            continue
+        print(f"port={port} path={path} http={code} bytes={len(body)} "
+              f"two_factor_heading={body.count('Two-factor authentication')} "
+              f"preparing_enrolment={body.count('Preparing your enrolment')} "
+              f"account_settings={body.count('Account Settings')}")
+
+----- output -----
+port=3000 path=/settings/security http=200 bytes=15539 two_factor_heading=1 preparing_enrolment=1 account_settings=0
+port=3000 path=/settings/profile http=200 bytes=23767 two_factor_heading=0 preparing_enrolment=0 account_settings=0
+port=3001 path=/settings/security http=200 bytes=15539 two_factor_heading=1 preparing_enrolment=1 account_settings=0
+port=3001 path=/settings/profile http=200 bytes=23767 two_factor_heading=0 preparing_enrolment=0 account_settings=0

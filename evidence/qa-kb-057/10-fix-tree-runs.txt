@@ -1,0 +1,19 @@
+# 10 fix-phase run (re-dispatch), 2026-10-07T15:50:42Z, shared tree as-is (HEAD afdeefa03; run_commands.py and both test files unmodified vs HEAD), local backend/.env unchanged
+$ .venv/bin/python -m pytest tests/integration/api/test_duplicate_context_guard_api.py -q -p no:cacheprovider -rxX
+   [XPASS(strict)] ISS-905 unfixed
+   [XPASS(strict)] ISS-905 unfixed
+   [XPASS(strict)] ISS-905 unfixed
+   [XPASS(strict)] ISS-905 unfixed
+   [XPASS(strict)] ISS-905 unfixed
+   [XPASS(strict)] ISS-905 unfixed
+   [XPASS(strict)] ISS-905 unfixed
+   [XPASS(strict)] ISS-905 unfixed
+   8 failed, 9 warnings in 1.50s
+$ (same, --runxfail: the assertions themselves)
+   8 passed, 9 warnings in 1.37s
+$ .venv/bin/python -m pytest tests/integration/api/test_duplicate_context_guard_audit_api.py -q -p no:cacheprovider -rxX
+   [XPASS(strict)] ISS-981 unfixed
+   [XPASS(strict)] ISS-981 unfixed
+   2 failed, 5 warnings in 1.22s
+$ (same, --runxfail)
+   2 passed, 5 warnings in 1.06s

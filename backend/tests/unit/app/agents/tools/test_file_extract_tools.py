@@ -168,7 +168,7 @@ def unbound(monkeypatch: pytest.MonkeyPatch) -> None:
 def inline_pool(monkeypatch: pytest.MonkeyPatch) -> list[_InlineExecutor]:
     made: list[_InlineExecutor] = []
 
-    def factory(max_workers=None):
+    def factory(max_workers=None, initializer=None):
         ex = _InlineExecutor(max_workers)
         made.append(ex)
         return ex
@@ -2809,12 +2809,12 @@ class TestModuleConstants:
             "txt",
             "md",
             "csv",
-            "htm",
-            "html",
             "json",
             "pdf",
             "docx",
             "xlsx",
             "pptx",
+            "htm",
+            "html",
         }
         assert fet._CONVERTED_FORMATS == {"docx", "xlsx", "pptx"}

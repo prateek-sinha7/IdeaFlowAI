@@ -1,0 +1,468 @@
+F........................................F................F...F......... [ 84%]
+.............                                                            [100%]
+=================================== FAILURES ===================================
+___________ test_midwave_resume_does_not_reinvoke_completed_workers ____________
+
+    @pytest.mark.asyncio
+    async def test_midwave_resume_does_not_reinvoke_completed_workers():
+        session, db_engine = _make_session()
+        run_id = f"rr-{uuid.uuid4().hex[:8]}"
+        owner = "rr-user"
+        # The workflow_runs row resume_run reads (left non-terminal by the interrupt).
+        _seed_workflow_run(session, run_id, owner=owner, status="generating")
+    
+        call_log: dict[str, int] = {}
+    
+        # ── Instance A: interrupted mid-wave — wave 0 completes, the 2nd run_fanout
+        # (wave 1) crashes ON ENTRY so part_c/part_d never run on instance A ───────────
+        with _ResumeHarness(
+            session, call_log, fail_on=set(), db_engine=db_engine, raise_on_fanout_call=2
+        ) as h:
+            engine_a = h.make_engine()
+            a_events: list[dict] = []
+            # Instance A is interrupted mid-wave: the scripted worker raises on part_c/d, so
+            # wave 1 fails. The engine surfaces this (a wave_failed/error event or a raised
+            # exception) and leaves the run non-terminal — either way wave 0 is durably
+            # complete. Tolerate both shapes (the dispatch loop may catch + surface, or
+            # propagate) so the test asserts on the DURABLE state, not the control flow.
+            # Drive the PUBLIC entry: ``execute`` is where the durable ``_RunEventSink`` is
+            # built and every stamped event persisted (engine.py:1020/:1065). ``_execute_impl``
+            # persists nothing, so calling it directly would leave instance A with artifacts
+            # but ZERO ``run_events`` — and the resume classifier reads its completeness
+            # evidence from exactly those rows. The point of this test is that instance A
+            # writes its own durable substrate, so it must go through the sink (TEST-013).
+            try:
+                async for ev in engine_a.execute(
+                    agents=list(h.specs),
+                    user_message="Run the wave workflow.",
+                    pipeline_run_id=run_id,
+                    pipeline_type=_FIXTURE_ID,
+                    user_id=owner,
+                    gate_agent_ids=[],
+                ):
+                    a_events.append(ev)
+            except Exception:
+                pass
+            # Wave 1 must NOT have completed on instance A (the interrupt fired).
+            assert any(e.get("type") == "wave_failed" for e in a_events) or not any(
+                e.get("type") == "wave_completed"
+                and e.get("data", {}).get("wave_index") == 1
+                for e in a_events
+            ), "instance A should have been interrupted before wave 1 completed"
+    
+        # Wave 0 completed before the crash: part_a + part_b workers each ran once.
+        from app.models.wave_run import WaveRun
+    
+        wave0 = (
+            session.query(WaveRun)
+            .filter(WaveRun.run_id == run_id, WaveRun.wave_index == 0)
+            .first()
+        )
+        assert (
+            wave0 is not None and wave0.status == "completed"
+        ), "instance A must have completed wave 0 before the mid-wave crash"
+        assert (
+            call_log.get("a", 0) >= 1 and call_log.get("b", 0) >= 1
+        ), f"wave-0 workers should have run on instance A: {call_log}"
+        a_calls_a = call_log.get("a", 0)
+        a_calls_b = call_log.get("b", 0)
+    
+        # ── Instance B: resume over the SAME durable DB, wave 1 now SUCCEEDS ───────────
+        with _ResumeHarness(session, call_log, fail_on=set(), db_engine=db_engine) as h:
+            engine_b = h.make_engine()
+            await engine_b.resume_run(run_id)
+    
+        # The wave-0 workers (a/b) were NOT re-invoked by instance B (mid-wave skip).
+        assert (
+            call_log.get("a", 0) == a_calls_a
+        ), f"part_a worker was re-invoked on resume (mid-wave skip failed): {call_log}"
+        assert (
+            call_log.get("b", 0) == a_calls_b
+        ), f"part_b worker was re-invoked on resume (mid-wave skip failed): {call_log}"
+        # Wave 1 workers (c/d) ran on resume and produced their files.
+>       assert (
+            call_log.get("c", 0) >= 1 and call_log.get("d", 0) >= 1
+        ), f"wave-1 workers did not run on resume: {call_log}"
+E       AssertionError: wave-1 workers did not run on resume: {'b': 2, 'a': 2}
+E       assert (0 >= 1)
+E        +  where 0 = <built-in method get of dict object at 0x10c37bd00>('c', 0)
+E        +    where <built-in method get of dict object at 0x10c37bd00> = {'a': 2, 'b': 2}.get
+
+tests/integration/agents/test_restart_resume_db.py:590: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  app.agents.checkpointer:checkpointer.py:61 Checkpointer: DATABASE_URL is not Postgres — using InMemorySaver. HITL pauses work within the process but do NOT survive a restart.
+WARNING  agents.artifacts.graph:graph.py:155 artifact kind 'sample-wave-plan' is outside ARTIFACT_KINDS — typed consumes routing and the FR-014 revision lookup match kinds EXACTLY, so a typo here is silently unroutable (IN-01 advisory; write proceeds)
+WARNING  agents.artifacts.graph:graph.py:155 artifact kind 'sample-wave-worker' is outside ARTIFACT_KINDS — typed consumes routing and the FR-014 revision lookup match kinds EXACTLY, so a typo here is silently unroutable (IN-01 advisory; write proceeds)
+WARNING  agents.artifacts.graph:graph.py:155 artifact kind 'sample-wave-worker' is outside ARTIFACT_KINDS — typed consumes routing and the FR-014 revision lookup match kinds EXACTLY, so a typo here is silently unroutable (IN-01 advisory; write proceeds)
+WARNING  agents.execution_engine.kernel_services:kernel_services.py:754 update_wave_run_merge_state(step=sample-wave-worker) failed: 'ScopedStore' object has no attribute '_acquire'
+ERROR    agents.execution_engine.engine:engine.py:14364 step sample-wave-worker raised: scripted instance-A crash on run_fanout call #2
+Traceback (most recent call last):
+  File "/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/agents/execution_engine/engine.py", line 14354, in _guarded_step
+    async for event in self._dispatch_step_with_retry(step, ectx, strategy):
+    ...<2 lines>...
+        yield event
+  File "/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/agents/execution_engine/engine.py", line 14391, in _dispatch_step_with_retry
+    async for event in strategy.run(step, ectx):
+        yield event
+  File "/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/agents/capabilities/strategies/wave_scheduler.py", line 490, in run
+    async for event in _dispatch_wave(requests, task_ids):
+        yield event
+  File "/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/agents/capabilities/strategies/wave_scheduler.py", line 474, in _dispatch_wave
+    async for event in stream_wave_fanout(
+    ...<12 lines>...
+        yield event
+  File "/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/agents/capabilities/strategies/_fanout_wave_stream.py", line 88, in stream_wave_fanout
+    yield next_fanout.result()
+          ~~~~~~~~~~~~~~~~~~^^
+  File "/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/tests/integration/agents/test_restart_resume_db.py", line 380, in _wrapped_fanout
+    raise RuntimeError(
+        f"scripted instance-A crash on run_fanout call #{_raise_on}"
+    )
+RuntimeError: scripted instance-A crash on run_fanout call #2
+ERROR    agents.execution_engine.engine:engine.py:2603 finalize_terminal_run: create_run_ref FAILED run=rr-ac207117 (run_id must be a UUID (hex digits and hyphens only): 'rr-ac207117')
+WARNING  agents.execution_engine.engine:engine.py:16031 resumed-stream drive(rr-ac207117) failed mid-drive: Cannot transition run 'rr-ac207117' from terminal state 'failed' to 'generating'.
+________________ test_failed_run_resumes_skips_completed_tasks _________________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10ee6d470>
+
+    @pytest.mark.asyncio
+    async def test_failed_run_resumes_skips_completed_tasks(monkeypatch):
+        """A run failed MID-BUILD (wave 0 durably complete, wave 1 never finished) → user
+        resume via ``_drive_user_resume`` SKIPS the completed wave-0 workers (cursor evidence),
+        COMPLETES the deliverable, RECONCILES the terminal status to ``completed``, and keeps
+        the SAME run id with NO new ``WorkflowRun`` row (family coherence; Pitfall 5)."""
+        session, db_engine = _make_session()
+        run_id = str(uuid.uuid4())
+        owner = "ur-user"
+        _seed_workflow_run(session, run_id, owner=owner, status="generating")
+    
+        call_log: dict[str, int] = {}
+    
+        # ── Instance A: interrupted mid-wave — wave 0 completes, wave 1 crashes on entry ──
+        with _ResumeHarness(
+            session, call_log, fail_on=set(), db_engine=db_engine, raise_on_fanout_call=2
+        ) as h:
+            engine_a = h.make_engine()
+            # ``execute``, not ``_execute_impl`` — the durable ``_RunEventSink`` lives in the
+            # public entry (engine.py:1020/:1065), and this test's whole premise is a resume
+            # that reads the durable rows instance A wrote for itself (TEST-013).
+            try:
+                async for _ev in engine_a.execute(
+                    agents=list(h.specs),
+                    user_message="Run the wave workflow.",
+                    pipeline_run_id=run_id,
+                    pipeline_type=_FIXTURE_ID,
+                    user_id=owner,
+                    gate_agent_ids=[],
+                ):
+                    pass
+            except Exception:
+                pass
+    
+        a_calls_a = call_log.get("a", 0)
+        a_calls_b = call_log.get("b", 0)
+        assert (
+            a_calls_a >= 1 and a_calls_b >= 1
+        ), f"wave-0 workers must have run on instance A before the crash: {call_log}"
+    
+        # The interrupt landed the run TERMINAL-FAILED (the Phase-50 premise: a user resumes
+        # a run that reached the ``failed`` terminal, not a still-non-terminal restart).
+        from app.models.workflow import WorkflowRun
+    
+        row = session.query(WorkflowRun).filter(WorkflowRun.id == run_id).first()
+        row.status = "failed"
+        session.commit()
+        runs_before = session.query(WorkflowRun).count()
+    
+        # ── Instance B: user resume through the endpoint's thin wrapper (NOT resume_run
+        # directly, NOT a hand-copied launch ladder) over the SAME durable DB ─────────────
+        with _ResumeHarness(session, call_log, fail_on=set(), db_engine=db_engine) as h:
+            engine_b = h.make_engine()
+            rc = _wire_user_resume_drive(monkeypatch, db_engine, engine_b)
+            await rc._drive_user_resume(run_id, user=_ResumeUser(owner))
+    
+        # (a) cursor evidence — the completed wave-0 workers were NOT re-invoked on resume.
+        assert call_log.get("a", 0) == a_calls_a, f"part_a re-invoked on resume: {call_log}"
+        assert call_log.get("b", 0) == a_calls_b, f"part_b re-invoked on resume: {call_log}"
+        # wave-1 workers ran on resume (the incomplete wave was re-entered).
+>       assert (
+            call_log.get("c", 0) >= 1 and call_log.get("d", 0) >= 1
+        ), f"wave-1 workers did not run on resume: {call_log}"
+E       AssertionError: wave-1 workers did not run on resume: {'b': 2, 'a': 2}
+E       assert (0 >= 1)
+E        +  where 0 = <built-in method get of dict object at 0x10f031680>('c', 0)
+E        +    where <built-in method get of dict object at 0x10f031680> = {'a': 2, 'b': 2}.get
+
+tests/integration/agents/test_restart_resume_db.py:3654: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  app.agents.checkpointer:checkpointer.py:61 Checkpointer: DATABASE_URL is not Postgres — using InMemorySaver. HITL pauses work within the process but do NOT survive a restart.
+WARNING  agents.artifacts.graph:graph.py:155 artifact kind 'sample-wave-plan' is outside ARTIFACT_KINDS — typed consumes routing and the FR-014 revision lookup match kinds EXACTLY, so a typo here is silently unroutable (IN-01 advisory; write proceeds)
+WARNING  agents.artifacts.graph:graph.py:155 artifact kind 'sample-wave-worker' is outside ARTIFACT_KINDS — typed consumes routing and the FR-014 revision lookup match kinds EXACTLY, so a typo here is silently unroutable (IN-01 advisory; write proceeds)
+WARNING  agents.artifacts.graph:graph.py:155 artifact kind 'sample-wave-worker' is outside ARTIFACT_KINDS — typed consumes routing and the FR-014 revision lookup match kinds EXACTLY, so a typo here is silently unroutable (IN-01 advisory; write proceeds)
+WARNING  agents.execution_engine.kernel_services:kernel_services.py:754 update_wave_run_merge_state(step=sample-wave-worker) failed: 'ScopedStore' object has no attribute '_acquire'
+ERROR    agents.execution_engine.engine:engine.py:14364 step sample-wave-worker raised: scripted instance-A crash on run_fanout call #2
+Traceback (most recent call last):
+  File "/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/agents/execution_engine/engine.py", line 14354, in _guarded_step
+    async for event in self._dispatch_step_with_retry(step, ectx, strategy):
+    ...<2 lines>...
+        yield event
+  File "/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/agents/execution_engine/engine.py", line 14391, in _dispatch_step_with_retry
+    async for event in strategy.run(step, ectx):
+        yield event
+  File "/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/agents/capabilities/strategies/wave_scheduler.py", line 490, in run
+    async for event in _dispatch_wave(requests, task_ids):
+        yield event
+  File "/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/agents/capabilities/strategies/wave_scheduler.py", line 474, in _dispatch_wave
+    async for event in stream_wave_fanout(
+    ...<12 lines>...
+        yield event
+  File "/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/agents/capabilities/strategies/_fanout_wave_stream.py", line 88, in stream_wave_fanout
+    yield next_fanout.result()
+          ~~~~~~~~~~~~~~~~~~^^
+  File "/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/tests/integration/agents/test_restart_resume_db.py", line 380, in _wrapped_fanout
+    raise RuntimeError(
+        f"scripted instance-A crash on run_fanout call #{_raise_on}"
+    )
+RuntimeError: scripted instance-A crash on run_fanout call #2
+WARNING  agents.execution_engine.engine:engine.py:16031 resumed-stream drive(e6d52e26-2207-46a8-846a-ee89c599b6df) failed mid-drive: Cannot transition run 'e6d52e26-2207-46a8-846a-ee89c599b6df' from terminal state 'failed' to 'generating'.
+___________________ test_user_resume_persists_output_columns ___________________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10ed1a6d0>
+
+    @pytest.mark.asyncio
+    async def test_user_resume_persists_output_columns(monkeypatch):
+        """END-TO-END (BUG-R03): a run crashed mid-build then USER-resumed to completion persists
+        the terminal ``output`` column (the headline bug column) — not only ``status``. Drives the
+        real ``_drive_user_resume`` → ``_reconcile_terminal_status`` path over the same durable DB,
+        then asserts ``output`` is POPULATED from the durable ``pipeline_complete.final_output``
+        (pre-fix it is empty — the resume tier wrote status but no output columns; the coverage
+        hole). The per-agent columns (agent_outputs/token_usage/duration) ride the SAME mapping and
+        are asserted deterministically on a real agent_complete tail in
+        ``test_apply_terminal_output_columns_populates_all_columns`` — the ``sample_wave`` fixture
+        is a wave-fanout pipeline that emits ``subagent_*`` events, not per-agent ``agent_complete``,
+        so ``final_output``→``output`` is its populated column."""
+        from app.models.workflow import WorkflowRun
+    
+        session, db_engine = _make_session()
+        run_id = str(uuid.uuid4())
+        owner = "r03-user"
+        _seed_workflow_run(session, run_id, owner=owner, status="generating")
+    
+        call_log: dict[str, int] = {}
+    
+        # ── Instance A: interrupted mid-wave — wave 0 completes, wave 1 crashes on entry ──
+        with _ResumeHarness(
+            session, call_log, fail_on=set(), db_engine=db_engine, raise_on_fanout_call=2
+        ) as h:
+            engine_a = h.make_engine()
+            try:
+                async for _ev in engine_a._execute_impl(
+                    agents=list(h.specs),
+                    user_message="Run the wave workflow.",
+                    pipeline_run_id=run_id,
+                    pipeline_type=_FIXTURE_ID,
+                    user_id=owner,
+                    gate_agent_ids=[],
+                ):
+                    pass
+            except Exception:
+                pass
+    
+        row = session.query(WorkflowRun).filter(WorkflowRun.id == run_id).first()
+        row.status = "failed"
+        session.commit()
+        # The bug premise: an interrupted run has an EMPTY output column going into resume.
+        assert not row.output, "precondition: output column empty before resume"
+    
+        # ── Instance B: user resume to completion over the SAME durable DB ────────────────
+        with _ResumeHarness(session, call_log, fail_on=set(), db_engine=db_engine) as h:
+            engine_b = h.make_engine()
+            rc = _wire_user_resume_drive(monkeypatch, db_engine, engine_b)
+            await rc._drive_user_resume(run_id, user=_ResumeUser(owner))
+    
+        session.expire_all()
+        row2 = session.query(WorkflowRun).filter(WorkflowRun.id == run_id).first()
+>       assert (
+            row2.status == "completed"
+        ), f"status must reconcile to completed: {row2.status!r}"
+E       AssertionError: status must reconcile to completed: 'failed'
+E       assert 'failed' == 'completed'
+E         
+E         - completed
+E         + failed
+
+tests/integration/agents/test_restart_resume_db.py:4595: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  app.agents.checkpointer:checkpointer.py:61 Checkpointer: DATABASE_URL is not Postgres — using InMemorySaver. HITL pauses work within the process but do NOT survive a restart.
+WARNING  agents.artifacts.graph:graph.py:155 artifact kind 'sample-wave-plan' is outside ARTIFACT_KINDS — typed consumes routing and the FR-014 revision lookup match kinds EXACTLY, so a typo here is silently unroutable (IN-01 advisory; write proceeds)
+WARNING  agents.artifacts.graph:graph.py:155 artifact kind 'sample-wave-worker' is outside ARTIFACT_KINDS — typed consumes routing and the FR-014 revision lookup match kinds EXACTLY, so a typo here is silently unroutable (IN-01 advisory; write proceeds)
+WARNING  agents.artifacts.graph:graph.py:155 artifact kind 'sample-wave-worker' is outside ARTIFACT_KINDS — typed consumes routing and the FR-014 revision lookup match kinds EXACTLY, so a typo here is silently unroutable (IN-01 advisory; write proceeds)
+WARNING  agents.execution_engine.kernel_services:kernel_services.py:754 update_wave_run_merge_state(step=sample-wave-worker) failed: 'ScopedStore' object has no attribute '_acquire'
+ERROR    agents.execution_engine.engine:engine.py:14364 step sample-wave-worker raised: scripted instance-A crash on run_fanout call #2
+Traceback (most recent call last):
+  File "/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/agents/execution_engine/engine.py", line 14354, in _guarded_step
+    async for event in self._dispatch_step_with_retry(step, ectx, strategy):
+    ...<2 lines>...
+        yield event
+  File "/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/agents/execution_engine/engine.py", line 14391, in _dispatch_step_with_retry
+    async for event in strategy.run(step, ectx):
+        yield event
+  File "/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/agents/capabilities/strategies/wave_scheduler.py", line 490, in run
+    async for event in _dispatch_wave(requests, task_ids):
+        yield event
+  File "/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/agents/capabilities/strategies/wave_scheduler.py", line 474, in _dispatch_wave
+    async for event in stream_wave_fanout(
+    ...<12 lines>...
+        yield event
+  File "/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/agents/capabilities/strategies/_fanout_wave_stream.py", line 88, in stream_wave_fanout
+    yield next_fanout.result()
+          ~~~~~~~~~~~~~~~~~~^^
+  File "/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/tests/integration/agents/test_restart_resume_db.py", line 380, in _wrapped_fanout
+    raise RuntimeError(
+        f"scripted instance-A crash on run_fanout call #{_raise_on}"
+    )
+RuntimeError: scripted instance-A crash on run_fanout call #2
+WARNING  agents.execution_engine.engine:engine.py:16031 resumed-stream drive(147508dd-42c3-494e-8d81-ddc778c31e31) failed mid-drive: Cannot transition run '147508dd-42c3-494e-8d81-ddc778c31e31' from terminal state 'failed' to 'generating'.
+___________ test_resume_dispatch_carries_rehydrated_planning_context ___________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10da9a270>
+
+    @pytest.mark.asyncio
+    async def test_resume_dispatch_carries_rehydrated_planning_context(monkeypatch):
+        """D2 wiring: driving the REAL resume tier on a run holding durable
+        `planning_context` + `clarifications` rows, the dispatched prompt carries the
+        planner's intent and the user's answer — not the truncated stub.
+    
+        The unit test above would pass against a helper nobody calls; this is the proof
+        that the skip-planner branch actually routes through it.
+        """
+        from agents.artifacts.graph import ArtifactRef
+        from agents.authz import ScopedStore
+        from agents.execution_engine.engine import PLANNER_AGENT_ID
+    
+        session, db_engine = _make_session()
+        run_id = f"rh-{uuid.uuid4().hex[:8]}"
+        owner = "rh-user"
+        ws = "ws-rh"
+        # The seeded brief IS the resumed run's user_message, so the stub intent the fix
+        # must displace (`user_message[:200]`) is a real, assertable string in the prompt.
+        user_message = "Run the wave workflow."
+        _seed_workflow_run(
+            session,
+            run_id,
+            owner=owner,
+            status="failed",
+            workspace_id=ws,
+            input_=user_message,
+        )
+    
+        # One durable run_events row = the in-flight evidence the resume classifier needs,
+        # WITHOUT an open review gate — so the resume re-enters step 0 and DISPATCHES it
+        # (a gate re-entry would skip the model call, and with it the compose under test).
+        pre_store = ScopedStore(owner_id=owner, workspace_id=ws, session=session)
+        await pre_store.append_event(
+            run_id,
+            seq=1,
+            event_id="rh-1",
+            type="agent_start",
+            payload_json={"agent_id": "sample-wave-plan"},
+        )
+    
+        planner_json = _rehydrate_planner_json()
+        await pre_store.write_ref(
+            ArtifactRef(
+                id=str(uuid.uuid4()),
+                run_id=run_id,
+                owner_id=owner,
+                workspace_id=ws,
+                kind="planning_context",
+                producer_step="planner",
+                producer_agent=PLANNER_AGENT_ID,
+                task_id=None,
+                content=planner_json,
+                content_hash=_pb_hash(planner_json),
+                location="artifact_refs/planning_context",
+                version=1,
+                visibility="workspace",
+            )
+        )
+        clar_json = _rehydrate_clarifications_json(
+            1, "r1_q1", _REHYDRATE_QUESTION, _REHYDRATE_ANSWER
+        )
+        await pre_store.write_ref(
+            ArtifactRef(
+                id=str(uuid.uuid4()),
+                run_id=run_id,
+                owner_id=owner,
+                workspace_id=ws,
+                kind="clarifications",
+                producer_step="clarify_round_1",
+                producer_agent="clarify-agent",
+                task_id=None,
+                content=clar_json,
+                content_hash=_pb_hash(clar_json),
+                location="artifact_refs/clarifications",
+                version=1,
+                visibility="workspace",
+            )
+        )
+        session.commit()
+    
+        composed: list[str] = []
+    
+        with _ResumeHarness(session, {}, fail_on=set(), db_engine=db_engine) as h:
+            engine_b = h.make_engine()
+    
+            _orig_compose = engine_b._compose_context_message
+    
+            async def _spy_compose(*a, **k):
+                msg = await _orig_compose(*a, **k)
+                composed.append(msg)
+                return msg
+    
+            engine_b._compose_context_message = _spy_compose  # type: ignore[assignment]
+    
+            rc = _wire_user_resume_drive(monkeypatch, db_engine, engine_b)
+            await rc._drive_user_resume(run_id, user=_ResumeUser(owner))
+    
+        assert composed, "the resumed run dispatched no agent — nothing to assert on"
+        first = composed[0]
+>       assert _REHYDRATE_ANSWER in first, (
+            "D2: a resumed dispatch must carry the user's clarification answers; got:\n"
+            f"{first[:1500]}"
+        )
+E       AssertionError: D2: a resumed dispatch must carry the user's clarification answers; got:
+E         === ORIGINAL USER REQUEST ===
+E         Run the wave workflow.
+E         === END REQUEST ===
+E       assert 'SPINNAKER-SENTINEL' in '=== ORIGINAL USER REQUEST ===\nRun the wave workflow.\n=== END REQUEST ==='
+
+tests/integration/agents/test_restart_resume_db.py:5027: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  app.agents.checkpointer:checkpointer.py:61 Checkpointer: DATABASE_URL is not Postgres — using InMemorySaver. HITL pauses work within the process but do NOT survive a restart.
+WARNING  agents.artifacts.graph:graph.py:155 artifact kind 'sample-wave-plan' is outside ARTIFACT_KINDS — typed consumes routing and the FR-014 revision lookup match kinds EXACTLY, so a typo here is silently unroutable (IN-01 advisory; write proceeds)
+WARNING  app.agents.sandbox:sandbox.py:878 commit_all: nothing to commit (empty diff at step boundary) run=rh-user/rh-f5e381f2 message='step: sample-wave-plan'
+WARNING  agents.execution_engine.engine:engine.py:832 commit_in_sandbox: no changes staged for run=rh-f5e381f2 step=sample-wave-plan (has_git=true)
+WARNING  agents.artifacts.graph:graph.py:155 artifact kind 'sample-wave-worker' is outside ARTIFACT_KINDS — typed consumes routing and the FR-014 revision lookup match kinds EXACTLY, so a typo here is silently unroutable (IN-01 advisory; write proceeds)
+WARNING  agents.artifacts.graph:graph.py:155 artifact kind 'sample-wave-worker' is outside ARTIFACT_KINDS — typed consumes routing and the FR-014 revision lookup match kinds EXACTLY, so a typo here is silently unroutable (IN-01 advisory; write proceeds)
+WARNING  agents.execution_engine.kernel_services:kernel_services.py:754 update_wave_run_merge_state(step=sample-wave-worker) failed: 'ScopedStore' object has no attribute '_acquire'
+WARNING  agents.artifacts.graph:graph.py:155 artifact kind 'sample-wave-worker' is outside ARTIFACT_KINDS — typed consumes routing and the FR-014 revision lookup match kinds EXACTLY, so a typo here is silently unroutable (IN-01 advisory; write proceeds)
+WARNING  agents.artifacts.graph:graph.py:155 artifact kind 'sample-wave-worker' is outside ARTIFACT_KINDS — typed consumes routing and the FR-014 revision lookup match kinds EXACTLY, so a typo here is silently unroutable (IN-01 advisory; write proceeds)
+WARNING  agents.execution_engine.kernel_services:kernel_services.py:754 update_wave_run_merge_state(step=sample-wave-worker) failed: 'ScopedStore' object has no attribute '_acquire'
+ERROR    agents.execution_engine.engine:engine.py:2603 finalize_terminal_run: create_run_ref FAILED run=rh-f5e381f2 (run_id must be a UUID (hex digits and hyphens only): 'rh-f5e381f2')
+=============================== warnings summary ===============================
+app/core/config.py:94
+  /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/app/core/config.py:94: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+    class Settings(BaseSettings):
+
+tests/integration/agents/test_restart_resume_db.py: 16 warnings
+  /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/agents/execution_engine/engine.py:1324: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    _ts = _dt.datetime.utcnow().isoformat(timespec="seconds") + "Z"
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/integration/agents/test_restart_resume_db.py::test_midwave_resume_does_not_reinvoke_completed_workers
+FAILED tests/integration/agents/test_restart_resume_db.py::test_failed_run_resumes_skips_completed_tasks
+FAILED tests/integration/agents/test_restart_resume_db.py::test_user_resume_persists_output_columns
+FAILED tests/integration/agents/test_restart_resume_db.py::test_resume_dispatch_carries_rehydrated_planning_context
+4 failed, 81 passed, 17 warnings in 17.75s

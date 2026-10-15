@@ -1,0 +1,58 @@
+# QA-KB-099 analysis 09: the other unit-tier test that fails with 'Unit test spawned a subprocess' (UNIT-TESTS.md row 280) - still red? passes once allowed?
+# HEAD f06129262, 2026-10-08T12:03Z. Source: the 2026-09-23 offline failing-test report lists exactly three 'spawned a subprocess' rows: 280, 325 (this bug), 330.
+
+$ grep -n "spawned a subprocess" UNIT-TESTS.md | cut -c1-200
+313:| 280 | `backend/tests/unit/agents/test_phase3_cutover_verify.py` | `TestV2EventTypesAreEmittedByTheirProducers::test_run_finalization_failed_is_emitted_on_a_degraded_finalization` | tests.unit.co
+358:| 325 | `backend/tests/unit/services/test_shutdown_reachability.py` | `test_sigterm_reaches_the_lifespan_shutdown_half_while_a_stream_is_live` | tests.unit.conftest.UnitIsolationError: Unit test s
+363:| 330 | `backend/tests/unit/test_run_files_ref_family_scope.py` | `TestRestoreWritePathStaysInTheSandbox::test_materialize_and_commit_fail_closed_without_touching_the_outer_repo` | tests.unit.conf
+
+# row 330 (test_run_files_ref_family_scope.py): the file no longer exists under tests/unit - it was relocated (QA-KB-027 / ISS-892 family):
+$ git ls-files | grep ref_family_scope
+backend/tests/integration/api/test_run_files_ref_family_scope_api.py
+
+$ cd backend && .venv/bin/python -m pytest tests/unit/agents/test_phase3_cutover_verify.py -q -p no:cacheprovider --timeout=200 --tb=short
+...F                                                                     [100%]
+=================================== FAILURES ===================================
+_ TestV2EventTypesAreEmittedByTheirProducers.test_run_finalization_failed_is_emitted_on_a_degraded_finalization _
+tests/unit/agents/test_phase3_cutover_verify.py:519: in test_run_finalization_failed_is_emitted_on_a_degraded_finalization
+    sandbox, run_id = _setup_sandbox(tmp_path)
+                      ^^^^^^^^^^^^^^^^^^^^^^^^
+tests/agents/test_finalizer_v2.py:306: in _setup_sandbox
+    _git_init(repo)
+tests/agents/test_finalizer_v2.py:103: in _git_init
+    _run_git("init", "-b", "main", cwd=repo)
+tests/agents/test_finalizer_v2.py:90: in _run_git
+    result = subprocess.run(
+/opt/homebrew/Cellar/python@3.13/3.13.14/Frameworks/Python.framework/Versions/3.13/lib/python3.13/subprocess.py:554: in run
+    with Popen(*popenargs, **kwargs) as process:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/unit/conftest.py:129: in _deny_popen
+    raise UnitIsolationError(
+E   tests.unit.conftest.UnitIsolationError: Unit test spawned a subprocess: ['git', 'init', '-b', 'main']. Move it to tests/integration/ (suffix _external), or assert against the command it would have built instead of running it. Deliberate exception: @pytest.mark.allow_io("reason").
+=============================== warnings summary ===============================
+
+=========================== short test summary info ============================
+FAILED tests/unit/agents/test_phase3_cutover_verify.py::TestV2EventTypesAreEmittedByTheirProducers::test_run_finalization_failed_is_emitted_on_a_degraded_finalization
+1 failed, 3 passed, 1 warning in 1.71s
+
+# Now with the guard lifted for that ONE node (scratch plugin, collection hook; no repo file edited):
+$ cd backend && PYTHONPATH=<scratchpad>/qa_kb_099_probe .venv/bin/python -m pytest tests/unit/agents/test_phase3_cutover_verify.py -p allow_io_probe_phase3 -p no:cacheprovider --timeout=200 -q --tb=short
+....                                                                     [100%]
+=============================== warnings summary ===============================
+
+tests/unit/agents/test_phase3_cutover_verify.py::TestV2EventTypesAreEmittedByTheirProducers::test_run_finalization_failed_is_emitted_on_a_degraded_finalization
+  /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/agents/execution_engine/engine.py:1324: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime
+    _ts = _dt.datetime.utcnow().isoformat(timespec="seconds") + "Z"
+
+4 passed, 2 warnings in 1.86s
+
+$ grep -rn "_setup_sandbox\|test_finalizer_v2 import" backend/tests/unit --include="*.py"      (who else in tests/unit reaches the git-spawning helper)
+backend/tests/unit/agents/test_phase3_cutover_verify.py:511:        from tests.agents.test_finalizer_v2 import (
+backend/tests/unit/agents/test_phase3_cutover_verify.py:515:            _setup_sandbox,
+backend/tests/unit/agents/test_phase3_cutover_verify.py:519:        sandbox, run_id = _setup_sandbox(tmp_path)
+
+$ git ls-files | grep test_finalizer_v2      (where the helper module lives)
+backend/tests/agents/test_finalizer_v2.py
+
+$ grep -rn "phase3_cutover\|run_finalization_failed_is_emitted\|degraded_finalization" .knowledge/INDEX.md LEDGER.md BUGS.md | wc -l      (is it already logged/carded?)
+       0

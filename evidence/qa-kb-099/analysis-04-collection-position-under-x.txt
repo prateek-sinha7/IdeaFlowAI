@@ -1,0 +1,17 @@
+# QA-KB-099 analysis 04: where the red sits in the unit tier's run order (matters for 'make test-check', which runs 'pytest tests/unit -q -x')
+# HEAD 3af414bc6, 2026-10-08T11:55Z. Collection only - nothing was executed.
+
+$ grep -n "test-check" -A4 backend/Makefile
+23:test-check:
+24-	$(PYTEST) --collect-only -q | tail -3
+25-	$(PYTEST) --collect-only -q -m "not unit and not integration and not contract and not e2e and not performance and not security and not property and not smoke" | tail -1
+26-	$(PYTEST) tests/unit -q -x -p no:cacheprovider
+
+$ cd backend && .venv/bin/python -m pytest tests/unit --collect-only -q -p no:cacheprovider   (saved, then counted)
+node ids collected: 4061
+position of the SIGTERM test in collection order: 3136
+tests after it (never reached under -x if it is the first failure): 925
+first node: tests/unit/agents/execution_engine/test_clarify_json_parse.py::test_clean_json_array_unchanged
+last node:  tests/unit/tools/ci/test_workflow_contracts.py::test_contract_detects_missing_timeout
+
+# CAVEAT: this does not prove the SIGTERM test is the FIRST red in tests/unit (earlier files were not run); it shows only where -x would stop IF nothing before it fails.

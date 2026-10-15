@@ -1,0 +1,3 @@
+# .venv/bin/ruff check (both QA-KB-079 test files), 2026-10-07 19:20
+All checks passed!
+# git diff --stat backend/agents backend/app (application source; expected empty for this bug)

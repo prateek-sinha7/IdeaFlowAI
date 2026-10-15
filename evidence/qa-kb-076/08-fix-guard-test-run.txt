@@ -1,0 +1,44 @@
+# QA-KB-076 fix: guard test file after the fix, FINAL. 7 XPASS(strict) = the ISS-903 fix works (markers left for the 6-verifier); 8 passed, incl. the new ISS-1085 anchor test and ISS-1083 inbound lint
+# tree: /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2   HEAD: 2254c5ef5   date: 2026-10-07 22:45 CEST
+# run: cd backend && .venv/bin/python -m pytest tests/unit/test_run_shutdown_stale_citations.py -q -p no:cacheprovider -rxXfp
+# baseline before any edit, same file: 6 passed, 7 xfailed
+
+..FFFFFF....F..                                                          [100%]
+=================================== FAILURES ===================================
+________ test_line_cite_pattern_flags_every_cite_shape[see main.py:238] ________
+[XPASS(strict)] ISS-903 unfixed
+_ test_line_cite_pattern_flags_every_cite_shape[test_run_stream_pool_leak.py:196-238] _
+[XPASS(strict)] ISS-903 unfixed
+___ test_line_cite_pattern_flags_every_cite_shape[run_commands.py :399/:421] ___
+[XPASS(strict)] ISS-903 unfixed
+_ test_line_cite_pattern_flags_every_cite_shape[registers the queue at :1734] __
+[XPASS(strict)] ISS-903 unfixed
+_________ test_line_cite_pattern_flags_every_cite_shape[(:2514/:3621)] _________
+[XPASS(strict)] ISS-903 unfixed
+______ test_line_cite_pattern_flags_every_cite_shape[scripts/start.sh:27] ______
+[XPASS(strict)] ISS-903 unfixed
+_________________ test_shutdown_reachability_has_no_line_cites _________________
+[XPASS(strict)] ISS-903 unfixed
+=============================== warnings summary ===============================
+app/core/config.py:94
+  /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/app/core/config.py:94: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+    class Settings(BaseSettings):
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/unit/test_run_shutdown_stale_citations.py::test_line_cite_pattern_flags_every_cite_shape[see main.py:238]
+FAILED tests/unit/test_run_shutdown_stale_citations.py::test_line_cite_pattern_flags_every_cite_shape[test_run_stream_pool_leak.py:196-238]
+FAILED tests/unit/test_run_shutdown_stale_citations.py::test_line_cite_pattern_flags_every_cite_shape[run_commands.py :399/:421]
+FAILED tests/unit/test_run_shutdown_stale_citations.py::test_line_cite_pattern_flags_every_cite_shape[registers the queue at :1734]
+FAILED tests/unit/test_run_shutdown_stale_citations.py::test_line_cite_pattern_flags_every_cite_shape[(:2514/:3621)]
+FAILED tests/unit/test_run_shutdown_stale_citations.py::test_line_cite_pattern_flags_every_cite_shape[scripts/start.sh:27]
+FAILED tests/unit/test_run_shutdown_stale_citations.py::test_shutdown_reachability_has_no_line_cites
+PASSED tests/unit/test_run_shutdown_stale_citations.py::test_no_line_number_cites_in_shutdown_path_files
+PASSED tests/unit/test_run_shutdown_stale_citations.py::test_shutdown_comment_read_timeout_matches_model_factory
+PASSED tests/unit/test_run_shutdown_stale_citations.py::test_line_cite_pattern_ignores_non_cites[localhost:3000]
+PASSED tests/unit/test_run_shutdown_stale_citations.py::test_line_cite_pattern_ignores_non_cites[0.0.0.0:8000]
+PASSED tests/unit/test_run_shutdown_stale_citations.py::test_line_cite_pattern_ignores_non_cites[12:30:45]
+PASSED tests/unit/test_run_shutdown_stale_citations.py::test_line_cite_pattern_ignores_non_cites[ISS-104: see FIX-690]
+PASSED tests/unit/test_run_shutdown_stale_citations.py::test_symbols_named_by_shutdown_path_comments_still_exist
+PASSED tests/unit/test_run_shutdown_stale_citations.py::test_no_line_number_cites_into_shutdown_path_files_from_elsewhere
+7 failed, 8 passed, 1 warning in 1.77s

@@ -3,7 +3,7 @@
  *
  * Proves:
  *   1. renders the pinned P26 totals (total tokens + cost) from run state;
- *   2. the cached segment shows ONLY when cacheReadTokens > 0 (with the %);
+ *   2. cache reads are never shown (only Analytics shows them);
  *   3. renders nothing when there is no token data yet.
  */
 import { render, screen } from "@testing-library/react";
@@ -41,45 +41,8 @@ describe("ChatTokenWidget", () => {
     expect(screen.getByText("~$0.042")).toBeInTheDocument();
   });
 
-  // The three cost-format branches (re-homed from the retired e2e TS-L-03, whose
-  // "Est. cost" row was removed in the KAN-83 restyle).
-  it("formats cost as an em dash when the estimate is zero", () => {
+  it("never shows cache reads, even when the run has them", () => {
     render(
-      <ChatTokenWidget
-        pipelineState={state({ totalTokens: 8_000, totalInputTokens: 5_000, estimatedCostUsd: 0 })}
-      />,
-    );
-    expect(screen.getByText("—")).toBeInTheDocument();
-    expect(screen.queryByText(/\$/)).not.toBeInTheDocument();
-  });
-
-  it("formats cost below $0.001 as <$0.001", () => {
-    render(
-      <ChatTokenWidget
-        pipelineState={state({ totalTokens: 8_000, totalInputTokens: 5_000, estimatedCostUsd: 0.0005 })}
-      />,
-    );
-    expect(screen.getByText("<$0.001")).toBeInTheDocument();
-  });
-
-  it("formats cost to three decimals at the <$0.001 boundary", () => {
-    render(
-      <ChatTokenWidget
-        pipelineState={state({ totalTokens: 8_000, totalInputTokens: 5_000, estimatedCostUsd: 0.001 })}
-      />,
-    );
-    expect(screen.getByText("~$0.001")).toBeInTheDocument();
-  });
-
-  it("never shows a cached segment, even when cacheReadTokens > 0", () => {
-    const { rerender } = render(
-      <ChatTokenWidget
-        pipelineState={state({ totalTokens: 5_000, totalInputTokens: 5_000 })}
-      />,
-    );
-    expect(screen.queryByText(/cached/)).not.toBeInTheDocument();
-
-    rerender(
       <ChatTokenWidget
         pipelineState={state({
           totalTokens: 5_000,
@@ -88,9 +51,8 @@ describe("ChatTokenWidget", () => {
         })}
       />,
     );
-    // Backend total/input exclude cache reads; they are shown on Analytics only.
     expect(screen.queryByText(/cached/)).not.toBeInTheDocument();
-    expect(screen.getByText(/4\.0K/)).toBeInTheDocument();
+    expect(screen.getByText("4.0K in")).toBeInTheDocument();
   });
 
   it("renders nothing when there is no token data", () => {

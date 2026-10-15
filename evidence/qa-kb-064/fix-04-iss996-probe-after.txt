@@ -1,0 +1,5 @@
+# ISS-996 probe AFTER the fix — 2026-10-07T16:29:43Z — same probe as fix-01 (source in that file)
+1. GET /sandbox       -> {'expired': True, 'files': []} dir exists: False
+2. GET /sandbox/refs  -> 200 [] dir exists: False | .latest exists: False
+3. GET /sandbox again -> {'expired': True, 'files': []}
+1 passed in 0.53s

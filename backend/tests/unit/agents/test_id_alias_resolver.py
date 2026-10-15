@@ -199,16 +199,20 @@ _EXPECTED_CLARIFY_DEFAULTS: dict[str, list[str]] = {
     "ex_test_loop_reachable_skip": [],
     "ex_test_transitive_skip": [],
     "ex_validation_retry": [],
-    # clarify.mode: skip - prototype_v2 reads requirements from uploaded documents.
-    "prototype_v2": [],
-    "backlog": [],
-    "prototype_v2_revision": [],
-    "prototype_v2_feature_revision": [],
-    "backlog_revision": [],
     # clarify.mode: skip — spec 018 temporary playwright smoke test.
     "ex_playwright_smoke_test": [],
     # clarify.mode: disabled — a compile-shape fixture, not a runnable pipeline.
     "sc001-test-fixture": [],
+    # clarify.mode: skip (spec 022) — the v2-era base pipelines take their topic
+    # straight from the run input (prototype_v2/backlog carry their own in-pipeline
+    # reading step), and their revision siblings take the instruction from the
+    # revision panel. All declare defaults: []. Pre-dates the merge (identical on
+    # base 60eab3ff6). Kept in lockstep with the manifests + the sibling file.
+    "backlog": [],
+    "backlog_revision": [],
+    "prototype_v2": [],
+    "prototype_v2_revision": [],
+    "prototype_v2_feature_revision": [],
 }
 # The fallback for any id absent from the dict above (the *_revision manifests +
 # chat/reverse_engineer) — these were NOT touched by KAN-74 and still declare the
@@ -459,16 +463,23 @@ _PLANNER_SKIP_IDS = _RUN_REVISION_DISPATCHED | {
     "ex_test_transitive_skip",
     "ex_validation_retry",
     # ── planner: skip because the manifest plans for itself ─────────────────
-    # prototype_v2 plans for itself too (fi-planner custom step) - planner: skip.
-    "prototype_v2",
-    "backlog",
-    "prototype_v2_revision",
-    "prototype_v2_feature_revision",
-    "backlog_revision",
     # spec 018: a genuinely temporary smoke-test pipeline for the playwright
     # tool set — minimal by design, and expected to be deleted once that tool
     # set is covered by real pipelines.
     "ex_playwright_smoke_test",
+    # ── spec 022 v2-era self-planning pipelines ──────────────────────────────
+    # planner: skip — the base pipelines carry their OWN in-pipeline reading/
+    # planning step (prototype_v2 opens with a "Reading Planner" agent; backlog
+    # reads a prototype + docs through its own writer agents), so the engine's
+    # deep-planner would be redundant. Their revision siblings skip for the usual
+    # reason: the revision panel supplies the instruction directly. Pre-dates the
+    # merge (identical on base 60eab3ff6). Sibling trap: keep in lockstep with
+    # tests/agents/test_manifest_parity.py::_PLANNER_SKIP_IDS.
+    "backlog",
+    "backlog_revision",
+    "prototype_v2",
+    "prototype_v2_revision",
+    "prototype_v2_feature_revision",
 }
 
 

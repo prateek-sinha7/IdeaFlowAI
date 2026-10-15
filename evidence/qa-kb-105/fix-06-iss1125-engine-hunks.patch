@@ -1,0 +1,41 @@
+diff --git a/backend/agents/execution_engine/engine.py b/backend/agents/execution_engine/engine.py
+index 62e176d16..c8e136df9 100644
+--- a/backend/agents/execution_engine/engine.py
++++ b/backend/agents/execution_engine/engine.py
+@@ -16007,6 +16007,9 @@ class ExecutionEngine:
+         # ISS-1103: a stream that already ended the run gets no synthesized second
+         # terminal from the swallow below (FIX-669: one pipeline_failed per attempt).
+         _terminal_seen = False
++        # ISS-1125: the last generic ``error`` frame's text — the reason recorded when
++        # the stream ends WITHOUT raising and without a terminal (the else below).
++        _stream_error = None
+         try:
+             async for event in self._execute_impl(
+                 agents=agents,
+@@ -16055,6 +16058,8 @@ class ExecutionEngine:
+                 if not isinstance(data, dict):
+                     data = {}
+                     event["data"] = data
++                if event.get("type") == "error":
++                    _stream_error = data.get("error")
+                 seq = next_seq
+                 next_seq += 1
+                 event_id = str(uuid.uuid4())
+@@ -16120,6 +16125,17 @@ class ExecutionEngine:
+             # ISS-1103: swallowed, not silent — record it before the finally's sentinel.
+             if not _terminal_seen:
+                 await self._fail_resume(run_id, f"Resume failed: {exc}", live_queue)
++        else:
++            # ISS-1125: a stream can also END without raising and without a terminal —
++            # the workflow_unsatisfiable exit yields an ``error`` frame and returns — and
++            # nothing else would end that attempt. Recorded the same way, before the
++            # finally's sentinel and output persist.
++            if not _terminal_seen:
++                await self._fail_resume(
++                    run_id,
++                    f"Resume failed: {_stream_error or 'the run ended without a terminal event'}",
++                    live_queue,
++                )
+         finally:
+             # L6-fix2: flush deltas buffered when the stream ended (or was abandoned
+             # mid-drive), mirroring the execute() wrapper's finally — a cancelled or

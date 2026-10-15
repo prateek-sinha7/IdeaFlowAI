@@ -1,0 +1,35 @@
+QA-KB-110 / ISS-1154 + ISS-1171 fix, the card's offline test after the fix. Observed 2026-10-09T14:49Z at HEAD 9cd0d6c5a + working-tree change to frontend/src/components/layout/DashboardLayout.tsx.
+Command: cd frontend && ./node_modules/.bin/vitest run src/components/layout/DashboardLayout.iss1154.test.tsx --reporter=verbose
+Reading: the 7 cases are it.fails (strict xfail). 'Expect test to fail' = the assertion now PASSES (XPASS), the fix signal. The 2 wizard controls stay green. Markers left for the 6-verifier.
+------------------------------------------------------------------------------------------------
+ RUN  v4.1.11 /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/frontend
+ × src/components/layout/DashboardLayout.iss1154.test.tsx > ISS-1154 edit brief hand-off survives the remount > ex_A1_loop: the remounted composer holds the failed run's own brief 46ms
+   → Expect test to fail
+ × src/components/layout/DashboardLayout.iss1154.test.tsx > ISS-1154 edit brief hand-off survives the remount > backlog: the remounted composer holds the failed run's own brief 11ms
+   → Expect test to fail
+ × src/components/layout/DashboardLayout.iss1154.test.tsx > ISS-1154 edit brief hand-off survives the remount > user_stories: the remounted composer holds the failed run's own brief 12ms
+   → Expect test to fail
+ × src/components/layout/DashboardLayout.iss1154.test.tsx > ISS-1154 edit brief hand-off survives the remount > app_builder: the remounted composer holds the failed run's own brief 9ms
+   → Expect test to fail
+ ✓ src/components/layout/DashboardLayout.iss1154.test.tsx > ISS-1154 edit brief hand-off survives the remount > ppt_v2: wizard type stages the brief in ppt.draft 8ms
+ ✓ src/components/layout/DashboardLayout.iss1154.test.tsx > ISS-1154 edit brief hand-off survives the remount > prototype_v2: wizard type stages the brief in prototype.draft 5ms
+ × src/components/layout/DashboardLayout.iss1154.test.tsx > ISS-1171 no draft is staged for a destination that will not read it > ppt_revision: any staged draft is consumed by the pushed route 5ms
+   → Expect test to fail
+ × src/components/layout/DashboardLayout.iss1154.test.tsx > ISS-1171 no draft is staged for a destination that will not read it > prototype_revision: any staged draft is consumed by the pushed route 10ms
+   → Expect test to fail
+ × src/components/layout/DashboardLayout.iss1154.test.tsx > ISS-1171 no draft is staged for a destination that will not read it > prototype_v2_revision: any staged draft is consumed by the pushed route 9ms
+   → Expect test to fail
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 7 ⎯⎯⎯⎯⎯⎯⎯
+ FAIL  src/components/layout/DashboardLayout.iss1154.test.tsx > ISS-1154 edit brief hand-off survives the remount > ex_A1_loop: the remounted composer holds the failed run's own brief
+ FAIL  src/components/layout/DashboardLayout.iss1154.test.tsx > ISS-1154 edit brief hand-off survives the remount > backlog: the remounted composer holds the failed run's own brief
+ FAIL  src/components/layout/DashboardLayout.iss1154.test.tsx > ISS-1154 edit brief hand-off survives the remount > user_stories: the remounted composer holds the failed run's own brief
+ FAIL  src/components/layout/DashboardLayout.iss1154.test.tsx > ISS-1154 edit brief hand-off survives the remount > app_builder: the remounted composer holds the failed run's own brief
+ FAIL  src/components/layout/DashboardLayout.iss1154.test.tsx > ISS-1171 no draft is staged for a destination that will not read it > ppt_revision: any staged draft is consumed by the pushed route
+ FAIL  src/components/layout/DashboardLayout.iss1154.test.tsx > ISS-1171 no draft is staged for a destination that will not read it > prototype_revision: any staged draft is consumed by the pushed route
+ FAIL  src/components/layout/DashboardLayout.iss1154.test.tsx > ISS-1171 no draft is staged for a destination that will not read it > prototype_v2_revision: any staged draft is consumed by the pushed route
+Error: Expect test to fail
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/7]⎯
+ Test Files  1 failed (1)
+      Tests  7 failed | 2 passed (9)
+   Start at  16:49:04
+   Duration  2.72s (transform 748ms, setup 89ms, import 1.53s, tests 116ms, environment 809ms)

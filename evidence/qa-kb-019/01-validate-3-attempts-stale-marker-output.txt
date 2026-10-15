@@ -1,0 +1,12 @@
+attempt 1
+"my].txt" => "idea\n\n[Attached: my].txt]"
+"file, more.txt" => "idea\n\n[Attached: file, more.txt]"
+"a, b].txt" => "idea\n\n[Attached: a, b].txt]"
+attempt 2
+"my].txt" => "idea\n\n[Attached: my].txt]"
+"file, more.txt" => "idea\n\n[Attached: file, more.txt]"
+"a, b].txt" => "idea\n\n[Attached: a, b].txt]"
+attempt 3
+"my].txt" => "idea\n\n[Attached: my].txt]"
+"file, more.txt" => "idea\n\n[Attached: file, more.txt]"
+"a, b].txt" => "idea\n\n[Attached: a, b].txt]"

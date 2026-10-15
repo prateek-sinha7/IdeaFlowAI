@@ -24,6 +24,7 @@ from __future__ import annotations
 import logging
 from typing import Any, AsyncIterator
 
+from agents.capabilities import task_identity
 from agents.capabilities.registry import CapabilityRegistry, register
 
 logger = logging.getLogger(__name__)
@@ -89,7 +90,12 @@ class FanoutBatchStrategy:
         if task_source is not None and getattr(task_source, "parser", None):
             parser_name = task_source.parser
         parser = self._registry.resolve("task_parser", parser_name)
-        tasks = parser.parse(plan_output)
+        tasks = task_identity.parse_step_tasks(
+            parser,
+            plan_output,
+            sandbox=getattr(runner, "sandbox", None),
+            target=getattr(task_source, "target", None),
+        )
 
         # ── Build worker requests (self×N over the parsed tasks) ─────────────────
         # Each task becomes one worker request. The worker agent defaults to "self"

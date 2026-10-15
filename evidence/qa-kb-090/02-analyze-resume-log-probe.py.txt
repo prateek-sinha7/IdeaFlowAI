@@ -1,0 +1,156 @@
+"""QA-KB-090 analysis probe (throwaway, read-only, NOT a repo test).
+
+Run from the repo root:  backend/.venv/bin/python evidence/qa-kb-090/02-analyze-resume-log-probe.py.txt
+Hermetic: DATABASE_URL is pinned to a temp sqlite file BEFORE any app import (same idea as
+backend/tests/conftest.py; backend/.env points it at the developer's Postgres), the app's
+SessionLocal is swapped for an in-memory StaticPool engine (recipe of
+backend/tests/integration/agents/test_restart_resume_db.py:5618), RUNS_ROOT is a temp dir, and
+_drive_resumed_stream is stubbed so no agent runs. No Bedrock, no Postgres, no server, no run.
+
+Q1  For each of the 41 supported pipeline types: how does the registry roster compare with the plan?
+Q2  What does the REAL ExecutionEngine.resume_run print for a manifest-less workflow_runs row, per
+    resume offset? (_compute_resume_offset stubbed to a fixed offset)
+Q3  Same, but with the REAL _compute_resume_offset over seeded durable run_events (a step_completed +
+    agent_complete pair per finished step), so the offset is the one production would compute.
+"""
+import asyncio
+import logging
+import os
+import sys
+import tempfile
+import warnings
+
+warnings.filterwarnings("ignore")
+tmp = tempfile.mkdtemp(prefix="qakb090-")
+os.environ["DATABASE_URL"] = f"sqlite:///{tmp}/probe.db"
+sys.path.insert(0, os.path.join(os.getcwd(), "backend"))
+
+from sqlalchemy import create_engine  # noqa: E402
+from sqlalchemy.orm import sessionmaker  # noqa: E402
+from sqlalchemy.pool import StaticPool  # noqa: E402
+
+from app.core.config import settings  # noqa: E402
+
+settings.RUNS_ROOT = tmp
+import app.models  # noqa: F401,E402
+import app.models.database as db_mod  # noqa: E402
+from app.models.database import Base  # noqa: E402
+from app.models.workflow import WorkflowRun  # noqa: E402
+import agents.execution_engine.engine as engine_mod  # noqa: E402
+from agents.authz import ScopedStore  # noqa: E402
+from agents.execution_engine.engine import ExecutionEngine, compile_for_run, resolve_alias  # noqa: E402
+from agents.loader import SUPPORTED_PIPELINE_TYPES  # noqa: E402
+from agents.registry import get_pipeline_agents  # noqa: E402
+
+logging.disable(logging.NOTSET)
+
+# ---------------------------------------------------------------------------------------- Q1
+print("== Q1: registry roster vs compiled plan, all supported pipeline types ==")
+equal, empty, partial, noplan, other = [], [], [], [], []
+for t in sorted(SUPPORTED_PIPELINE_TYPES):
+    roster = [s.id for s in get_pipeline_agents(resolve_alias(t))]
+    try:
+        plan = [s.agent_id for s in compile_for_run(t).steps]
+    except Exception as e:  # noqa: BLE001
+        noplan.append((t, len(roster), type(e).__name__))
+        continue
+    if not roster:
+        empty.append((t, len(plan)))
+    elif roster == plan:
+        equal.append(t)
+    elif set(roster) < set(plan):
+        partial.append((t, len(roster), len(plan)))
+    else:
+        other.append((t, roster, plan))
+print(f"supported types                                   : {len(SUPPORTED_PIPELINE_TYPES)}")
+print(f"equal (same ids, same order)                      : {len(equal)}")
+print(f"empty registry roster (resume_run plan fallback)  : {len(empty)}")
+print(f"STRICT SUBSET, non-empty (affected: type, roster, plan): {partial}")
+print(f"no workflow.yaml / compile error (type, roster, error): {noplan}")
+print(f"other (superset / disjoint = drift)               : {other}")
+
+# ------------------------------------------------------------------------------ shared harness
+db = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+Base.metadata.create_all(bind=db)
+session = sessionmaker(bind=db, autocommit=False, autoflush=False)()
+db_mod.SessionLocal = sessionmaker(bind=db, autocommit=False, autoflush=False, expire_on_commit=False)
+_orig_ss = engine_mod.ScopedStore
+engine_mod.ScopedStore = lambda *a, **k: _orig_ss(*a, **{**k, "session": k.get("session", session)})
+
+
+class _Cap(logging.Handler):
+    def __init__(self):
+        super().__init__()
+        self.lines = []
+
+    def emit(self, record):
+        m = record.getMessage()
+        if "resume_run(" in m and ("step offset" in m or "all steps complete" in m):
+            self.lines.append(m.split("): ", 1)[1])
+
+
+cap = _Cap()
+lg = logging.getLogger("agents.execution_engine.engine")
+lg.setLevel(logging.INFO)
+lg.addHandler(cap)
+OWNER, WS = "u1", "ws-probe"
+_n = {"i": 0}
+
+
+def new_run(typ, status="generating"):
+    _n["i"] += 1
+    rid = f"probe-{typ}-{_n['i']}"
+    session.add(WorkflowRun(id=rid, user_id=OWNER, owner_id=OWNER, workspace_id=WS,
+                            status=status, type=typ, input="brief"))
+    session.commit()
+    return rid
+
+
+async def drive(rid, *, stub_offset=None):
+    engine = ExecutionEngine()
+    seen = {}
+
+    async def spy_drive(run_id, **kw):
+        seen["n_agents"] = len(kw["agents"])
+        seen["resume_from"] = kw.get("_resume_from")
+
+    engine._drive_resumed_stream = spy_drive
+    if stub_offset is not None:
+        async def fake_offset(run_id, user_id, session_id, pipeline_type, agents, compiled=None):
+            return stub_offset
+        engine._compute_resume_offset = fake_offset
+    cap.lines.clear()
+    await engine.resume_run(rid)
+    return list(cap.lines), seen
+
+
+async def main():
+    print("\n== Q2: real resume_run, offset stubbed (what the log says for a given offset) ==")
+    for typ, offsets in [("prototype_v2_revision", [0, 1, 2, 3]),
+                         ("prototype_v2_feature_revision", [0, 1, 4, 5]),
+                         ("user_stories", [0, 2, 6]),       # control: registry roster == plan
+                         ("prototype_v2", [0, 5, 11])]:     # control: empty roster -> plan fallback
+        plan_len = len(compile_for_run(typ).steps)
+        for off in offsets:
+            lines, seen = await drive(new_run(typ), stub_offset=off)
+            print(f"{typ:30} plan={plan_len:<3} offset={off:<3} roster_handed_to_drive={seen['n_agents']:<3} "
+                  f"resume_from={seen['resume_from']:<3} log={lines}")
+
+    print("\n== Q3: real resume_run, REAL _compute_resume_offset over seeded durable run_events ==")
+    typ = "prototype_v2_revision"
+    plan_ids = [s.agent_id for s in compile_for_run(typ).steps]
+    print("plan:", plan_ids)
+    for k in range(len(plan_ids) + 1):
+        rid = new_run(typ)
+        store = ScopedStore(owner_id=OWNER, workspace_id=WS, session=session)
+        seq = 0
+        for aid in plan_ids[:k]:
+            for ev_type, payload in (("step_completed", {"step": aid}), ("agent_complete", {"agent_id": aid})):
+                seq += 1
+                await store.append_event(rid, seq=seq, event_id=f"ev-{rid}-{seq}", type=ev_type, payload_json=payload)
+        session.commit()
+        lines, seen = await drive(rid)
+        print(f"durably complete steps={k}  real offset={seen['resume_from']}  roster_handed_to_drive={seen['n_agents']}  log={lines}")
+
+
+asyncio.run(main())

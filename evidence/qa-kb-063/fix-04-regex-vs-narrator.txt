@@ -1,0 +1,6 @@
+{'round': 1}             'Clarifications round 1 answered'        match=True
+{'round': 2}             'Clarifications round 2 answered'        match=True
+{}                       'Clarifications answered'                match=True
+{'question_count': 3}    '3 clarifications answered'              match=True
+ask {'round': 2}         'Round 2: Before I build, I need to lock a few things down.'   contains CLARIFY_ASK=True
+ask {}                   'Before I build, I need to lock a few things down.'            contains CLARIFY_ASK=True

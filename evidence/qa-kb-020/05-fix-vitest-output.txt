@@ -1,0 +1,25 @@
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - ESM syntax in a file loaded as CommonJS (vitest.config.ts:1:1). Use a `.mjs` extension or set `"type": "module"` in the closest package.json
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+
+ RUN  v4.1.11 /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/frontend
+
+ ❯ src/hooks/useRunChat.test.ts (27 tests | 3 failed) 101ms
+     × ISS-654: approving run A (earlier gate) resolves only A 5ms
+     × ISS-654: approval for a run with no card in the transcript resolves nothing 7ms
+     × ISS-926: re-fetch after a send asks the viewed run for ITS last seq, not the family max 18ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/hooks/useRunChat.test.ts > useRunChat — review_gate_approved run identity (ISS-654) > ISS-654: approving run A (earlier gate) resolves only A
+ FAIL  src/hooks/useRunChat.test.ts > useRunChat — review_gate_approved run identity (ISS-654) > ISS-654: approval for a run with no card in the transcript resolves nothing
+ FAIL  src/hooks/useRunChat.test.ts > useRunChat — per-run seq cursor (ISS-926) > ISS-926: re-fetch after a send asks the viewed run for ITS last seq, not the family max
+Error: Expect test to fail
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/3]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  3 failed | 23 passed | 1 expected fail (27)
+   Start at  22:35:00
+   Duration  1.88s (transform 128ms, setup 109ms, import 242ms, tests 101ms, environment 1.03s)
+

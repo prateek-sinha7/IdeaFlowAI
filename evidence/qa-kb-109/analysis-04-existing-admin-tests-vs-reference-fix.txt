@@ -1,0 +1,56 @@
+# QA-KB-109 analysis-04: the repo's own admin unit tests (src/app/admin/*.test.tsx, NOT edited) against today's page and against the reference-fix copy
+# Shows the guard can be added with no existing test changing: T14's 'no client-side hiding' tests only cover ANOTHER admin (bob), and mock getMe with no id.
+# run from frontend/ (PROBE_SUITE=existing swaps the include; PROBE_TARGET=fixed redirects ./page to the reference-fix copy)
+# The line '[probe] page.reference-fix.tsx loaded' in section B proves the copy, not the app page, was the module under test.
+
+## A. today's page
+ RUN  v4.1.11 /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/frontend
+ ✓ src/app/admin/admin.reskin.test.tsx > AdminPage reskin — richer-wiring preservation + gate + defer contract > renders the Runs / Role / Joined columns (richer columns preserved) 150ms
+ ✓ src/app/admin/admin.actions.test.tsx > AdminPage — T14 user actions > reset password action > shows a reset password button for every user row 155ms
+ ✓ src/app/admin/admin.actions.test.tsx > AdminPage — T14 user actions > reset password action > on reset password success, shows 'Temporary password issued' toast 65ms
+ ✓ src/app/admin/admin.reskin.test.tsx > AdminPage reskin — richer-wiring preservation + gate + defer contract > create-user modal is invitation-only: no password field, plus email + plan + grant-admin + invite notice 107ms
+ ✓ src/app/admin/admin.reskin.test.tsx > AdminPage reskin — richer-wiring preservation + gate + defer contract > TierDropdown trigger exposes aria-expanded; open menu has role=menu and closes on Escape 47ms
+ ✓ src/app/admin/admin.actions.test.tsx > AdminPage — T14 user actions > 409 last_admin error handling > on 409 with code='last_admin' from role removal, shows specific error message 70ms
+ ✓ src/app/admin/admin.escape.test.tsx > ISS-930 admin TierDropdown Escape > ISS-930: Escape closes the tier menu after an unfocused click on the trigger 289ms
+ ✓ src/app/admin/admin.reskin.test.tsx > AdminPage reskin — richer-wiring preservation + gate + defer contract > redirects a non-admin user (is_admin gate preserved) 60ms
+ ✓ src/app/admin/admin.reskin.test.tsx > AdminPage reskin — richer-wiring preservation + gate + defer contract > renders a Status column, backed by AdminUser.status (Phase 5) — 'Last active' still has no backing field 31ms
+ ✓ src/app/admin/admin.reskin.test.tsx > AdminPage reskin — richer-wiring preservation + gate + defer contract > shows an Active pill for an active user and a disable button, not an enable one 31ms
+ ✓ src/app/admin/admin.actions.test.tsx > AdminPage — T14 user actions > 202 delete pending message > on delete success, shows 'Cognito deletion is pending' message 80ms
+ ✓ src/app/admin/admin.actions.test.tsx > AdminPage — T14 user actions > admin button visibility (relying on server 409) > shows disable/delete/demote buttons for all admins (no client-side hiding) 31ms
+ ✓ src/app/admin/admin.actions.test.tsx > AdminPage — T14 user actions > admin button visibility (relying on server 409) > allows attempting to disable an admin (server will enforce if needed) 44ms
+ ✓ src/app/admin/admin.reskin.test.tsx > AdminPage reskin — richer-wiring preservation + gate + defer contract > disabling a user flips its row to the Disabled pill and shows an enable button 52ms
+ ✓ src/app/admin/admin.reskin.test.tsx > AdminPage reskin — richer-wiring preservation + gate + defer contract > shows disable/delete/demote buttons for admin rows (relying on server 409 for last-admin) 28ms
+ ✓ src/app/admin/admin.actions.test.tsx > AdminPage — T14 user actions > admin button visibility (relying on server 409) > allows attempting to delete an admin (server will enforce if needed) 67ms
+ Test Files  3 passed (3)
+      Tests  16 passed (16)
+   Start at  16:19:30
+   Duration  1.96s (transform 341ms, setup 332ms, import 1.19s, tests 1.31s, environment 2.46s)
+
+## B. reference-fix page
+ RUN  v4.1.11 /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/frontend
+stdout | src/app/admin/admin.actions.test.tsx
+[probe] page.reference-fix.tsx loaded
+stdout | src/app/admin/admin.reskin.test.tsx
+[probe] page.reference-fix.tsx loaded
+stdout | src/app/admin/admin.escape.test.tsx
+[probe] page.reference-fix.tsx loaded
+ ✓ src/app/admin/admin.escape.test.tsx > ISS-930 admin TierDropdown Escape > ISS-930: Escape closes the tier menu after an unfocused click on the trigger 103ms
+ ✓ src/app/admin/admin.reskin.test.tsx > AdminPage reskin — richer-wiring preservation + gate + defer contract > renders the Runs / Role / Joined columns (richer columns preserved) 151ms
+ ✓ src/app/admin/admin.reskin.test.tsx > AdminPage reskin — richer-wiring preservation + gate + defer contract > create-user modal is invitation-only: no password field, plus email + plan + grant-admin + invite notice 92ms
+ ✓ src/app/admin/admin.actions.test.tsx > AdminPage — T14 user actions > reset password action > shows a reset password button for every user row 149ms
+ ✓ src/app/admin/admin.actions.test.tsx > AdminPage — T14 user actions > reset password action > on reset password success, shows 'Temporary password issued' toast 59ms
+ ✓ src/app/admin/admin.actions.test.tsx > AdminPage — T14 user actions > 409 last_admin error handling > on 409 with code='last_admin' from role removal, shows specific error message 59ms
+ ✓ src/app/admin/admin.actions.test.tsx > AdminPage — T14 user actions > 202 delete pending message > on delete success, shows 'Cognito deletion is pending' message 90ms
+ ✓ src/app/admin/admin.reskin.test.tsx > AdminPage reskin — richer-wiring preservation + gate + defer contract > TierDropdown trigger exposes aria-expanded; open menu has role=menu and closes on Escape 46ms
+ ✓ src/app/admin/admin.reskin.test.tsx > AdminPage reskin — richer-wiring preservation + gate + defer contract > redirects a non-admin user (is_admin gate preserved) 60ms
+ ✓ src/app/admin/admin.reskin.test.tsx > AdminPage reskin — richer-wiring preservation + gate + defer contract > renders a Status column, backed by AdminUser.status (Phase 5) — 'Last active' still has no backing field 30ms
+ ✓ src/app/admin/admin.reskin.test.tsx > AdminPage reskin — richer-wiring preservation + gate + defer contract > shows an Active pill for an active user and a disable button, not an enable one 31ms
+ ✓ src/app/admin/admin.reskin.test.tsx > AdminPage reskin — richer-wiring preservation + gate + defer contract > disabling a user flips its row to the Disabled pill and shows an enable button 57ms
+ ✓ src/app/admin/admin.actions.test.tsx > AdminPage — T14 user actions > admin button visibility (relying on server 409) > shows disable/delete/demote buttons for all admins (no client-side hiding) 29ms
+ ✓ src/app/admin/admin.actions.test.tsx > AdminPage — T14 user actions > admin button visibility (relying on server 409) > allows attempting to disable an admin (server will enforce if needed) 44ms
+ ✓ src/app/admin/admin.reskin.test.tsx > AdminPage reskin — richer-wiring preservation + gate + defer contract > shows disable/delete/demote buttons for admin rows (relying on server 409 for last-admin) 31ms
+ ✓ src/app/admin/admin.actions.test.tsx > AdminPage — T14 user actions > admin button visibility (relying on server 409) > allows attempting to delete an admin (server will enforce if needed) 70ms
+ Test Files  3 passed (3)
+      Tests  16 passed (16)
+   Start at  16:19:32
+   Duration  1.56s (transform 343ms, setup 260ms, import 903ms, tests 1.11s, environment 1.70s)

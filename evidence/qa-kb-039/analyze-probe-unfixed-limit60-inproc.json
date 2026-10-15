@@ -1,0 +1,34 @@
+{
+  "variant": "limit60",
+  "status": "degraded",
+  "published_status": "degraded",
+  "agents_failed": [
+    "prototype-build"
+  ],
+  "agents_completed": 4,
+  "degraded_reason": "deliverable is the agent narrating why it could not do the work, not the requested output (matched \"i don't have access\" in 528 characters)",
+  "agent_error_events": [
+    {
+      "agent_id": "prototype-build",
+      "recoverable": true
+    }
+  ],
+  "event_type_counts": {
+    "workflow_validated": 1,
+    "planner_start": 1,
+    "planner_complete": 1,
+    "gate_status": 1,
+    "pipeline_start": 1,
+    "agent_start": 5,
+    "agent_input": 5,
+    "agent_skills": 5,
+    "agent_chunk": 25,
+    "agent_complete": 4,
+    "task_loop_progress": 1,
+    "tool_call": 19,
+    "tool_result": 19,
+    "task_progress": 19,
+    "agent_error": 1,
+    "pipeline_complete": 1
+  }
+}

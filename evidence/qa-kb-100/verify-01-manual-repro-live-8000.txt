@@ -1,0 +1,8 @@
+Verifier, lane6, 2026-10-08, live :8000, basic@velocity.ai (BASIC tier), fetch from browser page.
+POST /api/user-workflows {base_pipeline_type:ppt, overrides_pipeline_type:ppt, manifest.steps[0].gates=["security"]}
+ -> 422 {"detail":"invalid workflow override (workflow:QA100 verify): capability ('gate', 'security') is not user-allowed in step 'custom-agent' ... (CAP-03)"}
+GET /api/workflows/ppt -> 200 is_overridden=false steps.gates=[[],[],[]]
+Tests (backend/.venv/bin/python -m pytest <file>): XPASS(strict) on all 7 with marker; after xfail removal:
+ tests/unit/test_workflow_override.py 8 passed; test_iss1112_override_writers_trust.py 3 passed; test_iss1113_override_row_launch_trust.py 1 passed
+Regression: tests/integration/api/test_workflows_api.py 52 passed 1 failed (TestList::test_list_carries_launchable_flags = QA-KB-101, stale label, separate bug)
+lint-imports: 3 kept, 2 broken (agents.capabilities -> app, unrelated to touched files; fixer reports identical at HEAD)

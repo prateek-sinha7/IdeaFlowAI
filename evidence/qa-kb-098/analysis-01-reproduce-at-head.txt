@@ -1,0 +1,63 @@
+# QA-KB-098 analysis 01: reproduce at HEAD 165c40316 (2026-10-07T23:00Z)
+# cd backend && .venv/bin/python -m pytest <node id> -q -p no:cacheprovider   (one test, offline)
+
+    ) -> None:
+        """Two sandboxes sharing one root write distinct real files under `.browser/`.
+    
+        Requirement 37 AC 3 — closing fix attempt 1's gap. Fix attempt 1 left
+        `.browser/` property-only, justified by the claim that both real
+        `.browser/` writers "require a live Playwright browser session this
+        harness doesn't stand up ... degrades to unavailable without
+        Chromium". The verify FAIL disproved that empirically: Chromium
+        launches here, and driving the real (non-mocked) `playwright_navigate`
+        + `playwright_take_screenshot` tools against a `file://` URL
+        (permitted by the default `BROWSER_URL_POLICY = "file,localhost"`,
+        `app/core/config.py`) writes a real screenshot to `.browser/{run_id}/`
+        with no extra infrastructure — the same "bind sandbox, call the real
+        tool, assert the file exists" shape `test_revision_uses_correct_
+        verify_dir_path` above already uses for `.verify/`.
+    
+        Still degrades to a documented `pytest.skip` (never a silent pass) if
+        the tool itself reports "browser unavailable" — a genuine
+        environment-portability guard for a machine with no Chromium install,
+        not a blanket excuse to skip the writer path outright.
+        """
+        from app.agents.sandbox import RunSandbox
+        from app.agents.tools import playwright as playwright_tools
+    
+        monkeypatch.setenv("RUNS_ROOT", str(tmp_path))
+    
+        root_id = "root-mno"
+        rev_id = "revision-pqr"
+        user_id = "user3"
+    
+        root_sb = RunSandbox(user_id, root_id, runs_root=str(tmp_path))
+        rev_sb = RunSandbox(
+            user_id, root_id, current_run_id=rev_id, runs_root=str(tmp_path)
+        )
+        assert root_sb.root == rev_sb.root, (
+            "root and revision should share the same physical sandbox directory"
+        )
+    
+        root_sb.ensure()
+        (root_sb.root / "root.html").write_text("<html><body>root page</body></html>")
+        (root_sb.root / "rev.html").write_text("<html><body>revision page</body></html>")
+    
+>       _orig_sandbox = playwright_tools._SANDBOX
+                        ^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: module 'app.agents.tools.playwright' has no attribute '_SANDBOX'
+
+tests/agents/test_per_run_paths_v3.py:427: AttributeError
+=============================== warnings summary ===============================
+app/core/config.py:94
+  /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/app/core/config.py:94: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+    class Settings(BaseSettings):
+
+tests/conftest.py:484
+  /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/tests/conftest.py:484: PytestUnknownMarkWarning: Unknown pytest.mark.agents - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    item.add_marker(getattr(pytest.mark, suite))
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/agents/test_per_run_paths_v3.py::TestPerRunPathsDistinct::test_revision_browser_dir_writer_driven
+1 failed, 2 warnings in 1.26s

@@ -1,0 +1,11 @@
+# QA-KB-075 fix phase, 2026-10-07, worktree feat-user-stories-v2 (HEAD b898a3b97), backend/.venv/bin/python
+# before the fix (observed earlier this session): 1 xfailed
+$ .venv/bin/python -m pytest tests/unit/test_reconcile_degraded_test_comments.py -q -p no:cacheprovider -rX
+F                                                                        [100%]
+=================================== FAILURES ===================================
+____ test_degraded_test_comments_describe_the_boundary_rule_not_latest_wins ____
+[XPASS(strict)] ISS-902 unfixed
+
+1 failed, 1 warning in 1.16s
+$ ... --runxfail
+1 passed, 1 warning in 0.87s

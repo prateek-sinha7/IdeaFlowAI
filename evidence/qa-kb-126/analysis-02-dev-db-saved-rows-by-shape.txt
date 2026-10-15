@@ -1,0 +1,21 @@
+# QA-KB-126 analysis 02: saved rows by shape and owner tier, dev DB (velocity-local-db on localhost:5432), 2026-10-09T13:44Z, HEAD 5221a4256
+# cmd: cd backend && PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=. .venv/bin/python ../evidence/qa-kb-126/analysis-plugins/query_saved_rows_by_shape.py
+# read-only: SET TRANSACTION READ ONLY, three SELECTs, no write. users.tier is the advisory DB projection, not the Cognito-group authority.
+Q0: SELECT (SELECT count(*) FROM workflows) AS workflows_rows, (SELECT count(*) FROM users) AS users_rows
+Q1: SELECT w.source, (w.manifest_json IS NOT NULL) AS has_manifest, (w.overrides_pipeline_type IS NOT NULL) AS is_override, w.base_pipeline_type, u.tier, count(*) AS n FROM workflows w LEFT JOIN users u ON u.id = w.user_id GROUP BY 1, 2, 3, 4, 5 ORDER BY 1, 2, 3, 4, 5
+Q2: SELECT w.id, w.base_pipeline_type, u.tier, w.manifest_json::text AS mj (privilege scan below, not printed) FROM workflows w LEFT JOIN users u ON u.id = w.user_id WHERE w.source = 'user' AND w.manifest_json IS NOT NULL AND w.overrides_pipeline_type IS NULL ORDER BY w.created_at
+Q0 -> {'workflows_rows': 11, 'users_rows': 4}
+Q1 -> 10 group(s)
+    {'source': 'user', 'has_manifest': True, 'is_override': False, 'base_pipeline_type': 'custom', 'tier': 'enterprise', 'n': 2}
+    {'source': 'user', 'has_manifest': True, 'is_override': True, 'base_pipeline_type': 'ex_A1_loop', 'tier': 'enterprise', 'n': 1}
+    {'source': 'user', 'has_manifest': True, 'is_override': True, 'base_pipeline_type': 'ex_A2_branch', 'tier': 'enterprise', 'n': 1}
+    {'source': 'user', 'has_manifest': True, 'is_override': True, 'base_pipeline_type': 'ex_A3_divert', 'tier': 'enterprise', 'n': 1}
+    {'source': 'user', 'has_manifest': True, 'is_override': True, 'base_pipeline_type': 'ex_A4_human_divert', 'tier': 'enterprise', 'n': 1}
+    {'source': 'user', 'has_manifest': True, 'is_override': True, 'base_pipeline_type': 'ex_A4_human_gate', 'tier': 'enterprise', 'n': 1}
+    {'source': 'user', 'has_manifest': True, 'is_override': True, 'base_pipeline_type': 'ppt', 'tier': 'enterprise', 'n': 1}
+    {'source': 'user', 'has_manifest': True, 'is_override': True, 'base_pipeline_type': 'ppt_v2', 'tier': 'enterprise', 'n': 1}
+    {'source': 'user', 'has_manifest': True, 'is_override': True, 'base_pipeline_type': 'prototype', 'tier': 'enterprise', 'n': 1}
+    {'source': 'user', 'has_manifest': True, 'is_override': True, 'base_pipeline_type': 'user_stories', 'tier': 'enterprise', 'n': 1}
+Q2 -> 2 plain manifest-backed row(s)
+    id=3a92d13b-136a-46c4-9aae-ae9c16679917 base=custom owner_tier=enterprise steps=3 exec_steps=0 spawn_steps=0 gates=[]
+    id=5d38a438-391e-4727-a12e-dedb1a75df3a base=custom owner_tier=enterprise steps=1 exec_steps=0 spawn_steps=0 gates=[]

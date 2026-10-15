@@ -1,0 +1,12 @@
+# fix-04 (QA-KB-103 / ISS-1118, 2026-10-09): writers + read over HTTP (POST, GET, PATCH, sync-from-file), in-memory sqlite, nothing launched
+# cmd: cd backend && DATABASE_URL=sqlite:// PYTHONPATH=. .venv/bin/python ../evidence/qa-kb-103/fix-plugins/probe_iss1118_writers.py
+
+POST  prototype override (file's own steps): 201 | GET is_overridden=True refs={'prototype-build': {'compaction': 'html_skeleton'}} | PATCH 200 | sync-from-file own file 200
+POST  app_builder override (file's own steps): 201 | GET is_overridden=True refs={'app-infra-generator': {'post_step': 'api_prefix_audit'}} | PATCH 200 | sync-from-file own file 200
+POST  prototype_revision override (file's own steps): 201 | GET is_overridden=True refs={'prototype-revision-agent': {'post_step': 'revision_validation'}} | PATCH 200 | sync-from-file own file 200
+POST  prototype_feature_revision override (file's own steps): 201 | GET is_overridden=True refs={'prototype-build': {'compaction': 'html_skeleton', 'post_step': 'revision_validation'}} | PATCH 200 | sync-from-file own file 200
+POST  prototype_large_revision override (file's own steps): 201 | GET is_overridden=True refs={'prototype-build': {'compaction': 'html_skeleton', 'post_step': 'revision_validation'}} | PATCH 200 | sync-from-file own file 200
+POST  prototype override with compaction ADDED on step 0: 422 {"detail":"invalid workflow override (workflow:Added ref): capability ('compaction', 'html_skeleton') is not user-allowed in step 'prototype-specify' 
+POST  ppt override (own steps): 201
+SYNC  sample_subagents_parallel into the ppt override: 422 {"detail":"invalid workflow override (workflow:a2b3f25d-339c-492c-b298-c0575dd9a19c): step grant of ['spawn_subagents'] is not permitted for 'user'-tr
+SYNC  prototype into the ppt override (baseline is ppt): 422 {"detail":"invalid workflow override (workflow:a2b3f25d-339c-492c-b298-c0575dd9a19c): capability ('compaction', 'html_skeleton') is not user-allowed i

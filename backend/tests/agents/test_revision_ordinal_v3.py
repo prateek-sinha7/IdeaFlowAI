@@ -385,7 +385,7 @@ class TestSequentialTagsAcrossRealFinalization:
                     User(
                         id=_owner,
                         email=f"{_owner}@test.local",
-                        cognito_sub=f"sub-{_owner}",
+                        cognito_sub=str(uuid.uuid4()),
                     )
                 )
                 real_db.commit()
@@ -498,7 +498,7 @@ class TestSequentialTagsAcrossSiblingRevisions:
                     User(
                         id=_owner,
                         email=f"{_owner}@test.local",
-                        cognito_sub=f"sub-{_owner}",
+                        cognito_sub=str(uuid.uuid4()),
                     )
                 )
                 real_db.commit()

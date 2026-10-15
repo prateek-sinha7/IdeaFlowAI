@@ -1,0 +1,47 @@
+# cmd (cwd backend/, READ-ONLY SELECTs against local Postgres, session forced default_transaction_read_only=on): .venv/bin/python ../evidence/qa-kb-045/analysis-probe-db-size-explain.py
+# run: 2026-10-01 21:06 tree=feat/user-stories-v2
+read_only: on
+  run=3976f8ce... n=136890 max_seq=220389 payload=48 MB
+  run=78e185fb... n=107409 max_seq=107409 payload=37 MB
+  run=2867387c... n=68374 max_seq=68374 payload=24 MB
+  run=9b6f1bfb... n=37354 max_seq=37354 payload=12 MB
+  run=87e02c32... n=36037 max_seq=36037 payload=11 MB
+  total run_events rows: 756178  distinct runs: 50
+  EXPLAIN ANALYZE max(seq) on the biggest run:
+    Result (actual time=0.984..0.985 rows=1 loops=1)
+      Buffers: shared hit=2 read=4
+      InitPlan 1 (returns $0)
+        ->  Limit (actual time=0.980..0.981 rows=1 loops=1)
+              Buffers: shared hit=2 read=4
+              ->  Index Only Scan Backward using uq_run_events_scope_seq on run_events (actual time=0.979..0.980 rows=1 loops=1)
+                    Index Cond: ((run_id = '3976f8ce-6d5b-49cf-bf0c-f70eb278028f'::text) AND (owner_id = '2d626ad9-ef1d-4a0c-8cd9-2a33affbc4e8'::text) AND (workspace_id = 'de20a219-7512-4dce-a852-682fb4754441'::text) AND (seq IS NOT NULL))
+                    Heap Fetches: 1
+                    Buffers: shared hit=2 read=4
+    Planning:
+      Buffers: shared hit=4
+    Planning Time: 0.153 ms
+    Execution Time: 1.017 ms
+  EXPLAIN ANALYZE read_events-equivalent on the biggest run:
+    Gather Merge (actual time=369.231..437.821 rows=136890 loops=1)
+      Workers Planned: 2
+      Workers Launched: 2
+      Buffers: shared hit=109 read=13868 written=26, temp read=9056 written=9088
+      ->  Sort (actual time=362.183..371.655 rows=45630 loops=3)
+            Sort Key: seq
+            Sort Method: external merge  Disk: 21096kB
+            Buffers: shared hit=109 read=13868 written=26, temp read=9056 written=9088
+            Worker 0:  Sort Method: external merge  Disk: 26072kB
+            Worker 1:  Sort Method: external merge  Disk: 25280kB
+            ->  Parallel Bitmap Heap Scan on run_events (actual time=173.020..256.017 rows=45630 loops=3)
+                  Recheck Cond: (((run_id)::text = '3976f8ce-6d5b-49cf-bf0c-f70eb278028f'::text) AND ((owner_id)::text = '2d626ad9-ef1d-4a0c-8cd9-2a33affbc4e8'::text) AND ((workspace_id)::text = 'de20a219-7512-4dce-a852-682fb4754441'::text))
+                  Filter: (seq > 0)
+                  Heap Blocks: exact=2831
+                  Buffers: shared hit=95 read=13868 written=26
+                  ->  Bitmap Index Scan on uq_run_events_scope_event (actual time=175.987..175.988 rows=136891 loops=1)
+                        Index Cond: (((run_id)::text = '3976f8ce-6d5b-49cf-bf0c-f70eb278028f'::text) AND ((owner_id)::text = '2d626ad9-ef1d-4a0c-8cd9-2a33affbc4e8'::text) AND ((workspace_id)::text = 'de20a219-7512-4dce-a852-682fb4754441'::text))
+                        Buffers: shared read=4294 written=26
+    Planning:
+      Buffers: shared hit=14 read=2
+    Planning Time: 0.279 ms
+    Execution Time: 443.890 ms
+  non-terminal workflow_runs by status (boot-restore population): []

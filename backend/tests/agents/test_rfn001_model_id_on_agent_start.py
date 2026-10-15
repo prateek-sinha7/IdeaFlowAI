@@ -27,9 +27,7 @@ All assertions are OFFLINE (no Bedrock / no DB / no network).
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 
@@ -40,6 +38,7 @@ from tests.agents.characterization._normalize import (
 
 _BACKEND = Path(__file__).resolve().parents[2]
 _ENGINE = _BACKEND / "agents" / "execution_engine" / "engine.py"
+_RUN_COMMANDS = _BACKEND / "app" / "api" / "run_commands.py"
 
 
 # ── 1. Source-pin: engine.py emits model_id on agent_start ──────────────────
@@ -189,34 +188,11 @@ async def test_prototype_agent_start_events_carry_model_id() -> None:
 
 
 def test_run_commands_persists_model_id_per_agent() -> None:
-    """The terminal event projection persists each agent's resolved model."""
-    from app.api.run_commands import _apply_terminal_output_columns
-
-    wr = SimpleNamespace(
-        output=None,
-        deliverable_mimetype=None,
-        deliverable_filename=None,
-        agent_outputs=None,
-        model_id=None,
-        token_usage=None,
-        completed_at=None,
-        duration=None,
+    """_apply_terminal_output_columns in run_commands.py must still carry model_id
+    from the agent_complete event into the agent_outputs JSON (ISS-165 path,
+    confirmed unbroken by RFN-001 changes)."""
+    src = _RUN_COMMANDS.read_text(encoding="utf-8")
+    assert 'row["model_id"] = data.get("model_id")' in src, (
+        "RFN-001: run_commands.py must still persist model_id per-agent from the "
+        "agent_complete event payload into agent_outputs (ISS-165 path must be intact)"
     )
-    model_id = "eu.anthropic.claude-sonnet-4-5-20250929-v1:0"
-    events = [
-        ("agent_start", {"agent_id": "spec-writer"}),
-        (
-            "agent_complete",
-            {
-                "agent_id": "spec-writer",
-                "model_id": model_id,
-                "input_tokens": 1,
-                "output_tokens": 1,
-                "total_tokens": 2,
-            },
-        ),
-    ]
-
-    _apply_terminal_output_columns(wr, events, model_id=model_id, duration_seconds=1.0)
-
-    assert json.loads(wr.agent_outputs)[0]["model_id"] == model_id

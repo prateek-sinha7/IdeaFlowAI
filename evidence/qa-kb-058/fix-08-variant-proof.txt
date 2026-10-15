@@ -1,0 +1,12 @@
+== variant: headvariant
+     × a typed brief holds Back in the dialog: Stay keeps the text, Leave anyway navigates once 122ms
+     × a design-system pick alone, nothing typed, prompts on Back 37ms
+     × ISS-982: Open in full canvas goes through the same guard 94ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+ Test Files  1 failed (1)
+      Tests  3 failed | 2 passed (5)
+== variant: alwaysvariant
+     × an untouched wizard leaves on Back with no dialog, after the override overlay and apple auto-select 128ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+ Test Files  1 failed (1)
+      Tests  1 failed | 4 passed (5)

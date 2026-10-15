@@ -1,0 +1,26 @@
+npx tsc --noEmit -p . : 13 error lines total, all in *.test.ts(x) files (pre-existing)
+errors in src/lib/routes.ts or src/app/[...view]/page.tsx: 0
+
+npx eslint src/lib/routes.ts 'src/app/[...view]/page.tsx':
+
+Modifying a value previously passed as an argument to a hook is not allowed. Consider moving the modification before calling the hook.
+
+/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/frontend/src/app/[...view]/page.tsx:4445:11
+  4443 |         const activeGate = runStore.viewed.reviewGateData;
+  4444 |         if (editedContent && activeGate) {
+> 4445 |           pendingGateEditRef.current = { agentId: activeGate.agentId, editedContent };
+       |           ^^^^^^^^^^^^^^^^^^ `pendingGateEditRef` cannot be modified
+  4446 |         }
+  4447 |         void postGate(getToken() ?? "", activeGate?.pipelineRunId ?? "", {
+  4448 |           gate_key: gateKey,                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 react-hooks/immutability
+
+✖ 33 problems (32 errors, 1 warning)
+  0 errors and 1 warning potentially fixable with the `--fix` option.
+
+eslint exit=0
+### src/lib/routes.ts
+HEAD    : 0e/0w []
+working : 0e/0w []
+### src/app/[...view]/page.tsx
+HEAD    : 32e/1w ["@typescript-eslint/no-unused-vars@3","@typescript-eslint/no-unused-vars@6","@typescript-eslint/no-unused-vars@6","@typescript-eslint/no-unused-vars@39","@typescript-eslint/no-unused-vars@420","@typescript-eslint/no-unused-vars@509","react-hooks/set-state-in-effect@584","@typescript-eslint/no-unused-vars@632","@typescript-eslint/no-unused-vars@669","@typescript-eslint/no-unused-v
+working : 32e/1w ["@typescript-eslint/no-unused-vars@3","@typescript-eslint/no-unused-vars@6","@typescript-eslint/no-unused-vars@6","@typescript-eslint/no-unused-vars@39","@typescript-eslint/no-unused-vars@420","@typescript-eslint/no-unused-vars@509","react-hooks/set-state-in-effect@584","@typescript-eslint/no-unused-vars@632","@typescript-eslint/no-unused-vars@669","@typescript-eslint/no-unused-v

@@ -1,0 +1,12 @@
+import { readFileSync } from "node:fs";
+const FE = "/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/frontend/src/components/settings/AccountSettings.iss372.test.tsx";
+const SCR = "/private/tmp/claude-502/-Users-bilala-Developer-Projects-VELOCITY-AI-worktrees-feat-user-stories-v2/2d1a1575-310a-48fd-8155-2763a084604d/scratchpad/iss945/";
+const files = { official: FE, "b1_fixed (proposed fix)": SCR + "b1_fixed.test.tsx", "c1_delegated (alt fix)": SCR + "c1_delegated.test.tsx" };
+const inMemory = /getConstitution:\s*\(\)\s*=>\s*Promise\.resolve/;
+const waitsOnFetch = /waitFor\(\(\)\s*=>\s*expect\(fetch\)\.toHaveBeenCalled\(\)\)/;
+const failsMarker = /it\.fails\(\s*"reports dirty after the Constitution draft is edited/;
+for (const [name, p] of Object.entries(files)) {
+  const s = readFileSync(p, "utf8");
+  const stale = inMemory.test(s) && waitsOnFetch.test(s);
+  console.log(name.padEnd(26), "| mock-in-memory:", inMemory.test(s), "| waits-on-fetch:", waitsOnFetch.test(s), "| meta#1 predicate (stale):", stale, "| it.fails marker present:", failsMarker.test(s));
+}

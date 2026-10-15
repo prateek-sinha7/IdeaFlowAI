@@ -241,6 +241,16 @@ def build_tasks(
     "screen_plan",
     user_allowed=True,
     description="Reads the screen list an earlier step produced and creates exactly one build task per screen. No AI decides the list, so no screen is skipped or counted twice. Each task already carries that screen's spec and the exact links to write.",
+    config_schema={
+        "type": "object",
+        "properties": {
+            "target": {
+                "type": "string",
+                "description": "The file this parser reads the screen list from.",
+                "default": DEFAULT_TARGET,
+            },
+        },
+    },
 )
 class ScreenPlanParser:
     """``screens.json`` → one ``Task`` per screen. Satisfies the ``TaskParser`` port."""

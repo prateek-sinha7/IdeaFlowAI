@@ -1,0 +1,26 @@
+# QA-KB-100 analysis 05: HTTP-level write paths and the stored row's read-side plan, as a BASIC-tier caller (HEAD f06129262, 2026-10-08T12:05Z)
+# cmd: cd backend && PYTHONDONTWRITEBYTECODE=1 DATABASE_URL=sqlite:///:memory: .venv/bin/python -m pytest ../evidence/qa-kb-100/analysis-plugins/test_probe_http_override_trust.py -c pyproject.toml --rootdir=. -p no:cacheprovider -q -s -W ignore
+# harness = tests/integration/api/test_workflow_override_e2e_api.py (in-memory SQLite, both routers, principal override) with the caller's tier set to BASIC.
+# probe, not a product test: it asserts nothing, it prints. W0 is the control (the enterprise-only Composer base answers 403 to basic).
+
+caller tier: basic
+[W0] POST Composer row (base_pipeline_type=custom, no override) as BASIC -> 403
+[W1] POST override insert, exec grant + gates security,approval + validators code_test -> 201
+     served/launched plan steps: ["custom-agent:mine: exec=True spawn=False gates=['security', 'approval'] validators=['code_test']"]
+     GET /api/workflows/ppt -> is_overridden=True steps.gates=[['security', 'approval']] manifest_steps.gates=[['security', 'approval']]
+[W2] POST override UPSERT (same built-in), spawn_subagents grant -> 201
+     plan: ['custom-agent:mine: exec=False spawn=True gates=[] validators=[]']
+[W3a] POST benign override -> 201
+[W3b] PATCH that row's manifest to the exec step -> 200
+     plan: ["custom-agent:mine: exec=True spawn=False gates=['security', 'approval'] validators=['code_test']"]
+[W4] POST sync-from-file(pipeline_type=sample_subagents_parallel) on the ppt override row -> 200 {'diff': ['capabilities: <absent> != <dict len=1>', 'clarify: <absent> != <dict len=2>', 'context_providers: <absent> !=
+     plan: ['custom-agent:apple: exec=False spawn=False gates=[] validators=[]', 'custom-agent:ball: exec=False spawn=False gates=[] validators=[]', 'custom-agent:cat: exec=False spawn=False gates=[] validators=[]', 'custom-agent:page: exec=False spawn=True gates=[] validators=[]']
+     GET /api/workflows/ppt -> is_overridden=True n_steps=4 n_manifest_steps=1
+.
+caller tier: basic
+[W5] POST manifest-backed row, base_pipeline_type=ppt, NO overrides_pipeline_type, exec step -> 201
+     stored: base_pipeline_type=ppt overrides_pipeline_type=None manifest.steps[0].tools.exec=True gates=['security', 'approval']
+     launch Case 3 compile (trust=db): ["custom-agent:mine: exec=True spawn=False gates=['security', 'approval'] validators=['code_test']"]
+     launch tier gate keys on pipeline_type='ppt' -> can_run_pipeline(basic, ppt)=True ; (basic, custom)=False
+.
+2 passed in 0.95s

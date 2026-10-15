@@ -1,0 +1,13 @@
+# QA-KB-124 analysis-04: built-in plan vs the plan the launch builds from the saved override (offline compile, no DB: reads analysis-01 JSON)
+# date: 2026-10-09   cmd: cd backend && PYTHONPATH=. /Users/bilala/Developer/Projects/VELOCITY-AI/venv/bin/python ../evidence/qa-kb-124/analysis-04-plan-comparison.py
+merge applied (returned a new plan, not the file plan): True
+== BUILT-IN (file manifest, compile_for_run('ex_A1_loop'))
+  custom-agent:emoji     read=False write=False exec=False produces=[] consumes=[] depends_on=[] gates=[]
+  custom-agent:greet     read=False write=False exec=False produces=['greeting'] consumes=[] depends_on=['custom-agent:emoji'] gates=[]
+  custom-agent:check     read=False write=False exec=False produces=['route_decision'] consumes=['greeting'] depends_on=['custom-agent:greet'] gates=['conditional']
+  custom-agent:done      read=False write=False exec=False produces=[] consumes=['greeting'] depends_on=['custom-agent:check'] gates=[]
+== MERGED (admin's saved override bdf009f2, merge_override_steps)
+  custom-agent:emoji     read=True  write=True  exec=False produces=[] consumes=[] depends_on=[] gates=[]
+  custom-agent:greet     read=True  write=True  exec=False produces=[] consumes=[] depends_on=[] gates=[]
+  custom-agent:check     read=True  write=True  exec=False produces=['route_decision'] consumes=[] depends_on=['custom-agent:greet'] gates=['conditional']
+  custom-agent:done      read=True  write=True  exec=False produces=[] consumes=[] depends_on=[] gates=[]

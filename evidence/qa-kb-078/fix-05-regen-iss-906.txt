@@ -1,0 +1,6 @@
+=================================== FAILURES ===================================
+[XPASS(strict)] ISS-906 unfixed
+[XPASS(strict)] ISS-906 unfixed
+[XPASS(strict)] ISS-906 unfixed
+[XPASS(strict)] ISS-906 unfixed
+2 failed in 7.11s

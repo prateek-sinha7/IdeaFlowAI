@@ -20,6 +20,8 @@ should either be rejected (422) or trimmed/defaulted to "Default".
 
 from __future__ import annotations
 
+import uuid
+
 import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -51,9 +53,8 @@ def session(engine):
     user = User(
         id="user-apikey",
         email="apikey@example.com",
+        cognito_sub=str(uuid.uuid4()),
         tier="enterprise",
-        # NOT NULL since the Cognito-only auth migration (b2a621f8).
-        cognito_sub="sub-user-apikey",
     )
     s.add(user)
     s.commit()

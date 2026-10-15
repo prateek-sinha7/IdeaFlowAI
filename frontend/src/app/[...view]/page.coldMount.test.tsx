@@ -17,7 +17,7 @@
  * `useWorkflow`, `useRunStateStore`, `useRunChat` and `useTabDeepLink` run for real.
  */
 import { Component, type ReactNode } from "react";
-import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -181,6 +181,8 @@ async function untilDashboard() {
 }
 
 let consoleError: ReturnType<typeof vi.spyOn>;
+// ISS-1137: a refused launch is logged with console.warn, not console.error.
+let consoleWarn: ReturnType<typeof vi.spyOn>;
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -201,6 +203,7 @@ beforeEach(() => {
   h.api.postGate.mockResolvedValue(undefined);
   h.api.deleteChat.mockResolvedValue(undefined);
   consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+  consoleWarn = vi.spyOn(console, "warn").mockImplementation(() => {});
 });
 
 afterEach(() => {
@@ -1343,77 +1346,8 @@ describe("DashboardPage pipeline launch", () => {
 
     await user.click(screen.getByRole("button", { name: "Start run" }));
 
-    await waitFor(() => expect(consoleError).toHaveBeenCalledWith("Pipeline launch failed:", expect.any(ApiError)));
+    await waitFor(() => expect(consoleWarn).toHaveBeenCalledWith("Pipeline launch failed:", expect.any(ApiError)));
     expect(h.conn.attachRun).not.toHaveBeenCalled();
-  });
-});
-
-// --- pre-mint upload refusal banner
-
-describe("DashboardPage uploads-missing launch banner", () => {
-  /** The backend's pre-mint refusal for a brief whose documents were never staged. */
-  const uploadsMissing = () =>
-    new ApiError(422, {
-      code: "uploads_missing",
-      message: "The attached documents were not uploaded.",
-      recoverable: true,
-      attachment_count: 2,
-    });
-
-  it("shows an alert when the server refuses the launch with uploads_missing", async () => {
-    const user = userEvent.setup();
-    h.conn.sendCommand.mockRejectedValue(uploadsMissing());
-    mount("/dashboard");
-    await untilDashboard();
-
-    await user.click(screen.getByRole("button", { name: "Start run" }));
-
-    expect(await screen.findByRole("alert")).toHaveTextContent(
-      "The attached documents did not reach the server. Re-attach them and launch again.",
-    );
-    expect(h.conn.attachRun).not.toHaveBeenCalled();
-  });
-
-  it("clears the alert on the next launch attempt", async () => {
-    const user = userEvent.setup();
-    h.conn.sendCommand.mockRejectedValueOnce(uploadsMissing()).mockResolvedValueOnce("new-run");
-    mount("/dashboard");
-    await untilDashboard();
-    await user.click(screen.getByRole("button", { name: "Start run" }));
-    expect(await screen.findByRole("alert")).toBeInTheDocument();
-
-    await user.click(screen.getByRole("button", { name: "Start run" }));
-
-    await waitFor(() => expect(h.conn.attachRun).toHaveBeenCalledWith("new-run"));
-    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
-  });
-
-  it("removes the alert when the user dismisses it", async () => {
-    const user = userEvent.setup();
-    h.conn.sendCommand.mockRejectedValue(uploadsMissing());
-    mount("/dashboard");
-    await untilDashboard();
-    await user.click(screen.getByRole("button", { name: "Start run" }));
-    const alert = await screen.findByRole("alert");
-
-    await user.click(within(alert).getByRole("button", { name: "Dismiss" }));
-
-    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
-  });
-
-  it.each([
-    ["another 422 code", () => new ApiError(422, { code: "bad_payload" })],
-    ["a 503", () => new ApiError(503, "busy")],
-  ])("shows no alert when the launch fails with %s", async (_label, makeError) => {
-    const user = userEvent.setup();
-    h.conn.sendCommand.mockRejectedValue(makeError());
-    mount("/dashboard");
-    await untilDashboard();
-
-    await user.click(screen.getByRole("button", { name: "Start run" }));
-
-    await waitFor(() => expect(consoleError).toHaveBeenCalledWith("Pipeline launch failed:", expect.any(ApiError)));
-    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 });
 

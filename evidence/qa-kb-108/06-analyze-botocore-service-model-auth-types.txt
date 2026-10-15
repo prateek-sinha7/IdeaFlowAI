@@ -1,0 +1,23 @@
+botocore 1.43.89  boto3 1.43.2  starlette 1.3.1  fastapi 0.141.1  (backend/.venv, python3.13)
+OperationModel.auth_type from the installed cognito-idp service model ('none' = unsigned, never resolves AWS credentials; None = default SigV4):
+  AdminInitiateAuth              auth_type=None     auth=None
+  AdminRespondToAuthChallenge    auth_type=None     auth=None
+  AdminGetUser                   auth_type=None     auth=None
+  AdminListGroupsForUser         auth_type=None     auth=None
+  ListUsersInGroup               auth_type=None     auth=None
+  AdminCreateUser                auth_type=None     auth=None
+  AdminSetUserPassword           auth_type=None     auth=None
+  AdminDeleteUser                auth_type=None     auth=None
+  AdminUserGlobalSignOut         auth_type=None     auth=None
+  AdminDisableUser               auth_type=None     auth=None
+  AdminEnableUser                auth_type=None     auth=None
+  AdminAddUserToGroup            auth_type=None     auth=None
+  AdminRemoveUserFromGroup       auth_type=None     auth=None
+  ListUsers                      auth_type=None     auth=None
+  RevokeToken                    auth_type='none'   auth=['smithy.api#noAuth']
+  ChangePassword                 auth_type='none'   auth=['smithy.api#noAuth']
+  AssociateSoftwareToken         auth_type='none'   auth=['smithy.api#noAuth']
+  VerifySoftwareToken            auth_type='none'   auth=['smithy.api#noAuth']
+  SetUserMFAPreference           auth_type='none'   auth=['smithy.api#noAuth']
+  ForgotPassword                 auth_type='none'   auth=['smithy.api#noAuth']
+  ConfirmForgotPassword          auth_type='none'   auth=['smithy.api#noAuth']

@@ -1,0 +1,4 @@
+$ cd backend && .venv/bin/python -m pytest tests/unit/services/test_entitlement_parity.py -q -p no:cacheprovider
+SKIPPED [1] tests/unit/services/test_entitlement_parity.py:147: sample_wave has no revision pipeline
+SKIPPED [1] tests/unit/services/test_entitlement_parity.py:147: sc001-test-fixture has no revision pipeline
+61 passed, 45 skipped, 1 warning in 1.25s

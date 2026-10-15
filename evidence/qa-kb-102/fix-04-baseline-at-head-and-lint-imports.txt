@@ -1,0 +1,34 @@
+# QA-KB-102 fix — baseline at the pre-change commit: git archive HEAD (2461935f5) backend -> scratch tree, same venv, same commands, one file per run
+# proves the 4 failures in fix-03 pre-date the change (identical ids), and the red file is 6 xfailed without it
+tests/integration/agents/test_resume_ws_bridge_db.py: FAILED tests/integration/agents/test_resume_ws_bridge_db.py::test_engine_module_does_not_import_app_api 1 failed, 3 passed, 3 warnings in 4.27s 
+tests/integration/agents/test_specs_from_plan_db.py: FAILED tests/integration/agents/test_specs_from_plan_db.py::test_resume_run_builds_display_names_for_a_real_composed_workflow 1 failed, 1 warning in 1.08s 
+tests/agents/test_resume_context_v3.py: FAILED tests/agents/test_resume_context_v3.py::test_resume_run_uses_context_file_over_diverging_db_column FAILED tests/agents/test_resume_context_v3.py::test_resume_run_falls_back_to_db_column_when_context_absent 2 failed, 2 warnings in 1.29s 
+tests/integration/agents/test_qa_kb_102_silent_resume.py: 6 xfailed, 1 warning in 2.02s 
+tests/integration/api/test_rest_resume_api.py: 10 passed, 3 warnings in 1.05s 
+
+# lint-imports at HEAD (scratch tree):
+kernel imports only capability ports (scaffold) BROKEN
+agents.workflows must not import the execution kernel or the web layer KEPT
+agents.capabilities must not import the execution kernel or the web layer BROKEN
+agents.runtime must not import the execution kernel or the web layer KEPT
+shipped code must not import the build-time tooling package KEPT
+Contracts: 3 kept, 2 broken.
+-   agents.execution_engine.engine -> agents.execution_engine.kernel_services (l.5818)
+    agents.execution_engine.kernel_services -> app.api.run_engine (l.1604, l.1860)
+-   agents.execution_engine.engine -> app.api.launch_context (l.4577, l.4590, l.4987, l.15666)
+-   agents.execution_engine.engine -> app.api.runs (l.3577)
+-   agents.capabilities.prototype_ui_extract -> app.agents.tools.html_extract (l.333)
+
+# lint-imports with the change (worktree):
+kernel imports only capability ports (scaffold) BROKEN
+agents.workflows must not import the execution kernel or the web layer KEPT
+agents.capabilities must not import the execution kernel or the web layer BROKEN
+agents.runtime must not import the execution kernel or the web layer KEPT
+shipped code must not import the build-time tooling package KEPT
+Contracts: 3 kept, 2 broken.
+-   agents.execution_engine.engine -> agents.execution_engine.kernel_services (l.5818)
+    agents.execution_engine.kernel_services -> app.api.run_commands (l.1666)
+-   agents.execution_engine.engine -> app.api.launch_context (l.4577, l.4590, l.4987, l.15735)
+-   agents.execution_engine.engine -> app.api.runs (l.3577)
+-   agents.capabilities.prototype_ui_extract -> app.agents.tools.html_extract (l.333)
+# note: import-linter prints ONE example chain per indirect edge and picks it arbitrarily per run (observed run_engine, runs and run_commands on three runs of the unchanged kernel_services.py)

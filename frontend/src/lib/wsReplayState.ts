@@ -86,6 +86,30 @@ export function isForeignRunFrame(
 }
 
 /**
+ * QA-KB-055 (ISS-745 / ISS-1074): whether `viewedRunId` belongs to `family`, the
+ * owned revision family of a run whose `pipeline_complete` arrived while ANOTHER
+ * run is on screen.
+ *
+ * Such a completion may take the screen (content source, Preview body) only when
+ * it is the viewed family's own newer member — FIX-088: the user opened an older
+ * version while a revision ran. The frame cannot tell: `pipeline_complete` carries
+ * no parent or root, and the `_revision` suffix names the pipeline, not the family,
+ * so a revision from an unrelated family passed as well.
+ *
+ * Membership of `GET /api/runs/{id}/family` (the root plus every owned descendant)
+ * is the family-ROOT comparison, not a parent check: viewing v1 while v3, a child
+ * of v2, completes is still the same family. Unresolved — no family, or nothing
+ * viewed — is NOT the same family, so the caller fails safe to background.
+ */
+export function isSameRunFamily(
+  family: { members: ReadonlyArray<{ id: string }> } | null | undefined,
+  viewedRunId: string | undefined | null,
+): boolean {
+  if (!viewedRunId) return false;
+  return !!family?.members.some((m) => m.id === viewedRunId);
+}
+
+/**
  * The run an incoming frame belongs to — the ONE routing decision `handleWebSocketMessage`
  * makes before it can hand the frame to that run's per-run store entry.
  *

@@ -1,0 +1,27 @@
+# QA-KB-126 fix 06: characterization goldens + SC-001 gate flag + cutover, one file per subprocess, the same 10 files FIX-768/770/771 used, 2026-10-09T14:35Z
+# head = git archive of HEAD 01777a107 (backend+tools) in the session scratchpad (no _saved_row_trust in its run_engine.py: grep count 0); work = this worktree with the change
+# cmd: backend/.venv/bin/python evidence/qa-kb-126/fix-plugins/run_goldens.py <root> backend/.venv/bin/python   (cwd=<root>/backend per file, DATABASE_URL=sqlite:///:memory:)
+## head
+tests/contract/agents/test_characterization_ppt.py:  2 passed in 3.55s
+tests/contract/agents/test_characterization_app_builder.py:  2 passed in 7.71s
+tests/contract/agents/test_characterization_prototype.py:  2 passed in 22.91s
+tests/contract/agents/test_characterization_prototype_revision.py:  2 passed in 7.82s
+tests/contract/agents/test_characterization_prototype_large_revision.py:  2 passed in 31.71s
+tests/contract/agents/test_characterization_prototype_feature_revision.py:  4 passed in 62.17s (0:01:02)
+tests/agents/test_characterization_sample_subagents_parallel.py:  2 passed in 3.82s
+tests/agents/test_defect_characterization_v2.py: FAILED tests/agents/test_defect_characterization_v2.py::TestD1FindChainRootWalksSourceRunId::test_d1_canonical_resolver_walks_parent_run_id_FIXME 1 failed, 12 passed in 2.73s
+tests/unit/agents/test_phase3_cutover_verify.py:  4 passed in 2.26s
+tests/unit/agents/test_sc001_gate_flag.py:  9 passed in 1.10s
+## work
+tests/contract/agents/test_characterization_ppt.py:  2 passed in 3.26s
+tests/contract/agents/test_characterization_app_builder.py:  2 passed in 6.88s
+tests/contract/agents/test_characterization_prototype.py:  2 passed in 21.49s
+tests/contract/agents/test_characterization_prototype_revision.py:  2 passed in 8.21s
+tests/contract/agents/test_characterization_prototype_large_revision.py:  2 passed in 28.28s
+tests/contract/agents/test_characterization_prototype_feature_revision.py:  4 passed in 57.09s
+tests/agents/test_characterization_sample_subagents_parallel.py:  2 passed in 3.28s
+tests/agents/test_defect_characterization_v2.py: FAILED tests/agents/test_defect_characterization_v2.py::TestD1FindChainRootWalksSourceRunId::test_d1_canonical_resolver_walks_parent_run_id_FIXME 1 failed, 12 passed in 1.90s
+tests/unit/agents/test_phase3_cutover_verify.py:  4 passed in 1.81s
+tests/unit/agents/test_sc001_gate_flag.py:  9 passed in 1.00s
+# counts, both sides: 1 failed / 41 passed; failing id, both sides: tests/agents/test_defect_characterization_v2.py::TestD1FindChainRootWalksSourceRunId::test_d1_canonical_resolver_walks_parent_run_id_FIXME
+# pass/fail per file identical (durations excluded): IDENTICAL

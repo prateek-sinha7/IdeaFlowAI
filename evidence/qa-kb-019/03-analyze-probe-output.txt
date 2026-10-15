@@ -1,0 +1,59 @@
+# stripAttachmentMarker: frontend/src/components/workflow/WorkflowView.tsx:85-98
+# cleanBrief: frontend/src/components/savedworkflows/SavedWorkflowsPage.tsx:59-73
+- plain single
+    current=PASS  agreedFix=PASS  anchoredLiteral=PASS
+- name has ]
+    current=FAIL("idea\n\n[Attached: my].txt]")  agreedFix=PASS  anchoredLiteral=PASS
+- name has ', '
+    current=FAIL("idea\n\n[Attached: file, more.txt]")  agreedFix=PASS  anchoredLiteral=PASS
+- name has ', ' and ]
+    current=FAIL("idea\n\n[Attached: a, b].txt]")  agreedFix=PASS  anchoredLiteral=PASS
+- 2 files, remove 1st
+    current=PASS  agreedFix=PASS  anchoredLiteral=PASS
+- 2 files, remove 2nd
+    current=PASS  agreedFix=PASS  anchoredLiteral=PASS
+- 2 files, 1st has ]
+    current=FAIL("idea\n\n[Attached: my].txt, b.txt]")  agreedFix=PASS  anchoredLiteral=PASS
+- 2 files, 2nd has ]
+    current=FAIL("idea\n\n[Attached: b.txt, my].txt]")  agreedFix=PASS  anchoredLiteral=PASS
+- 2 files, 1st has ', '
+    current=FAIL("idea\n\n[Attached: a, b.txt, c.txt]")  agreedFix=PASS  anchoredLiteral=PASS
+- 2 files, 2nd has ', '
+    current=FAIL("idea\n\n[Attached: c.txt, a, b.txt]")  agreedFix=PASS  anchoredLiteral=PASS
+- regex metachars
+    current=PASS  agreedFix=PASS  anchoredLiteral=PASS
+- typed text right after marker (same line)
+    current=PASS  agreedFix=FAIL("idea\n\n[Attached: a.txt] more words")  anchoredLiteral=PASS
+- typed text after marker (next para)
+    current=PASS  agreedFix=PASS  anchoredLiteral=PASS
+- marker first, text after, name has ]
+    current=FAIL("[Attached: my].txt] more")  agreedFix=FAIL("[Attached: my].txt] more")  anchoredLiteral=PASS
+- 2 batches, remove from 2nd
+    current=PASS  agreedFix=PASS  anchoredLiteral=PASS
+- 2 batches, 2nd name has ]
+    current=FAIL("idea\n\n[Attached: a.txt]\n\n[Attached: my].txt]")  agreedFix=PASS  anchoredLiteral=PASS
+- marker is whole text
+    current=PASS  agreedFix=PASS  anchoredLiteral=PASS
+- marker is whole text, name has ]
+    current=FAIL("[Attached: my].txt]")  agreedFix=PASS  anchoredLiteral=PASS
+- prose has ', a.txt, ' before the marker
+    current=PASS  agreedFix=PASS  anchoredLiteral=PASS
+- same name attached twice, remove one
+    current=PASS  agreedFix=PASS  anchoredLiteral=PASS
+- name is a suffix of another
+    current=PASS  agreedFix=PASS  anchoredLiteral=PASS
+- name is a prefix of another
+    current=PASS  agreedFix=PASS  anchoredLiteral=PASS
+
+TALLY of 22: {"current":12,"agreedFix":20,"anchoredLiteral":22}
+
+# per-file-marker variant (writer would emit one marker per file) — sanity on its own cases
+"my].txt" => "idea" PASS
+"b, c.txt" => "idea\n\n[Attached: a.txt]" PASS
+
+# SIBLING: cleanBrief (SavedWorkflowsPage.tsx) on markers the WorkflowView writer can emit
+"idea\n\n[Attached: a.txt]" => "idea"
+"idea\n\n[Attached: my].txt]" => "idea\n\n.txt]"
+"idea\n\n[Attached: a, b].txt]" => "idea\n\n.txt]"
+"idea\n\n[Attached: file, more.txt]" => "idea"
+"[Attached: my].txt]" => ".txt]"

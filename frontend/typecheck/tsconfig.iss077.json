@@ -1,0 +1,6 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": { "incremental": false, "plugins": [] },
+  "include": [],
+  "files": ["./artifactNode.iss077.check.cts"]
+}

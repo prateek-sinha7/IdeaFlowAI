@@ -1,0 +1,186 @@
+{
+ "id": "user_stories",
+ "name": "User Stories",
+ "description": "6-step workflow: Domain Discovery Agent -> Backlog Architecture Agent -> Estimation Agent -> Quality Requirements Agent -> Quality Review Agent -> Delivery Compilation Agent",
+ "planner": "run",
+ "clarify_mode": "auto",
+ "clarify_defaults": [
+  "target_audience",
+  "scope",
+  "priority",
+  "technology",
+  "personas",
+  "user_journeys",
+  "business_rules",
+  "compliance_security"
+ ],
+ "context_providers": [
+  "chain_context"
+ ],
+ "deliverable": {
+  "strategy": "streamed_text",
+  "name": "user_stories.md"
+ },
+ "steps": [
+  {
+   "agent_id": "domain-analyst",
+   "name": "Domain Discovery Agent",
+   "role": "Market & Persona Research",
+   "order": 1,
+   "strategy": "single_shot",
+   "gates": [],
+   "validators": [],
+   "compaction": null,
+   "task_source": null,
+   "declared_gate": null,
+   "skills": []
+  },
+  {
+   "agent_id": "epic-architect",
+   "name": "Backlog Architecture Agent",
+   "role": "Epic & Story Composition",
+   "order": 2,
+   "strategy": "single_shot",
+   "gates": [],
+   "validators": [],
+   "compaction": null,
+   "task_source": null,
+   "declared_gate": null,
+   "skills": []
+  },
+  {
+   "agent_id": "story-estimator",
+   "name": "Estimation Agent",
+   "role": "Effort & Dependency Mapping",
+   "order": 3,
+   "strategy": "single_shot",
+   "gates": [],
+   "validators": [],
+   "compaction": null,
+   "task_source": null,
+   "declared_gate": null,
+   "skills": []
+  },
+  {
+   "agent_id": "nfr-specialist",
+   "name": "Quality Requirements Agent",
+   "role": "Performance, Security & Compliance",
+   "order": 4,
+   "strategy": "single_shot",
+   "gates": [],
+   "validators": [],
+   "compaction": null,
+   "task_source": null,
+   "declared_gate": null,
+   "skills": []
+  },
+  {
+   "agent_id": "backlog-reviewer",
+   "name": "Quality Review Agent",
+   "role": "Backlog Validation & Gap Analysis",
+   "order": 5,
+   "strategy": "single_shot",
+   "gates": [],
+   "validators": [],
+   "compaction": null,
+   "task_source": null,
+   "declared_gate": null,
+   "skills": []
+  },
+  {
+   "agent_id": "backlog-compiler",
+   "name": "Delivery Compilation Agent",
+   "role": "Final Backlog Synthesis",
+   "order": 6,
+   "strategy": "single_shot",
+   "gates": [],
+   "validators": [],
+   "compaction": null,
+   "task_source": null,
+   "declared_gate": null,
+   "skills": []
+  }
+ ],
+ "manifest_steps": [
+  {
+   "agent": "domain-analyst",
+   "tools": {
+    "read_files": true,
+    "write_files": true,
+    "exec": false
+   },
+   "gates": [],
+   "strategy": "single_shot",
+   "depends_on": []
+  },
+  {
+   "agent": "epic-architect",
+   "tools": {
+    "read_files": true,
+    "write_files": true,
+    "exec": false
+   },
+   "gates": [],
+   "strategy": "single_shot",
+   "depends_on": [
+    "domain-analyst"
+   ]
+  },
+  {
+   "agent": "story-estimator",
+   "tools": {
+    "read_files": true,
+    "write_files": true,
+    "exec": false
+   },
+   "gates": [],
+   "strategy": "single_shot",
+   "depends_on": [
+    "epic-architect"
+   ]
+  },
+  {
+   "agent": "nfr-specialist",
+   "tools": {
+    "read_files": true,
+    "write_files": true,
+    "exec": false
+   },
+   "gates": [],
+   "strategy": "single_shot",
+   "depends_on": [
+    "story-estimator"
+   ]
+  },
+  {
+   "agent": "backlog-reviewer",
+   "tools": {
+    "read_files": true,
+    "write_files": true,
+    "exec": false
+   },
+   "gates": [],
+   "strategy": "single_shot",
+   "depends_on": [
+    "nfr-specialist"
+   ]
+  },
+  {
+   "agent": "backlog-compiler",
+   "tools": {
+    "read_files": true,
+    "write_files": true,
+    "exec": false
+   },
+   "gates": [],
+   "strategy": "single_shot",
+   "depends_on": [
+    "backlog-reviewer"
+   ]
+  }
+ ],
+ "is_overridden": true,
+ "has_override": true,
+ "override_id": "429e9d74-0b6e-4082-aa74-af35f6fbbed7",
+ "showing_original": false
+}

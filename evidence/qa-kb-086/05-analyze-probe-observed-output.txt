@@ -1,0 +1,15 @@
+# real ReviewGatesSection mounted inside the real IdeaInputPage / LaunchWizard (offline jsdom, scratchpad probes, no repo file touched)
+# run: npx vitest run --config <probe config> <probe file>   (see 02-/03-/04- files for the sources)
+== IdeaInputPage probe
+ Test Files  1 passed (1)
+      Tests  2 passed (2)
+== LaunchWizard probe
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+== observations written by the probes
+PROBE_UNTOUCHED_extraParams="__undefined__"
+PROBE_TOUCHED_extraParams={"gate_agent_ids":["reading-planner"],"selections":{"reading-planner":{"gates":["human"]}}}
+PROBE_WIZARD_untouched hasGateAgentIds=false value="__absent__" equalsGoldenAsWizardWrites=false
+-- wizard draft vs the golden LaunchWizard.test.tsx:148-164 pins
+RAW_DRAFT={"templateId":"kanban","designSystemId":"midnight","brief":"Build a kanban board","agentIds":["prototype-specify","prototype-plan","prototype-analyze","prototype-build","prototype-validate"]}
+GOLDEN_AS_WIZARD_WRITES={"templateId":"kanban","designSystemId":"midnight","brief":"Build a kanban board","gateAgentIds":[],"agentIds":["prototype-specify","prototype-plan","prototype-analyze","prototype-build","prototype-validate"]}

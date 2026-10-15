@@ -1,0 +1,56 @@
+# QA-KB-108 fix: analyzer probe 04 re-run after the change (2026-10-09T11:07Z); before-state is 04-analyze-sibling-probes-output.txt
+# cmd (from backend/): PYTHONPATH=. .venv/bin/python ../evidence/qa-kb-108/04-analyze-sibling-probes.py
+13:07:12  main        LangSmith tracing disabled
+13:07:12  main        CORS allow_origins=['http://localhost:3000', 'http://localhost:3001', 'http://127.0.0.1:3000'] (env=development)
+== A. /login/challenge : AdminRespondToAuthChallenge (signed op)
+13:07:12  api         ERROR Cognito AdminRespondToAuthChallenge failed: TokenRetrievalError  ee417f9b
+TokenRetrievalError (expired SSO)                              status=503 ACAO='http://localhost:3000'    body='{"detail":"Authentication service unavailable"}'
+13:07:12  api         ERROR Cognito AdminRespondToAuthChallenge failed: InternalErrorException  6a5d09dc
+control: ClientError InternalErrorException                    status=503 ACAO='http://localhost:3000'    body='{"detail":"Authentication service unavailable"}'
+== B. /refresh : AdminInitiateAuth REFRESH_TOKEN_AUTH (signed op)
+13:07:12  api         ERROR Cognito REFRESH_TOKEN_AUTH failed: TokenRetrievalError  192765ce
+TokenRetrievalError (expired SSO)                              status=503 ACAO='http://localhost:3000'    body='{"detail":"Authentication service unavailable"}'
+13:07:12  api         ERROR Cognito REFRESH_TOKEN_AUTH failed: InternalErrorException  0e310857
+control: ClientError InternalErrorException                    status=503 ACAO='http://localhost:3000'    body='{"detail":"Authentication service unavailable"}'
+== C. MFA writes : apply_mfa_preference pre-reads AdminGetUser (signed op)
+13:07:12  api         ERROR Cognito VerifySoftwareToken failed: TokenRetrievalError  65d7e69d
+POST /mfa/totp/verify   TokenRetrievalError                    status=503 ACAO='http://localhost:3000'    body='{"detail":"Authentication service unavailable"}'
+13:07:12  api         ERROR Cognito VerifySoftwareToken failed: InternalErrorException  c3d6e8bb
+POST /mfa/totp/verify   control ClientError                    status=503 ACAO='http://localhost:3000'    body='{"detail":"Authentication service unavailable"}'
+13:07:12  api         ERROR Cognito SetUserMFAPreference (email on) failed: TokenRetrievalError  dc458f30
+POST /mfa/email/enable  TokenRetrievalError                    status=503 ACAO='http://localhost:3000'    body='{"detail":"Authentication service unavailable"}'
+13:07:12  api         ERROR Cognito SetUserMFAPreference (email on) failed: InternalErrorException  785d4752
+POST /mfa/email/enable  control ClientError                    status=503 ACAO='http://localhost:3000'    body='{"detail":"Authentication service unavailable"}'
+13:07:12  api         ERROR Cognito SetUserMFAPreference (email off) failed: TokenRetrievalError  773ce8cd
+POST /mfa/email/disable TokenRetrievalError                    status=503 ACAO='http://localhost:3000'    body='{"detail":"Authentication service unavailable"}'
+13:07:12  api         ERROR Cognito SetUserMFAPreference (email off) failed: InternalErrorException  f8f7cc7f
+POST /mfa/email/disable control ClientError                    status=503 ACAO='http://localhost:3000'    body='{"detail":"Authentication service unavailable"}'
+13:07:12  api         WARN  Could not read MFA factors for u-probe: Error when retrieving token from sso: Token has expired and refresh failed  edfdf3ab
+GET  /mfa (already `except Exception`) TokenRetrievalError     status=200 ACAO='http://localhost:3000'    body='{"enabled":false,"factors":[],"email_available":false,"totp_available"'
+== D. network-only endpoints (unsigned ops): EndpointConnectionError
+13:07:12  api         ERROR Cognito ForgotPassword failed: EndpointConnectionError  a44a8c92
+POST /forgot-password         EndpointConnectionError          status=202 ACAO='http://localhost:3000'    body='{"message":"If that account exists, a reset code has been sent."}'
+13:07:12  api         ERROR Cognito ForgotPassword failed: InternalErrorException  71019df9
+POST /forgot-password         control ClientError              status=202 ACAO='http://localhost:3000'    body='{"message":"If that account exists, a reset code has been sent."}'
+13:07:12  api         ERROR Cognito ConfirmForgotPassword failed: EndpointConnectionError  9849d074
+POST /forgot-password/confirm EndpointConnectionError          status=503 ACAO='http://localhost:3000'    body='{"detail":"Authentication service unavailable"}'
+13:07:12  api         ERROR Cognito ChangePassword failed: EndpointConnectionError  77c6a607
+POST /change-password         EndpointConnectionError          status=503 ACAO='http://localhost:3000'    body='{"detail":"Authentication service unavailable"}'
+13:07:12  api         ERROR Cognito ChangePassword failed: InternalErrorException  a20413ce
+POST /change-password         control ClientError              status=503 ACAO='http://localhost:3000'    body='{"detail":"Authentication service unavailable"}'
+13:07:12  api         ERROR Cognito AssociateSoftwareToken failed: EndpointConnectionError  886b9163
+POST /mfa/totp/associate      EndpointConnectionError          status=503 ACAO='http://localhost:3000'    body='{"detail":"Authentication service unavailable"}'
+== E. admin lifecycle layer (core/cognito_admin.py): which exception reaches the route layer?
+13:07:13  tokens      Loading cached SSO token for velocity-auth-aws
+is_last_admin       (TokenRetrievalError)                      returned normally
+13:07:14  cognito_ad  ERROR Group lookup failed for probe@example.com during tier change: TokenRetrievalError
+change_tier         (TokenRetrievalError)                      raised app.core.cognito_admin.ProviderUnavailableError
+13:07:14  cognito_ad  ERROR Group lookup failed for probe@example.com during tier change: InternalErrorException
+change_tier         control (ClientError)                      raised app.core.cognito_admin.ProviderUnavailableError
+13:07:14  cognito_ad  ERROR AdminCreateUser failed for new@example.com: TokenRetrievalError
+invite_user         (TokenRetrievalError)                      raised app.core.cognito_admin.ProviderUnavailableError
+13:07:14  cognito_ad  ERROR AdminCreateUser failed for new@example.com: InternalErrorException
+invite_user         control (ClientError)                      raised app.core.cognito_admin.ProviderUnavailableError
+13:07:14  cognito_ad  ERROR AdminDisableUser failed: TokenRetrievalError
+disable_user        (TokenRetrievalError)                      raised app.core.cognito_admin.ProviderUnavailableError
+api/admin.py::_raise_for(TokenRetrievalError)                  re-raised TokenRetrievalError UNCHANGED (docstring: 'never swallows or reshapes')

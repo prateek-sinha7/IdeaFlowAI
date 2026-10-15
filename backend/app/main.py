@@ -19,6 +19,7 @@ if sys.platform == "win32":
 
     asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
 
+from botocore.exceptions import BotoCoreError
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
@@ -409,7 +410,7 @@ async def lifespan(app: FastAPI):
     # see README.txt). With uvicorn's unbounded default a live SSE stream makes this
     # code unreachable: measured, the process stayed alive past 30s on SIGTERM and only
     # `startup_complete` was ever recorded (ISS-088, pinned by
-    # tests/unit/test_shutdown_reachability.py).
+    # tests/unit/services/test_shutdown_reachability.py).
     # The body itself lives in app.api.run_shutdown so main.py never reaches into
     # the private per-run registries; it never raises, so a teardown failure cannot
     # turn a clean exit into uvicorn's "Application shutdown failed".
@@ -556,6 +557,29 @@ async def _validation_error_handler(request: Request, exc: RequestValidationErro
     return JSONResponse(status_code=422, content=jsonable_encoder({"detail": errors}))
 
 
+@app.exception_handler(BotoCoreError)
+async def _botocore_error_handler(request: Request, exc: BotoCoreError):
+    """ISS-1150: a botocore call that never completed (expired SSO token, no
+    credentials, unreachable endpoint) and that no route translated is a 503.
+
+    Keyed on the class on purpose. Starlette mounts an ``Exception`` or ``500``
+    handler on ServerErrorMiddleware, OUTSIDE CORSMiddleware, so that response
+    still reaches the browser with no CORS header and reads as a CORS block. Any
+    other key is served inside it. Logged here because a handled exception no
+    longer reaches Starlette's own error log.
+    """
+    logger.error(
+        "Unhandled botocore error on %s %s",
+        request.method,
+        request.url.path,
+        exc_info=exc,
+    )
+    return JSONResponse(
+        status_code=503,
+        content={"detail": "A cloud service is unavailable. Please try again."},
+    )
+
+
 # Register routers
 app.include_router(auth_router)
 app.include_router(chats_router)
@@ -663,6 +687,8 @@ async def view_shared_run(token: str):
     # Content-Security-Policy: sandbox so the shared prototype cannot run
     # arbitrary JS in the viewer's main browsing context.
     share_headers = {
+        # Opaque origin: adding allow-same-origin would undo the isolation.
+        "Content-Security-Policy": "sandbox allow-scripts",
         "X-Frame-Options": "SAMEORIGIN",
         "X-Content-Type-Options": "nosniff",
         "Referrer-Policy": "no-referrer",

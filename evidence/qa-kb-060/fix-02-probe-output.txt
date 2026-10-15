@@ -1,0 +1,13 @@
+# QA-KB-060 fix phase, 2026-10-07, AFTER the fix. Temporary probe (source: fix-03-probe.test.tsx.txt), deleted after this run.
+# cwd: frontend/   cmd: npx vitest --run src/components/workflow/composer/__probe_qakb060.test.tsx --reporter=verbose
+A. saveUserWorkflow 2nd arg = undefined
+A props object containing a "key" prop is being spread into JSX:
+ ✓ src/components/workflow/composer/__probe_qakb060.test.tsx > QA-KB-060 probe > A. plain rerender (no remount): a late initialUserWorkflowId never reaches the id handleSave sends 236ms
+B. saveUserWorkflow 2nd arg = "wf-123"
+ ✓ src/components/workflow/composer/__probe_qakb060.test.tsx > QA-KB-060 probe > B. keyed remount (the DashboardLayout key flip): the late seed releases Save and it targets the URL's row 142ms
+C. saveUserWorkflow 2nd arg = undefined
+D. disabled = true title = "This workflow has not loaded. Reload the page to retry."
+ ✓ src/components/workflow/composer/__probe_qakb060.test.tsx > QA-KB-060 probe > C. /workflows/new shape (no expectedUserWorkflowId): Save stays live and creates 102ms
+ ✓ src/components/workflow/composer/__probe_qakb060.test.tsx > QA-KB-060 probe > D. failed /edit seed: tooltip names the load failure 57ms
+ Test Files  1 passed (1)
+      Tests  4 passed (4)

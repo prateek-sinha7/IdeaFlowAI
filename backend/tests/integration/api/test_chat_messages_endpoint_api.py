@@ -476,6 +476,119 @@ class TestRouting:
         assert resp.json()["detail"]["code"] == "pipeline_not_running"
         assert resp.json()["detail"]["recoverable"] is False
 
+    @pytest.mark.issue("ISS-160")
+    @pytest.mark.issue("ISS-879")
+    @pytest.mark.issue("ISS-880")
+    @pytest.mark.issue("ISS-881")
+    @pytest.mark.parametrize(
+        "parent_type",
+        [
+            "user_stories_revision",
+            "prototype_v2_revision",
+            "prototype_v2_feature_revision",
+            "prototype_revision",
+            "prototype_large_revision",
+            "prototype_feature_revision",
+            "backlog_revision",
+            "ppt_revision",
+            "app_builder_revision",
+            "custom_revision",
+        ],
+    )
+    def test_revision_of_revision_run_parent_mints_child(
+        self, env, monkeypatch, parent_type
+    ):
+        """QA-KB-009 — a bare-text revision turn on a terminal *revision-run* parent
+        must mint a child revision run (200 + revision_run_id), not 400
+        revision_unsupported / pipeline_not_entitled."""
+        from app.api import run_commands as rc_module
+        from app.models.workflow import WorkflowRun
+
+        async def _noop_drive(**kwargs):
+            return None
+
+        monkeypatch.setattr(rc_module, "_drive_revision_to_queue", _noop_drive)
+        owner = _seed_user(env, "owner")
+        run_id = str(uuid.uuid4())
+        db = env["Session"]()
+        try:
+            db.add(
+                WorkflowRun(
+                    id=run_id,
+                    user_id=owner.id,
+                    owner_id=owner.id,
+                    workspace_id="ws-1",
+                    title="t",
+                    type=parent_type,
+                    status="completed",
+                    input="i",
+                    agent_count=1,
+                    session_id=owner.id,
+                    created_at=datetime.now(timezone.utc),
+                )
+            )
+            db.commit()
+        finally:
+            db.close()
+        env["state"]["user"] = owner
+
+        resp = _post(
+            env, run_id, text="make the heading bigger", message_id=uuid.uuid4().hex
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["revision_run_id"]
+
+    @pytest.mark.issue("ISS-879")
+    def test_ppt_v2_parent_revises_through_ppt_revision(self, env, monkeypatch):
+        """ISS-879 — ppt_v2 has no revision pipeline of its own. A bare-text turn on a
+        completed ppt_v2 deck mints a ppt_revision child, as the UI's revise path does
+        (DashboardLayout posts ppt_output for ppt_v2, FIX-480), not 400 on
+        ppt_v2_revision."""
+        from app.api import run_commands as rc_module
+        from app.models.workflow import WorkflowRun
+
+        async def _noop_drive(**kwargs):
+            return None
+
+        monkeypatch.setattr(rc_module, "_drive_revision_to_queue", _noop_drive)
+        owner = _seed_user(env, "owner")
+        run_id = str(uuid.uuid4())
+        db = env["Session"]()
+        try:
+            db.add(
+                WorkflowRun(
+                    id=run_id,
+                    user_id=owner.id,
+                    owner_id=owner.id,
+                    workspace_id="ws-1",
+                    title="t",
+                    type="ppt_v2",
+                    status="completed",
+                    input="i",
+                    agent_count=1,
+                    session_id=owner.id,
+                    created_at=datetime.now(timezone.utc),
+                )
+            )
+            db.commit()
+        finally:
+            db.close()
+        env["state"]["user"] = owner
+
+        resp = _post(env, run_id, text="tighten slide two", message_id=uuid.uuid4().hex)
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["channel"] == "revision"
+        db = env["Session"]()
+        try:
+            child = (
+                db.query(WorkflowRun)
+                .filter(WorkflowRun.id == resp.json()["revision_run_id"])
+                .first()
+            )
+            assert child is not None and child.type == "ppt_revision"
+        finally:
+            db.close()
+
 
 # ════════════════════════════════════════════════════════════════════════════
 # BE-2 — the fresh-Concierge POST streams as text/event-stream (Option B).

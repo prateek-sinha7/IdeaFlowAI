@@ -76,6 +76,18 @@ def _in_process_checkpointer(monkeypatch):
     yield
 
 
+@pytest.fixture(autouse=True)
+def _local_ollama_override_off(monkeypatch):
+    """Pin the USE_LOCAL_OLLAMA dev override off (ISS-1136).
+
+    ``app.agents.model_factory`` reads it from ``backend/.env`` on every call, so a
+    checkout that enables it there routed every provider test to ChatOllama. The real
+    env wins over the file, so this is a complete pin; a test that wants the override
+    sets it itself.
+    """
+    monkeypatch.setenv("USE_LOCAL_OLLAMA", "0")
+
+
 def _deny_db_connect(dbapi_connection, connection_record):  # noqa: ARG001
     """SQLAlchemy ``connect`` event listener — refuses every real DBAPI connection."""
     raise UnitIsolationError(

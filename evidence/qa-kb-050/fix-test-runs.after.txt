@@ -1,0 +1,67 @@
+# QA-KB-050 / FIX — vitest runs AFTER the fix, one file per invocation, from frontend/ (npx vitest --run <file>), 2026-10-02 11:55 CEST
+
+=== src/components/workflow/composer/ComposerPage.bug025.test.tsx
+     × BUG-025: library-added agents are removable on /workflows/new
+     × ISS-961: a saved custom workflow reopened via Edit has removable agents and no Core badge
+     × ISS-962: the Add-agent library does not offer core agents to a custom workflow
+     × ISS-964: Simple view shows brief recommendations for a matching brief
+     × ISS-965: the root-agent cap counts every root agent of a custom composition
+     × ISS-963: CanvasNode shows a Core badge iff Remove is disabled
+     × ISS-963: a disabled CanvasNode Remove is greyed, not invisible
+     × ISS-963: AgentRow shows a Core badge iff Remove is disabled
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 8 ⎯⎯⎯⎯⎯⎯⎯
+ FAIL  src/components/workflow/composer/ComposerPage.bug025.test.tsx > BUG-025 — composer on a custom route (stale user_stories workflowType) > BUG-025: library-added agents are removable on /workflows/new
+ FAIL  src/components/workflow/composer/ComposerPage.bug025.test.tsx > BUG-025 — composer on a custom route (stale user_stories workflowType) > ISS-961: a saved custom workflow reopened via Edit has removable agents and no Core badge
+Error: Expect test to fail
+ FAIL  src/components/workflow/composer/ComposerPage.bug025.test.tsx > BUG-025 — composer on a custom route (stale user_stories workflowType) > ISS-962: the Add-agent library does not offer core agents to a custom workflow
+ FAIL  src/components/workflow/composer/ComposerPage.bug025.test.tsx > BUG-025 — composer on a custom route (stale user_stories workflowType) > ISS-964: Simple view shows brief recommendations for a matching brief
+ FAIL  src/components/workflow/composer/ComposerPage.bug025.test.tsx > BUG-025 — composer on a custom route (stale user_stories workflowType) > ISS-965: the root-agent cap counts every root agent of a custom composition
+ FAIL  src/components/workflow/composer/ComposerPage.bug025.test.tsx > ISS-963 — Core badge and Remove lock must agree, and a lock must be visible > ISS-963: CanvasNode shows a Core badge iff Remove is disabled
+ FAIL  src/components/workflow/composer/ComposerPage.bug025.test.tsx > ISS-963 — Core badge and Remove lock must agree, and a lock must be visible > ISS-963: a disabled CanvasNode Remove is greyed, not invisible
+ FAIL  src/components/workflow/composer/ComposerPage.bug025.test.tsx > ISS-963 — Core badge and Remove lock must agree, and a lock must be visible > ISS-963: AgentRow shows a Core badge iff Remove is disabled
+Error: Expect test to fail
+ Test Files  1 failed (1)
+      Tests  8 failed (8)
+
+=== src/components/workflow/composer/ComposerPage.test.tsx
+ Test Files  1 passed (1)
+      Tests  16 passed (16)
+
+=== src/components/workflow/composer/AgentRow.test.tsx
+ Test Files  1 passed (1)
+      Tests  5 passed (5)
+
+=== src/components/workflow/composer/AgentRow.toolsVisibility.test.tsx
+ Test Files  1 passed (1)
+      Tests  2 passed (2)
+
+=== src/components/workflow/composer/CanvasNode.kindIcon.test.tsx
+ Test Files  1 passed (1)
+      Tests  5 passed (5)
+
+=== src/components/workflow/composer/CanvasView.test.tsx
+ Test Files  1 passed (1)
+      Tests  28 passed (28)
+
+=== src/components/workflow/composer/ComposerPage.iss410.test.tsx
+ Test Files  1 passed (1)
+      Tests  3 passed (3)
+
+=== src/components/workflow/composer/ComposerPage.manifestPersistence.test.tsx
+ Test Files  1 passed (1)
+      Tests  5 passed (5)
+
+=== src/components/workflow/AgentsPopup.reskin.test.tsx
+ Test Files  1 passed (1)
+      Tests  14 passed (14)
+
+=== src/components/workflow/AgentsPopup.iss705.test.tsx
+     × includes task_loop as a selectable strategy value
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+ FAIL  src/components/workflow/AgentsPopup.iss705.test.tsx > StepSelection.strategy — ISS-705 task_loop unreachable from Simple composer > includes task_loop as a selectable strategy value
+ Test Files  1 failed (1)
+      Tests  1 failed (1)
+
+=== src/components/workflow/AgentLibrary.userStoriesEmpty.test.tsx
+ Test Files  1 passed (1)
+      Tests  1 passed (1)

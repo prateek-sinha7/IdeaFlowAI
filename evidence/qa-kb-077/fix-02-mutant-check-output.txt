@@ -1,0 +1,6 @@
+# QA-KB-077 fix — mutant check of backend/tests/unit/app/test_main.py, 2026-10-07T17:46Z
+# cd backend && PYTHONPATH=. DATABASE_URL=sqlite:///:memory: .venv/bin/python ../evidence/qa-kb-077/fix-02-mutant-check-script.py
+1 shipped handler (main.py:539): PASSED
+2 mutant: FastAPI stock handler: FAILED -> the rejected PAT was echoed back in the 422 body: '{"detail":[{"type":"string_too_short","loc":["body","pat"],"msg":"String should have at least 10 characters","input":"short7!","ctx":{"min_length":10}}]}'
+RESULT: test is sensitive to main.py:539
+exit: 0

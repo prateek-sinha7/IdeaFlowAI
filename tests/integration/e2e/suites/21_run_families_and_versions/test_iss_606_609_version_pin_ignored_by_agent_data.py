@@ -4,9 +4,8 @@ The Steps tab's pipeline summary/agent list and the Audit tab's own fetches
 both ignore the URL's version pin, unlike `effUserStoryContent` et al. (the
 Preview-tab content, already version-aware per FIX-334).
 
-Same 2-member family as ISS-230's suite file (see that file's own docstring):
-root run `2708dbf1-50d0-465d-9bed-56b651ea1abf` (v1), revision
-`23bd9c67-e239-4979-b14a-cb78222795e8` (v2) — live runs discovered 2026-09-21.
+Same discovered family as ISS-230's suite file (`a_revised_family`): its root
+is v1 and its second member is v2.
 """
 
 from __future__ import annotations
@@ -17,10 +16,7 @@ from playwright.sync_api import expect
 from framework import settings
 from framework.locators import run_detail as RD
 
-# Live run ids discovered 2026-09-21. These rot whenever the database is pruned;
-# the durable fix is runtime discovery via a_run_with_status(page, "completed").
-ROOT_RUN_ID = "2708dbf1-50d0-465d-9bed-56b651ea1abf"
-V2_RUN_ID = "23bd9c67-e239-4979-b14a-cb78222795e8"
+from .test_run_families_and_versions import a_revised_family
 
 
 @pytest.mark.issue("ISS-606")
@@ -30,6 +26,9 @@ def test_steps_tab_shows_the_pinned_versions_own_agent_count(page, shot):
     the root's agent count first, then navigating to v2 and asserting that
     the displayed count is the PINNED version's own (i.e., they differ or
     both are the same and truly the v2 count)."""
+    root, members = a_revised_family(page)
+    v2 = members[1]["id"]
+
     def roster_at(url: str, label: str) -> int:
         """The roster size the Steps tab reports for whatever run `url` shows."""
         page.goto(url)
@@ -45,11 +44,11 @@ def test_steps_tab_shows_the_pinned_versions_own_agent_count(page, shot):
     # expectation this way (rather than from the root) is what makes the check
     # survive a fixture swap: whatever family this points at, v2's own page and
     # the pinned view must agree.
-    v2_own = roster_at(f"/runs/{V2_RUN_ID}/steps", "the revision's own page")
-    root_roster = roster_at(f"/runs/{ROOT_RUN_ID}/steps", "the root")
+    v2_own = roster_at(f"/runs/{v2}/steps", "the revision's own page")
+    root_roster = roster_at(f"/runs/{root}/steps", "the root")
 
     with shot("iss606-steps-v2", "When I cold-load the Steps tab pinned to v2"):
-        pinned = roster_at(f"/runs/{ROOT_RUN_ID}/versions/2/steps", "the pinned view")
+        pinned = roster_at(f"/runs/{root}/versions/2/steps", "the pinned view")
 
     # ISS-606 is the pinned view rendering the ROOT's roster instead of its own.
     # Assert against the revision's own figure — comparing pinned-vs-root instead
@@ -76,21 +75,23 @@ def test_steps_tab_shows_the_pinned_versions_own_agent_count(page, shot):
 def test_audit_tab_fetches_the_pinned_versions_own_run_id(page, shot):
     """The Audit tab's gate/validation/exec/hook-run fetches must be keyed on
     the PINNED version's run id, not the live/root run's."""
+    root, members = a_revised_family(page)
+    v2 = members[1]["id"]
     requests: list[str] = []
     page.on("request", lambda req: requests.append(req.url))
 
     with shot("iss609-audit-v2", "When I cold-load the Audit tab pinned to v2"):
-        page.goto(f"/runs/{ROOT_RUN_ID}/versions/2/audit")
+        page.goto(f"/runs/{root}/versions/2/audit")
         expect(page.locator(RD.LANE)).to_be_visible()
         page.wait_for_timeout(settings.SETTLE_MS)
 
     fetched_v2_gate_events = any(
-        f"/api/runs/{V2_RUN_ID}/gate-events" in u for u in requests
+        f"/api/runs/{v2}/gate-events" in u for u in requests
     )
 
     assert fetched_v2_gate_events, (
         f"Audit tab pinned to v2 never fetched the pinned revision's own "
-        f"gate-events ({V2_RUN_ID}) — requests seen: {requests}"
+        f"gate-events ({v2}) — requests seen: {requests}"
     )
 
     # Deliberately NOT `assert not fetched_root_gate_events`, for the same reason

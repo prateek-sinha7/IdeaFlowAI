@@ -1,0 +1,33 @@
+# scripts/local-dev/docker-compose.aws.yml
+#
+# Local-dev only overlay (loaded by podman-up.sh): hands the host's AWS SSO
+# login to the backend so Bedrock and Cognito admin auth work off-EC2.
+# Production uses the instance role instead and never loads this file.
+#
+# Nothing account- or machine-specific lives here. Set in your (git-ignored)
+# app.env:
+#   AWS_PROFILE=<your SSO profile>       read by the backend via env_file
+#   VELOCITY_RUNS_DIR=<host dir for runs> exported by podman-up.sh
+#
+# Refresh an expired session on the host with: aws sso login --profile <name>
+services:
+  backend:
+    volumes:
+      # The container user's HOME is /app; botocore reads the SSO token cache
+      # from $HOME/.aws/sso/cache regardless of AWS_CONFIG_FILE.
+      - ${HOME}/.aws:/app/.aws:ro
+      # botocore rewrites the SSO token cache when it refreshes the ~1h access
+      # token; read-only here fails every AWS call (login, Bedrock) after an hour.
+      - ${HOME}/.aws/sso/cache:/app/.aws/sso/cache
+      # Run sandboxes on the host (browsable in Finder) instead of the VM-only
+      # /opt/velocityai/data/runs; same /app/runs target, so this replaces it.
+      - ${VELOCITY_RUNS_DIR:?set VELOCITY_RUNS_DIR in app.env}:/app/runs
+      # Live repo content instead of the copies baked into the image, so edits
+      # show up without a rebuild (read-only; the app never writes to either).
+      # Paths resolve against the project dir (repo root), not this file.
+      # OpenDesign templates/design systems/craft → OD_ROOT=/app/opendesign.
+      # Gallery thumbnails are build-generated and git-ignored; copy them from
+      # the image into skills/opendesign once after a fresh clone.
+      - ./skills/opendesign:/app/opendesign:ro
+      # Built-in global Skills catalog staged into agent runs → GLOBAL_SKILLS_ROOT.
+      - ./backend/skills/global:/app/builtin-skills/global:ro

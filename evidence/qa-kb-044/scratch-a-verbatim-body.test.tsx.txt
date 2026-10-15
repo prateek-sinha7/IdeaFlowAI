@@ -1,0 +1,53 @@
+import { describe, expect, it, vi, beforeEach } from "vitest";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import React from "react";
+
+// Scratch copy of PreviewPanel.olderVersionNullOutput.test.tsx with it.fails -> it,
+// so the REAL failure reason becomes visible. Only the relative mock paths are made absolute.
+const mockGetToken = vi.fn(() => "test-token");
+const mockGetWorkflow = vi.fn<(token: string, id: string) => Promise<any>>();
+const mockGetRunFamily = vi.fn<(token: string, id: string) => Promise<any>>();
+
+vi.mock("@/lib/api", () => ({
+  getToken: () => mockGetToken(),
+  getWorkflow: (token: string, id: string) => mockGetWorkflow(token, id),
+  getRunFamily: (token: string, id: string) => mockGetRunFamily(token, id),
+}));
+const STRIPPED_MOTION_PROPS = new Set(["initial","animate","exit","transition","whileHover","whileTap","whileFocus","whileInView","viewport","layout","layoutId","drag","dragConstraints","variants","custom"]);
+vi.mock("motion/react", () => ({
+  motion: new Proxy({}, { get: (_t, prop: string) => ({ children, ...rest }: any) => React.createElement(prop, Object.fromEntries(Object.entries(rest).filter(([k]) => !STRIPPED_MOTION_PROPS.has(k))), children) }),
+  AnimatePresence: ({ children }: any) => <>{children}</>,
+}));
+vi.mock("/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/frontend/src/components/preview/UserStoryPreview", () => ({ UserStoryPreview: () => <div data-testid="user-story-preview" /> }));
+vi.mock("/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/frontend/src/components/preview/PPTPreview", () => ({ PPTPreview: () => <div data-testid="ppt-preview" /> }));
+vi.mock("/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/frontend/src/components/preview/PrototypePreview", () => ({ PrototypePreview: () => <div data-testid="proto-preview" /> }));
+vi.mock("/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/frontend/src/components/preview/MarkdownPreview", () => ({ MarkdownPreview: () => <div data-testid="markdown-preview" /> }));
+vi.mock("/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/frontend/src/components/preview/AppBuilderPreview", () => ({ AppBuilderPreview: () => <div data-testid="appbuilder-preview" /> }));
+vi.mock("@/components/results/FilesTab", () => ({ FilesTab: () => <div data-testid="files-tab" />, deriveDeliverableFilename: () => "prototype.html" }));
+vi.mock("@/components/results/AgentThinkingTab", () => ({ AgentThinkingTab: () => <div data-testid="thinking-tab" /> }));
+
+import { PreviewPanel } from "/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/frontend/src/components/preview/PreviewPanel";
+
+const t0 = new Date("2026-08-13T10:00:00Z").toISOString();
+const t1 = new Date("2026-08-13T11:00:00Z").toISOString();
+const family2: any = {
+  root_id: "root",
+  members: [
+    { id: "root", type: "prototype", title: "v1", status: "completed", revision_index: 0, parent_run_id: null, created_at: t0, completed_at: t0 },
+    { id: "r1", type: "prototype_revision", title: "v2", status: "completed", revision_index: 1, parent_run_id: "root", created_at: t1, completed_at: t1 },
+  ],
+};
+beforeEach(() => { mockGetToken.mockReset().mockReturnValue("test-token"); mockGetWorkflow.mockReset(); mockGetRunFamily.mockReset(); });
+
+describe("A - verbatim body of the existing it.fails test, run as plain it", () => {
+  it("A. existing test body (it.fails -> it)", async () => {
+    mockGetWorkflow.mockImplementation((_t, id) => Promise.resolve({ id, status: "completed", output: null } as any));
+    render(<PreviewPanel workflowType="prototype" prototypeContent="<html>latest</html>" runFamily={family2} liveRunId="r1" />);
+    fireEvent.click(screen.getByLabelText(/Version v2/));      // line 86 of the real test
+    const options = screen.getAllByRole("option");
+    fireEvent.click(options[0]);
+    await waitFor(() => expect(mockGetWorkflow).toHaveBeenCalledWith("test-token", "root"));
+    await screen.findByRole("status");
+    expect(screen.queryByText("Output will appear here")).toBeNull();
+  });
+});

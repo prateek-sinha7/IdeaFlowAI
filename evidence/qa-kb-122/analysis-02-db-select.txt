@@ -1,0 +1,59 @@
+Q1 select id, type, status, left(coalesce(parent_run_id,''),8) as parent, left(coalesce(source_run_id,''),8) as source, created_at::date, coalesce(deliverable_filename,'') from workflow_runs where id like :p
+(id, type, status, parent, source, created, deliverable_filename)
+-- 2708dbf1  [ISS-230 / ISS-606 / ISS-607 ROOT_RUN_ID + MID_FAMILY_ROOT_ID (suites/21_*)]  -> 0 row(s)
+-- 23bd9c67  [ISS-230 / ISS-606 V2_RUN_ID (suites/21_*)]  -> 0 row(s)
+-- 3839720c  [ISS-607 MID_FAMILY_LATEST_ID (suites/21_*)]  -> 0 row(s)
+-- a40d0f2b  [test_iss285 FAILED_RUN_NO_DELIVERABLE (suites/07_*)]  -> 0 row(s)
+-- edba51b5  [test_iss313 RUN_WITH_NULL_DELIVERABLE_FILENAME (suites/07_*)]  -> 0 row(s)
+-- 28a318c9  [test_iss390 DIVERTED_RUN (suites/07_*)]  -> 0 row(s)
+-- 77f74563  [ISS-618 card says this is the ISS-230 fixture root]  -> 0 row(s)
+
+Q2 select id, type, status, left(parent_run_id,8), left(source_run_id,8), created_at::date from workflow_runs where parent_run_id like :p or source_run_id like :p order by created_at
+(children of the ISS-230 family root, by parent_run_id or source_run_id)
+-- members pointing at 2708dbf1: 0
+-- members pointing at 77f74563: 0
+
+Q3 select id, name, source from workflows where id like :p
+-- saved workflow 656ca387 (test_iss228 PROTO_ID): 0 row(s)
+
+Q4 select count(*) filter (where parent_run_id is not null) as with_parent, count(*) filter (where source_run_id is not null) as with_source, count(*) as total from workflow_runs
+   (20, 21, 67)   (with_parent, with_source, total)
+
+Q5 select coalesce(source_run_id, parent_run_id) as root, count(*) as children from workflow_runs where coalesce(source_run_id, parent_run_id) is not null group by 1 order by 2 desc limit 8
+(root, number of revision rows that point at it)
+   ('87e02c32', 5)
+   ('78e185fb', 4)
+   ('48b0811e', 2)
+   ('0f62f7bc', 2)
+   ('463e6c0b', 2)
+   ('e692039a', 2)
+   ('9b6f1bfb', 1)
+   ('fa7bcb5f', 1)
+
+Q6 select type, count(*) from workflow_runs group by 1 order by 2 desc
+   ('prototype_v2', 16)
+   ('ex_A1_loop', 11)
+   ('backlog', 9)
+   ('backlog_revision', 7)
+   ('prototype_revision', 6)
+   ('ex_A2_branch', 6)
+   ('prototype_v2_feature_revision', 3)
+   ('user_stories_v2', 2)
+   ('prototype_v2_revision', 2)
+   ('user_stories', 1)
+   ('ex_A4_human_gate', 1)
+   ('ex_A4_human_divert', 1)
+   ('ex_A3_c_dutch', 1)
+   ('prototype_large_revision', 1)
+
+Q7 select min(created_at), max(created_at), count(*) from workflow_runs
+   (datetime.datetime(2026, 9, 24, 12, 45, 23, 602226), datetime.datetime(2026, 10, 9, 13, 42, 42, 506503), 67)   (oldest run, newest run, total): every id the suites pinned on 2026-09-21 predates the oldest row
+
+Q8 select left(id,8), name, source, overrides_pipeline_type from workflows where name ilike 'My prototype%'
+   [('b50f3925', 'My prototype', 'user', 'prototype')]   (the saved workflow test_iss228 calls 'My prototype' exists under a different id than its PROTO_ID 656ca387)
+
+Q9 select left(id,8), type, status, created_at::date from workflow_runs where type in ('ex_A4_human_divert','ex_A4_human_gate','user_stories','ex_A3_c_dutch') order by created_at
+   ('429dc032', 'ex_A4_human_divert', 'diverted', datetime.date(2026, 9, 24))
+   ('2fc4ebbb', 'ex_A3_c_dutch', 'completed', datetime.date(2026, 9, 24))
+   ('9eb70b6e', 'ex_A4_human_gate', 'failed', datetime.date(2026, 10, 2))
+   ('0f227da3', 'user_stories', 'cancelled', datetime.date(2026, 10, 9))

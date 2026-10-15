@@ -39,7 +39,7 @@ elif [[ "${GITHUB_ACTIONS:-}" == "true" ]]; then
   exit 1
 fi
 
-mapfile -d '' -t scripts < <(git ls-files -z '*.sh')
+mapfile -d '' -t scripts < <(git ls-files -z '*.sh' ':(exclude)evidence/**')
 
 if ((${#scripts[@]} == 0)); then
   echo "::error::no tracked shell scripts found; the scope is wrong"

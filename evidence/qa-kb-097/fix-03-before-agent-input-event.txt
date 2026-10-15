@@ -1,0 +1,34 @@
+....F..                                                                  [100%]
+=================================== FAILURES ===================================
+_____________ test_planning_context_injected_into_context_message ______________
+
+    @pytest.mark.asyncio
+    async def test_planning_context_injected_into_context_message():
+        engine = ExecutionEngine()
+        spec = _Spec("agent-a", consumes=[])
+        agents = [spec]
+        planning_context = {
+            "inferred_intent": "Build a login feature",
+            "explicit_constraints": ["React frontend"],
+            "implicit_constraints": ["WCAG 2.1"],
+            "inferred_personas": ["Developer"],
+            "inferred_nfrs": ["< 200ms response"],
+            "quality_targets": ["100% test coverage"],
+            "execution_gate": "PROCEED",
+        }
+        msg = await engine._compose_context_message(
+            spec, 0, agents, "test brief", planning_context, _ectx()
+        )
+>       assert "## Planning Context" in msg
+E       AssertionError: assert '## Planning Context' in '=== ORIGINAL USER REQUEST ===\ntest brief\n=== END REQUEST ==='
+
+tests/unit/agents/test_agent_input_event.py:143: AssertionError
+=============================== warnings summary ===============================
+app/core/config.py:94
+  /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/app/core/config.py:94: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+    class Settings(BaseSettings):
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/unit/agents/test_agent_input_event.py::test_planning_context_injected_into_context_message
+1 failed, 6 passed, 1 warning in 1.13s

@@ -181,6 +181,27 @@ def a_run(page) -> str:
     pytest.skip("no completed run is a family of one by its own /family record")
 
 
+def a_revised_family(page) -> tuple[str, list[dict]]:
+    """The newest family holding a revision: `(root_id, members)` from
+    `/api/runs/{root}/family`, members in version order, or skip.
+
+    Discovered, never pinned (14ce62c59): the family the version-pin files used
+    to name went with a reseed (ISS-1188). A divert pair shares a root too, but
+    its second run is another workflow rather than a version, so it is passed
+    over.
+    """
+    page.goto("/dashboard")
+    rows = api.json_body(page, "GET", "/api/runs?limit=100")
+    diverted = {r["id"] for r in rows if r.get("diverted_at_step_id")}
+    for root in dict.fromkeys(r["root_run_id"] for r in rows if r.get("parent_run_id")):
+        if root in diverted:
+            continue
+        members = api.json_body(page, "GET", f"/api/runs/{root}/family")["members"]
+        if len(members) > 1:
+            return root, sorted(members, key=lambda m: m["revision_index"])
+    pytest.skip("no run in this history has a revision, so there is no version to pin")
+
+
 # ── families on run history ──────────────────────────────────────────────────
 
 

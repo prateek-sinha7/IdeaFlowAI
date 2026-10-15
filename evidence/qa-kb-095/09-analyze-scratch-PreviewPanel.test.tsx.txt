@@ -1,0 +1,130 @@
+import { describe, expect, it, vi, beforeEach } from "vitest";
+import { render, waitFor, screen } from "@testing-library/react";
+import React from "react";
+import fs from "node:fs";
+const OUT = "/private/tmp/claude-502/-Users-bilala-Developer-Projects-VELOCITY-AI-worktrees-feat-user-stories-v2/2d1a1575-310a-48fd-8155-2763a084604d/scratchpad/qa-kb-095/probe-output.txt";
+const say = (...a: unknown[]) => fs.appendFileSync(OUT, a.join(" ") + "\n");
+import type { PipelineRunState, RunFamily } from "@/types/index";
+
+// QA-KB-095 scratch probe. The real PreviewPanel + RunHeader are mounted. The family is the one the API returns
+// for run 0f62f7bc: v1 completed with git_tag "v1", v2 a FAILED revision with no tag. GET /sandbox/refs answers [].
+const V1 = "0f62f7bc-d3a2-4748-8004-0b534e1741ae";
+const V2 = "b7bdf6a3-2ae9-48f6-867e-dbfb61b9f570";
+
+const mockResolve = vi.fn();
+const mockGetSandbox = vi.fn();
+const mockRefs = vi.fn();
+const mockGetWorkflow = vi.fn();
+
+vi.mock("@/lib/api", () => ({
+  getToken: () => "test-token",
+  getWorkflow: (...a: unknown[]) => mockGetWorkflow(...a),
+  getRunFamily: vi.fn(),
+  postShareRun: vi.fn(),
+  deleteShareRun: vi.fn(),
+  getRunSandboxRefs: (...a: unknown[]) => mockRefs(...a),
+  getRunSandbox: (...a: unknown[]) => mockGetSandbox(...a),
+  getRunSandboxFile: vi.fn(),
+  getRunSandboxFileBlob: vi.fn(),
+  getRunSandboxZip: vi.fn(),
+  resolveRunDeliverable: (...a: unknown[]) => mockResolve(...a),
+}));
+
+const STRIPPED = new Set(["initial","animate","exit","transition","whileHover","whileTap","whileFocus","whileInView","viewport","layout","layoutId","drag","dragConstraints","variants","custom"]);
+vi.mock("motion/react", () => {
+  const byTag = new Map<string, unknown>();
+  return {
+    motion: new Proxy({}, { get: (_t, prop: string) => {
+      if (!byTag.has(prop)) byTag.set(prop, ({ children, ...rest }: any) =>
+        React.createElement(prop, Object.fromEntries(Object.entries(rest).filter(([k]) => !STRIPPED.has(k))), children));
+      return byTag.get(prop);
+    } }),
+    AnimatePresence: ({ children }: any) => <>{children}</>,
+  };
+});
+vi.mock("@/components/preview/UserStoryPreview", () => ({ UserStoryPreview: () => <div /> }));
+vi.mock("@/components/preview/PPTPreview", () => ({ PPTPreview: () => <div /> }));
+vi.mock("@/components/preview/PrototypePreview", () => ({ PrototypePreview: () => <div data-testid="proto" /> }));
+vi.mock("@/components/preview/MarkdownPreview", () => ({ MarkdownPreview: () => <div /> }));
+vi.mock("@/components/preview/AppBuilderPreview", () => ({ AppBuilderPreview: () => <div /> }));
+vi.mock("@/lib/exporters/storyExporter", () => ({ exportUserStories: vi.fn() }));
+vi.mock("@/components/results/AgentThinkingTab", () => ({ AgentThinkingTab: () => <div /> }));
+vi.mock("@/components/results/AuditTab", () => ({ AuditTab: () => <div /> }));
+
+import { PreviewPanel } from "@/components/preview/PreviewPanel";
+
+const settled = (id: string) => ({
+  isRunning: false, pipelineRunId: id, pipeline_type: "prototype", agents: [], currentAgentIndex: -1,
+  totalDuration: null, completedCount: 0, deliverableFilename: "prototype.html",
+} as unknown as PipelineRunState);
+
+const member = (id: string, idx: number, parent: string | null, status: string, tag?: string) => ({
+  id, type: idx === 1 ? "prototype_v2" : "prototype_revision", title: `v${idx}`, status, revision_index: idx,
+  parent_run_id: parent, created_at: "2026-09-28T00:00:00Z", completed_at: "2026-09-28T01:00:00Z", ...(tag ? { git_tag: tag } : {}),
+});
+const familyFailedNewest = (): RunFamily => ({ root_id: V1, members: [member(V1, 1, null, "completed", "v1"), member(V2, 2, V1, "failed")] });
+const familySingle = (): RunFamily => ({ root_id: V1, members: [member(V1, 1, null, "completed", "v1")] });
+
+const mountAt = (liveRunId: string, runFamily: RunFamily) =>
+  render(<PreviewPanel workflowType="prototype" prototypeContent="<html><head><title>P</title></head></html>"
+    pipelineState={settled(liveRunId)} liveRunId={liveRunId} runFamily={runFamily} />);
+
+const refsOf = (calls: unknown[][]) => calls.map((c) => c[3] ?? c[2]);
+
+beforeEach(() => {
+  mockResolve.mockReset().mockResolvedValue(null);
+  mockGetSandbox.mockReset().mockResolvedValue({ run_id: V1, expired: false, truncated: false, files: [] });
+  mockRefs.mockReset().mockResolvedValue([]); // GET /sandbox/refs -> {"refs": []}
+  mockGetWorkflow.mockReset().mockResolvedValue({ id: V1, type: "prototype_v2", deliverableFilename: "prototype.html" });
+});
+
+describe("QA-KB-095 probe — what the run page asks the sandbox for", () => {
+  it("A. root of a family whose NEWEST member failed, refs=[]: header resolve is asked for ref v1", async () => {
+    mountAt(V1, familyFailedNewest());
+    await waitFor(() => expect(mockResolve).toHaveBeenCalled());
+    const calls = mockResolve.mock.calls;
+    say("PROBE A resolveRunDeliverable calls (token, runId, declared, ref):", JSON.stringify(calls));
+    say("PROBE A getRunSandboxRefs calls:", mockRefs.mock.calls.length, "-> returns []");
+    expect(refsOf(calls)).toContain("v1");        // the page pins the DB tag although the sandbox lists none
+    expect(mockRefs).toHaveBeenCalled();           // and RunHeader did fetch the (empty) refs list
+  });
+
+  it("B. control: the same run as a single-member family (it is the newest): no ref", async () => {
+    mountAt(V1, familySingle());
+    await waitFor(() => expect(mockResolve).toHaveBeenCalled());
+    say("PROBE B resolveRunDeliverable calls:", JSON.stringify(mockResolve.mock.calls));
+    expect(refsOf(mockResolve.mock.calls)).not.toContain("v1");
+  });
+
+  it("C. control: the failed revision's own page (it is the newest): no ref", async () => {
+    mountAt(V2, familyFailedNewest());
+    await new Promise((r) => setTimeout(r, 150));
+    say("PROBE C resolveRunDeliverable calls:", JSON.stringify(mockResolve.mock.calls));
+    expect(refsOf(mockResolve.mock.calls)).not.toContain("v1");
+  });
+
+  it("D. sibling probe: URL pin /runs/{id}/versions/1 (pinnedMemberTag) on the Workspace tab asks the listing for ref v1 and shows the error", async () => {
+    mockGetSandbox.mockReset().mockImplementation((_t: string, _id: string, ref?: string) =>
+      ref ? Promise.reject(new Error("invalid ref")) : Promise.resolve({ run_id: V1, expired: false, truncated: false, files: [] }));
+    render(<PreviewPanel workflowType="prototype" prototypeContent="<html><head><title>P</title></head></html>"
+      pipelineState={settled(V1)} liveRunId={V1} runFamily={familyFailedNewest()} pinnedVersion="1"
+      deepLinkTarget={{ tab: "workspace", nonce: 1 }} />);
+    await waitFor(() => expect(mockGetSandbox.mock.calls.some((c) => c[2] === "v1")).toBe(true));
+    say("PROBE D getRunSandbox calls (token, runId, ref):", JSON.stringify(mockGetSandbox.mock.calls));
+    const err = await screen.findByText("invalid ref");
+    say("PROBE D Workspace tab list-error text rendered:", JSON.stringify(err.textContent), "class:", err.className);
+    expect(err).toBeTruthy();
+  });
+
+  it("E. sibling probe: the same pin but the sandbox DOES list the tag: no error (control)", async () => {
+    mockRefs.mockReset().mockResolvedValue(["v1"]);
+    mockGetSandbox.mockReset().mockResolvedValue({ run_id: V1, expired: false, truncated: false, files: [] });
+    render(<PreviewPanel workflowType="prototype" prototypeContent="<html><head><title>P</title></head></html>"
+      pipelineState={settled(V1)} liveRunId={V1} runFamily={familyFailedNewest()} pinnedVersion="1"
+      deepLinkTarget={{ tab: "workspace", nonce: 1 }} />);
+    await waitFor(() => expect(mockGetSandbox.mock.calls.some((c) => c[2] === "v1")).toBe(true));
+    await new Promise((r) => setTimeout(r, 100));
+    expect(screen.queryByText("invalid ref")).toBeNull();
+    say("PROBE E control: refs=['v1'] -> ref v1 requested, no error text");
+  });
+});

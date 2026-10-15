@@ -1,0 +1,18 @@
+# AFTER: store.py fix in place
+$ cd backend && ./.venv/bin/python -m pytest tests/integration/api/test_gate_reject_action_persisted_api.py -rxX -q -p no:cacheprovider
+FF                                                                       [100%]
+=================================== FAILURES ===================================
+______________ test_messages_route_reject_persists_reject_action _______________
+[XPASS(strict)] ISS-128 unfixed
+____________ test_concierge_disposal_reject_persists_reject_action _____________
+[XPASS(strict)] ISS-128 unfixed
+=============================== warnings summary ===============================
+    class Settings(BaseSettings):
+
+.venv/lib/python3.13/site-packages/fastapi/testclient.py:1
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+.venv/lib/python3.13/site-packages/starlette/testclient.py:53
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+2 failed, 3 warnings in 1.45s

@@ -1,0 +1,34 @@
+$ python3 tools/knowledge/rebuild_knowledge.py --skip-architecture   # python3 = /usr/bin/python3, 3.9.6
+before: cards_count: 1774 | cards_indexed: 1774 | 1774 cards. 
+Rebuilding .knowledge/ (3 stages)
+
+[1/3] index  (build_index.py)
+  Related blocks: 0 card(s) updated
+  INDEX.md: updated
+  state.yaml: updated
+  INDEX.md total lines: 1793
+  cards indexed: 1776
+  by_type: {'adr': 57, 'bug': 146, 'fix': 703, 'issue': 870} sum=1776
+  description source counts: {'compact_summary': 1768, 'title': 2, 'body': 6, 'none': 0}
+  cards with no usable description: []
+  state.yaml parses OK: True
+
+[2/3] context  (build_context.py)
+  Wrote /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/.knowledge/CONTEXT.md (12428 chars, ~3107 tokens)
+  cards_indexed=1776 modules_indexed=37
+    adr: 57 total, 6 open/active
+    issue: 870 total, 211 open/active
+    bug: 146 total, 6 open/active
+    fix: 703 total, 157 open/active
+
+[3/3] validate  (validate_links.py)
+  Card filenames checked: 1776
+  Card cross-refs checked: 4958
+  Total local links checked: 19442
+  Resolved: 19442
+  Broken: 0
+
+All stages completed.
+Regenerated files are uncommitted -- review and commit them yourself.
+exit=0
+after:  cards_count: 1776 | cards_indexed: 1776 | 1776 cards.  | CR bytes in CONTEXT.md: 0

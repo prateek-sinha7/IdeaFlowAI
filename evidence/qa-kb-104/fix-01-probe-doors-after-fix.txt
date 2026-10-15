@@ -1,0 +1,43 @@
+# QA-KB-104 fix 01: every door the card's test file does not drive, after the ISS-1117/ISS-1131 change (working tree on HEAD 511d71c28, 2026-10-08T23:15Z)
+# cmd: cd backend && PYTHONDONTWRITEBYTECODE=1 DATABASE_URL=sqlite:///:memory: .venv/bin/python -m pytest ../evidence/qa-kb-104/fix-plugins/test_probe_fix_doors.py -c pyproject.toml --rootdir=. -p no:cacheprovider -q -s -W ignore
+# probe, not a product test: in-memory SQLite; _launch_run_core and the engine singleton are STUBBED, so no run is minted, driven or paid for.
+
+
+[W1 top-level trigger app_builder] tier=basic -> (403, "conditional gate triggers 'app_builder': This pipeline requires Pro or higher. Upgrade your plan to unlock it.")
+[W2 nested subagents child triggers app_builder] tier=basic -> (403, "conditional gate triggers 'app_builder': This pipeline requires Pro or higher. Upgrade your plan to unlock it.")
+[W3 target self] tier=basic -> None
+[W4 target a saved-row id] tier=basic -> None
+[W5 target spec_kit (supported, no workflow.yaml)] tier=basic -> None
+[W6 trigger: step] tier=basic -> None
+[W7a None] tier=basic -> None
+[W7b {}] tier=basic -> None
+[W7c steps None] tier=basic -> None
+[W7d steps a string] tier=basic -> None
+[W7e junk entries] tier=basic -> None
+    _is_file_backed_workflow('spec_kit')=False 'spec_kit' in SUPPORTED=True
+[W8 real file manifest ex_A3_divert] tier=enterprise -> None
+[W8 real file manifest ex_A3_divert] tier=pro -> (403, "conditional gate triggers 'ex_A3_b_spanish': This pipeline requires Enterprise or higher. Upgrade your plan to unlock it.")
+[W8 real file manifest ex_A3_divert] tier=basic -> (403, "conditional gate triggers 'ex_A3_b_spanish': This pipeline requires Pro or higher. Upgrade your plan to unlock it.")
+[W8 real file manifest ex_A4_human_divert] tier=enterprise -> None
+[W8 real file manifest ex_A4_human_divert] tier=pro -> (403, "conditional gate triggers 'ex_A3_b_spanish': This pipeline requires Enterprise or higher. Upgrade your plan to unlock it.")
+[W8 real file manifest ex_A4_human_divert] tier=basic -> (403, "conditional gate triggers 'ex_A3_b_spanish': This pipeline requires Pro or higher. Upgrade your plan to unlock it.")
+[W9 matrix] tier=basic: 34 of 39 file-backed targets refused (5 entitled)
+[W9 matrix] tier=hexaware: 28 of 39 file-backed targets refused (11 entitled)
+[W9 matrix] tier=pro: 23 of 39 file-backed targets refused (16 entitled)
+[W9 matrix] tier=enterprise: 10 of 39 file-backed targets refused (29 entitled)
+[W9 matrix] mismatches vs can_run_pipeline: 0
+.
+[P1] basic PATCH manifest triggering app_builder -> 403 {'detail': "conditional gate triggers 'app_builder': This pipeline requires Pro or higher. Upgrade your plan to unlock it."} row unchanged=True
+[P2] basic PATCH manifest triggering ppt (control) -> 200
+.
+[L1] basic inline manifest triggering app_builder -> 403 {'detail': {'error': "conditional gate triggers 'app_builder': This pipeline requires Pro or higher. Upgrade your plan to unlock it.", 'code': 'tier_not_entitled', 'recoverable': False}} core reached=False
+[L2] basic inline manifest triggering ppt (control) -> 200 core reached=True
+[L3] basic stored row triggering ppt (control) -> 200 core reached=True
+[L4] basic launches built-in ppt with an ENABLED override whose steps trigger app_builder -> 403 {'detail': {'error': "conditional gate triggers 'app_builder': This pipeline requires Pro or higher. Upgrade your plan to unlock it.", 'code': 'tier_not_entitled', 'recoverable': False}} core reached=False
+.
+[L5] enterprise stored row triggering app_builder (control) -> 200 core reached=True
+.
+[R1] basic resumes a failed ppt run whose persisted manifest triggers app_builder -> 403 {'detail': {'error': "conditional gate triggers 'app_builder': This pipeline requires Pro or higher. Upgrade your plan to unlock it.", 'code': 'tier_not_entitled', 'recoverable': False}} status after='failed' queued=False
+[R2] basic resumes a failed ppt run whose persisted manifest triggers ppt (control) -> 200
+.
+5 passed in 1.86s

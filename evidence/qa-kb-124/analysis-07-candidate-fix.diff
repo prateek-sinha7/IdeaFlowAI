@@ -1,0 +1,37 @@
+--- a/backend/agents/factory.py
++++ b/backend/agents/factory.py
+@@ -155,6 +155,12 @@
+     # every other step/pipeline, so the custom-agent composition branch below
+     # falls back to ``artifact_name(instance_id, ctx.topic)`` unchanged.
+     deliverable_filename_override: str | None = None
++    # step_produces: the artifact kinds THIS step declares (AGENT.md ``produces`` overlaid
++    # with the compiled ``Step.produces`` by the engine's ``_specs_from_plan``), threaded by
++    # the engine because ``create_runner`` reloads the spec by id and that reload cannot see
++    # the overlay. Read only for ``route_decision`` (a gate's decision source: its REPLY is
++    # its answer). [] for every step that declares nothing, so every other prompt is unchanged.
++    step_produces: list[str] = field(default_factory=list)
+ 
+ 
+ def _resolve_step_skills(ids: list[str]) -> list[dict]:
+@@ -724,7 +730,10 @@
+         # which the conditional gate can't read route_decision from). A
+         # write-less step's own prompt (already in `parts` via ctx.step_prompt)
+         # is its complete instruction; nothing else to append here.
+-        if has_write_access:
++        _produces = list(getattr(spec, "produces", None) or []) + list(
++            getattr(ctx, "step_produces", None) or []
++        )
++        if has_write_access and "route_decision" not in _produces:
+             parts.append(
+                 f"## How to deliver\n\nCall `write_file` with path `{filename}`. "
+                 "Its content is your answer — never this instruction."
+--- a/backend/agents/execution_engine/engine.py
++++ b/backend/agents/execution_engine/engine.py
+@@ -9852,6 +9852,7 @@
+                     step_tools=getattr(
+                         getattr(ectx, "current_step", None), "tools", None
+                     ),
++                    step_produces=list(getattr(spec, "produces", None) or []),
+                     workflow_name=pipeline_type,
+                     # Only the FINAL step may be named by a single_file deliverable —
+                     # its declared name and the per-instance artifact convention are

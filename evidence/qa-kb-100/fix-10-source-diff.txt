@@ -1,0 +1,264 @@
+diff --git a/backend/agents/execution_engine/kernel_services.py b/backend/agents/execution_engine/kernel_services.py
+index 2710f263c..43950993f 100644
+--- a/backend/agents/execution_engine/kernel_services.py
++++ b/backend/agents/execution_engine/kernel_services.py
+@@ -1611,6 +1611,9 @@ class KernelServices:
+                 base_pipeline_type = row.base_pipeline_type
+                 row_agents_json = row.agents
+                 row_id = row.id
++                # ISS-1113: an override row's steps are user-authored, and the
++                # merge compiles them at "user"; this door must not give them "db".
++                row_trust = "user" if row.overrides_pipeline_type else "db"
+             finally:
+                 db.close()
+ 
+@@ -1638,7 +1641,7 @@ class KernelServices:
+                     raw_manifest, f"workflow:{row_id}"
+                 )
+                 target_compiled = _WORKFLOW_COMPILER.compile(
+-                    parsed_manifest, _CAPABILITY_REGISTRY, trust="db"
++                    parsed_manifest, _CAPABILITY_REGISTRY, trust=row_trust
+                 )
+                 target_pipeline_type = base_pipeline_type
+                 target_agents = None
+diff --git a/backend/agents/execution_engine/overrides.py b/backend/agents/execution_engine/overrides.py
+index 74ef792cd..689889484 100644
+--- a/backend/agents/execution_engine/overrides.py
++++ b/backend/agents/execution_engine/overrides.py
+@@ -5,9 +5,10 @@ workflow-level field — ``deliverable``, ``context_providers``, ``planner``,
+ ``clarify``, ``seed_files``, ``limits`` — comes from the FILE manifest on every
+ resolve and is never user-editable.
+ 
+-That is not tidiness, it is what makes the feature possible at all. A
+-``user``/``db`` manifest is untrusted (``_TRUSTED_SOURCES = {file, builtin}``),
+-and ``WorkflowCompiler._check_trust`` rejects any capability not registered
++That is not tidiness, it is what makes the feature possible at all. An
++override's steps are user-authored, so they compile at ``trust="user"`` (not
++``db``, which ``_TRUSTED_SOURCES`` has held since ADR-0039 — ISS-1092), and
++``WorkflowCompiler._check_trust`` rejects any capability not registered
+ ``user_allowed=True``. Two of ``ppt``'s workflow-level declarations fail that
+ check — ``deliverable: ppt`` and ``context_providers: [opendesign]`` are both
+ registered without the flag, and ``is_user_allowed`` defaults to False. Omitting
+@@ -40,12 +41,36 @@ logger = logging.getLogger(__name__)
+ # validator requires id/steps/deliverable/planner/clarify, but we discard
+ # everything except ``steps``, so these exist only to satisfy the shape.
+ # ``streamed_text`` is deliberately a user-allowed resolver: the isolated compile
+-# runs at trust="db" and must not fail on a placeholder we are about to throw
++# runs at trust="user" and must not fail on a placeholder we are about to throw
+ # away.
+ _PLACEHOLDER_DELIVERABLE = {"strategy": "streamed_text", "name": "output.md"}
+ _PLACEHOLDER_CLARIFY = {"mode": "skip", "defaults": []}
+ 
+ 
++def compile_override_steps(workflow_id: str, steps: list, registry):
++    """Compile an override row's ``steps`` alone, at ``trust="user"``.
++
++    The ONE check every reader and writer of an override row shares: the merge
++    below and the saves in ``app/api/user_workflows.py`` (ISS-1092, ISS-1112), so
++    a save can never store steps the merge would refuse. ``trust="user"`` applies
++    CAP-03, the exec/network/secrets/spawn grant rejection and the untrusted
++    permission cap (ISS-1111). Raises ``ManifestValidationError`` /
++    ``CompilerError`` naming the refusal.
++    """
++    from agents.workflows.compiler import WorkflowCompiler
++    from agents.workflows.manifest import build_manifest_from_dict
++
++    raw = {
++        "id": workflow_id,
++        "steps": steps,
++        "deliverable": _PLACEHOLDER_DELIVERABLE,
++        "planner": "skip",
++        "clarify": _PLACEHOLDER_CLARIFY,
++    }
++    parsed = build_manifest_from_dict(raw, f"override:{workflow_id}")
++    return WorkflowCompiler().compile(parsed, registry, trust="user")
++
++
+ def merge_override_steps(compiled, steps: list, registry):
+     """Return a NEW ``CompiledWorkflow`` carrying ``steps`` from an override row.
+ 
+@@ -78,26 +103,14 @@ def merge_override_steps(compiled, steps: list, registry):
+     # Imported here rather than at module scope: this module is reached from the
+     # kernel, and the compiler/manifest imports are heavier than the no-override
+     # path (the overwhelming majority of runs) should have to pay for.
+-    from agents.workflows.compiler import CompilerError, WorkflowCompiler
+-    from agents.workflows.manifest import (
+-        ManifestValidationError,
+-        build_manifest_from_dict,
+-    )
+-
+-    raw = {
+-        "id": compiled.id,
+-        "steps": steps,
+-        "deliverable": _PLACEHOLDER_DELIVERABLE,
+-        "planner": "skip",
+-        "clarify": _PLACEHOLDER_CLARIFY,
+-    }
++    from agents.workflows.compiler import CompilerError
++    from agents.workflows.manifest import ManifestValidationError
+ 
+     try:
+-        parsed = build_manifest_from_dict(raw, f"override:{compiled.id}")
+-        # trust="db" — the row was validated at save time but is re-checked here
+-        # because a row can be tampered with directly in the database. The
+-        # compiler's per-step capability checks are the real boundary.
+-        user_compiled = WorkflowCompiler().compile(parsed, registry, trust="db")
++        # The save already ran this check, but a row can be tampered with directly
++        # in the database, so it is re-run here. The compiler's per-step
++        # capability checks at trust="user" are the real boundary.
++        user_compiled = compile_override_steps(compiled.id, steps, registry)
+     except (ManifestValidationError, CompilerError) as exc:
+         # Narrow catch, matching engine._apply_selections' posture: these two are
+         # the ONLY expected rejections. Anything else is a programmer error and
+diff --git a/backend/app/api/run_commands.py b/backend/app/api/run_commands.py
+index 927c3d4c6..9d966d2bb 100644
+--- a/backend/app/api/run_commands.py
++++ b/backend/app/api/run_commands.py
+@@ -3293,6 +3293,7 @@ async def launch_run(
+                 attached_hooks=_row.attached_hooks,
+                 attached_skills=_row.attached_skills,
+                 model_overrides=_row.model_overrides,
++                overrides_pipeline_type=_row.overrides_pipeline_type,
+             )
+         finally:
+             launch_db.close()
+@@ -3347,6 +3348,14 @@ async def launch_run(
+         # Saved row, or an unsaved composition sent inline. Same shape either way;
+         # they differ only in provenance, which is what picks the trust level below.
+         _inline = user_workflow_row is None
++        # trust="user" for an inline manifest — the client authored it this
++        # request, so it gets the compiler's most restrictive level — and for an
++        # override row launched by id (ISS-1113): its steps are user-authored and
++        # merge_override_steps compiles them at "user", so this door must not hand
++        # them "db". Any other saved row keeps trust="db" (unchanged).
++        _trust = (
++            "user" if _inline or user_workflow_row.overrides_pipeline_type else "db"
++        )
+         raw_manifest = dict(
+             body.manifest if _inline else user_workflow_row.manifest_json
+         )
+@@ -3380,13 +3389,10 @@ async def launch_run(
+                 raw_manifest,
+                 "workflow:inline" if _inline else f"workflow:{user_workflow_row.id}",
+             )
+-            # trust="user" for an inline manifest — the client authored it this
+-            # request, so it gets the compiler's most restrictive level. A saved row
+-            # keeps trust="db" (unchanged), since it was already validated on save.
+             compiled = _WORKFLOW_COMPILER.compile(
+                 parsed_manifest,
+                 _CAPABILITY_REGISTRY,
+-                trust="user" if _inline else "db",
++                trust=_trust,
+             )
+         except (ManifestValidationError, CompilerError) as exc:
+             raise _reject(
+@@ -3399,7 +3405,7 @@ async def launch_run(
+         # the SAME workflow. `trust` rides along so the resume recompile is
+         # exactly as restrictive as the launch compile.
+         persisted_manifest = dict(raw_manifest)
+-        persisted_manifest["_trust"] = "user" if _inline else "db"
++        persisted_manifest["_trust"] = _trust
+ 
+         # A saved row dictates its own base type; an inline manifest keeps whatever
+         # the client asked for (the Composer sends its fixed-at-entry base, "custom").
+diff --git a/backend/app/api/user_workflows.py b/backend/app/api/user_workflows.py
+index a852a06b0..f46cb3d80 100644
+--- a/backend/app/api/user_workflows.py
++++ b/backend/app/api/user_workflows.py
+@@ -136,7 +136,41 @@ def _compile_check_manifest(manifest: dict, source_label: str) -> None:
+     )
+ 
+ 
+-def _validated_manifest(manifest: dict | None, source_label: str) -> dict | None:
++def _compile_check_override_steps(
++    steps: list, override_of: str, source_label: str
++) -> None:
++    """ISS-1112 — an override row's ``steps`` must pass the read side's check.
++
++    The merge compiles them alone at ``trust="user"`` and runs the file plan when
++    they fail, so a save that accepted them would store a row that never applies.
++    Every writer of an override row (POST insert and upsert, PATCH,
++    sync-from-file) runs the SAME shared check and answers 422 instead. Imported
++    lazily, like ``_compile_check_manifest`` above.
++    """
++    from agents.execution_engine.engine import _CAPABILITY_REGISTRY
++    from agents.execution_engine.overrides import compile_override_steps
++    from agents.workflows.compiler import CompilerError
++    from agents.workflows.manifest import ManifestValidationError
++
++    try:
++        compile_override_steps(override_of, steps, _CAPABILITY_REGISTRY)
++    except (ManifestValidationError, CompilerError) as exc:
++        logger.warning(
++            "override rejected at save: source=%s overrides=%s reason=%s: %s",
++            source_label,
++            override_of,
++            type(exc).__name__,
++            exc,
++        )
++        raise HTTPException(
++            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
++            detail=f"invalid workflow override ({source_label}): {exc}",
++        ) from exc
++
++
++def _validated_manifest(
++    manifest: dict | None, source_label: str, override_of: str | None = None
++) -> dict | None:
+     """Structurally validate a 012 step manifest before storing it (T36).
+ 
+     Deliberately NOT a full ``build_manifest_from_dict`` round-trip. That parser
+@@ -196,6 +230,9 @@ def _validated_manifest(manifest: dict | None, source_label: str) -> dict | None
+     # disk: the save would 200 and the FIRST RUN would be the thing that failed,
+     # long after the edit that caused it.
+     _compile_check_manifest(manifest, source_label)
++    # ISS-1112: the row overrides a built-in, so its steps get the merge's check too.
++    if override_of:
++        _compile_check_override_steps(steps, override_of, source_label)
+     return manifest
+ 
+ 
+@@ -831,7 +868,7 @@ def create_user_workflow(
+             prior.base_pipeline_type = body.base_pipeline_type
+             prior.model_overrides = body.model_overrides
+             prior.manifest_json = (
+-                _validated_manifest(body.manifest, f"workflow:{body.name}")
++                _validated_manifest(body.manifest, f"workflow:{body.name}", _ov_target)
+                 or body.selections
+                 or None
+             )
+@@ -876,7 +913,7 @@ def create_user_workflow(
+         # full step manifest (012). The request validator guarantees at most one
+         # was supplied, so this `or` chain can never silently discard the other.
+         manifest_json=(
+-            _validated_manifest(body.manifest, f"workflow:{body.name}")
++            _validated_manifest(body.manifest, f"workflow:{body.name}", _ov_target)
+             or body.selections
+             or None
+         ),
+@@ -1023,7 +1060,9 @@ def update_user_workflow(
+     if body.manifest is not None:
+         # T36: a manifest edit replaces the column outright. An empty dict clears
+         # it, mirroring the selections branch above.
+-        row.manifest_json = _validated_manifest(body.manifest, f"workflow:{row.id}")
++        row.manifest_json = _validated_manifest(
++            body.manifest, f"workflow:{row.id}", row.overrides_pipeline_type
++        )
+ 
+     if body.attached_skills is not None:
+         row.attached_skills = body.attached_skills or None
+@@ -1094,6 +1133,14 @@ def sync_user_workflow_from_file(
+             detail=f"No usable file manifest for pipeline_type {body.pipeline_type!r}: {exc}",
+         ) from exc
+ 
++    # ISS-1112: syncing into an override row stores steps the merge will compile at
++    # trust="user", so they must pass that check here (steps only: the file's own
++    # workflow-level fields are never read off an override row).
++    if row.overrides_pipeline_type and new_manifest.get("steps"):
++        _compile_check_override_steps(
++            new_manifest["steps"], row.overrides_pipeline_type, f"workflow:{row.id}"
++        )
++
+     old_manifest = row.manifest_json if isinstance(row.manifest_json, dict) else None
+     diff = _diff_manifest_dicts(old_manifest, new_manifest)
+ 

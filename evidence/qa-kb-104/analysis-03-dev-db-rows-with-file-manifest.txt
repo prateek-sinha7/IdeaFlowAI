@@ -1,0 +1,8 @@
+# QA-KB-104 analysis 03: stored user rows that already carry a file workflow's manifest, dev DB (velocity-local-db on localhost:5432), 2026-10-08T19:26Z, HEAD c9c4c630a
+# cmd: cd backend && PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=. .venv/bin/python ../evidence/qa-kb-104/analysis-plugins/query_synced_rows.py
+# read-only: SET TRANSACTION READ ONLY, three SELECTs, no write. users.tier is the advisory DB projection, not the Cognito-group authority.
+Q0: SELECT (SELECT count(*) FROM workflows) AS workflows_rows, (SELECT count(*) FROM users) AS users_rows
+Q1: SELECT source, count(*) AS n, count(manifest_json) AS with_manifest FROM workflows GROUP BY source ORDER BY source
+Q2: SELECT w.id, w.user_id, u.tier, w.base_pipeline_type, w.overrides_pipeline_type, w.manifest_json FROM workflows w LEFT JOIN users u ON u.id = w.user_id WHERE w.source = 'user' AND w.manifest_json IS NOT NULL AND (w.manifest_json::jsonb) ? 'id' ORDER BY w.created_at
+Q0: workflows table has 0 row(s); users table has 4 row(s)
+Q2: 0 user row(s) whose manifest_json has a top-level 'id'

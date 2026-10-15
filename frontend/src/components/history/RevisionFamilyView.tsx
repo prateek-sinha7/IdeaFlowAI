@@ -21,6 +21,7 @@ import {
 import type { WorkflowRun, WorkflowStatus, RunFamily } from "@/types/index";
 import { parseRunInput } from "@/lib/runInput";
 import { useWorkflowShortNames } from "@/hooks/useWorkflowMetadata";
+import { useEscapeToClose } from "@/hooks/useEscapeToClose";
 // INV-12: the run-stat formatters live once in @/lib/runStats — no local copy.
 import { formatDuration, formatTokenCount } from "@/lib/runStats";
 
@@ -442,13 +443,13 @@ function RowMenu({
   onDeleteClick: (runId: string, e?: React.MouseEvent) => void;
 }) {
   const isOpen = openMenuId === runId;
+  // a11y: Escape closes the open menu (toggling the same row closes it). ISS-931:
+  // a document listener, so it fires even when focus is on BODY. The isOpen gate
+  // is load-bearing: onToggleMenu is a toggle, so an ungated row would OPEN its menu.
+  useEscapeToClose(() => onToggleMenu(runId), isOpen);
   return (
     <div
       className="relative"
-      onKeyDown={(e) => {
-        // a11y: Escape closes the open menu (toggling the same row closes it).
-        if (e.key === "Escape" && isOpen) { e.stopPropagation(); onToggleMenu(runId); }
-      }}
     >
       <button
         type="button"

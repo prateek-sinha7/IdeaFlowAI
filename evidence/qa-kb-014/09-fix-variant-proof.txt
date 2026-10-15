@@ -1,0 +1,36 @@
+# Proof the regression tests are not vacuous. cwd frontend/, HEAD 024c03ef8, 2026-10-02 00:36 CEST.
+# Method: the variant component is written to a short-lived sibling src/components/workflow/IdeaInputPage.zzIss371Variant.tsx, and copies of the two ISS-371 test files import it instead of ./IdeaInputPage. All three temp files are deleted by an EXIT trap.
+
+## A. Pre-fix: variant = git show HEAD:frontend/src/components/workflow/IdeaInputPage.tsx
+$ vitest --run --reporter=verbose <rebaseline copy>
+ × src/components/workflow/IdeaInputPage.zzIss371Variant.test.tsx > ISS-371 — the unsaved-work baseline follows seeds and saves > a roster that arrives after mount is not unsaved work 144ms
+ × src/components/workflow/IdeaInputPage.zzIss371Variant.test.tsx > ISS-371 — the unsaved-work baseline follows seeds and saves > a successful Save is not unsaved work 106ms
+ × src/components/workflow/IdeaInputPage.zzIss371Variant.test.tsx > ISS-371 — the unsaved-work baseline follows seeds and saves > unmount reports clean 48ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+AssertionError: expected "vi.fn()" to be called at least once
+AssertionError: expected last "vi.fn()" call to have been called with [ true ]
+AssertionError: expected last "vi.fn()" call to have been called with [ true ]
+      Tests  3 failed (3)
+
+## B. Naive baseline: variant = the fixed file with every setRosterBaseline(/setBriefBaseline( call removed, so the baseline is taken once at mount and never moves
+removed lines: 7
+$ vitest --run --reporter=verbose <rebaseline copy>
+ × src/components/workflow/IdeaInputPage.zzIss371Variant.test.tsx > ISS-371 — the unsaved-work baseline follows seeds and saves > a roster that arrives after mount is not unsaved work 145ms
+ × src/components/workflow/IdeaInputPage.zzIss371Variant.test.tsx > ISS-371 — the unsaved-work baseline follows seeds and saves > a successful Save is not unsaved work 1179ms
+ ✓ src/components/workflow/IdeaInputPage.zzIss371Variant.test.tsx > ISS-371 — the unsaved-work baseline follows seeds and saves > unmount reports clean 52ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+AssertionError: expected "vi.fn()" to not be called with arguments: [ true ]
+AssertionError: expected last "vi.fn()" call to have been called with [ false ]
+      Tests  2 failed | 1 passed (3)
+
+## C. The shipped it.fails file against the naive variant B: all three bodies still PASS ("Expect test to fail"), so the shipped file alone cannot tell the naive baseline from the fix
+$ vitest --run --reporter=verbose <iss371 copy>
+ × src/components/workflow/IdeaInputPage.zzIss371Shipped.test.tsx > ISS-371 — IdeaInputPage reports unsaved work to the Back guard > reports dirty after a brief is typed 169ms
+   → Expect test to fail
+ × src/components/workflow/IdeaInputPage.zzIss371Shipped.test.tsx > ISS-371 — IdeaInputPage reports unsaved work to the Back guard > is not dirty after the async roster re-seed alone, and clears when the brief is emptied 32ms
+   → Expect test to fail
+ × src/components/workflow/IdeaInputPage.zzIss371Shipped.test.tsx > ISS-371 — IdeaInputPage reports unsaved work to the Back guard > DashboardLayout feeds the IdeaInputPage mount into the guard (Back with dirty state prompts) 2ms
+   → Expect test to fail
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+Error: Expect test to fail
+      Tests  3 failed (3)

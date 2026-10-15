@@ -1,0 +1,12 @@
+# 3-analyzer QA-KB-087, run 2026-10-02 (CEST 11:10)
+# Run 1: the OFFICIAL file, unmodified, from frontend/ (the validator's command)
+$ cd frontend && npx vitest run src/components/settings/AccountSettings.iss372.test.tsx --reporter=verbose
+ RUN  v4.1.11 /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/frontend
+ ✓ src/components/settings/AccountSettings.iss372.test.tsx > ISS-372 — AccountSettings reports unsaved work to the Back guard > reports dirty after Current password is typed 115ms
+ ✓ src/components/settings/AccountSettings.iss372.test.tsx > ISS-372 — AccountSettings reports unsaved work to the Back guard > is not dirty on mount, and clears when the field is emptied 32ms
+ ✓ src/components/settings/AccountSettings.iss372.test.tsx > ISS-372 — AccountSettings reports unsaved work to the Back guard > DashboardLayout feeds the AccountSettings mount into the guard 2ms
+ ✓ src/components/settings/AccountSettings.iss372.test.tsx > ISS-921 — Constitution draft counts as unsaved work > reports dirty after the Constitution draft is edited (not before it loads) 1218ms
+ Test Files  1 passed (1)
+      Tests  3 passed | 1 expected fail (4)
+   Start at  11:10:48
+   Duration  2.47s (transform 104ms, setup 70ms, import 370ms, tests 1.37s, environment 560ms)

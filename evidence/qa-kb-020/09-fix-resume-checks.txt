@@ -1,0 +1,31 @@
+# QA-KB-020 fixer, resumed session 2026-10-02: re-observed after the usage-limit interruption. No source edit in this session.
+## npx vitest --run src/hooks/useRunChat.test.ts
+ RUN  v4.1.11 /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/frontend
+ ❯ src/hooks/useRunChat.test.ts (27 tests | 3 failed) 48ms
+     × ISS-654: approving run A (earlier gate) resolves only A 2ms
+     × ISS-654: approval for a run with no card in the transcript resolves nothing 1ms
+     × ISS-926: re-fetch after a send asks the viewed run for ITS last seq, not the family max 4ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+ FAIL  src/hooks/useRunChat.test.ts > useRunChat — review_gate_approved run identity (ISS-654) > ISS-654: approving run A (earlier gate) resolves only A
+ FAIL  src/hooks/useRunChat.test.ts > useRunChat — review_gate_approved run identity (ISS-654) > ISS-654: approval for a run with no card in the transcript resolves nothing
+ FAIL  src/hooks/useRunChat.test.ts > useRunChat — per-run seq cursor (ISS-926) > ISS-926: re-fetch after a send asks the viewed run for ITS last seq, not the family max
+Error: Expect test to fail
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/3]⎯
+ Test Files  1 failed (1)
+      Tests  3 failed | 23 passed | 1 expected fail (27)
+   Start at  01:15:56
+   Duration  964ms (transform 83ms, setup 62ms, import 155ms, tests 48ms, environment 482ms)
+## neighbours, one file each
+src/app/[...view]/freshLaunchTranscriptReset.source.test.ts ::       Tests  6 passed (6)
+src/providers/RunConnectionProvider.test.tsx ::       Tests  18 passed (18)
+src/components/chat/ResultCard.test.tsx ::       Tests  16 passed (16)
+src/hooks/useRunChat.chatTimestamp.test.ts ::       Tests  3 passed (3)
+## npx tsc --noEmit -p . : 13 errors in 7 unrelated test files; sorted set identical to 06-fix-tsc-after.txt; 0 in useRunChat.ts / page.tsx
+## npx eslint src/hooks/useRunChat.ts : exit 0, no output
+## before-baseline, isolated (no file written in the shared tree)
+# Scratch harness outside the repo: `git show HEAD:frontend/src/hooks/useRunChat.ts` + the CURRENT
+# frontend/src/hooks/useRunChat.test.ts, a copy of vitest.setup.ts, the `@` alias -> frontend/src,
+# node_modules symlinked to frontend/node_modules. One file, `vitest --run src/hooks/useRunChat.test.ts`.
+HEAD hook (024c03ef8)  ->  Tests  23 passed | 4 expected fail (27)
+fixed hook (tree)      ->  Tests  3 failed | 23 passed | 1 expected fail (27)   ("Error: Expect test to fail" x3)
+# Same harness, only the hook swapped, so it discriminates: the 3 it.fails flip only with the fix.

@@ -1,0 +1,18 @@
+# fix-02 probe: the REAL _sanitize_agent_error after the FIX-784 change (offline; no network, no model call)
+# run: cd backend && PYTHONPATH=. .venv/bin/python ../evidence/qa-kb-121/fix-02-probe.py
+# observed 2026-10-12 10:08 CEST on the working tree (HEAD cd70d2979 + uncommitted engine.py change)
+bedrock AccessDeniedException            -> INVALID_KEY
+bedrock 403                              -> INVALID_KEY
+bedrock AccessDenied                     -> INVALID_KEY
+ExpiredTokenException (control)          -> CREDENTIAL
+STS security token (control)             -> CREDENTIAL
+A4 auth failed (control)                 -> CREDENTIAL
+Mistral 401 (control)                    -> CREDENTIAL
+Anthropic 401 (ISS-1202, left open)      -> GENERIC
+unknown (control)                        -> GENERIC
+ARN leak guard                           -> INVALID_KEY
+len(new copy) = 173 (< 400 fan-out cap)
+frontend security-gate regex matches new copy: False
+new copy in TRANSIENT_AGENT_ERRORS (fan-out would retry): False
+run-stop set: ['The model could not be reached — a provider cred', 'The model could not be reached — the provider re']
+copy: The model could not be reached — the provider rejected its API key (invalid, revoked or expired). Rotate the key (Bedrock: AWS_BEARER_TOKEN_BEDROCK) and restart the backend.

@@ -1,0 +1,10 @@
+QA-KB-120 probe: FakeSandbox.stage_exact (per path) vs PYTHONHASHSEED, unmaterialized output.html
+PYTHONHASHSEED=0: materialized=False allowlist_names_missing_output=True staged=['.chain/logs.jsonl']
+PYTHONHASHSEED=1: materialized=False allowlist_names_missing_output=True staged=['.chain/summary.md']
+PYTHONHASHSEED=2: materialized=False allowlist_names_missing_output=True staged=[]
+PYTHONHASHSEED=3: materialized=False allowlist_names_missing_output=True staged=['.chain/logs.jsonl', '.chain/summary.md']
+PYTHONHASHSEED=4: materialized=False allowlist_names_missing_output=True staged=['.chain/logs.jsonl']
+PYTHONHASHSEED=5: materialized=False allowlist_names_missing_output=True staged=[]
+PYTHONHASHSEED=6: materialized=False allowlist_names_missing_output=True staged=[]
+PYTHONHASHSEED=7: materialized=False allowlist_names_missing_output=True staged=['.chain/logs.jsonl', '.chain/summary.md']
+distinct staged sets across 8 seeds = 4  (1 would mean deterministic)

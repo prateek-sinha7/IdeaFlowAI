@@ -24,6 +24,8 @@ regardless of what B committed in between.
 
 from __future__ import annotations
 
+import uuid
+
 import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -57,9 +59,8 @@ def seeded_user_id(engine):
     user = User(
         id="user-race",
         email="race@example.com",
+        cognito_sub=str(uuid.uuid4()),
         tier="enterprise",
-        # NOT NULL since the Cognito-only auth migration (b2a621f8).
-        cognito_sub="sub-user-race",
     )
     s.add(user)
     s.commit()

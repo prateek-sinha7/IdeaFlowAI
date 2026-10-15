@@ -1,0 +1,18 @@
+# tsc --noEmit -p . on a clean export of HEAD's frontend (git archive HEAD frontend, node_modules linked), HEAD 9cd0d6c5a, 2026-10-09 16:58 CEST.
+# Same command CI's mandatory frontend-static 'typecheck' check runs (ci/frontend-static-checks.json: npm run typecheck = tsc --noEmit). Found while verifying QA-KB-109; not caused by it.
+
+src/components/analytics/AnalyticsPage.test.tsx(363,23): error TS2322: Type '{ id: string; }' is not assignable to type 'never'.
+src/components/DashboardLayout.chain.test.tsx(43,81): error TS2554: Expected 0 arguments, but got 2.
+src/components/DashboardLayout.chain.test.tsx(145,3): error TS2739: Type '{ id: string; title: string; type: "user_stories"; status: "completed"; input: string; parentRunId: null; rootRunId: string; }' is missing the following properties from type 'WorkflowRun': createdAt, agentCount
+src/components/history/WorkflowHistory.modelChip.test.tsx(194,7): error TS2322: Type 'string' is not assignable to type 'AgentThinkingEntry[]'.
+src/components/history/WorkflowHistory.modelChip.test.tsx(223,7): error TS2322: Type 'string' is not assignable to type 'AgentThinkingEntry[]'.
+src/components/history/WorkflowHistory.modelChip.test.tsx(244,7): error TS2322: Type 'string' is not assignable to type 'AgentThinkingEntry[]'.
+src/components/preview/PreviewPanel.liveVersion.test.tsx(94,53): error TS2322: Type 'Mock<Procedure | Constructable>' is not assignable to type '((runId: string, tab: string) => void) | undefined'.
+src/components/results/AgentDetailPanel.waveWorkerStatus.test.tsx(370,39): error TS2322: Type 'any' is not assignable to type 'never'.
+src/components/results/AgentDetailPanel.waveWorkerStatus.test.tsx(370,74): error TS2349: This expression is not callable.
+src/components/results/AgentDetailPanel.waveWorkerStatus.test.tsx(387,39): error TS2322: Type 'any' is not assignable to type 'never'.
+src/components/results/AgentDetailPanel.waveWorkerStatus.test.tsx(387,74): error TS2349: This expression is not callable.
+src/hooks/useWorkflow.imagePayload.test.ts(32,47): error TS2345: Argument of type '{ enabled: true; phase: "idle"; liveRunIds: never[]; reattach: Mock<Procedure>; attachRun: Mock<Procedure>; detachRun: Mock<Procedure>; subscribe: Mock<...>; sendCommand: Mock<...>; }' is not assignable to parameter of type 'RunConnectionContextValue'.
+src/providers/RunConnectionProvider.test.tsx(630,45): error TS2493: Tuple type '[]' of length '0' has no element at index '0'.
+
+error count: 13

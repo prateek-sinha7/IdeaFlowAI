@@ -156,6 +156,12 @@ class AgentContext:
     # every other step/pipeline, so the custom-agent composition branch below
     # falls back to ``artifact_name(instance_id, ctx.topic)`` unchanged.
     deliverable_filename_override: str | None = None
+    # step_produces (ISS-1156): the artifact kinds THIS step declares, off the
+    # engine's overlaid spec (``_specs_from_plan``). Threaded because
+    # ``create_runner`` reloads the spec by id and the reload cannot see the
+    # overlay. Read only for ``route_decision`` (a gate's decision source, whose
+    # REPLY is its answer); [] everywhere else, so every other prompt is unchanged.
+    step_produces: list[str] = field(default_factory=list)
 
 
 def _resolve_step_skills(ids: list[str]) -> list[dict]:
@@ -758,7 +764,14 @@ def _compose_system_prompt(
         # which the conditional gate can't read route_decision from). A
         # write-less step's own prompt (already in `parts` via ctx.step_prompt)
         # is its complete instruction; nothing else to append here.
-        if has_write_access:
+        #
+        # Nor for a step whose reply IS a typed decision (ISS-1156): the
+        # conditional gate parses only the reply, so a write-granted decision
+        # step told to deliver via write_file leaves the gate nothing to route.
+        produces = list(getattr(spec, "produces", None) or []) + list(
+            getattr(ctx, "step_produces", None) or []
+        )
+        if has_write_access and "route_decision" not in produces:
             parts.append(
                 f"## How to deliver\n\nCall `write_file` with path `{filename}`. "
                 "Its content is your answer — never this instruction."

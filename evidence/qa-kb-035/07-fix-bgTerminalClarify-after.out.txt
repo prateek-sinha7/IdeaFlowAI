@@ -1,0 +1,11 @@
+ ✓ src/app/[...view]/bgTerminalClarify.qaKb035.source.test.ts > QA-KB-035 background terminal frame vs viewed run > slices the live block 1ms
+ × src/app/[...view]/bgTerminalClarify.qaKb035.source.test.ts > QA-KB-035 background terminal frame vs viewed run > ISS-676: background pipeline_cancelled leaves the viewed run's clarify state alone 1ms
+   → Expect test to fail
+ × src/app/[...view]/bgTerminalClarify.qaKb035.source.test.ts > QA-KB-035 background terminal frame vs viewed run > ISS-676: background pipeline_failed leaves the viewed run's clarify state alone 0ms
+   → Expect test to fail
+ × src/app/[...view]/bgTerminalClarify.qaKb035.source.test.ts > QA-KB-035 background terminal frame vs viewed run > ISS-927: background cancel does not overwrite lastCancelledRunId 0ms
+   → Expect test to fail
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+Error: Expect test to fail
+ Test Files  1 failed (1)
+      Tests  3 failed | 1 passed (4)

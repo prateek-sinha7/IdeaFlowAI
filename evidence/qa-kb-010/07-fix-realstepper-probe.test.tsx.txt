@@ -1,0 +1,110 @@
+/**
+ * QA-KB-010 / ISS-189 scratch probe (not part of the repo).
+ * Same module mocks as LaunchWizard.test.tsx EXCEPT the WizardStepper stub:
+ * the REAL stepper renders here, with only the two galleries stubbed, so the
+ * Design System tab and dsSlot mount exactly as they do in the browser.
+ * Runs the working-tree LaunchWizard ("current") and the HEAD copy ("head").
+ */
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { renderWithProviders, screen } from "@/test/renderWithProviders";
+import userEvent from "@testing-library/user-event";
+import { PROTO_AGENTS, PPT_AGENTS } from "@/components/workflow/__fixtures__/launchContract";
+import type { AgentDef } from "@/types/index";
+
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: vi.fn(), replace: vi.fn(), prefetch: vi.fn() }),
+}));
+vi.mock("@/lib/api", () => ({
+  getToken: () => "test-token",
+  getMe: vi.fn().mockResolvedValue({ id: "u1", email: "qa@flowinqa.com", tier: "enterprise" }),
+  extractFileText: vi.fn(),
+  stageRunFile: vi.fn(),
+  createUserWorkflow: vi.fn().mockResolvedValue({ id: "wf-1" }),
+  saveUserWorkflow: vi.fn().mockResolvedValue({ id: "wf-1" }),
+  getWorkflowDetail: vi.fn().mockResolvedValue({
+    id: "ppt", steps: [], manifest_steps: null, has_override: false, is_overridden: false, override_id: null,
+  }),
+  setWorkflowOverrideEnabled: vi.fn().mockResolvedValue({}),
+}));
+vi.mock("@/lib/prototype-api", () => ({
+  listPrototypeTemplates: vi.fn().mockResolvedValue([{ id: "kanban", name: "Kanban", example_prompt: "Example brief" }]),
+  listDesignSystems: vi.fn().mockResolvedValue([{ id: "midnight", name: "Midnight" }]),
+}));
+vi.mock("@/lib/ppt-api", () => ({
+  listPPTTemplates: vi.fn().mockResolvedValue([
+    { id: "pitch", name: "Pitch", design_system: { requires: true } },
+    { id: "onepager", name: "One Pager", design_system: { requires: false } },
+  ]),
+}));
+vi.mock("@/hooks/useSpeechRecognition", () => ({
+  useSpeechRecognition: () => ({ isListening: false, transcript: "", startListening: vi.fn(), stopListening: vi.fn(), isSupported: false }),
+}));
+vi.mock("@/components/workflow/prototype/TemplateGallery", () => ({
+  TemplateGallery: () => <div data-testid="web-gallery" />,
+}));
+vi.mock("@/components/workflow/ppt/PPTTemplateGallery", () => ({
+  PPTTemplateGallery: ({ onSelect }: { onSelect: (id: string) => void }) => (
+    <div data-testid="deck-gallery">
+      <button data-testid="gallery-pick-pitch" onClick={() => onSelect("pitch")}>pitch</button>
+      <button data-testid="gallery-pick-onepager" onClick={() => onSelect("onepager")}>onepager</button>
+    </div>
+  ),
+}));
+vi.mock("@/components/workflow/prototype/DesignSystemPicker", () => ({
+  DesignSystemPicker: ({ onSelect }: { onSelect: (id: string) => void }) => (
+    <button data-testid="pick-ds" onClick={() => onSelect("midnight")}>ds</button>
+  ),
+}));
+vi.mock("@/components/workflow/ReviewGatesSection", () => ({
+  ReviewGatesSection: () => <div />,
+}));
+vi.mock("@/components/workflow/AgentsPopup", () => ({
+  AgentsPopup: () => <div />,
+}));
+vi.mock("@/components/catalog/NameWorkflowModal", () => ({
+  NameWorkflowModal: () => <div />,
+}));
+
+import { LaunchWizard as Current } from "@/components/workflow/LaunchWizard";
+import { LaunchWizard as Head } from "./LaunchWizard.HEAD";
+
+const agents = (): AgentDef[] => [
+  ...PROTO_AGENTS.map((id, i) => ({ id, name: id, role: "r", description: "d", pipeline_type: "prototype", order: i + 1, icon: "zap", estimated_duration: 60, has_skill: false })),
+  ...PPT_AGENTS.map((id, i) => ({ id, name: id, role: "r", description: "d", pipeline_type: "ppt", order: i + 1, icon: "zap", estimated_duration: 60, has_skill: false })),
+] as AgentDef[];
+const state = () => ({ agents: { agents: agents(), totalCount: agents().length, pipelines: {}, status: "succeeded" as const, error: null } });
+const drafts = () => Object.keys(sessionStorage).filter((k) => k.endsWith(".draft")).map((k) => sessionStorage.getItem(k) ?? "");
+
+beforeEach(() => sessionStorage.clear());
+
+for (const [label, Wizard] of [["current", Current], ["head", Head]] as const) {
+  for (const mode of ["ppt", "ppt_v2"] as const) {
+    describe(`${label} ${mode}`, () => {
+      it("DS-requiring template: DS tab mounts the picker, Continue enables, draft carries the DS", async () => {
+        const user = userEvent.setup();
+        renderWithProviders(<Wizard initialMode={mode} />, { preloadedState: state() });
+        await user.type(await screen.findByLabelText("Brief"), "Pitch deck");
+        await user.click(await screen.findByTestId("gallery-pick-pitch"));
+        expect(screen.getByRole("button", { name: "Continue" })).toBeDisabled();
+        expect(screen.getByText("Pick a design system")).toBeInTheDocument();
+        await user.click(screen.getByTestId("tab-design-system"));
+        await user.click(await screen.findByTestId("pick-ds"));
+        expect(screen.queryByText("Pick a design system")).toBeNull();
+        const cont = screen.getByRole("button", { name: "Continue" });
+        expect(cont).toBeEnabled();
+        await user.click(cont);
+        expect(drafts().some((d) => d.includes('"designSystemId":"midnight"'))).toBe(true);
+      });
+
+      it("non-DS template: only the Template tab, Continue enables with no DS", async () => {
+        const user = userEvent.setup();
+        renderWithProviders(<Wizard initialMode={mode} />, { preloadedState: state() });
+        await user.type(await screen.findByLabelText("Brief"), "Pitch deck");
+        await user.click(await screen.findByTestId("gallery-pick-onepager"));
+        expect(screen.queryByTestId("tab-design-system")).toBeNull();
+        expect(screen.getAllByRole("tab").map((t) => t.getAttribute("data-testid"))).toEqual(["tab-template"]);
+        expect(screen.getByRole("button", { name: "Continue" })).toBeEnabled();
+      });
+    });
+  }
+}

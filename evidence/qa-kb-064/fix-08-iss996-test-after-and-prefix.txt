@@ -1,0 +1,6 @@
+# ISS-996 committed test — AFTER the fix (plain run)
+.                                                                        [100%]
+1 passed in 1.18s
+# ISS-996 committed test — PRE-FIX list_tags patched back in-process (-p baseline_plugin)
+E       AssertionError: GET /sandbox/refs re-created the swept sandbox directory
+1 failed in 1.13s

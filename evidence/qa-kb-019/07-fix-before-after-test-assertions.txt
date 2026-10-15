@@ -1,0 +1,4 @@
+stripAttachmentMarker HEAD (pre-fix): it.fails ] name=assertion-fails, it.fails , name=assertion-fails, it.fails ], name=assertion-fails, guard typed-after=assertion-holds, guard one-of-two=assertion-holds
+stripAttachmentMarker working tree (post-fix): it.fails ] name=assertion-holds, it.fails , name=assertion-holds, it.fails ], name=assertion-holds, guard typed-after=assertion-holds, guard one-of-two=assertion-holds
+cleanBrief HEAD (pre-fix): "idea\n\n.txt]" -> test assertion fails
+cleanBrief working tree (post-fix): "idea" -> test assertion holds

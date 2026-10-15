@@ -1,0 +1,2 @@
+### tests/security/test_route_contract.py (after fix, final tree, 2026-10-07T18:27:47Z)
+4 passed, 1 warning in 0.66s

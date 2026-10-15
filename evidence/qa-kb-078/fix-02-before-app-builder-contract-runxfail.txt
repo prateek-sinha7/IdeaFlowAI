@@ -1,0 +1,8 @@
+      At index 95 diff: {'type': 'pipeline_complete', 'data': {'pipeline_type': 'app_builder', 'agents_completed': 15, 'agents_total': 15, 'final_output': "```filename: README.md\n# Generated App\n\n```\n\n```filename: src/app.py\nprint('hello')\n\n```", 'total_input_tokens': '<normalized>', 'total_
+      
+      ...Full output truncated (2 lines hidden), use '-vv' to show
+/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/tests/contract/agents/test_characterization_app_builder.py:83: AssertionError: app_builder normalized event stream diverged from the committed golden (dropped/reordered event or lost required key). Regenerate intenti
+=========================== short test summary info ============================
+FAILED tests/contract/agents/test_characterization_app_builder.py::test_app_builder_deliverable_byte_snapshot
+FAILED tests/contract/agents/test_characterization_app_builder.py::test_app_builder_event_snapshot
+2 failed in 6.89s

@@ -1,0 +1,6 @@
+### mutant probe of the two static guards (2026-10-07T18:27:38Z); True = guard passes
+csp guard, fixed tree                      : True
+csp guard, CSP line removed (comment kept) : False
+csp guard, value -> default-src 'self'     : False
+rewrite guard, fixed tree                  : True
+rewrite guard, || reverted to ??           : False

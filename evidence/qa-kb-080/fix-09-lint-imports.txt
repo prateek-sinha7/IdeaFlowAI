@@ -1,0 +1,46 @@
+=============
+Import Linter
+=============
+
+---------
+Contracts
+---------
+
+Analyzed 310 files, 823 dependencies.
+-------------------------------------
+
+kernel imports only capability ports (scaffold) BROKEN
+agents.workflows must not import the execution kernel or the web layer KEPT
+agents.capabilities must not import the execution kernel or the web layer BROKEN
+agents.runtime must not import the execution kernel or the web layer KEPT
+shipped code must not import the build-time tooling package KEPT
+
+Contracts: 3 kept, 2 broken.
+
+
+----------------
+Broken contracts
+----------------
+
+kernel imports only capability ports (scaffold)
+-----------------------------------------------
+
+agents.execution_engine.engine is not allowed to import app.api:
+
+-   agents.execution_engine.engine -> agents.execution_engine.kernel_services (l.5818)
+    agents.execution_engine.kernel_services -> app.api.runs (l.1858)
+
+-   agents.execution_engine.engine -> app.api.launch_context (l.4577, l.4590, l.4987, l.15668)
+
+-   agents.execution_engine.engine -> app.api.runs (l.3577)
+
+
+agents.capabilities must not import the execution kernel or the web layer
+-------------------------------------------------------------------------
+
+agents.capabilities is not allowed to import app:
+
+-   agents.capabilities.prototype_ui_extract -> app.agents.tools.html_extract (l.333)
+
+
+exit=1

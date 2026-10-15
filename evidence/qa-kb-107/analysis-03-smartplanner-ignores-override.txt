@@ -1,0 +1,7 @@
+# analysis-03: SmartPlanner ignores USE_LOCAL_OLLAMA, offline
+# run at: 2026-10-09T00:54Z
+# USE_LOCAL_OLLAMA=1 in os.environ for every line below
+no bearer token    SmartPlanner()._build_llm reaches -> ['ChatBedrockConverse']
+no bearer token    build_model()            reaches -> ['ChatOllama']
+bearer token set   SmartPlanner()._build_llm reaches -> ['ChatBedrockConverse']
+bearer token set   build_model()            reaches -> ['ChatOllama']

@@ -1,0 +1,17 @@
+QA-KB-112 analysis evidence 04: tests/integration/capture/_coverage.py (static scan of frontend/src against tests/integration/**/*.md|json; no browser, no network)
+Run at 2026-10-12T09:42:32+02:00 from the repo root: python3 tests/integration/capture/_coverage.py
+Filtered to the summary rows, the section headers and every totp line. The three controls of the enrolment page are in NO spec:
+that is the coverage the owner-decided test fix has to add (assert them, and these three lines disappear).
+
+data-testid   188 distinct     46 in no spec
+aria-label    139 distinct     27 in no spec
+name           61 distinct     10 in no spec
+text-label     24 distinct     10 in no spec
+TOTAL 412 addressable controls, 93 uncovered (77% covered)
+── uncovered data-testid (46)
+   totp-otpauth-uri                             app/settings/security/page.tsx
+   totp-secret                                  app/settings/security/page.tsx
+── uncovered aria-label (27)
+── uncovered name (10)
+   totp-code                                    app/settings/security/page.tsx
+── uncovered text-label (10)

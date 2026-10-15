@@ -19,6 +19,7 @@ from agents.capabilities.prototype_ui_extract import (
     to_hex,
 )
 from app.agents.sandbox import RunSandbox
+from app.agents.tools.html_extract import materialise_html
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "html"
 
@@ -27,20 +28,6 @@ def _sandbox(tmp_path: Path) -> RunSandbox:
     sb = RunSandbox("u", "r", runs_root=str(tmp_path))
     sb.ensure()
     return sb
-
-
-class _Runner:
-    def __init__(self, sandbox: RunSandbox) -> None:
-        self.sandbox = sandbox
-
-    async def materialise_html(self, *args) -> None:
-        from app.agents.tools.html_extract import materialise_html
-
-        await asyncio.to_thread(materialise_html, *args)
-
-
-def _runner(sandbox: RunSandbox) -> _Runner:
-    return _Runner(sandbox)
 
 
 def test_colours_normalise_to_upper_hex_and_transparent_is_none():
@@ -146,7 +133,7 @@ def test_a_chained_prototype_wins_and_is_staged_as_an_upload(tmp_path):
 def test_no_prototype_writes_only_the_reason(tmp_path):
     sb = _sandbox(tmp_path)
 
-    note = asyncio.run(extract_prototype_ui(_runner(sb)))
+    note = asyncio.run(extract_prototype_ui(sb, materialise_html))
 
     assert note.startswith("No prototype")
     assert json.loads(sb.path_for("build/ui/source.json").read_text())["source"] is None
@@ -163,7 +150,7 @@ def test_a_real_prototype_renders_into_tokens_components_screens_and_navigation(
         FIXTURES / "shell_prototype.html", sb.path_for(".uploads/prototype.html")
     )
 
-    note = asyncio.run(extract_prototype_ui(_runner(sb)))
+    note = asyncio.run(extract_prototype_ui(sb, materialise_html))
     if "could not be rendered" in note:
         pytest.skip(f"no browser here: {note}")
 
@@ -197,6 +184,6 @@ def test_screenshots_are_kept_out_of_the_run_history(tmp_path):
     once blocked every commit of run 53d022e9. build/ui ignores its own PNGs."""
     sb = _sandbox(tmp_path)
 
-    asyncio.run(extract_prototype_ui(_runner(sb)))
+    asyncio.run(extract_prototype_ui(sb, materialise_html))
 
     assert sb.path_for("build/ui/.gitignore").read_text() == "*.png\n"

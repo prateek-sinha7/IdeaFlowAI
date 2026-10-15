@@ -1,0 +1,48 @@
+QA-KB-110 / ISS-1154 analysis probe, DEFAULT mode (today's behaviour). Observed 2026-10-09T14:23Z at HEAD 01777a107.
+Command: ./node_modules/.bin/vitest run --config vitest.probe.config.ts --reporter=verbose   (cwd = a scratch copy of evidence/qa-kb-110/analysis-plugins with a node_modules symlink to frontend/node_modules)
+Offline: jsdom only. No server, no browser, no run launched. DashboardLayout.tsx, IdeaInputPage.tsx, page.tsx, routes.ts are read unmodified.
+Reading guide: [A] same instance (no remount) / [B] remounted from the pushed URL / [C] non-wizard types / [D] wizard types / [E] *_revision types / [F] empty input / [G],[H] only meaningful in the mutated run.
+------------------------------------------------------------------------------------------------
+ RUN  v4.1.11 /private/tmp/claude-502/-Users-bilala-Developer-Projects-VELOCITY-AI-worktrees-feat-user-stories-v2/2d1a1575-310a-48fd-8155-2763a084604d/scratchpad/qa-kb-110
+ ✓ qa-kb-110.probe.test.tsx > QA-KB-110 probe > [A] in-place (no remount): the same DashboardLayout instance DOES hand the brief to the composer 40ms
+ ✓ qa-kb-110.probe.test.tsx > QA-KB-110 probe > [B] after the remount page.tsx causes: the brief is gone and the panel type comes from the URL 10ms
+ ✓ qa-kb-110.probe.test.tsx > QA-KB-110 probe > [C] non-wizard type backlog: nothing is staged for the destination, and the remounted composer is empty 10ms
+ ✓ qa-kb-110.probe.test.tsx > QA-KB-110 probe > [C] non-wizard type user_stories: nothing is staged for the destination, and the remounted composer is empty 7ms
+ ✓ qa-kb-110.probe.test.tsx > QA-KB-110 probe > [C] non-wizard type app_builder: nothing is staged for the destination, and the remounted composer is empty 9ms
+ ✓ qa-kb-110.probe.test.tsx > QA-KB-110 probe > [C] non-wizard type custom: nothing is staged for the destination, and the remounted composer is empty 7ms
+ ✓ qa-kb-110.probe.test.tsx > QA-KB-110 probe > [C] non-wizard type ex_A2_branch: nothing is staged for the destination, and the remounted composer is empty 8ms
+ ✓ qa-kb-110.probe.test.tsx > QA-KB-110 probe > [D] wizard type ppt: the brief is staged in sessionStorage[ppt.draft] and the push lands on the wizard 5ms
+stdout | qa-kb-110.probe.test.tsx > QA-KB-110 probe > [Z] summary
+[A] in-place   push=/create/ex_A1_loop  textarea="Greet the team with a short emoji hello."  workflowType=user_stories
+[B] remounted   push=/create/ex_A1_loop  textarea=""  workflowType=ex_A1_loop
+[C] backlog       push=/create/backlog  staged=[]  remounted textarea=""
+[C] user_stories  push=/create/user-stories  staged=[]  remounted textarea=""
+[C] app_builder   push=/create/app  staged=[]  remounted textarea=""
+[C] custom        push=/create/custom  staged=[]  remounted textarea=""
+[C] ex_A2_branch  push=/create/ex_A2_branch  staged=[]  remounted textarea=""
+[D] ppt           push=/create/ppt  staged={"ppt.draft":"{\"brief\":\"Greet the team with a short emoji hello.\"}"}  wizardModeFor=ppt
+[D] ppt_v2        push=/create/ppt_v2  staged={"ppt.draft":"{\"brief\":\"Greet the team with a short emoji hello.\"}"}  wizardModeFor=ppt_v2
+[D] prototype     push=/create/prototype  staged={"prototype.draft":"{\"brief\":\"Greet the team with a short emoji hello.\"}"}  wizardModeFor=prototype
+[D] prototype_v2  push=/create/prototype_v2  staged={"prototype.draft":"{\"brief\":\"Greet the team with a short emoji hello.\"}"}  wizardModeFor=prototype_v2
+[E] ppt_revision                   push=/create/ppt_revision  staged=["ppt.draft"]  wizardModeFor=undefined  remounted textarea=""
+[E] prototype_revision             push=/create/prototype_revision  staged=["prototype.draft"]  wizardModeFor=undefined  remounted textarea=""
+[E] prototype_v2_revision          push=/create/prototype_v2_revision  staged=["prototype.draft"]  wizardModeFor=undefined  remounted textarea=""
+[E] prototype_v2_feature_revision  push=/create/prototype_v2_feature_revision  staged=[]  wizardModeFor=undefined  remounted textarea=""
+[E] backlog_revision               push=/create/backlog_revision  staged=[]  wizardModeFor=undefined  remounted textarea=""
+[E] user_stories_revision          push=/create/user_stories_revision  staged=[]  wizardModeFor=undefined  remounted textarea=""
+[F] empty input push=/create/ex_A1_loop remounted textarea=""
+ ✓ qa-kb-110.probe.test.tsx > QA-KB-110 probe > [D] wizard type ppt_v2: the brief is staged in sessionStorage[ppt.draft] and the push lands on the wizard 7ms
+ ✓ qa-kb-110.probe.test.tsx > QA-KB-110 probe > [D] wizard type prototype: the brief is staged in sessionStorage[prototype.draft] and the push lands on the wizard 5ms
+ ✓ qa-kb-110.probe.test.tsx > QA-KB-110 probe > [D] wizard type prototype_v2: the brief is staged in sessionStorage[prototype.draft] and the push lands on the wizard 5ms
+ ✓ qa-kb-110.probe.test.tsx > QA-KB-110 probe > [E] revision type ppt_revision: draft key ppt.draft is staged for a destination that is not the wizard 6ms
+ ✓ qa-kb-110.probe.test.tsx > QA-KB-110 probe > [E] revision type prototype_revision: draft key prototype.draft is staged for a destination that is not the wizard 7ms
+ ✓ qa-kb-110.probe.test.tsx > QA-KB-110 probe > [E] revision type prototype_v2_revision: draft key prototype.draft is staged for a destination that is not the wizard 8ms
+ ✓ qa-kb-110.probe.test.tsx > QA-KB-110 probe > [E] revision type prototype_v2_feature_revision: draft key null is staged for a destination that is not the wizard 7ms
+ ✓ qa-kb-110.probe.test.tsx > QA-KB-110 probe > [E] revision type backlog_revision: draft key null is staged for a destination that is not the wizard 6ms
+ ✓ qa-kb-110.probe.test.tsx > QA-KB-110 probe > [E] revision type user_stories_revision: draft key null is staged for a destination that is not the wizard 5ms
+ ✓ qa-kb-110.probe.test.tsx > QA-KB-110 probe > [F] empty input: a run with no input opens an empty composer without throwing 5ms
+ ✓ qa-kb-110.probe.test.tsx > QA-KB-110 probe > [G] one-shot: the staged brief is consumed by the composer that shows it, so a later fresh visit is not pre-filled 0ms
+ ✓ qa-kb-110.probe.test.tsx > QA-KB-110 probe > [H] StrictMode (the dev default): a read-only initializer plus a clearing effect survives the double invoke 0ms
+ ✓ qa-kb-110.probe.test.tsx > QA-KB-110 probe > [Z] summary 1ms
+ Test Files  1 passed (1)
+      Tests  21 passed (21)

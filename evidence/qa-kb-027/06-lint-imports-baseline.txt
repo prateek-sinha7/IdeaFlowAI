@@ -1,0 +1,17 @@
+lint-imports baseline. HEAD 024c03ef8 extracted read-only with: git archive 024c03ef8 backend/app backend/agents backend/tools backend/pyproject.toml | tar -x
+(packages verified to resolve from the extracted copy, not the worktree), then lint-imports run in that copy's backend/:
+kernel imports only capability ports (scaffold) BROKEN
+agents.workflows must not import the execution kernel or the web layer KEPT
+agents.capabilities must not import the execution kernel or the web layer BROKEN
+agents.runtime must not import the execution kernel or the web layer KEPT
+shipped code must not import the build-time tooling package KEPT
+Contracts: 3 kept, 2 broken.
+
+After the fix, in the worktree's backend/:
+kernel imports only capability ports (scaffold) BROKEN
+agents.workflows must not import the execution kernel or the web layer KEPT
+agents.capabilities must not import the execution kernel or the web layer BROKEN
+agents.runtime must not import the execution kernel or the web layer KEPT
+shipped code must not import the build-time tooling package KEPT
+Contracts: 3 kept, 2 broken.
+Lines mentioning run_files in the after report: 0

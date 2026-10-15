@@ -1,0 +1,14 @@
+import { defineConfig } from "vitest/config";
+export default defineConfig({
+  root: "/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/frontend",
+  esbuild: { jsx: "automatic" },
+  test: {
+    dir: "/private/tmp/claude-502/-Users-bilala-Developer-Projects-VELOCITY-AI-worktrees-feat-user-stories-v2/2d1a1575-310a-48fd-8155-2763a084604d/scratchpad/dbg",
+    environment: "jsdom",
+    globals: true,
+    setupFiles: ["/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/frontend/vitest.setup.ts"],
+    include: ["*.test.tsx"],
+  },
+  server: { fs: { strict: false } },
+  resolve: { alias: { "@": "/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/frontend/src" } },
+});

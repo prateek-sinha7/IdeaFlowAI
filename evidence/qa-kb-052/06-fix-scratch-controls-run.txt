@@ -1,0 +1,18 @@
+# FIX-716 scratch controls (test source kept outside the repo; copied as 07/08)
+$ ./node_modules/.bin/vitest --run --config <scratch>/vitest.scratch.config.ts
+ RUN  v4.1.11 /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/frontend
+ ✓ ../../../../../../../private/tmp/claude-502/-Users-bilala-Developer-Projects-VELOCITY-AI-worktrees-feat-user-stories-v2/2d1a1575-310a-48fd-8155-2763a084604d/scratchpad/qa-kb-052/panel.scratch.test.tsx > QA-KB-052 controls > pro on app_builder: no lock, Run enabled, Cmd+Enter launches 210ms
+ ✓ ../../../../../../../private/tmp/claude-502/-Users-bilala-Developer-Projects-VELOCITY-AI-worktrees-feat-user-stories-v2/2d1a1575-310a-48fd-8155-2763a084604d/scratchpad/qa-kb-052/panel.scratch.test.tsx > QA-KB-052 controls > basic on user_stories: no lock, Run click launches 103ms
+ ✓ ../../../../../../../private/tmp/claude-502/-Users-bilala-Developer-Projects-VELOCITY-AI-worktrees-feat-user-stories-v2/2d1a1575-310a-48fd-8155-2763a084604d/scratchpad/qa-kb-052/panel.scratch.test.tsx > QA-KB-052 controls > unknown tier (null) on app_builder never locks 93ms
+ ✓ ../../../../../../../private/tmp/claude-502/-Users-bilala-Developer-Projects-VELOCITY-AI-worktrees-feat-user-stories-v2/2d1a1575-310a-48fd-8155-2763a084604d/scratchpad/qa-kb-052/panel.scratch.test.tsx > QA-KB-052 controls > absent tier prop on app_builder never locks 89ms
+ ✓ ../../../../../../../private/tmp/claude-502/-Users-bilala-Developer-Projects-VELOCITY-AI-worktrees-feat-user-stories-v2/2d1a1575-310a-48fd-8155-2763a084604d/scratchpad/qa-kb-052/panel.scratch.test.tsx > QA-KB-052 controls > basic on app_builder: lock copy names Pro; Run click does nothing 93ms
+ ✓ ../../../../../../../private/tmp/claude-502/-Users-bilala-Developer-Projects-VELOCITY-AI-worktrees-feat-user-stories-v2/2d1a1575-310a-48fd-8155-2763a084604d/scratchpad/qa-kb-052/panel.scratch.test.tsx > QA-KB-052 controls > ISS-968 half: basic on app_builder disables Save workflow and Save as my version 87ms
+ ✓ ../../../../../../../private/tmp/claude-502/-Users-bilala-Developer-Projects-VELOCITY-AI-worktrees-feat-user-stories-v2/2d1a1575-310a-48fd-8155-2763a084604d/scratchpad/qa-kb-052/layout.scratch.test.tsx > QA-KB-052 DashboardLayout tier wiring > profile not loaded: IdeaInputPage gets null although userTier reads basic 25ms
+ ✓ ../../../../../../../private/tmp/claude-502/-Users-bilala-Developer-Projects-VELOCITY-AI-worktrees-feat-user-stories-v2/2d1a1575-310a-48fd-8155-2763a084604d/scratchpad/qa-kb-052/layout.scratch.test.tsx > QA-KB-052 DashboardLayout tier wiring > profile loaded as basic: IdeaInputPage gets basic 3ms
+ ✓ ../../../../../../../private/tmp/claude-502/-Users-bilala-Developer-Projects-VELOCITY-AI-worktrees-feat-user-stories-v2/2d1a1575-310a-48fd-8155-2763a084604d/scratchpad/qa-kb-052/layout.scratch.test.tsx > QA-KB-052 DashboardLayout tier wiring > profile loaded as enterprise: IdeaInputPage gets enterprise, not the basic prop 3ms
+ ✓ ../../../../../../../private/tmp/claude-502/-Users-bilala-Developer-Projects-VELOCITY-AI-worktrees-feat-user-stories-v2/2d1a1575-310a-48fd-8155-2763a084604d/scratchpad/qa-kb-052/panel.scratch.test.tsx > QA-KB-052 controls > ISS-968 control: pro on app_builder leaves both Save buttons enabled 79ms
+ ✓ ../../../../../../../private/tmp/claude-502/-Users-bilala-Developer-Projects-VELOCITY-AI-worktrees-feat-user-stories-v2/2d1a1575-310a-48fd-8155-2763a084604d/scratchpad/qa-kb-052/panel.scratch.test.tsx > QA-KB-052 controls > basic on custom locks with Enterprise copy (custom is enterprise-only) 61ms
+ Test Files  2 passed (2)
+      Tests  11 passed (11)
+   Start at  12:30:35
+   Duration  1.94s (transform 1.16s, setup 104ms, import 1.92s, tests 852ms, environment 798ms)

@@ -1,0 +1,3 @@
+backend/agents/execution_engine/kernel_services.py: text changed=True  executable AST identical=True
+backend/agents/execution_engine/fanout.py: text changed=True  executable AST identical=True
+backend/agents/capabilities/strategies/_fanout_stream.py: text changed=True  executable AST identical=True

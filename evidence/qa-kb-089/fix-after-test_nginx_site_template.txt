@@ -1,0 +1,2 @@
+### tests/unit/app/test_nginx_site_template.py (after fix, final tree, 2026-10-07T18:27:52Z)
+7 passed, 1 warning in 0.94s

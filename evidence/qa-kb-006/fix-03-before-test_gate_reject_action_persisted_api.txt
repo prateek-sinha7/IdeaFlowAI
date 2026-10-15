@@ -1,0 +1,16 @@
+# BEFORE (control): pre-fix set_review_response body via plugin kb006_orig_store
+$ cd backend && PYTHONPATH=<scratchpad>/kb006_plugin ./.venv/bin/python -m pytest tests/integration/api/test_gate_reject_action_persisted_api.py -rxX -q -p no:cacheprovider -p kb006_orig_store
+xx                                                                       [100%]
+=============================== warnings summary ===============================
+    class Settings(BaseSettings):
+
+.venv/lib/python3.13/site-packages/fastapi/testclient.py:1
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+.venv/lib/python3.13/site-packages/starlette/testclient.py:53
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+XFAIL tests/integration/api/test_gate_reject_action_persisted_api.py::test_messages_route_reject_persists_reject_action - ISS-128 unfixed
+XFAIL tests/integration/api/test_gate_reject_action_persisted_api.py::test_concierge_disposal_reject_persists_reject_action - ISS-128 unfixed
+2 xfailed, 3 warnings in 1.76s

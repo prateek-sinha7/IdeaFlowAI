@@ -1,0 +1,12 @@
+# fix-02 (QA-KB-103 / ISS-1118 item 3, ISS-1129): Case 3, route trigger, resume recompile, inline pin
+# cmd: cd backend && DATABASE_URL=sqlite:// PYTHONPATH=. .venv/bin/python ../evidence/qa-kb-103/fix-plugins/probe_iss1118_doors.py
+# _launch_run_core replaced: no run minted, no model called, in-memory sqlite only
+
+CASE3   ovr-proto: 200 reached mint; compaction={'prototype-build': 'html_skeleton'} persisted _trust=user _overrides=prototype
+CASE3   ovr-added: 422 {"detail":{"error":"capability ('compaction', 'html_skeleton') is not user-allowed in step 'prototype-specify' — a user/db manifest may not reference it (CAP-03)","code":
+CASE3   plain-proto: 200 reached mint; compaction={'prototype-build': 'html_skeleton'} persisted _trust=db _overrides=None
+TRIGGER ovr-proto: reached mint; compaction={'prototype-build': 'html_skeleton'}
+TRIGGER ovr-added: CompilerError capability ('compaction', 'html_skeleton') is not user-allowed in step 'prototype-specify' — a user/db manifest may not 
+RESUME  with _overrides: compiles; compaction={'prototype-build': 'html_skeleton'}
+RESUME  pre-fix row (no _overrides): CompilerError capability ('compaction', 'html_skeleton') is not user-allowed in step 'prototype-build' — a user/db manifest 
+INLINE  prototype steps: 422 minted=False {"detail":{"error":"capability ('compaction', 'html_skeleton') is not user-allowed in step 'prototype-build' — a user/db

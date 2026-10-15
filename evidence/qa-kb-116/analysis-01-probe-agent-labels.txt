@@ -1,0 +1,93 @@
+# QA-KB-116 analysis-01: the REAL agentsFromManifest / mergePlanWithLibrary on payloads captured from the live :8000 backend (offline, jsdom, no module mocks)
+# date: 2026-10-09   frontend/src/lib/manifestAgents.ts, store/api/userWorkflows.ts, components/workflow/LaunchWizard.tsx unmodified by this analysis
+# fixtures: evidence/qa-kb-116/analysis-plugins/detail.{admin,pro}.<workflow>.json = GET /api/workflows/<id>; library.json = GET /api/agents/library (prompt_body blanked)
+# run from frontend/ (temporary node_modules symlink in analysis-plugins/, removed afterwards):
+#   ./node_modules/.bin/vitest run --config ../evidence/qa-kb-116/analysis-plugins/vitest.probe.config.ts agentLabels
+
+ RUN  v4.1.11 /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/frontend
+
+stdout | ../evidence/qa-kb-116/analysis-plugins/agentLabels.probe.test.ts > QA-KB-116 probe: agent labels built by agentsFromManifest > [today] P1 admin's enabled user_stories override: every row's name is the raw agent id
+[P1] agentsFromManifest(admin user_stories override):
+  domain-analyst | name="domain-analyst" | role="Market & Persona Research" | icon="🧩" | est=60s
+  epic-architect | name="epic-architect" | role="Epic & Story Composition" | icon="🧩" | est=60s
+  story-estimator | name="story-estimator" | role="Effort & Dependency Mapping" | icon="🧩" | est=60s
+  nfr-specialist | name="nfr-specialist" | role="Performance, Security & Compliance" | icon="🧩" | est=60s
+  backlog-reviewer | name="backlog-reviewer" | role="Backlog Validation & Gap Analysis" | icon="🧩" | est=60s
+  backlog-compiler | name="backlog-compiler" | role="Final Backlog Synthesis" | icon="🧩" | est=60s
+[P1] the payload's compiled step names (what the label should be): [
+  'Domain Discovery Agent',
+  'Backlog Architecture Agent',
+  'Estimation Agent',
+  'Quality Requirements Agent',
+  'Quality Review Agent',
+  'Delivery Compilation Agent'
+]
+[P1] manifest_steps[].name (what manifestStepToAgent reads): [ null, null, null, null, null, null ]
+
+stdout | ../evidence/qa-kb-116/analysis-plugins/agentLabels.probe.test.ts > QA-KB-116 probe: agent labels built by agentsFromManifest > [today] P2 the pre-1e329e47b formula on the same payload gives the real names
+[P2] old `st.name || compiled?.name || id`: [
+  'Domain Discovery Agent',
+  'Backlog Architecture Agent',
+  'Estimation Agent',
+  'Quality Requirements Agent',
+  'Quality Review Agent',
+  'Delivery Compilation Agent'
+]
+
+stdout | ../evidence/qa-kb-116/analysis-plugins/agentLabels.probe.test.ts > QA-KB-116 probe: agent labels built by agentsFromManifest > [today] P3 est. duration / icon / description of the override rows are placeholders, not the library's
+[P3] override roster: 6 rows, total est 360s => "~6m"
+[P3] library roster : 6 rows, total est 35s => "~35s"
+[P3] override row0 description: "Market & Persona Research" | library row0 description: "Researches your idea, identifies the target market, users, and key personas."
+
+stdout | ../evidence/qa-kb-116/analysis-plugins/agentLabels.probe.test.ts > QA-KB-116 probe: agent labels built by agentsFromManifest > [control] P4 the five other manifest->AgentDef sites pass a library lookup and get real names
+[P4] manifestStepsToAgents(raw, libraryLookup):
+  domain-analyst | name="Domain Discovery Agent" | role="Market & Persona Research" | icon="🔍" | est=5s
+  epic-architect | name="Backlog Architecture Agent" | role="Epic & Story Composition" | icon="🏗️" | est=10s
+  story-estimator | name="Estimation Agent" | role="Effort & Dependency Mapping" | icon="🎯" | est=5s
+  nfr-specialist | name="Quality Requirements Agent" | role="Performance, Security & Compliance" | icon="⚡" | est=5s
+  backlog-reviewer | name="Quality Review Agent" | role="Backlog Validation & Gap Analysis" | icon="✅" | est=4s
+  backlog-compiler | name="Delivery Compilation Agent" | role="Final Backlog Synthesis" | icon="📦" | est=6s
+
+stdout | ../evidence/qa-kb-116/analysis-plugins/agentLabels.probe.test.ts > QA-KB-116 probe: agent labels built by agentsFromManifest > [today] P5 LaunchWizard: ppt_v2 plan with NO override still renders raw ids after mergePlanWithLibrary
+[P5] ppt_v2: plan rows=4, library roster (agentMatchesPipelineType) rows=2  => plan wins merge: true
+[P5] mergePlanWithLibrary(plan, library):
+  ppt-brief-analyst | name="ppt-brief-analyst" | role="Slide Plan & Content Architecture" | icon="🧩" | est=60s
+  ppt-composer | name="ppt-composer" | role="HTML Deck Construction" | icon="🧩" | est=60s
+  ppt-deck-qa-v2 | name="ppt-deck-qa-v2" | role="Deck Landing and Structural Validation" | icon="🧩" | est=60s
+  ppt-code-generator | name="ppt-code-generator" | role="Deck to PowerPoint Transcription" | icon="🧩" | est=60s
+[P5] library names for the same ids: [
+  'Presentation Strategist Agent',
+  'Deck Engineer Agent',
+  'Deck QA Agent',
+  'PPTX Code Generator'
+]
+
+stdout | ../evidence/qa-kb-116/analysis-plugins/agentLabels.probe.test.ts > QA-KB-116 probe: agent labels built by agentsFromManifest > [today] P6 LaunchWizard: ppt / prototype / prototype_v2 plan rows, no override
+[P6] ppt: plan=3 library=3 planWinsMerge=false; shown names=["Presentation Strategist Agent","Deck Engineer Agent","Deck QA Agent"]
+[P6] prototype: plan=5 library=5 planWinsMerge=false; shown names=["Spec Writer Agent","Task Planner Agent","Spec Kit Analyzer","Build Agent","Validation Agent"]
+[P6] prototype_v2: plan=11 library=0 planWinsMerge=true; shown names=["Reading Planner","Readers","Synthesizer","Clarify","Answer Integrator","Analyst","Architect","Builders","Assemble","Validator","Presenter"]
+
+stdout | ../evidence/qa-kb-116/analysis-plugins/agentLabels.probe.test.ts > QA-KB-116 probe: agent labels built by agentsFromManifest > [today] P7 LaunchWizard: admin's enabled ppt / prototype / ppt_v2 overrides, rows go straight to pipelineAgents
+[P7] ppt override roster names: ["ppt-brief-analyst","ppt-composer","ppt-validator"]
+[P7] prototype override roster names: ["prototype-specify","prototype-plan","prototype-analyze","prototype-build","prototype-validate"]
+[P7] ppt_v2 override roster names: ["ppt-brief-analyst","ppt-composer","ppt-deck-qa-v2","ppt-code-generator"]
+
+stdout | ../evidence/qa-kb-116/analysis-plugins/agentLabels.probe.test.ts > QA-KB-116 probe: agent labels built by agentsFromManifest > [control] C3 a custom-agent step with an explicit manifest name keeps it (must stay green)
+[C3] prototype_v2 names: ["Reading Planner","Readers","Synthesizer","Clarify","Answer Integrator","Analyst","Architect","Builders","Assemble","Validator","Presenter"]
+
+ ✓ ../evidence/qa-kb-116/analysis-plugins/agentLabels.probe.test.ts > QA-KB-116 probe: agent labels built by agentsFromManifest > [today] P1 admin's enabled user_stories override: every row's name is the raw agent id 3ms
+ ✓ ../evidence/qa-kb-116/analysis-plugins/agentLabels.probe.test.ts > QA-KB-116 probe: agent labels built by agentsFromManifest > [today] P2 the pre-1e329e47b formula on the same payload gives the real names 0ms
+ ✓ ../evidence/qa-kb-116/analysis-plugins/agentLabels.probe.test.ts > QA-KB-116 probe: agent labels built by agentsFromManifest > [today] P3 est. duration / icon / description of the override rows are placeholders, not the library's 0ms
+ ✓ ../evidence/qa-kb-116/analysis-plugins/agentLabels.probe.test.ts > QA-KB-116 probe: agent labels built by agentsFromManifest > [control] P4 the five other manifest->AgentDef sites pass a library lookup and get real names 0ms
+ ✓ ../evidence/qa-kb-116/analysis-plugins/agentLabels.probe.test.ts > QA-KB-116 probe: agent labels built by agentsFromManifest > [today] P5 LaunchWizard: ppt_v2 plan with NO override still renders raw ids after mergePlanWithLibrary 1ms
+ ✓ ../evidence/qa-kb-116/analysis-plugins/agentLabels.probe.test.ts > QA-KB-116 probe: agent labels built by agentsFromManifest > [today] P6 LaunchWizard: ppt / prototype / prototype_v2 plan rows, no override 2ms
+ ✓ ../evidence/qa-kb-116/analysis-plugins/agentLabels.probe.test.ts > QA-KB-116 probe: agent labels built by agentsFromManifest > [today] P7 LaunchWizard: admin's enabled ppt / prototype / ppt_v2 overrides, rows go straight to pipelineAgents 1ms
+ ✓ ../evidence/qa-kb-116/analysis-plugins/agentLabels.probe.test.ts > QA-KB-116 probe: agent labels built by agentsFromManifest > [contract, RED today] C1 an override row of a built-in step is labelled with the agent's display name 5ms
+ ✓ ../evidence/qa-kb-116/analysis-plugins/agentLabels.probe.test.ts > QA-KB-116 probe: agent labels built by agentsFromManifest > [contract, RED today] C2 a plan row of a built-in step reaches the roster with the library name (ppt_v2, no override) 1ms
+ ✓ ../evidence/qa-kb-116/analysis-plugins/agentLabels.probe.test.ts > QA-KB-116 probe: agent labels built by agentsFromManifest > [control] C3 a custom-agent step with an explicit manifest name keeps it (must stay green) 1ms
+
+ Test Files  1 passed (1)
+      Tests  8 passed | 2 expected fail (10)
+   Start at  16:55:04
+   Duration  1.94s (transform 543ms, setup 68ms, import 1.06s, tests 17ms, environment 545ms)
+

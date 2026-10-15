@@ -1,0 +1,44 @@
+// SCRATCH DEBUG (outside the repo) — which assertion of admin.escape.test.tsx stays red after the fix?
+import { describe, expect, it, vi, beforeEach } from "vitest";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import React from "react";
+
+const { routerObj, api } = vi.hoisted(() => ({
+  routerObj: { replace: vi.fn(), push: vi.fn(), prefetch: vi.fn() },
+  api: {
+    getToken: vi.fn(() => "tok"), getMe: vi.fn(), logout: vi.fn(), adminListUsers: vi.fn(),
+    adminUpdateTier: vi.fn(), adminCreateUser: vi.fn(), adminDeleteUser: vi.fn(), adminUpdateRole: vi.fn(),
+    adminDisableUser: vi.fn(), adminEnableUser: vi.fn(), onAdminMfaRequired: vi.fn(() => () => {}),
+  },
+}));
+vi.mock("next/navigation", () => ({ useRouter: () => routerObj }));
+vi.mock("@/lib/api", () => api);
+
+import AdminPage from "@/app/admin/page";
+
+const USERS = [{
+  id: "aaaa1111-2222-3333-4444-555566667777", email: "alice@example.com", tier: "pro" as const,
+  is_admin: false, status: "active" as const, created_at: "2026-01-15T09:00:00Z", workflow_run_count: 12,
+}];
+const where = () => (document.activeElement === document.body ? "BODY" : document.activeElement?.getAttribute("aria-label") ?? document.activeElement?.tagName);
+beforeEach(() => {
+  vi.clearAllMocks();
+  api.getToken.mockReturnValue("tok");
+  api.getMe.mockResolvedValue({ is_admin: true, email: "admin@example.com" });
+  api.adminListUsers.mockResolvedValue(USERS);
+});
+describe("debug ISS-930", () => {
+  it("unfocused click then Escape", async () => {
+    render(<AdminPage />);
+    await screen.findByText("alice@example.com");
+    const user = userEvent.setup();
+    const trigger = document.querySelector('[aria-haspopup="menu"]') as HTMLElement;
+    fireEvent.click(trigger);
+    console.log("[open] activeElement =", where(), "| aria-expanded =", trigger.getAttribute("aria-expanded"), "| menu =", !!screen.queryByRole("menu"));
+    await user.keyboard("{Escape}");
+    console.log("[right after Escape] aria-expanded =", trigger.getAttribute("aria-expanded"), "| menu present =", !!screen.queryByRole("menu"), "| trigger connected =", trigger.isConnected);
+    await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
+    console.log("[after waitFor] aria-expanded =", trigger.getAttribute("aria-expanded"), "| menu present =", !!screen.queryByRole("menu"));
+  });
+});

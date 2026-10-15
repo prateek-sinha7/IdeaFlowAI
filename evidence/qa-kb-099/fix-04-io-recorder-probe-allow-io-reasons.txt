@@ -1,0 +1,26 @@
+# QA-KB-099 fix 04: with the fix in place, a scratch plugin RECORDS (never denies) every DB connect, socket connect and subprocess spawn the two exempted tests make, to check their allow_io reasons. 2026-10-08T12:33:23Z
+# Plugin copy: evidence/qa-kb-099/fix-plugins/io_recorder_probe.py (imports neither app nor the engine).
+$ IO_PROBE_LOG=io.jsonl PYTHONPATH=<scratch> .venv/bin/python -m pytest -p io_recorder_probe -q -p no:cacheprovider <ISS-896 node> <ISS-1109 node>
+[XPASS(strict)] ISS-896 unfixed
+  /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/app/core/config.py:94: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+tests/unit/agents/test_phase3_cutover_verify.py::TestV2EventTypesAreEmittedByTheirProducers::test_run_finalization_failed_is_emitted_on_a_degraded_finalization
+1 failed, 1 passed, 2 warnings in 8.17s
+# Recorded I/O, counted by test and kind (socket targets collapsed to host):
+   2  test_run_finalization_failed_is_emitted_on_a_degraded_finali  popen  ['git', 'add', '--force', '--', '.chain/summary.md']
+   1  test_run_finalization_failed_is_emitted_on_a_degraded_finali  popen  ['git', 'add', '.gitignore']
+   1  test_run_finalization_failed_is_emitted_on_a_degraded_finali  popen  ['git', 'commit', '-m', 'chore: init']
+   1  test_run_finalization_failed_is_emitted_on_a_degraded_finali  popen  ['git', 'commit', '-m', 'chore: terminal snapshot run=5a6ddd11-00f4-43f3-866f-2daf7dfa90a6 status=completed']
+   1  test_run_finalization_failed_is_emitted_on_a_degraded_finali  popen  ['git', 'config', 'user.email', 'test@test.test']
+   1  test_run_finalization_failed_is_emitted_on_a_degraded_finali  popen  ['git', 'config', 'user.name', 'Test Bot']
+   1  test_run_finalization_failed_is_emitted_on_a_degraded_finali  popen  ['git', 'diff', '--cached', '--name-only', '--diff-filter=d']
+   1  test_run_finalization_failed_is_emitted_on_a_degraded_finali  popen  ['git', 'diff', '--cached', '--name-only']
+   1  test_run_finalization_failed_is_emitted_on_a_degraded_finali  popen  ['git', 'diff', '--cached']
+   1  test_run_finalization_failed_is_emitted_on_a_degraded_finali  popen  ['git', 'init', '-b', 'main']
+   1  test_run_finalization_failed_is_emitted_on_a_degraded_finali  popen  ['git', 'ls-files', '--cached', '.chain/']
+   1  test_run_finalization_failed_is_emitted_on_a_degraded_finali  popen  ['git', 'reset', 'HEAD']
+   2  test_run_finalization_failed_is_emitted_on_a_degraded_finali  popen  ['git', 'rev-parse', 'HEAD']
+   1  test_run_finalization_failed_is_emitted_on_a_degraded_finali  popen  ['git', 'rev-parse', 'refs/ideaflow/runs/5a6ddd11-00f4-43f3-866f-2daf7dfa90a6']
+   1  test_run_finalization_failed_is_emitted_on_a_degraded_finali  popen  ['git', 'update-ref', '--create-reflog', 'refs/ideaflow/runs/5a6ddd11-00f4-43f3-866f-2daf7dfa90a6', 'effe74b24bf224249174499a1c30288f6908b8fd']
+   1  test_sigterm_reaches_the_lifespan_shutdown_half_while_a_stre  popen  ['<venv>/python', '-m', 'uvicorn', 'reachability_probe_app:app', '--host', '127.0.0.1', '--port', '<port>', '--tim
+   4  test_sigterm_reaches_the_lifespan_shutdown_half_while_a_stre  socket_connect  ('127.0.0.1', <port>)
+totals by kind: {'popen': 18, 'socket_connect': 4}

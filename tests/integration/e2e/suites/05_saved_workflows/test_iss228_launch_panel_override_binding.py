@@ -7,9 +7,10 @@ saved override rather than a brand-new blank launch. See
 the full root-cause analysis (a same-commit React effect-ordering race in
 `LaunchWizard.tsx`).
 
-Fixture: the seeded `"My prototype"` override
-(`656ca387-e69c-474d-b7ff-5fd9eb017cc0`, `agent_ids: ["documentation-agent",
-"prototype-specify"]`, confirmed alive via `GET /api/user-workflows/{id}`).
+Fixture: the seeded `"My prototype"` override (`agent_ids:
+["documentation-agent", "prototype-specify"]`), found by name at runtime. Its
+id changed with a reseed, and a pinned id made the ISS-228 test fail on a 404
+instead of on the bug (ISS-1188).
 
 NO TEST HERE FOR ISS-284. That card predicts "Save as my version" clicked
 mid-race silently persists a race-clobbered default roster back to the
@@ -30,8 +31,17 @@ import time
 import pytest
 from playwright.sync_api import expect
 
-PROTO_ID = "656ca387-e69c-474d-b7ff-5fd9eb017cc0"
+from framework import api
+
 PROTO_NAME = "My prototype"
+
+
+def _proto_id(page) -> str:
+    page.goto("/dashboard")
+    for row in api.json_body(page, "GET", "/api/user-workflows"):
+        if row["name"] == PROTO_NAME:
+            return row["id"]
+    pytest.skip(f"no saved workflow named {PROTO_NAME!r} in this account")
 
 
 @pytest.mark.issue("ISS-228")
@@ -41,8 +51,9 @@ def test_cold_launch_panel_shows_the_saved_overrides_own_name(page, shot):
     /workflows/{id}/run must give some visible indication it is bound to
     THAT workflow ("My prototype"), not render as an anonymous generic
     wizard with no trace of the saved override anywhere on the page."""
-    with shot("cold-launch", f'When I cold-load "/workflows/{PROTO_ID}/run"'):
-        page.goto(f"/workflows/{PROTO_ID}/run")
+    proto_id = _proto_id(page)
+    with shot("cold-launch", f'When I cold-load "/workflows/{proto_id}/run"'):
+        page.goto(f"/workflows/{proto_id}/run")
         expect(page.get_by_text("Configure your prototype")).to_be_visible()
 
     body = page.evaluate("() => document.body.innerText")

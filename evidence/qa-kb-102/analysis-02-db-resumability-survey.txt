@@ -1,0 +1,28 @@
+# local dev DB read-only + in-process registry/compiler, run 2026-10-08T14:44:56
+resumable-status runs examined (failed|cancelled|degraded): 26
+
+USER ENDPOINT (POST /api/runs/{id}/resume) verdict tally:
+    24  drives
+     2  REFUSED LOUDLY: HTTP 403 tier_not_entitled at the endpoint (engine never reached)
+
+RESTART AUTO-RESUME (restore_non_terminal_runs branch b) verdict tally, if these were non-terminal at a restart:
+    24  drives
+     2  LOUD: not resumable -> WR-05 abandoned->failed with .error (resume_run never reached)
+
+per (type, status) -> user-endpoint outcome:
+  prototype_v2                       cancelled  drives=5
+  prototype_v2                       failed     drives=3
+  backlog                            cancelled  drives=3
+  backlog                            failed     drives=2
+  backlog                            degraded   drives=2
+  ex_A2_branch                       failed     drives=2
+  prototype_revision                 failed     drives=2
+  prototype_revision                 cancelled  drives=2
+  user_stories_v2                    degraded   REFUSED LOUDLY=1
+  user_stories_v2                    failed     REFUSED LOUDLY=1
+  prototype_large_revision           degraded   drives=1
+  backlog_revision                   cancelled  drives=1
+  ex_A4_human_gate                   failed     drives=1
+
+examples of runs that would be SILENT on the user endpoint (none means the class is not present in this DB):
+  (none)

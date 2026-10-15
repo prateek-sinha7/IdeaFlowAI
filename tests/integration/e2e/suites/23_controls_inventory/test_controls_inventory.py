@@ -640,9 +640,9 @@ def test_clarifications_are_summarised_with_a_count(page, shot):
         page.wait_for_timeout(settings.SETTLE_MS)
 
     body = page.evaluate("() => document.body.innerText")
-    if "Clarifications answered" not in body:
+    if not RD.CLARIFY_ANSWERED.search(body):
         pytest.skip("this run asked for no clarifications")
-    assert "Clarifications answered" in body
+    assert RD.CLARIFY_ANSWERED.search(body)
 
 
 @pytest.mark.scenario("S-23-46")

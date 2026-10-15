@@ -1,0 +1,48 @@
+import sys, re
+src_path, sp = sys.argv[1], sys.argv[2]
+src = open(src_path, encoding="utf-8").read()
+
+def sub1(s, old, new, label):
+    n = s.count(old)
+    assert n == 1, f"{label}: expected exactly 1 match, got {n}"
+    return s.replace(old, new)
+
+# ---- Variant A: the triage sketch (two predicates only) ----
+a = src
+a = sub1(a, "const showFailureAffordance = !hasContent && isTerminal && terminalFailure;",
+            "const showFailureAffordance = !overrideActive && !hasContent && isTerminal && terminalFailure;", "A.showFailure")
+a = sub1(a, "const showDivertedAffordance = !hasContent && isTerminal && isDivertedTerminal;",
+            "const showDivertedAffordance = !overrideActive && !hasContent && isTerminal && isDivertedTerminal;", "A.showDiverted")
+open(f"{sp}/patchedA/PreviewPanel.tsx", "w", encoding="utf-8").write(a)
+
+def signal_gate(s, guard, label):
+    s = sub1(s, "const liveFailureSignal = !!(pipelineState?.failed || pipelineState?.degraded);",
+                f"const liveFailureSignal = {guard} && !!(pipelineState?.failed || pipelineState?.degraded);", label+".live")
+    s = sub1(s, '''  const reopenFailureSignal =
+    reopenedRunStatus === "failed" ||
+    reopenedRunStatus === "cancelled" ||
+    reopenedRunStatus === "degraded";''',
+                f'''  const reopenFailureSignal = {guard} && (
+    reopenedRunStatus === "failed" ||
+    reopenedRunStatus === "cancelled" ||
+    reopenedRunStatus === "degraded");''', label+".reopen")
+    s = sub1(s, 'const isCancelledTerminal = reopenedRunStatus === "cancelled";',
+                f'const isCancelledTerminal = {guard} && reopenedRunStatus === "cancelled";', label+".cancelled")
+    s = sub1(s, 'const isDivertedTerminal = reopenedRunStatus === "diverted";',
+                f'const isDivertedTerminal = {guard} && reopenedRunStatus === "diverted";', label+".diverted")
+    return s
+
+# ---- Variant B1: gate the four shell signals on ANY pin ----
+b1 = signal_gate(src, "!overrideActive", "B1")
+open(f"{sp}/patchedB/PreviewPanel.tsx", "w", encoding="utf-8").write(b1)
+
+# ---- Variant B2: gate the four shell signals on a FOREIGN pin (pin id != the run the shell shows) ----
+b2 = sub1(src, "const overrideActive = viewingVersion != null;",
+               "const overrideActive = viewingVersion != null;\n  const shellOnScreen = viewingVersion == null || viewingVersion.id === unpinnedRunId;", "B2.def")
+b2 = signal_gate(b2, "shellOnScreen", "B2")
+open(f"{sp}/patchedB2/PreviewPanel.tsx", "w", encoding="utf-8").write(b2)
+
+# ---- Variant C: B2 + the running-shell branch stops outranking a foreign pin ----
+c = sub1(b2, ") : isStillRunning ? (", ") : isStillRunning && shellOnScreen ? (", "C.running")
+open(f"{sp}/patchedC/PreviewPanel.tsx", "w", encoding="utf-8").write(c)
+print("variants written")

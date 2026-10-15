@@ -3,7 +3,8 @@
 The FastAPI lifespan's shutdown half was a bare log line: nothing cancelled the
 in-flight pipeline drivers, nothing awaited the Concierge turns that own their own
 durable ``chat_reply`` write, and nothing closed the LangGraph checkpointer's
-Postgres pool - despite ``checkpointer.py:12`` saying to. This module is that body.
+Postgres pool - despite the ``app/agents/checkpointer.py`` module docstring saying to.
+This module is that body.
 
 Reachability prerequisite (KAN-151 D8, measured): uvicorn's ``timeout_graceful_shutdown``
 defaults to ``None`` and ``H11Protocol.shutdown()`` does NOT close a connection whose
@@ -28,7 +29,8 @@ default is environment-differentiated (ISS-088): OFF in production, ON in
 ``ENV=development``. With it OFF - the production behaviour described below - this does
 NOT stop the drivers and does NOT write any
 ``WorkflowRun.status``. That is deliberate: every stop path makes the engine yield
-``pipeline_cancelled``, which ``engine.py:1032`` persists unconditionally and which
+``pipeline_cancelled``, which ``ExecutionEngine.execute``'s per-event ``sink.persist(...)``
+persists unconditionally and which
 makes the driver write ``status="cancelled"`` - and ``cancelled`` is outside
 ``restore_non_terminal_runs``' ``NON_TERMINAL_RUN_STATUSES`` set, so the run
 would never auto-resume on the next boot. Leaving the row ``running`` is what keeps
@@ -96,9 +98,9 @@ async def shutdown_run_infrastructure() -> dict[str, Any]:
     }
 
     # ── 1. Concierge turns: AWAIT, never cancel-first. ──────────────────────────
-    # run_commands.py:1401 holds these deliberately ("NEVER cancel it on generator
-    # teardown"); the durable chat_reply row is written at :1356 inside _drive's
-    # SECOND try, so a CancelledError raised inside converse() at :1347 skips it.
+    # run_commands.py's post_message holds these deliberately ("NEVER cancel it on
+    # generator teardown"); the durable chat_reply row is written inside _drive's
+    # SECOND try, so a CancelledError raised inside converse() (its first try) skips it.
     try:
         _concierge_tasks = set(_CONCIERGE_STREAM_TASKS)
         done, pending_tasks = (
@@ -196,8 +198,9 @@ async def shutdown_run_infrastructure() -> dict[str, Any]:
             summary["errors"].append(f"stop_runs: {exc}")
 
     # ── 4. Close the checkpointer pool LAST among the awaits (D7). ──────────────
-    # checkpointer.py:12 has said to do this since Phase 3; it has never had a
-    # caller. Steps 1-3 may still hold a pooled connection, so this runs after them.
+    # The checkpointer.py module docstring has said to do this since Phase 3; it has
+    # never had a caller. Steps 1-3 may still hold a pooled connection, so this runs
+    # after them.
     try:
         from app.agents.checkpointer import close_checkpointer
 
@@ -219,8 +222,16 @@ async def shutdown_run_infrastructure() -> dict[str, Any]:
     # D9 measurability: runs left non-terminal here are exactly the set the next
     # boot's restore_non_terminal_runs will classify (branch b auto-resume /
     # branch c fail). This is the number the D9 semaphore must be sized against.
+    # ISS-872: counted here, not copied from the entry sample - a driver that finished
+    # during the drains above is not left. Anything not provably finished counts as left.
     summary["runs_left_for_boot_restore"] = (
-        0 if settings.SHUTDOWN_STOP_RUNS else summary["runs_in_flight"]
+        0
+        if settings.SHUTDOWN_STOP_RUNS
+        else sum(
+            1
+            for t in _PIPELINE_TASKS.values()
+            if not (isinstance(t, asyncio.Task) and t.done())
+        )
     )
     return summary
 
@@ -234,8 +245,8 @@ async def _drain_then_cancel(tasks: set[asyncio.Task], *, context: str) -> None:
     the interactive path cannot drift from the tested one. The escalation is a FALLBACK,
     never the mechanism: the caller must already have set the cooperative ``cancel_event``
     so the driver takes its clean ``pipeline_cancelled`` terminal at the next boundary.
-    It exists only for the mid-model-call blind window (``model_factory`` sets
-    ``read_timeout=600``, so a per-chunk check can be up to ten minutes away).
+    It exists only for the mid-model-call blind window (a per-chunk check can be a full
+    Bedrock ``read_timeout`` away - see ``build_model`` in ``model_factory.py``).
     """
     if not tasks:
         return
@@ -275,14 +286,18 @@ async def stop_pipeline_drivers() -> int:
     technical one.
 
     Reuses the ONE sanctioned stop mechanism (Phase 16-02 / quick-260720-ec4): set
-    the per-run cooperative ``cancel_event``, which the engine observes at the
-    per-chunk (:2514/:3621), pre-agent (:2287), clarify-drain-heartbeat (:1943),
-    review-gate-race (:5155), task-loop (:4437/:4566) and wave (:5012) boundaries.
+    the per-run cooperative ``cancel_event``, which the engine observes at, among others,
+    the per-chunk (``ExecutionEngine._run_agent``), pre-agent and clarify-drain-heartbeat
+    (``_execute_impl``), review-gate-race (``_run_review_gate``), validation-fix-loop
+    (``_run_validation_fix_loop``), spec-revision (``_run_spec_revision_sub_pipeline``),
+    task-loop (``TaskLoopStrategy.run``) and wave (``fanout._check_cancel``) boundaries.
     Escalate to ``task.cancel()`` only for drivers that cannot observe it in time
     (the mid-Bedrock-call case: the per-chunk check only fires when a chunk arrives,
-    and ``model_factory.py:112`` sets ``read_timeout=600``). Both paths end in the
-    driver's own terminal write (``run_commands.py:2155`` launch /
-    ``:2473`` revision), so the outcome is deterministic either way.
+    and ``build_model`` in ``model_factory.py`` sets a long Bedrock ``read_timeout``).
+    Both paths end in the driver's own terminal write (``_drive_launch_to_queue`` for a
+    launch / ``_drive_revision_to_queue`` for a revision, in ``run_commands.py``: after
+    a ``pipeline_cancelled`` event or in its ``except asyncio.CancelledError`` branch),
+    so the outcome is deterministic either way.
     """
     from app.api.run_engine import _CANCEL_EVENTS, _PIPELINE_TASKS
 

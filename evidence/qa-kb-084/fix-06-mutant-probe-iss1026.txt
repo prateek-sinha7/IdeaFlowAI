@@ -1,0 +1,2 @@
+fixed  : {"hasReopen":true,"matches":true}
+mutant (code line reverted, comment kept): {"hasReopen":true,"matches":false} changed: true

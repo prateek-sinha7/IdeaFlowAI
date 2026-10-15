@@ -1,0 +1,95 @@
+# QA-KB-101 analysis, 2026-10-08. Git timeline of the three label renames and the guard that hid the test. Read-only git (log/show/diff/grep) only.
+# HEAD: 7adb69a3f
+
+## 1. The commits, by author date
+09270703b  2026-09-22  Fix/testcases (#9)
+1a1b720b7  2026-09-25  feat(dashboard): split the catalog into Start from / Engine examples / Coming Soon, with user-facing names
+87903ab3b  2026-10-01  chore(workflows): hide the revision workflows; v2 names say (Depth); prototype v2 icon
+1d49a7c2f  2026-10-07  fix(QA-KB-088): relocate DB-backed tests out of tests/unit so the unit I/O guard stops erroring them
+
+## 2. Ancestry (09270703b guard -> 1a1b720b7 rename 1 -> 87903ab3b rename 2)
+09270703b is an ancestor of 1a1b720b7: yes
+1a1b720b7 is an ancestor of 87903ab3b: yes
+
+## 3. Did either rename commit touch the backend contract test?
+git show --stat=200 --format= 1a1b720b7 | grep -c test_workflows_api  -> 0
+git show --stat=200 --format= 87903ab3b | grep -c -E 'tests?/|e2e'     -> 0   (87903ab3b changed 5 manifests and no test or spec path)
+
+## 4. Rename 1 (1a1b720b7), the manifest side: git show 1a1b720b7 -- <4 manifests> | grep display_name
++++ b/backend/agents/workflows/ppt/workflow.yaml
+-display_name: Pitch an idea
++display_name: "Pitch an idea (Fast)"
++++ b/backend/agents/workflows/ppt_v2/workflow.yaml
+-display_name: Pitch an idea (v2)
++display_name: "Pitch an idea (Detailed)"
++++ b/backend/agents/workflows/prototype/workflow.yaml
+-display_name: Build an interactive prototype
++display_name: "Build an interactive prototype (Fast)"
++++ b/backend/agents/workflows/prototype_v2/workflow.yaml
+-display_name: Build a prototype from documents
++display_name: "Prototype from documents (Detailed)"
+
+## 5. Rename 1, the test/spec side it DID update (stat lines, same commit)
+ frontend/src/components/catalog/HomeLaunchGrid.categories.test.ts       | 16 ++++++++++++++++
+ frontend/src/components/catalog/HomeLaunchGrid.tsx                      | 77 +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++-------
+ tests/integration/e2e/framework/locators/home_catalog.py                | 24 ++++++++++++++----------
+ tests/integration/e2e/suites/02_home_catalog/test_home_catalog.py       | 56 +++++++++++++++++++++++++++++---------------------------
+ tests/integration/e2e/suites/11_admin/test_admin.py                     |  2 +-
+ tests/integration/e2e/suites/17_theme_and_tiers/test_theme_and_tiers.py | 10 +++++-----
+ tests/integration/e2e/suites/25_pipeline_smoke/test_pipeline_smoke.py   |  6 +++---
+ tests/integration/screens/02-home-catalog.feature.md                    | 56 ++++++++++++++++++++++++++++----------------------------
+ tests/integration/screens/12-shell-nav.feature.md                       |  2 +-
+ tests/integration/screens/15-overlays.feature.md                        |  2 +-
+ tests/integration/screens/17-theme-and-tiers.feature.md                 | 26 +++++++++++++-------------
+ tests/integration/screens/18-chat-lane.feature.md                       |  2 +-
+ tests/integration/screens/25-pipeline-smoke.feature.md                  | 12 ++++++------
+
+## 6. Rename 1, commit message excerpt (the stated intent)
+  * prototype -> "Build an interactive prototype (Fast)"
+  * prototype_v2 -> "Prototype from documents (Detailed)" (fits one line)
+  * the ex_A* engine examples get plain-language titles and descriptions
+    (the old Spanish/Dutch descriptions leaked the internal id ex_A3_divert).
+  Only display_name/description changed; short names used by Library pills
+  and run-history labels are untouched.
+- Tests: new HomeLaunchGrid.categories.test.ts. e2e locators, the dashboard,
+  tier, admin and pipeline-smoke suites, and the matching feature specs use
+  the new titles; S-02-03/07 open the collapsed section first, and S-02-10
+
+## 7. Rename 2 (87903ab3b) message and diff of the two v2 labels
+chore(workflows): hide the revision workflows; v2 names say (Depth); prototype v2 icon
+
+The prototype v2 and backlog revision workflows are no longer user-launchable
+(user_launchable: false, is_beta: true): a revision starts from a finished run's
+chat, never from the catalog. "Pitch an idea" and "Prototype from documents" say
+(Depth) instead of (Detailed), and prototype v2 and its revisions use the same
+Layout icon as the main prototype pipeline.
+
+-display_name: "Pitch an idea (Detailed)"
++display_name: "Pitch an idea (Depth)"
+-display_name: "Prototype from documents (Detailed)"
++display_name: "Prototype from documents (Depth)"
+
+## 8. The test file's own history (follows the relocation)
+1d49a7c2f 2026-10-07 fix(QA-KB-088): relocate DB-backed tests out of tests/unit so the unit I/O guard stops erroring them
+09270703b 2026-09-22 Fix/testcases (#9)
+1e329e47b 2026-09-04 feat(workflows): pdf_to_prototype wave build + stabilization pass
+ff37f777a 2026-09-04 bug-fix: escalated task resolutions + open escalations register
+
+## 9. Every label/launchability change in a workflow manifest since rename 1 (git diff 1a1b720b7 HEAD)
++++ b/backend/agents/workflows/backlog/workflow.yaml
++display_name: Write backlog from prototype and documents
++++ b/backend/agents/workflows/backlog_revision/workflow.yaml
++display_name: Revise backlog
++++ b/backend/agents/workflows/ppt_v2/workflow.yaml
+-display_name: "Pitch an idea (Detailed)"
++display_name: "Pitch an idea (Depth)"
++++ b/backend/agents/workflows/prototype_v2/workflow.yaml
+-display_name: "Prototype from documents (Detailed)"
++display_name: "Prototype from documents (Depth)"
++++ b/backend/agents/workflows/prototype_v2_feature_revision/workflow.yaml
++display_name: Revise prototype v2 (new feature)
++++ b/backend/agents/workflows/prototype_v2_revision/workflow.yaml
++display_name: Revise prototype v2 (quick change)
+
+## 10. Test and spec files that pin catalog labels: last commit touching each since rename 1 (git log 1a1b720b7..HEAD -- <paths>)
+82241ee9d 2026-09-29 chore(test-accounts): move seeded dev/QA accounts to the velocity.ai domain

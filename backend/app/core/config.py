@@ -220,7 +220,7 @@ class Settings(BaseSettings):
     # Retry-After (seconds) sent on a 503 host_capacity_exhausted rejection.
     HOST_CAPACITY_RETRY_AFTER_SECONDS: int = 120
     # botocore timeouts for the metrics adapter — deliberately tight, NOT the
-    # Bedrock read_timeout=600 config. A metrics call must fail fast; a hung
+    # Bedrock model clients' long read_timeout. A metrics call must fail fast; a hung
     # one must never wedge the background poller.
     HOST_CAPACITY_AWS_CONNECT_TIMEOUT: int = 5
     HOST_CAPACITY_AWS_READ_TIMEOUT: int = 10
@@ -293,8 +293,8 @@ class Settings(BaseSettings):
     SSE_REVOCATION_CHECK_INTERVAL_SECONDS: int = 30
 
     # ---- Graceful shutdown budget (KAN-151 D8) ────────────────────────────
-    # The container's hard ceiling is docker's stop_grace_period (30s,
-    # docker-compose.yml:75); uvicorn's own --timeout-graceful-shutdown (5s,
+    # The container's hard ceiling is docker's stop_grace_period (30s, the backend
+    # service in docker-compose.yml); uvicorn's own --timeout-graceful-shutdown (5s,
     # docker-entrypoint.sh) is spent BEFORE the lifespan body runs. Worst case from
     # SIGTERM to process exit, counting EVERY wait on the path:
     #    5  uvicorn graceful window      docker-entrypoint.sh
@@ -306,14 +306,14 @@ class Settings(BaseSettings):
     #   ──
     #   25  with SHUTDOWN_STOP_RUNS off. Turning it on adds a driver drain plus its
     #       escalation (+3 +3) for 31s — PAST the SIGKILL line, which is the arithmetic
-    #       reason production keeps it off. tests/unit/test_shutdown_reachability.py
+    #       reason production keeps it off. tests/unit/services/test_shutdown_reachability.py
     #       asserts this sum against the parsed stop_grace_period instead of trusting
     #       this comment: the previous version claimed "under 25s" while omitting both
     #       escalations and the pump drain entirely.
     #       Every wait on the path is now bounded: ISS-106 put a timeout around step 4's
     #       pool.close(), which used to sit unbounded on top of the drains.
-    # A Concierge turn owns the ONLY durable write of its chat_reply row
-    # (run_commands.py:1356) and is explicitly never cancelled on client
+    # A Concierge turn owns the ONLY durable write of its chat_reply row (_drive
+    # inside run_commands.post_message) and is explicitly never cancelled on client
     # disconnect - so it is AWAITED, not cancelled, and only cut past this bound.
     SHUTDOWN_CONCIERGE_DRAIN_SECONDS: float = 10.0
     # How long to wait for run-transport teardown (pump tasks after A2, queue
@@ -329,7 +329,7 @@ class Settings(BaseSettings):
     # restore_non_terminal_runs auto-resumes them (the shipped Phase 45-50 tier).
     # When True the shutdown cooperatively cancels them: every in-flight run lands
     # "cancelled", auto-resume is replaced by the user's "Run again" button
-    # (POST /api/runs/{id}/resume already accepts "cancelled", run_commands.py:379).
+    # (POST /api/runs/{id}/resume, resume_run_endpoint, already accepts "cancelled").
     #
     # The DEFAULT is environment-differentiated (ISS-088), resolved by
     # _default_shutdown_stop_runs_from_env below - this declared value is the
@@ -342,7 +342,7 @@ class Settings(BaseSettings):
     # An explicit SHUTDOWN_STOP_RUNS env var always wins, in both directions.
     #
     # This is NOT already true by accident: uvicorn re-raises the captured signal
-    # inside serve() (server.py:326-330) after restoring the default disposition, so
+    # inside serve() (capture_signals) after restoring the default disposition, so
     # under SIGTERM the process dies before asyncio.run's _cancel_all_tasks can run and
     # no driver's CancelledError handler ever writes a terminal status. (Under SIGINT
     # the restored handler raises KeyboardInterrupt, which unwinds normally and DOES
@@ -400,6 +400,17 @@ class Settings(BaseSettings):
     # that is not an existing directory never blocks boot: the catalog logs a
     # WARNING and falls back to the checkout default.
     GLOBAL_SKILLS_ROOT: str = ""
+    # The remaining on-disk content roots, configurable the same way so every
+    # path can follow wherever a deployment mounts it. "" (default) = the path
+    # relative to backend/ that each module has always used, so the checkout and
+    # the container image (backend/ == /app) resolve exactly what they did before.
+    #   USER_SKILLS_ROOT   per-user SKILL.md + PROMPT_OVERRIDE.md   (backend/skills/users)
+    #   GLOBAL_HOOKS_ROOT  built-in Hooks catalog                   (backend/hooks/global)
+    #   PPTX_SKILLS_ROOT   shipped PPT reference docs               (backend/pptx)
+    # OpenDesign is the OD_ROOT env var, read directly by app/services/od_loader.py.
+    USER_SKILLS_ROOT: str = ""
+    GLOBAL_HOOKS_ROOT: str = ""
+    PPTX_SKILLS_ROOT: str = ""
     # Safety ceiling on one agent graph's model<->tool recursion. We DROP the old
     # tight per-agent iteration caps (build 3 / validate 8 / …) in favour of letting
     # agents explore + self-validate; this is only a runaway-loop backstop, not a
@@ -589,7 +600,13 @@ class Settings(BaseSettings):
         # Without this, any unexpected variable raises ValidationError at boot.
         extra = "ignore"
 
-    @field_validator("GLOBAL_SKILLS_ROOT", mode="before")
+    @field_validator(
+        "GLOBAL_SKILLS_ROOT",
+        "USER_SKILLS_ROOT",
+        "GLOBAL_HOOKS_ROOT",
+        "PPTX_SKILLS_ROOT",
+        mode="before",
+    )
     @classmethod
     def _normalize_global_skills_root(cls, value: object) -> str:
         """Coerce an unset value to "" and strip surrounding whitespace.

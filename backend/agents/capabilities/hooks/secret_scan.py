@@ -121,6 +121,7 @@ _TEXT_EXTENSIONS: frozenset[str] = frozenset(
         ".rst",
         ".csv",
         ".json",
+        ".jsonl",
         ".yaml",
         ".yml",
         ".toml",
@@ -166,6 +167,9 @@ class BinaryApprovedExemption:
     basename_pattern: str  # fnmatch pattern against normalized file basename
     approval_id: str  # mandatory non-empty approval reference
     reason: str  # human-readable rationale for operator review
+    # When set, the file's normalized repo-relative path must start with this prefix
+    # (e.g. ".chain/") — scopes the exemption to one directory, not a basename anywhere.
+    path_prefix: str = ""
 
 
 # Registry of security-approved binary exemptions. Keyed by ``approval_id`` so
@@ -175,7 +179,20 @@ class BinaryApprovedExemption:
 # IMPORTANT: an exemption ONLY bypasses the per-binary block; it does NOT
 # bypass the secret-pattern scan of the extracted text.  The scan is still
 # performed; only the "unknown-type → block" policy is relaxed.
-BINARY_APPROVED_EXEMPTIONS: dict[str, BinaryApprovedExemption] = {}
+BINARY_APPROVED_EXEMPTIONS: dict[str, BinaryApprovedExemption] = {
+    "USER-2026-10-13-chain-pdf": BinaryApprovedExemption(
+        basename_pattern="*.pdf",
+        approval_id="USER-2026-10-13-chain-pdf",
+        reason=(
+            "Deliverable PDFs the engine renders into the run's .chain/ payload "
+            "(e.g. Backlog.pdf, rendered from the already text-scanned backlog.md). "
+            "Agent tools cannot write .chain/ (app/agents/sandbox.py RESERVED_PATHS), "
+            "so only engine output matches. Approved by the owner 2026-10-13 after run "
+            "6b76b6b1 ended degraded on a refused .chain/Backlog.pdf."
+        ),
+        path_prefix=".chain/",
+    ),
+}
 
 
 def _matches_approved_exemption(filename: str) -> BinaryApprovedExemption | None:
@@ -183,9 +200,16 @@ def _matches_approved_exemption(filename: str) -> BinaryApprovedExemption | None
     import fnmatch  # stdlib, deferred to keep module-level imports minimal
 
     basename = os.path.basename(filename).lower()
+    path = filename.replace("\\", "/")
+    while path.startswith("./"):
+        path = path[2:]
     for exemption in BINARY_APPROVED_EXEMPTIONS.values():
         if not exemption.approval_id:
             continue  # misconfigured exemption — skip rather than allow
+        if exemption.path_prefix and (
+            not path.startswith(exemption.path_prefix) or ".." in path.split("/")
+        ):
+            continue  # outside the approved directory, or escapes it
         if fnmatch.fnmatch(basename, exemption.basename_pattern.lower()):
             return exemption
     return None

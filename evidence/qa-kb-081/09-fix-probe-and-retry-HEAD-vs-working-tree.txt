@@ -1,0 +1,80 @@
+QA-KB-081 / ISS-909 + ISS-1088 fixer scratch checks, run 2026-10-07 by 5-fixer (not part of the repo).
+Sources: 04-analyze-ds-registry-probe.test.tsx.txt (the analyzer's probe, 11 tests, unchanged) and
+10-fix-retry-check.test.tsx.txt (6 fixer tests for the Retry path, the deck DS step and the ISS-1088 401 guard).
+Config: 05-analyze-...-vitest-config.ts.txt with include widened to both files. 'HEAD' = the same two files with
+'@/components/workflow/LaunchWizard' aliased to 'git show HEAD:frontend/src/components/workflow/LaunchWizard.tsx'
+(HEAD 2005a0a6b, blob 42fa4728d). 'WORKING TREE' = the fixed file. Run from frontend/: npx vitest run --config <cfg> --reporter=verbose
+Only test-result lines, console.log lines and the summary are kept; the HEAD run's DOM dumps (7302 lines) are cut.
+
+================ HEAD (before the fix) ================
+ ✓ probe.test.tsx > QA-KB-081 design-system step: loading vs failed vs empty > CONTROL: a loaded registry renders the picker and no skeleton 46ms
+ ✓ probe.test.tsx > QA-KB-081 design-system step: loading vs failed vs empty > OBSERVE: while the fetch is still pending the skeleton is shown (this must survive any fix) 10ms
+[reject arm] ds-slot html: <div class="h-48 animate-pulse rounded-[var(--radius-card)] bg-surface-white/60"></div>
+[empty arm] ds-slot html: <div class="h-48 animate-pulse rounded-[var(--radius-card)] bg-surface-white/60"></div>
+ × probe.test.tsx > QA-KB-081 design-system step: loading vs failed vs empty > EXPECTED: registry REJECTS -> an error is shown and the skeleton is gone 99ms
+   → expected <div …(1)></div> to be null
+ × probe.test.tsx > QA-KB-081 design-system step: loading vs failed vs empty > EXPECTED: registry resolves [] -> an empty message is shown and the skeleton is gone 95ms
+   → expected <div …(1)></div> to be null
+ ✓ probe.test.tsx > QA-KB-081 design-system step: loading vs failed vs empty > OBSERVE: in the failed arm Continue stays disabled and the pill demands a design system 317ms
+ ✓ probe.test.tsx > QA-KB-081 design-system step: loading vs failed vs empty > OBSERVE: the custom-design-system escape hatch is not reachable in the empty arm (picker is not mounted) 101ms
+ ✓ probe.test.tsx > QA-KB-081 design-system step: loading vs failed vs empty > CONTROL: the REAL DesignSystemPicker given systems=[] DOES offer 'Upload custom' (so the picker could stay mounted) 46ms
+ ✓ probe.test.tsx > QA-KB-081 design-system step: loading vs failed vs empty > OBSERVE (deck, post FIX-695): a DS-requiring deck template mounts the DS step and it is the same skeleton when the registry fails 107ms
+ ✓ probe.test.tsx > QA-KB-081 sibling: template registry failures in the same component > CONTROL: web template fetch failure shows the 'Couldn't load templates' banner 14ms
+[deck template reject] page text mentions banner: false
+[call count] listDesignSystems calls after one mount + settle: 2
+[call count] listPrototypeTemplates calls: 2
+ × probe.test.tsx > QA-KB-081 sibling: template registry failures in the same component > EXPECTED: deck template fetch failure shows the same banner 94ms
+   → Unable to find an element with the text: /Couldn.t load templates/. This could be because the text is broken up by multiple elements. In this case, you can provide a function for your text matcher to make your matcher more flexible.
+ ✓ probe.test.tsx > QA-KB-081 test-harness facts for the test-writer > OBSERVE: call count of listDesignSystems per mount under the repo's next/navigation mock (fresh router object each render) 91ms
+ × retry.test.tsx > ISS-909 Retry (fixer scratch) > rejected -> Retry -> resolves: picker with the list, no error, no skeleton, FIX-103 apple auto-selected 1034ms
+   → Unable to find role="button" and name `/retry/i`
+ × retry.test.tsx > ISS-909 Retry (fixer scratch) > Retry shows the skeleton while the new request is in flight 1009ms
+   → Unable to find role="button" and name `/retry/i`
+ × retry.test.tsx > ISS-909 Retry (fixer scratch) > rejected -> Retry -> rejects again: the error and Retry come back (no endless skeleton) 1011ms
+   → Unable to find role="button" and name `/retry/i`
+ × retry.test.tsx > ISS-909 Retry (fixer scratch) > a restored draft's design system is not overwritten by a successful Retry 1012ms
+   → Unable to find role="button" and name `/retry/i`
+ × retry.test.tsx > ISS-909 Retry (fixer scratch) > deck, DS-requiring template, registry rejects: the DS step shows the error + Retry + picker, not a skeleton 1035ms
+   → Unable to find role="button" and name `/retry/i`
+ ✓ retry.test.tsx > ISS-909 Retry (fixer scratch) > ISS-1088: a 401 on the deck catalog still goes to session expiry and sets no banner 13ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 8 ⎯⎯⎯⎯⎯⎯⎯
+ Test Files  2 failed (2)
+      Tests  8 failed | 9 passed (17)
+   Start at  23:34:06
+
+================ WORKING TREE (after the fix) ================
+ ✓ probe.test.tsx > QA-KB-081 design-system step: loading vs failed vs empty > CONTROL: a loaded registry renders the picker and no skeleton 44ms
+ ✓ probe.test.tsx > QA-KB-081 design-system step: loading vs failed vs empty > OBSERVE: while the fetch is still pending the skeleton is shown (this must survive any fix) 9ms
+[reject arm] ds-slot html: <div class="mb-3 flex items-center justify-between gap-3 rounded-[var(--radius-card)] border px-5 py-4 text-[13px] border-[var(--status-failed-border)] bg-[var(--status-failed-fill)] text-status-failed" role="alert">Couldn't load design systems: 500: boom<button type="button" class="flex-shrink-0 rounded-[var(--radius-button)] border border-line-control bg-surface-white px-3 py-1.5 text-[11px] font-medium text-ink-700 transition-all hover:border-brand hover:text-brand">Retry</button></div><button data-testid="pick-ds">ds</button>
+[retry] calls before/after: 2 4
+[empty arm] ds-slot html: <div class="mb-3 flex items-center justify-between gap-3 rounded-[var(--radius-card)] border px-5 py-4 text-[13px] border-dashed border-line-control bg-surface-warm text-ink-500">No design systems are available.<button type="button" class="flex-shrink-0 rounded-[var(--radius-button)] border border-line-control bg-surface-white px-3 py-1.5 text-[11px] font-medium text-ink-700 transition-all hover:border-brand hover:text-brand">Retry</button></div><button data-testid="pick-ds">ds</button>
+ ✓ probe.test.tsx > QA-KB-081 design-system step: loading vs failed vs empty > EXPECTED: registry REJECTS -> an error is shown and the skeleton is gone 93ms
+ ✓ retry.test.tsx > ISS-909 Retry (fixer scratch) > rejected -> Retry -> resolves: picker with the list, no error, no skeleton, FIX-103 apple auto-selected 158ms
+ ✓ retry.test.tsx > ISS-909 Retry (fixer scratch) > Retry shows the skeleton while the new request is in flight 46ms
+[draft] selected before retry: "midnight" after: midnight
+ ✓ retry.test.tsx > ISS-909 Retry (fixer scratch) > rejected -> Retry -> rejects again: the error and Retry come back (no endless skeleton) 46ms
+ ✓ retry.test.tsx > ISS-909 Retry (fixer scratch) > a restored draft's design system is not overwritten by a successful Retry 40ms
+ ✓ retry.test.tsx > ISS-909 Retry (fixer scratch) > deck, DS-requiring template, registry rejects: the DS step shows the error + Retry + picker, not a skeleton 33ms
+ ✓ retry.test.tsx > ISS-909 Retry (fixer scratch) > ISS-1088: a 401 on the deck catalog still goes to session expiry and sets no banner 11ms
+ ✓ probe.test.tsx > QA-KB-081 design-system step: loading vs failed vs empty > EXPECTED: registry resolves [] -> an empty message is shown and the skeleton is gone 93ms
+ ✓ probe.test.tsx > QA-KB-081 design-system step: loading vs failed vs empty > OBSERVE: in the failed arm Continue stays disabled and the pill demands a design system 298ms
+ × probe.test.tsx > QA-KB-081 design-system step: loading vs failed vs empty > OBSERVE: the custom-design-system escape hatch is not reachable in the empty arm (picker is not mounted) 96ms
+   → expected <button data-testid="pick-ds"></button> to be null
+ ✓ probe.test.tsx > QA-KB-081 design-system step: loading vs failed vs empty > CONTROL: the REAL DesignSystemPicker given systems=[] DOES offer 'Upload custom' (so the picker could stay mounted) 50ms
+ × probe.test.tsx > QA-KB-081 design-system step: loading vs failed vs empty > OBSERVE (deck, post FIX-695): a DS-requiring deck template mounts the DS step and it is the same skeleton when the registry fails 107ms
+   → expected null not to be null
+ ✓ probe.test.tsx > QA-KB-081 sibling: template registry failures in the same component > CONTROL: web template fetch failure shows the 'Couldn't load templates' banner 15ms
+[deck template reject] page text mentions banner: true
+[call count] listDesignSystems calls after one mount + settle: 2
+[call count] listPrototypeTemplates calls: 2
+ ✓ probe.test.tsx > QA-KB-081 sibling: template registry failures in the same component > EXPECTED: deck template fetch failure shows the same banner 94ms
+ ✓ probe.test.tsx > QA-KB-081 test-harness facts for the test-writer > OBSERVE: call count of listDesignSystems per mount under the repo's next/navigation mock (fresh router object each render) 91ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+ Test Files  1 failed | 1 passed (2)
+      Tests  2 failed | 15 passed (17)
+   Start at  23:33:42
+
+Reading: the 3 probe 'EXPECTED:' tests (DS registry rejects, DS registry resolves [], deck template fetch fails)
+fail at HEAD and pass after. The 5 Retry tests cannot pass at HEAD (there is no Retry) and pass after. The ISS-1088
+401 guard passes at both. The 2 probe 'OBSERVE:' tests that fail after are the ones that pinned the defect's shape
+(the picker is NOT mounted in the empty arm; the deck DS step IS a skeleton on failure); the fix changes both on purpose.

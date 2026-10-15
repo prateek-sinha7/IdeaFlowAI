@@ -47,8 +47,11 @@ services:
       - "127.0.0.1:8000:8000"
     volumes:
       # EBS-backed data dirs so skills/runs survive instance replacement.
-      - /opt/velocityai/data/skills:/app/skills
-      - /opt/velocityai/data/runs:/app/runs
+      # :z relabels them for container access on SELinux-enforcing hosts
+      # (Fedora/RHEL, the Podman VM); it is a no-op where SELinux is off.
+      # Ownership is fixed at container start by docker-entrypoint.sh.
+      - /opt/velocityai/data/skills:/app/skills:z
+      - /opt/velocityai/data/runs:/app/runs:z
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s

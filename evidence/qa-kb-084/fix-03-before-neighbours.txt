@@ -1,0 +1,30 @@
+### src/lib/routes.test.ts
+ Test Files  1 passed (1)
+      Tests  66 passed (66)
+### src/lib/routes.iss339.test.ts
+ Test Files  1 passed (1)
+      Tests  4 passed (4)
+### src/app/[...view]/runTabShallowNav.test.ts
+ Test Files  1 passed (1)
+      Tests  3 passed (3)
+### src/app/[...view]/liveRunSwitch.fix201.test.ts
+ Test Files  1 passed (1)
+      Tests  26 passed (26)
+### src/app/[...view]/contentSourceRunScope.source.test.ts
+ Test Files  1 passed (1)
+      Tests  3 passed (3)
+### src/app/[...view]/runViewEffects.qaSg004.source.test.ts
+ Test Files  1 passed (1)
+      Tests  3 passed (3)
+### src/app/[...view]/initialWorkflowType.bug023.source.test.ts
+ Test Files  1 passed (1)
+      Tests  5 passed (5)
+### src/components/layout/streamRedirect.bug024.source.test.ts
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+### src/app/[...view]/page.iss657.test.tsx
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+### src/app/[...view]/page.qaSg004.test.tsx
+ Test Files  1 passed (1)
+      Tests  5 passed (5)

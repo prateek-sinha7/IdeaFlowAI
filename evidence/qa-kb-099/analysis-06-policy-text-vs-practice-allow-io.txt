@@ -1,0 +1,86 @@
+# QA-KB-099 analysis 06: what the test-placement policy SAYS vs what the suite DOES (decides how a fixer reads 'marker or move')
+# HEAD 3af414bc6, 2026-10-08T11:56Z.
+
+$ sed -n "76,78p;102,105p" backend/tests/README.md
+8. **Spawns a process or needs an external binary** (`git`, `ruff`, Chromium/Playwright,
+   a stdio MCP server) → `integration/` — `external/` for a third-party service,
+   `<pkg mirror>/` when it is our own code doing the spawning
+- **Deliberate exception:** `@pytest.mark.allow_io("why")` disables the guard for one test.
+  There is exactly ONE in the suite (the guard's own escape-hatch test). Adding a second
+  needs a reason that survives review — usually the honest answer is
+  `tests/integration/`. `socket.socketpair` is exempt unconditionally: Windows event-loop
+
+$ sed -n "105,111p" backend/tests/unit/test_unit_io_guard.py
+)
+def test_allow_io_marker_opts_a_test_out_of_the_guard():
+    """``@pytest.mark.allow_io(reason)`` disables the guard for that test only.
+
+    This is the suite's ONLY allow_io marker. Any other one is a test that should have
+    moved to tests/integration/ instead.
+    """
+
+$ cd backend && grep -rn 'pytest.mark.allow_io' tests/unit --include='*.py' | grep -v '^tests/unit/conftest.py' | awk -F: '{print $1}' | sort | uniq -c | sort -rn
+   6 tests/unit/test_status_domain_prose_unknown.py
+   4 tests/unit/tools/ci/test_dependency_lock_contracts.py
+   3 tests/unit/test_upload_html.py
+   2 tests/unit/test_unit_io_guard.py
+   2 tests/unit/test_status_head_sha.py
+   1 tests/unit/tools/ci/test_ci_remediation_exploration.py
+   1 tests/unit/tools/ci/test_ci_bounded_runner.py
+   1 tests/unit/test_run_sandbox_api.py
+   1 tests/unit/test_run_commands_dead_locals.py
+   1 tests/unit/test_revision_workspace_mode.py
+   1 tests/unit/test_qa_kb_004_venv_filter.py
+   1 tests/unit/test_knowledge_build_context_py39.py
+   1 tests/unit/app/test_run_stream_pool_leak.py
+   1 tests/unit/app/test_binary_deliverable.py
+
+marker lines: 26   files: 14   (the README says 'exactly ONE in the suite')
+
+# The same-family precedent a fixer will find first (the file this test's own docstring points at, lines 21-24):
+$ sed -n "50,66p" backend/tests/unit/app/test_run_stream_pool_leak.py
+from app.models.run_event import RunEvent
+from app.models.workflow import WorkflowRun
+
+# The leak being pinned is POOL mechanics: ``engine.pool.checkedout()`` only means
+# anything on a real QueuePool over a real DBAPI connection, and the FastAPI
+# teardown-before-streaming ordering only reproduces over a real ASGI server socket.
+# Neither can be mocked away without deleting the regression this file exists to guard,
+# so the unit-isolation guard is opted out of deliberately here. The file-SQLite engine
+# is a POOL fixture, not a Postgres stand-in — no SQL/ORM behavior is asserted on it.
+# Audit note: this belongs in tests/integration/api/ (suffix _api); migrating it needs an
+# approved migration plan, so it stays here under an explicit, reasoned exemption.
+pytestmark = pytest.mark.allow_io(
+    "BUG-004 guard: QueuePool.checkedout() + FastAPI streaming teardown ordering require "
+    "a real connection pool and a real ASGI server socket"
+)
+
+_OWNER = "owner-heb"
+
+# And the opposite precedent, QA-KB-088 (FIX-758): the spec-016 round-trip tests that hit the same guard were MOVED to tests/integration/api/.
+$ ls backend/tests/integration/api/test_workflow_override_e2e_api.py
+backend/tests/integration/api/test_workflow_override_e2e_api.py
+
+$ sed -n "76,78p" backend/tests/README.md ; grep -n "tests/unit/{api,app,services}\|63 files / 599 tests\|queued for" backend/tests/README.md   (rule 8, then the Known-debt lines about this directory)
+8. **Spawns a process or needs an external binary** (`git`, `ruff`, Chromium/Playwright,
+   a stdio MCP server) → `integration/` — `external/` for a third-party service,
+   `<pkg mirror>/` when it is our own code doing the spawning
+178:- **`tests/unit/{api,app,services}` still contains ~45 files that build a real
+183:- **63 files / 599 tests are known to trip the unit I/O guard** and are queued for
+
+# ---- appended: exact split of the 26 lines (25 applications + 1 prose mention) ----
+$ cd backend && grep -rnE '^\s*@pytest\.mark\.allow_io|^\s*[A-Za-z_]+ = pytest\.mark\.allow_io' tests/unit --include='*.py' | grep -v '^tests/unit/conftest.py' | wc -l
+25
+files holding those applications:
+14
+the one prose line:
+tests/unit/test_unit_io_guard.py:107:    """``@pytest.mark.allow_io(reason)`` disables the guard for that test only.
+
+# 'Audit note' comments (the exemption pattern that says relocation needs an approved migration plan):
+tests/unit/test_run_sandbox_api.py:40:# Audit note: this belongs in tests/integration/api/; it stays here under an
+tests/unit/tools/ci/test_ci_bounded_runner.py:37:# Audit note: these belong in tests/integration/external/ (suffix _external); relocating
+tests/unit/app/test_run_stream_pool_leak.py:59:# Audit note: this belongs in tests/integration/api/ (suffix _api); migrating it needs an
+
+$ git ls-files | grep -c unit-test-prompt ; git log --all --oneline -- unit-test-prompt backend/unit-test-prompt | wc -l   (README.md:183-186 cites unit-test-prompt/test-files/_structure/03-migration-log.md)
+0
+       0

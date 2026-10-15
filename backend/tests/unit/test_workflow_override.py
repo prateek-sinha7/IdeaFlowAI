@@ -5,7 +5,9 @@ surface of the feature:
 
 * ``app.api._workflow_override`` — the owner-scoped lookup every call site
   shares. The screen and the run MUST agree about which plan is in force, and
-  they only can if they resolve through one function.
+  they only can if they resolve through one function. Its tests need a real
+  session, so they live in ``tests/integration/api/test_workflow_override_api.py``
+  (ISS-1091).
 * ``agents.execution_engine.overrides.merge_override_steps`` — the merge that
   takes ONLY ``steps`` from the DB and leaves every workflow-level field
   (deliverable, context_providers, clarify, planner) coming from the file
@@ -19,25 +21,9 @@ else's runs until process restart.
 
 from __future__ import annotations
 
+import dataclasses
 
 import pytest
-
-from app.api._workflow_override import (
-    override_steps,
-)
-
-
-# ── resolve_override ─────────────────────────────────────────────────────────
-
-
-# ── find_override ────────────────────────────────────────────────────────────
-
-
-# ── override_steps ───────────────────────────────────────────────────────────
-
-
-def test_override_steps_of_none_is_none():
-    assert override_steps(None) is None
 
 
 # ── merge_override_steps ─────────────────────────────────────────────────────
@@ -126,6 +112,7 @@ def test_empty_steps_returns_the_file_plan_unchanged(ppt_compiled, registry):
     assert merge_override_steps(ppt_compiled, [], registry) is ppt_compiled
 
 
+@pytest.mark.issue("ISS-1092")
 def test_a_not_user_allowed_gate_is_rejected(ppt_compiled, registry):
     """`security` is registered user_allowed=False. A row smuggling one must be
     refused by the trust gate and the run must fall back to the file plan."""
@@ -140,3 +127,26 @@ def test_a_malformed_step_list_falls_back_to_the_file_plan(ppt_compiled, registr
     from agents.execution_engine.overrides import merge_override_steps
 
     assert merge_override_steps(ppt_compiled, ["not-a-step"], registry) is ppt_compiled
+
+
+@pytest.mark.issue("ISS-1111")
+@pytest.mark.parametrize("grant", ["exec", "spawn_subagents"])
+def test_an_override_step_cannot_carry_a_privileged_tool_grant(
+    ppt_compiled, registry, grant
+):
+    """ISS-1111 — exec / spawn_subagents are not user_allowed; an override step
+    carrying one must be refused and the file plan kept."""
+    from agents.execution_engine.overrides import merge_override_steps
+
+    bad = _steps("mine")
+    bad[0]["tools"] = {
+        "read_files": True,
+        "write_files": True,
+        "exec": False,
+        grant: True,
+    }
+    if grant == "exec":
+        # D-01: an exec step must declare both gates, or it fails for that reason
+        # at any trust level and proves nothing about the user_allowed check.
+        bad[0]["gates"] = ["security", "approval"]
+    assert merge_override_steps(ppt_compiled, bad, registry) is ppt_compiled

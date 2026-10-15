@@ -1,0 +1,17 @@
+# QA-KB-099 fix 05: non-vacuity of the now-running SIGTERM test (scratch copies outside the repo, as analysis-03 did). 2026-10-08T12:34:08Z
+# control = the FIXED test file with REPO_ROOT made absolute and the test-writer's xfail line dropped (copies only; the repo file keeps it).
+# mutant  = control minus the two argv lines '--timeout-graceful-shutdown', str(int(graceful)): uvicorn launched as before ISS-088.
+$ diff control mutant
+199,200d198
+<             "--timeout-graceful-shutdown",
+<             str(int(graceful)),
+
+$ (cd <scratch>/ctl && backend/.venv/bin/python -m pytest test_ctl_reachability.py -k sigterm --timeout=120 -p no:cacheprovider -q --tb=line)
+1 passed, 7 deselected, 2 warnings in 6.91s
+
+$ (cd <scratch>/mut && backend/.venv/bin/python -m pytest test_mut_reachability.py -k sigterm --timeout=120 -p no:cacheprovider -q --tb=line)
+E   Failed: uvicorn did not exit within 25.0s of SIGTERM while an SSE stream was live. Markers written: {"event": "startup_complete", "t": 1791462856.8943381}
+/private/tmp/claude-502/-Users-bilala-Developer-Projects-VELOCITY-AI-worktrees-feat-user-stories-v2/2d1a1575-310a-48fd-8155-2763a084604d/scratchpad/mut/test_mut_reachability.py:221: Failed: uvicorn did not exit within 25.0s of SIGTERM while an SSE stream was live. Markers written: {"event": "startup_complete", "t": 1791462856.8943381}
+1 failed, 7 deselected, 2 warnings in 26.56s
+$ pgrep -fl reachability_probe_app
+(no probe process left behind)

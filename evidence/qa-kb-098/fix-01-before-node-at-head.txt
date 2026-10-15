@@ -1,0 +1,39 @@
+# QA-KB-098 fix-01: the one node BEFORE the fix, HEAD 50f269502, 2026-10-08 14:28:53
+$ cd backend && .venv/bin/python -m pytest 'tests/agents/test_per_run_paths_v3.py::TestPerRunPathsDistinct::test_revision_browser_dir_writer_driven' -q -p no:cacheprovider
+            "root and revision should share the same physical sandbox directory"
+        )
+    
+        root_sb.ensure()
+        (root_sb.root / "root.html").write_text("<html><body>root page</body></html>")
+        (root_sb.root / "rev.html").write_text("<html><body>revision page</body></html>")
+    
+>       _orig_sandbox = playwright_tools._SANDBOX
+                        ^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: module 'app.agents.tools.playwright' has no attribute '_SANDBOX'
+
+tests/agents/test_per_run_paths_v3.py:427: AttributeError
+=============================== warnings summary ===============================
+app/core/config.py:94
+  /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/app/core/config.py:94: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+    class Settings(BaseSettings):
+
+tests/conftest.py:484
+  /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/tests/conftest.py:484: PytestUnknownMarkWarning: Unknown pytest.mark.agents - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    item.add_marker(getattr(pytest.mark, suite))
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/agents/test_per_run_paths_v3.py::TestPerRunPathsDistinct::test_revision_browser_dir_writer_driven
+1 failed, 2 warnings in 1.19s
+exit=1
+
+# whole file BEFORE the fix, 2026-10-08 14:29:01
+$ cd backend && .venv/bin/python -m pytest tests/agents/test_per_run_paths_v3.py -q -p no:cacheprovider -rA
+  /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/app/core/config.py:94: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+PASSED tests/agents/test_per_run_paths_v3.py::TestPerRunPathsDistinct::test_two_revisions_write_distinct_log_paths
+PASSED tests/agents/test_per_run_paths_v3.py::TestPerRunPathsDistinct::test_revision_uses_correct_verify_dir_path
+PASSED tests/agents/test_per_run_paths_v3.py::TestPerRunPathsDistinct::test_revision_uses_correct_browser_dir_path
+PASSED tests/agents/test_per_run_paths_v3.py::TestPerRunPathsDistinct::test_three_runs_produce_three_distinct_log_paths
+FAILED tests/agents/test_per_run_paths_v3.py::TestPerRunPathsDistinct::test_revision_browser_dir_writer_driven
+1 failed, 4 passed, 7 warnings in 8.34s
+exit=1

@@ -1036,6 +1036,13 @@ class TestThreeRoutes:
         assert "read_file .extract/pdf/test/document.md" in result
         assert (sandbox / ".extract" / "pdf" / "test" / "document.md").is_file()
 
+    def test_the_path_the_receipt_names_is_agent_readable(self):
+        """The receipt says `read_file .extract/...`; the read guard must allow it (writes stay refused)."""
+        from app.agents.sandbox import AGENT_READABLE_RESERVED, RESERVED_PATHS
+
+        assert ".extract/" in RESERVED_PATHS
+        assert ".extract/" in AGENT_READABLE_RESERVED
+
     def test_an_unknown_type_is_refused_without_trying_a_conversion(
         self, sandbox, monkeypatch
     ):

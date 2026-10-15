@@ -1,0 +1,8 @@
+# 2026-10-08 15:09:23, HEAD 70c5ca8b2 + working tree (this fix = 2 string literals in a test; 0 import lines changed)
+# cmd (cwd backend/): .venv/bin/lint-imports
+kernel imports only capability ports (scaffold) BROKEN
+agents.workflows must not import the execution kernel or the web layer KEPT
+agents.capabilities must not import the execution kernel or the web layer BROKEN
+agents.runtime must not import the execution kernel or the web layer KEPT
+shipped code must not import the build-time tooling package KEPT
+Contracts: 3 kept, 2 broken.

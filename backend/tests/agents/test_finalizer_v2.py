@@ -188,8 +188,9 @@ class FakeSandbox:
             return None
 
     def stage_exact(self, paths: list[str]) -> None:
-        for p in paths:
-            _run_git("add", "--force", "--", p, cwd=self.root)
+        # One all-or-nothing git add, as LocalWorkspace.stage_exact (ISS-1179).
+        if paths:
+            _run_git("add", "--force", "--", *paths, cwd=self.root)
 
     def tracked_chain_paths(self) -> list[str]:
         try:

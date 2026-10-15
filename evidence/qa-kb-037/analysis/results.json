@@ -1,0 +1,302 @@
+[
+ {
+  "impl": "CURRENT (unmodified)",
+  "scenario": "A out-of-order pick",
+  "before": {
+   "chip": "Viewing v1▾",
+   "banner": "Viewing v1 (read-only)",
+   "shown": "(no preview)"
+  },
+  "after": {
+   "chip": "v2▾",
+   "banner": "Viewing v2 (read-only)",
+   "shown": "v2 content"
+  }
+ },
+ {
+  "impl": "CURRENT (unmodified)",
+  "scenario": "B live-return",
+  "before": {
+   "chip": "Viewing v3▾",
+   "banner": "(no banner)",
+   "shown": "(no preview)"
+  },
+  "after": {
+   "chip": "Viewing v3▾",
+   "banner": "Viewing v2 (read-only)",
+   "shown": "(no preview)"
+  }
+ },
+ {
+  "impl": "CURRENT (unmodified)",
+  "scenario": "C late failure",
+  "after": {
+   "chip": "v3▾",
+   "banner": "(no banner)",
+   "shown": "live (v3) content"
+  }
+ },
+ {
+  "impl": "CURRENT (unmodified)",
+  "scenario": "D sequential picks",
+  "after": {
+   "chip": "Viewing v3▾",
+   "banner": "(no banner)",
+   "shown": "(no preview)"
+  }
+ },
+ {
+  "impl": "CURRENT (unmodified)",
+  "scenario": "S2 pending window",
+  "pending": {
+   "chip": "Viewing v2▾",
+   "banner": "(no banner)",
+   "shown": "(no preview)",
+   "steps": "live-v3-agent"
+  },
+  "resolved": {
+   "chip": "Viewing v2▾",
+   "banner": "Viewing v2 (read-only)",
+   "shown": "(no preview)",
+   "steps": "v2-agent"
+  }
+ },
+ {
+  "impl": "CURRENT (unmodified)",
+  "scenario": "S1 Back while pending",
+  "urlPin": "1",
+  "before": {
+   "chip": "Viewing v1▾",
+   "banner": "Viewing v1 (read-only)",
+   "shown": "(no preview)"
+  },
+  "after": {
+   "chip": "Viewing v1▾",
+   "banner": "Viewing v2 (read-only)",
+   "shown": "(no preview)"
+  }
+ },
+ {
+  "impl": "CURRENT (unmodified)",
+  "scenario": "S1b Back to unpinned while pending",
+  "before": {
+   "chip": "Viewing v2▾",
+   "banner": "(no banner)",
+   "shown": "(no preview)"
+  },
+  "after": {
+   "chip": "Viewing v2▾",
+   "banner": "Viewing v2 (read-only)",
+   "shown": "(no preview)"
+  }
+ },
+ {
+  "impl": "CURRENT (unmodified)",
+  "scenario": "E normal pick with URL round-trip",
+  "after": {
+   "chip": "Viewing v2▾",
+   "banner": "Viewing v2 (read-only)",
+   "shown": "(no preview)"
+  }
+ },
+ {
+  "impl": "AGREED FIX (scratch copy)",
+  "scenario": "A out-of-order pick",
+  "before": {
+   "chip": "Viewing v1▾",
+   "banner": "Viewing v1 (read-only)",
+   "shown": "(no preview)"
+  },
+  "after": {
+   "chip": "Viewing v1▾",
+   "banner": "Viewing v1 (read-only)",
+   "shown": "(no preview)"
+  }
+ },
+ {
+  "impl": "AGREED FIX (scratch copy)",
+  "scenario": "B live-return",
+  "before": {
+   "chip": "Viewing v3▾",
+   "banner": "(no banner)",
+   "shown": "(no preview)"
+  },
+  "after": {
+   "chip": "Viewing v3▾",
+   "banner": "(no banner)",
+   "shown": "(no preview)"
+  }
+ },
+ {
+  "impl": "AGREED FIX (scratch copy)",
+  "scenario": "C late failure",
+  "after": {
+   "chip": "Viewing v1▾",
+   "banner": "Viewing v1 (read-only)",
+   "shown": "(no preview)"
+  }
+ },
+ {
+  "impl": "AGREED FIX (scratch copy)",
+  "scenario": "D sequential picks",
+  "after": {
+   "chip": "Viewing v3▾",
+   "banner": "(no banner)",
+   "shown": "(no preview)"
+  }
+ },
+ {
+  "impl": "AGREED FIX (scratch copy)",
+  "scenario": "S2 pending window",
+  "pending": {
+   "chip": "Viewing v2▾",
+   "banner": "(no banner)",
+   "shown": "(no preview)",
+   "steps": "live-v3-agent"
+  },
+  "resolved": {
+   "chip": "Viewing v2▾",
+   "banner": "Viewing v2 (read-only)",
+   "shown": "(no preview)",
+   "steps": "v2-agent"
+  }
+ },
+ {
+  "impl": "AGREED FIX (scratch copy)",
+  "scenario": "S1 Back while pending",
+  "urlPin": "1",
+  "before": {
+   "chip": "Viewing v1▾",
+   "banner": "Viewing v1 (read-only)",
+   "shown": "(no preview)"
+  },
+  "after": {
+   "chip": "Viewing v1▾",
+   "banner": "Viewing v2 (read-only)",
+   "shown": "(no preview)"
+  }
+ },
+ {
+  "impl": "AGREED FIX (scratch copy)",
+  "scenario": "S1b Back to unpinned while pending",
+  "before": {
+   "chip": "Viewing v2▾",
+   "banner": "(no banner)",
+   "shown": "(no preview)"
+  },
+  "after": {
+   "chip": "Viewing v2▾",
+   "banner": "Viewing v2 (read-only)",
+   "shown": "(no preview)"
+  }
+ },
+ {
+  "impl": "AGREED FIX (scratch copy)",
+  "scenario": "E normal pick with URL round-trip",
+  "after": {
+   "chip": "Viewing v2▾",
+   "banner": "Viewing v2 (read-only)",
+   "shown": "(no preview)"
+  }
+ },
+ {
+  "impl": "AGREED FIX + URL-PIN BUMPS (scratch copy)",
+  "scenario": "A out-of-order pick",
+  "before": {
+   "chip": "Viewing v1▾",
+   "banner": "Viewing v1 (read-only)",
+   "shown": "(no preview)"
+  },
+  "after": {
+   "chip": "Viewing v1▾",
+   "banner": "Viewing v1 (read-only)",
+   "shown": "(no preview)"
+  }
+ },
+ {
+  "impl": "AGREED FIX + URL-PIN BUMPS (scratch copy)",
+  "scenario": "B live-return",
+  "before": {
+   "chip": "Viewing v3▾",
+   "banner": "(no banner)",
+   "shown": "(no preview)"
+  },
+  "after": {
+   "chip": "Viewing v3▾",
+   "banner": "(no banner)",
+   "shown": "(no preview)"
+  }
+ },
+ {
+  "impl": "AGREED FIX + URL-PIN BUMPS (scratch copy)",
+  "scenario": "C late failure",
+  "after": {
+   "chip": "Viewing v1▾",
+   "banner": "Viewing v1 (read-only)",
+   "shown": "(no preview)"
+  }
+ },
+ {
+  "impl": "AGREED FIX + URL-PIN BUMPS (scratch copy)",
+  "scenario": "D sequential picks",
+  "after": {
+   "chip": "Viewing v3▾",
+   "banner": "(no banner)",
+   "shown": "(no preview)"
+  }
+ },
+ {
+  "impl": "AGREED FIX + URL-PIN BUMPS (scratch copy)",
+  "scenario": "S2 pending window",
+  "pending": {
+   "chip": "Viewing v2▾",
+   "banner": "(no banner)",
+   "shown": "(no preview)",
+   "steps": "live-v3-agent"
+  },
+  "resolved": {
+   "chip": "Viewing v2▾",
+   "banner": "Viewing v2 (read-only)",
+   "shown": "(no preview)",
+   "steps": "v2-agent"
+  }
+ },
+ {
+  "impl": "AGREED FIX + URL-PIN BUMPS (scratch copy)",
+  "scenario": "S1 Back while pending",
+  "urlPin": "1",
+  "before": {
+   "chip": "Viewing v1▾",
+   "banner": "Viewing v1 (read-only)",
+   "shown": "(no preview)"
+  },
+  "after": {
+   "chip": "Viewing v1▾",
+   "banner": "Viewing v1 (read-only)",
+   "shown": "(no preview)"
+  }
+ },
+ {
+  "impl": "AGREED FIX + URL-PIN BUMPS (scratch copy)",
+  "scenario": "S1b Back to unpinned while pending",
+  "before": {
+   "chip": "Viewing v2▾",
+   "banner": "(no banner)",
+   "shown": "(no preview)"
+  },
+  "after": {
+   "chip": "Viewing v2▾",
+   "banner": "(no banner)",
+   "shown": "(no preview)"
+  }
+ },
+ {
+  "impl": "AGREED FIX + URL-PIN BUMPS (scratch copy)",
+  "scenario": "E normal pick with URL round-trip",
+  "after": {
+   "chip": "Viewing v2▾",
+   "banner": "Viewing v2 (read-only)",
+   "shown": "(no preview)"
+  }
+ }
+]

@@ -1,0 +1,23 @@
+# QA-KB-005 fix phase — 2026-10-01 21:22:30 — cwd frontend/
+# cmd: ./node_modules/.bin/vitest --run src/hooks/useRunStateStore.staleFailedAgents.test.ts
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - ESM syntax in a file loaded as CommonJS (vitest.config.ts:1:1). Use a `.mjs` extension or set `"type": "module"` in the closest package.json
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+
+ RUN  v4.1.11 /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/frontend
+
+ ❯ src/hooks/useRunStateStore.staleFailedAgents.test.ts (2 tests | 1 failed) 25ms
+     × a hook_run frame appends a hookRuns row 4ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/hooks/useRunStateStore.staleFailedAgents.test.ts > hook_run frames reach the run's pipelineState (ISS-870) > a hook_run frame appends a hookRuns row
+Error: Expect test to fail
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 1 passed (2)
+   Start at  21:22:31
+   Duration  1.69s (transform 251ms, setup 120ms, import 500ms, tests 25ms, environment 763ms)
+

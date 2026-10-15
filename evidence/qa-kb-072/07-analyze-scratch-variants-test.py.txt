@@ -1,0 +1,99 @@
+"""SCRATCH ONLY (analysis of QA-KB-072) - lives in a throwaway copy of backend/, never in the repo.
+
+Three ways to answer the refused redo in test_non_redoable_declared_gate_unaffected_by_redo_action:
+  v1_inline_gated   - the bug's triage sketch, literally: poll review_event_pending INSIDE _on_ready
+  v1b_inline_ungated- same, but approve even when the poll times out
+  v2_bg_task        - _on_ready posts the redo and hands the approve to a concurrent task
+"""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+import uuid
+
+import pytest
+
+import tests.agents.test_declared_gate_redo as base
+from tests.agents.test_declared_gate_redo import _Harness, _build_compiled, _drive
+from tests.agents.test_redoable_eligibility_fence import _wait_until
+
+
+@pytest.fixture(autouse=True)
+def _fast_timeout(monkeypatch):
+    monkeypatch.setattr(base, "_EVENT_TIMEOUT_S", 6.0)
+
+
+async def _run(variant: str, caplog):
+    compiled = _build_compiled(redoable=False)
+    run_id = f"scr-{variant}-{uuid.uuid4().hex[:6]}"
+    readies: list[dict] = []
+    trace: list[str] = []
+
+    async def _on_ready(ev):
+        readies.append(ev)
+        store = harness.engine._store
+        gate_key = ev["data"]["gate_key"]
+        await store.set_review_response(
+            gate_key, approved=False, action="redo", instructions="ignored"
+        )
+        trace.append("redo_posted")
+        if variant == "v1_inline_gated":
+            armed = await _wait_until(lambda: store.review_event_pending(gate_key))
+            trace.append(f"rearm_seen_inline={armed}")
+            if not armed:
+                return
+            await store.set_review_response(gate_key, approved=True)
+            trace.append("approve_posted")
+        elif variant == "v1b_inline_ungated":
+            armed = await _wait_until(lambda: store.review_event_pending(gate_key))
+            trace.append(f"rearm_seen_inline={armed}")
+            await store.set_review_response(gate_key, approved=True)
+            trace.append("approve_posted")
+        elif variant == "v2_bg_task":
+
+            async def _approve_after_rearm():
+                armed = await _wait_until(
+                    lambda: store.review_event_pending(gate_key), timeout=5.0
+                )
+                trace.append(f"rearm_seen_bg={armed}")
+                if armed:
+                    await store.set_review_response(gate_key, approved=True)
+                    trace.append("approve_posted")
+
+            asyncio.create_task(_approve_after_rearm())
+
+    with caplog.at_level(logging.WARNING, logger="agents.execution_engine.engine"):
+        with _Harness(["only pass output. "]) as harness:
+            events = await _drive(harness.engine, compiled, run_id, _on_ready)
+    return events, readies, trace, caplog.text
+
+
+@pytest.mark.asyncio
+async def test_v1_inline_gated(caplog):
+    with pytest.raises(TimeoutError):
+        await _run("v1_inline_gated", caplog)
+
+
+@pytest.mark.asyncio
+async def test_v1b_inline_ungated(caplog):
+    events, readies, trace, text = await _run("v1b_inline_ungated", caplog)
+    types = [e.get("type") for e in events]
+    print("\nV1B trace:", trace)
+    print("V1B REFUSED logged:", "redo REFUSED" in text)
+    print("V1B types:", types)
+
+
+@pytest.mark.asyncio
+async def test_v2_bg_task(caplog):
+    events, readies, trace, text = await _run("v2_bg_task", caplog)
+    types = [e.get("type") for e in events]
+    print("\nV2 trace:", trace)
+    print("V2 REFUSED logged:", "redo REFUSED" in text)
+    print("V2 types:", types)
+    assert types.count("agent_start") == 1, types
+    assert len(readies) == 1
+    assert "redo REFUSED" in text
+    assert "review_gate_approved" in types, types
+    assert "pipeline_complete" in types, types
+    assert "_gate_redo" not in types

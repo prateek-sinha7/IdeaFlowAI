@@ -1,0 +1,29 @@
+// SCRATCH DEBUG (outside the repo) — why does the AppHeader menu leave the DOM synchronously when the bell's does not?
+import { describe, expect, it, vi } from "vitest";
+import { renderWithProviders, screen, fireEvent, waitFor } from "@/test/renderWithProviders";
+import userEvent from "@testing-library/user-event";
+
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: vi.fn(), replace: vi.fn(), prefetch: vi.fn() }),
+}));
+
+import { AppHeader } from "@/components/layout/AppHeader";
+
+const where = () => (document.activeElement === document.body ? "BODY" : document.activeElement?.getAttribute("aria-label") ?? document.activeElement?.tagName);
+
+describe("debug ISS-928", () => {
+  it("unfocused click then Escape", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(
+      <AppHeader currentPage="saved-workflows" onNavigate={vi.fn()} onLogout={vi.fn()}
+        userEmail="qa@flowin.test" userTier="basic" />,
+    );
+    const trigger = screen.getByRole("button", { name: /account menu/i });
+    fireEvent.click(trigger);
+    console.log("[open] activeElement =", where(), "| aria-expanded =", trigger.getAttribute("aria-expanded"), "| menu =", !!screen.queryByRole("menu"), "| raw [role=menu] =", document.querySelectorAll('[role="menu"]').length);
+    await user.keyboard("{Escape}");
+    console.log("[right after Escape] aria-expanded =", trigger.getAttribute("aria-expanded"), "| menu (a11y query) =", !!screen.queryByRole("menu"), "| raw [role=menu] =", document.querySelectorAll('[role="menu"]').length, "| activeElement =", where());
+    await waitFor(() => expect(document.querySelectorAll('[role="menu"]').length).toBe(0));
+    console.log("[after waitFor] raw [role=menu] =", document.querySelectorAll('[role="menu"]').length);
+  });
+});

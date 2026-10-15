@@ -1,0 +1,5 @@
+# QA-KB-103 analysis 04: override rows in the dev DB (Postgres, localhost:5432, database velocity; DATABASE_URL from backend/.env, credentials not printed), read-only (2026-10-08T19:32Z, HEAD c9c4c630a)
+# cmd: cd backend && PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=. .venv/bin/python ../evidence/qa-kb-103/analysis-plugins/query_override_rows.py
+# read-only: SET TRANSACTION READ ONLY, one SELECT, step KEYS printed, no values.
+query: SELECT id, overrides_pipeline_type, override_enabled, created_at, updated_at, manifest_json (step KEYS printed, not values) FROM workflows WHERE overrides_pipeline_type IS NOT NULL ORDER BY overrides_pipeline_type, updated_at
+0 override row(s)

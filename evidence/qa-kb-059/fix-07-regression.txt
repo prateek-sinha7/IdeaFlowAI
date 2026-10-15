@@ -1,0 +1,41 @@
+# QA-KB-059 fix: regression, FIXED IdeaInputPage.tsx, one file per vitest run (frontend/, ./node_modules/.bin/vitest --run <file>), 2026-10-07
+src/components/workflow/IdeaInputPage.iss371.rebaseline.test.tsx :: Tests  3 passed (3)
+src/components/workflow/IdeaInputPage.iss371.test.tsx :: Tests  3 passed (3)
+src/components/workflow/IdeaInputPage.declaredCapabilities.test.tsx :: Tests  2 passed (2)
+src/components/workflow/IdeaInputPage.designPicker.test.tsx :: Tests  1 passed | 1 expected fail (2)
+src/components/workflow/IdeaInputPage.modelOverrides.test.tsx :: Tests  2 passed (2)
+src/components/workflow/IdeaInputPage.selections.test.tsx :: Tests  4 passed (4)
+src/components/workflow/IdeaInputPage.imageInput.test.tsx :: Tests  2 passed (2)
+src/components/workflow/IdeaInputPage.staleExtractionBrief.test.tsx :: Tests  3 passed (3)
+src/components/workflow/IdeaInputPage.textTruncation.test.tsx :: Tests  1 passed (1)
+src/components/workflow/IdeaInputPage.iss472.test.tsx :: Tests  2 passed (2)
+src/components/workflow/IdeaInputPage.iss766.test.tsx :: Tests  2 passed (2)
+src/components/workflow/IdeaInputPage.iss777.test.tsx :: Tests  2 passed (2)
+overrideAgentPool.source.test.ts :: Tests  10 passed (10)
+orderedStagedUploadIds.test.ts :: Tests  4 passed (4)
+api.getWorkflowDetailDedup.test.ts :: Tests  1 passed (1)
+(designPicker's 1 expected fail is QA-KB-086 / ISS-944's own marker, present before this change)
+
+# eslint src/components/workflow/IdeaInputPage.tsx, before (stdin from the pre-fix snapshot) vs after: same 10 findings, same rules, lines shifted by the added lines only
+before 10 ['@typescript-eslint/no-unused-vars', 'react-hooks/set-state-in-effect']
+after 10 ['@typescript-eslint/no-unused-vars', 'react-hooks/set-state-in-effect']
+
+# tsc --noEmit -p frontend: 17 lines of errors, all in pre-existing test files; none in IdeaInputPage.tsx
+0
+src/components/analytics/AnalyticsPage.test.tsx(363,23): error TS2322: Type '{ id: string; }' is not assignable to type 'never'.
+src/components/DashboardLayout.chain.test.tsx(43,81): error TS2554: Expected 0 arguments, but got 2.
+src/components/DashboardLayout.chain.test.tsx(145,3): error TS2739: Type '{ id: string; title: string; type: "user_stories"; status: "completed"; input: string;
+src/components/history/WorkflowHistory.modelChip.test.tsx(194,7): error TS2322: Type 'string' is not assignable to type 'AgentThinkingEntry[]'.
+src/components/history/WorkflowHistory.modelChip.test.tsx(223,7): error TS2322: Type 'string' is not assignable to type 'AgentThinkingEntry[]'.
+src/components/history/WorkflowHistory.modelChip.test.tsx(244,7): error TS2322: Type 'string' is not assignable to type 'AgentThinkingEntry[]'.
+src/components/preview/PreviewPanel.liveVersion.test.tsx(94,53): error TS2322: Type 'Mock<Procedure | Constructable>' is not assignable to type '((runId: string
+  Type 'MockInstance<Procedure | Constructable> & (new (...args: any[]) => any) & {}' is not assignable to type '((runId: string, tab: string) => void) | undefi
+src/components/results/AgentDetailPanel.waveWorkerStatus.test.tsx(370,39): error TS2322: Type 'any' is not assignable to type 'never'.
+src/components/results/AgentDetailPanel.waveWorkerStatus.test.tsx(370,74): error TS2349: This expression is not callable.
+  Type 'never' has no call signatures.
+src/components/results/AgentDetailPanel.waveWorkerStatus.test.tsx(387,39): error TS2322: Type 'any' is not assignable to type 'never'.
+src/components/results/AgentDetailPanel.waveWorkerStatus.test.tsx(387,74): error TS2349: This expression is not callable.
+  Type 'never' has no call signatures.
+src/hooks/useWorkflow.imagePayload.test.ts(32,47): error TS2345: Argument of type '{ enabled: true; phase: "idle"; liveRunIds: never[]; reattach: Mock<Procedure
+  Type '{ enabled: true; phase: "idle"; liveRunIds: never[]; reattach: Mock<Procedure>; attachRun: Mock<Procedure>; detachRun: Mock<Procedure>; subscribe: Mock<
+src/providers/RunConnectionProvider.test.tsx(630,45): error TS2493: Tuple type '[]' of length '0' has no element at index '0'.

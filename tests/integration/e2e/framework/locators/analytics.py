@@ -108,8 +108,12 @@ def runs_by_pipeline(page) -> dict[str, float]:
     the page text therefore triples the real total and makes the breakdown look
     inconsistent with its own headline.
 
-    Rows read `<n> runs · <tokens> <cost> <TYPE>` — the label follows its
-    figures — and the first occurrence of each type is kept.
+    Rows read `<TYPE>` then `<n> runs · <tokens> <cost>` — the label PRECEDES
+    its figures — and the first occurrence of each type is kept. (The breakdown
+    now collapses rows that share a display label into one, so a family like
+    "Prototype" appears exactly once; the earlier parse paired each `<n> runs`
+    with the NEXT row's label, which only yielded a value while duplicate rows
+    existed — it returned nothing for a single collapsed row.)
     """
     # Scoped to the "By Pipeline Type" CARD, not the whole body. Sweeping
     # document.innerText matched every "<n> runs" on the screen — the By Model
@@ -122,8 +126,8 @@ def runs_by_pipeline(page) -> dict[str, float]:
     ).last
     text = card.inner_text() if card.count() else page.evaluate("() => document.body.innerText")
     out: dict[str, float] = {}
-    for runs, label in re.findall(
-        r"(\d[\d,]*)\s+runs?\b[^\n]*\n(?:[^\n]*\n){0,3}?([A-Z][A-Z0-9 ._&-]{2,40})\n", text
+    for label, runs in re.findall(
+        r"([A-Z][A-Z0-9 ._&-]{2,40})\n(?:[^\n]*\n){0,2}?(\d[\d,]*)\s+runs?\b", text
     ):
         out.setdefault(label.strip(), number(runs))
     return out

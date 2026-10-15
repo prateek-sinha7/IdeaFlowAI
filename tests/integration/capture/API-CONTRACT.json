@@ -261,15 +261,6 @@
     "response_model": "RefreshResponse"
   },
   {
-    "method": "POST",
-    "path": "/api/auth/register",
-    "handler": "register",
-    "file": "backend/app/api/auth.py",
-    "auth": "public",
-    "status_code": "HTTP_403_FORBIDDEN",
-    "response_model": null
-  },
-  {
     "method": "GET",
     "path": "/api/capabilities",
     "handler": "list_capabilities",

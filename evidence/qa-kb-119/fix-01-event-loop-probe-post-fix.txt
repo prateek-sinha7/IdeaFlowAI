@@ -1,0 +1,17 @@
+# QA-KB-119 fix probe, 2026-10-09T14:48Z, backend :8000 (uvicorn --reload, serving the fix: openapi shows after minimum 0, limit 1..5000 default 1000)
+# Script: evidence/qa-kb-119/02-analysis-event-loop-probe.py, unchanged (read-only: POST /api/auth/login, GET /health, GET /api/runs/{id}/events)
+
+##### bare GET /api/runs/78e185fb-c032-4154-8552-774781b6e5df/events (no params)
+baseline /health (idle, n=8): max=37ms median=2ms
+big call: status=200 bytes=527893 ttfb=0.28s total=0.28s
+/health probes during the big call: n=2
+  t+ 0.15s  latency=      6ms  200
+  t+ 0.21s  latency=     68ms  200
+WORST /health latency while /events in flight: 68ms (idle baseline max 37ms)
+
+##### same run, ?limit=5000 (the page size getRunEvents asks for)
+baseline /health (idle, n=8): max=2ms median=1ms
+big call: status=200 bytes=2578008 ttfb=0.21s total=0.22s
+/health probes during the big call: n=1
+  t+ 0.15s  latency=     63ms  200
+WORST /health latency while /events in flight: 63ms (idle baseline max 2ms)

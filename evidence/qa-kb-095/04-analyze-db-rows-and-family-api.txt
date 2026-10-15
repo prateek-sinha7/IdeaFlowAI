@@ -1,0 +1,12 @@
+# QA-KB-095 analysis, 2026-10-07 — DB rows and family API for run 0f62f7bc-d3a2-4748-8004-0b534e1741ae
+# DB = backend/.env DATABASE_URL (velocity-local-db), read-only session. Script: 08-analyze-scratch-db-queries.py.txt
+
+## SELECT id, type, status, parent_run_id, git_tag, created_at, deliverable_filename FROM workflow_runs WHERE id = <root> OR parent_run_id = <root> ORDER BY created_at
+['id', 'type', 'status', 'parent_run_id', 'git_tag', 'created_at', 'deliverable_filename']
+('0f62f7bc-d3a2-4748-8004-0b534e1741ae', 'prototype_v2', 'completed', None, 'v1', datetime.datetime(2026, 9, 28, 14, 9, 19, 768276), 'prototype.html')
+('b7bdf6a3-2ae9-48f6-867e-dbfb61b9f570', 'prototype_revision', 'failed', '0f62f7bc-d3a2-4748-8004-0b534e1741ae', None, datetime.datetime(2026, 9, 29, 7, 40, 47, 862018), None)
+
+## GET /api/runs/0f62f7bc.../family  (admin@velocity.ai; token not recorded)
+root_id 0f62f7bc-d3a2-4748-8004-0b534e1741ae
+{'id': '0f62f7bc-d3a2-4748-8004-0b534e1741ae', 'type': 'prototype_v2', 'status': 'completed', 'revision_index': 1, 'parent_run_id': None, 'git_tag': 'v1'}
+{'id': 'b7bdf6a3-2ae9-48f6-867e-dbfb61b9f570', 'type': 'prototype_revision', 'status': 'failed', 'revision_index': 2, 'parent_run_id': '0f62f7bc-d3a2-4748-8004-0b534e1741ae', 'git_tag': None}

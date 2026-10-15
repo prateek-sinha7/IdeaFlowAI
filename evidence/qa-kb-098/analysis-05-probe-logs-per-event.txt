@@ -1,0 +1,11 @@
+# QA-KB-098 analysis 05: PROBE - where do the per-agent RunLog entries of two revisions land? (.logs/*.jsonl after root + 2 revisions through the REAL engine)
+# test: tests/agents/test_per_run_paths_v3.py::TestPerRunPathsDistinct::test_three_runs_produce_three_distinct_log_paths (passes); HEAD 165c40316; 2026-10-07T23:19Z
+# plugin: evidence/qa-kb-098/analysis-plugins/kb098_logs_dump.py   (counts events per file; 'step_start'/'step_end' come from RunLog at engine.py:9633, the rest from RunTrace at engine.py:4140)
+
+1 passed, 5 warnings in 5.28s
+
+07a6acc5-3bbc-48e6-ac3a-f0ddc0a9fad8.jsonl  [revision]: 37 lines {'workflow_validated': 1, 'planner_start': 1, 'planner_complete': 1, 'gate_status': 1, 'pipeline_start': 1, 'agent_start': 6, 'agent_input': 6, 'agent_skills': 6, 'agent_output': 6, 'agent_complete': 6, 'run_terminal': 1, 'pipeline_complete': 1}
+5dff27cb-32a5-4c6e-85ca-c7b6d10e12d3.jsonl  [CHAIN ROOT (sandbox dir name)]: 73 lines {'workflow_validated': 1, 'planner_start': 1, 'planner_complete': 1, 'gate_status': 1, 'pipeline_start': 1, 'agent_start': 6, 'step_start': 18, 'agent_input': 6, 'agent_skills': 6, 'step_end': 18, 'agent_output': 6, 'agent_complete': 6, 'run_terminal': 1, 'pipeline_complete': 1}
+ff9153bc-c0df-46ac-aa1e-38fd8c74be43.jsonl  [revision]: 37 lines {'workflow_validated': 1, 'planner_start': 1, 'planner_complete': 1, 'gate_status': 1, 'pipeline_start': 1, 'agent_start': 6, 'agent_input': 6, 'agent_skills': 6, 'agent_output': 6, 'agent_complete': 6, 'run_terminal': 1, 'pipeline_complete': 1}
+
+reading: 3 runs x 6 agents = 18 step_start + 18 step_end. ALL 36 are in the chain root's file; the two revisions' own files hold none.

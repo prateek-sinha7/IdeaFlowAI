@@ -1,0 +1,5 @@
+# 05 fix run, 2026-10-02T10:56:55Z, local env as-is (backend/.env bearer token)
+$ .venv/bin/python -m pytest tests/integration/api/test_duplicate_context_guard_api.py -q -p no:cacheprovider --runxfail
+   1 8 failed, 9 warnings in 1.41s
+   8 E       assert 503 == 200
+   8 E       AssertionError: {"detail":{"error":"Bedrock bearer token expired at 2026-10-02T08:00Z — rotate AWS_BEARER_TOKEN_BEDROCK and restart the backend.","code":"model_provider_unavailable","recoverable":false}}

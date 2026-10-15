@@ -218,9 +218,10 @@ async def test_stamp_resume_marker_without_durable_rows_does_not_raise():
 #       silently collide. Before the fix, ``_stamp_resume_marker`` did a
 #       single unretried read-max(seq)+1-then-append_event; a losing writer's
 #       IntegrityError was swallowed by the bare ``except Exception`` and its
-#       marker was dropped with no trace. After the fix (routing through
-#       ``ScopedStore.append_event_next_seq``), every concurrent marker call
-#       survives with a distinct seq — none are silently lost.
+#       marker was dropped with no trace. After the fix (the marker now rides
+#       the bounded ``_max_event_seq`` probe plus ``append_event_at_or_after``,
+#       FIX-499), every concurrent marker call survives with a distinct seq —
+#       none are silently lost.
 # ===========================================================================
 
 

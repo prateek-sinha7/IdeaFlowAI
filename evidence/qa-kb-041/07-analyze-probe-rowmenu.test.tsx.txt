@@ -1,0 +1,56 @@
+// SCRATCH PROBE (outside the repo) — QA-KB-041 analyzer sibling: History "Run actions" RowMenu
+// (RevisionFamilyView.tsx:446-451, module-local; rendered via the exported FamilyGroupCard).
+import { describe, expect, it, vi } from "vitest";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import React, { useState } from "react";
+import { FamilyGroupCard, type FamilyGroup } from "@/components/history/RevisionFamilyView";
+import type { WorkflowRun } from "@/types/index";
+
+vi.mock("@/hooks/useWorkflowMetadata", () => ({
+  useWorkflowShortNames: () => () => undefined,
+}));
+
+const run = {
+  id: "b0642e0f-fe74-4f7e-9f16-8b164a6e989d", title: "A history run", type: "custom",
+  status: "completed", createdAt: "2026-09-01T14:46:55.000Z", agentCount: 3,
+} as WorkflowRun;
+const group = { root: run, members: [run], latest: run } as FamilyGroup;
+
+// Same wiring WorkflowHistory.tsx:1455-1456 uses for openMenuId / onToggleMenu.
+function Harness() {
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+  return (
+    <FamilyGroupCard group={group} index={0} expanded={false} onToggle={() => {}} onSelectRun={() => {}}
+      openMenuId={openMenuId}
+      onToggleMenu={(id, e) => { e?.stopPropagation(); setOpenMenuId(openMenuId === id ? null : id); }}
+      onDeleteClick={() => {}} />
+  );
+}
+const where = () => (document.activeElement === document.body ? "BODY" : document.activeElement?.getAttribute("aria-label") ?? document.activeElement?.tagName);
+
+describe("sibling: History RowMenu 'Run actions'", () => {
+  it("CONTROL: focused click then Escape closes", async () => {
+    const user = userEvent.setup();
+    render(<Harness />);
+    const trigger = screen.getByRole("button", { name: "Run actions" });
+    await user.click(trigger);
+    console.log("[rowmenu control] activeElement =", where(), "| aria-expanded =", trigger.getAttribute("aria-expanded"));
+    expect(trigger).toHaveAttribute("aria-expanded", "true");
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(trigger).toHaveAttribute("aria-expanded", "false"));
+  });
+
+  it("REPRO: unfocused click then Escape leaves the menu open", async () => {
+    const user = userEvent.setup();
+    render(<Harness />);
+    const trigger = screen.getByRole("button", { name: "Run actions" });
+    fireEvent.click(trigger);
+    console.log("[rowmenu repro] activeElement =", where(), "| aria-expanded =", trigger.getAttribute("aria-expanded"));
+    await user.keyboard("{Escape}");
+    await new Promise((r) => setTimeout(r, 400));
+    console.log("[rowmenu repro] after Escape: aria-expanded =", trigger.getAttribute("aria-expanded"), "| menu present =", !!screen.queryByRole("menu"));
+    expect(trigger).toHaveAttribute("aria-expanded", "true");
+    expect(screen.queryByRole("menu")).not.toBeNull();
+  });
+});

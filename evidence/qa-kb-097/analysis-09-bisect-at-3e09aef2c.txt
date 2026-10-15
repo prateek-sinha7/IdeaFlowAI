@@ -1,0 +1,73 @@
+============================= test session starts ==============================
+collected 4 items
+
+tests/agents/test_restart_resume.py .FFF                                 [100%]
+
+=================================== FAILURES ===================================
+E   AssertionError: user resume must reconcile the terminal status to completed: 'degraded'
+    assert 'degraded' == 'completed'
+      
+      - completed
+      + degraded
+------------------------------ Captured log call -------------------------------
+WARNING  app.agents.checkpointer:checkpointer.py:59 Checkpointer: DATABASE_URL is not Postgres — using InMemorySaver. HITL pauses work within the process but do NOT survive a restart.
+WARNING  agents.artifacts.graph:graph.py:155 artifact kind 'sample-wave-plan' is outside ARTIFACT_KINDS — typed consumes routing and the FR-014 revision lookup match kinds EXACTLY, so a typo here is silently unroutable (IN-01 advisory; write proceeds)
+WARNING  agents.artifacts.graph:graph.py:155 artifact kind 'sample-wave-worker' is outside ARTIFACT_KINDS — typed consumes routing and the FR-014 revision lookup match kinds EXACTLY, so a typo here is silently unroutable (IN-01 advisory; write proceeds)
+WARNING  agents.artifacts.graph:graph.py:155 artifact kind 'sample-wave-worker' is outside ARTIFACT_KINDS — typed consumes routing and the FR-014 revision lookup match kinds EXACTLY, so a typo here is silently unroutable (IN-01 advisory; write proceeds)
+ERROR    agents.execution_engine.engine:engine.py:2197 finalize_terminal_run: create_run_ref FAILED run=ur-76b6a34c (run_id must be a UUID (hex digits and hyphens only): 'ur-76b6a34c')
+WARNING  agents.artifacts.graph:graph.py:155 artifact kind 'sample-wave-worker' is outside ARTIFACT_KINDS — typed consumes routing and the FR-014 revision lookup match kinds EXACTLY, so a typo here is silently unroutable (IN-01 advisory; write proceeds)
+WARNING  agents.artifacts.graph:graph.py:155 artifact kind 'sample-wave-worker' is outside ARTIFACT_KINDS — typed consumes routing and the FR-014 revision lookup match kinds EXACTLY, so a typo here is silently unroutable (IN-01 advisory; write proceeds)
+/private/tmp/claude-502/-Users-bilala-Developer-Projects-VELOCITY-AI-worktrees-feat-user-stories-v2/2d1a1575-310a-48fd-8155-2763a084604d/scratchpad/qa-kb-097/at-phasez/backend/tests/agents/test_restart_resume.py:3189: AssertionError: user resume must reconcile the terminal status to completed: 'degraded'
+E   AssertionError: status must reconcile to completed: 'degraded'
+    assert 'degraded' == 'completed'
+      
+      - completed
+      + degraded
+------------------------------ Captured log call -------------------------------
+WARNING  app.agents.checkpointer:checkpointer.py:59 Checkpointer: DATABASE_URL is not Postgres — using InMemorySaver. HITL pauses work within the process but do NOT survive a restart.
+WARNING  agents.artifacts.graph:graph.py:155 artifact kind 'sample-wave-plan' is outside ARTIFACT_KINDS — typed consumes routing and the FR-014 revision lookup match kinds EXACTLY, so a typo here is silently unroutable (IN-01 advisory; write proceeds)
+WARNING  agents.artifacts.graph:graph.py:155 artifact kind 'sample-wave-worker' is outside ARTIFACT_KINDS — typed consumes routing and the FR-014 revision lookup match kinds EXACTLY, so a typo here is silently unroutable (IN-01 advisory; write proceeds)
+WARNING  agents.artifacts.graph:graph.py:155 artifact kind 'sample-wave-worker' is outside ARTIFACT_KINDS — typed consumes routing and the FR-014 revision lookup match kinds EXACTLY, so a typo here is silently unroutable (IN-01 advisory; write proceeds)
+ERROR    agents.execution_engine.engine:engine.py:2197 finalize_terminal_run: create_run_ref FAILED run=r03-25c9c6dc (run_id must be a UUID (hex digits and hyphens only): 'r03-25c9c6dc')
+WARNING  agents.artifacts.graph:graph.py:155 artifact kind 'sample-wave-plan' is outside ARTIFACT_KINDS — typed consumes routing and the FR-014 revision lookup match kinds EXACTLY, so a typo here is silently unroutable (IN-01 advisory; write proceeds)
+WARNING  app.agents.sandbox:sandbox.py:840 commit_all: nothing to commit (empty diff at step boundary) run=r03-user/r03-25c9c6dc message='step: sample-wave-plan'
+WARNING  agents.execution_engine.engine:engine.py:657 commit_in_sandbox: no changes staged for run=r03-25c9c6dc step=sample-wave-plan (has_git=true)
+WARNING  agents.artifacts.graph:graph.py:155 artifact kind 'sample-wave-worker' is outside ARTIFACT_KINDS — typed consumes routing and the FR-014 revision lookup match kinds EXACTLY, so a typo here is silently unroutable (IN-01 advisory; write proceeds)
+WARNING  agents.artifacts.graph:graph.py:155 artifact kind 'sample-wave-worker' is outside ARTIFACT_KINDS — typed consumes routing and the FR-014 revision lookup match kinds EXACTLY, so a typo here is silently unroutable (IN-01 advisory; write proceeds)
+WARNING  agents.artifacts.graph:graph.py:155 artifact kind 'sample-wave-worker' is outside ARTIFACT_KINDS — typed consumes routing and the FR-014 revision lookup match kinds EXACTLY, so a typo here is silently unroutable (IN-01 advisory; write proceeds)
+WARNING  agents.artifacts.graph:graph.py:155 artifact kind 'sample-wave-worker' is outside ARTIFACT_KINDS — typed consumes routing and the FR-014 revision lookup match kinds EXACTLY, so a typo here is silently unroutable (IN-01 advisory; write proceeds)
+/private/tmp/claude-502/-Users-bilala-Developer-Projects-VELOCITY-AI-worktrees-feat-user-stories-v2/2d1a1575-310a-48fd-8155-2763a084604d/scratchpad/qa-kb-097/at-phasez/backend/tests/agents/test_restart_resume.py:3791: AssertionError: status must reconcile to completed: 'degraded'
+E   AssertionError: D2: a resumed dispatch must carry the user's clarification answers; got:
+      === ORIGINAL USER REQUEST ===
+      Run the wave workflow.
+      === END REQUEST ===
+    assert 'SPINNAKER-SENTINEL' in '=== ORIGINAL USER REQUEST ===\nRun the wave workflow.\n=== END REQUEST ==='
+------------------------------ Captured log call -------------------------------
+WARNING  app.agents.checkpointer:checkpointer.py:59 Checkpointer: DATABASE_URL is not Postgres — using InMemorySaver. HITL pauses work within the process but do NOT survive a restart.
+WARNING  agents.artifacts.graph:graph.py:155 artifact kind 'sample-wave-plan' is outside ARTIFACT_KINDS — typed consumes routing and the FR-014 revision lookup match kinds EXACTLY, so a typo here is silently unroutable (IN-01 advisory; write proceeds)
+WARNING  app.agents.sandbox:sandbox.py:840 commit_all: nothing to commit (empty diff at step boundary) run=rh-user/rh-7cbd1323 message='step: sample-wave-plan'
+WARNING  agents.execution_engine.engine:engine.py:657 commit_in_sandbox: no changes staged for run=rh-7cbd1323 step=sample-wave-plan (has_git=true)
+WARNING  agents.artifacts.graph:graph.py:155 artifact kind 'sample-wave-worker' is outside ARTIFACT_KINDS — typed consumes routing and the FR-014 revision lookup match kinds EXACTLY, so a typo here is silently unroutable (IN-01 advisory; write proceeds)
+WARNING  agents.artifacts.graph:graph.py:155 artifact kind 'sample-wave-worker' is outside ARTIFACT_KINDS — typed consumes routing and the FR-014 revision lookup match kinds EXACTLY, so a typo here is silently unroutable (IN-01 advisory; write proceeds)
+WARNING  agents.artifacts.graph:graph.py:155 artifact kind 'sample-wave-worker' is outside ARTIFACT_KINDS — typed consumes routing and the FR-014 revision lookup match kinds EXACTLY, so a typo here is silently unroutable (IN-01 advisory; write proceeds)
+WARNING  agents.artifacts.graph:graph.py:155 artifact kind 'sample-wave-worker' is outside ARTIFACT_KINDS — typed consumes routing and the FR-014 revision lookup match kinds EXACTLY, so a typo here is silently unroutable (IN-01 advisory; write proceeds)
+ERROR    agents.execution_engine.engine:engine.py:2197 finalize_terminal_run: create_run_ref FAILED run=rh-7cbd1323 (run_id must be a UUID (hex digits and hyphens only): 'rh-7cbd1323')
+/private/tmp/claude-502/-Users-bilala-Developer-Projects-VELOCITY-AI-worktrees-feat-user-stories-v2/2d1a1575-310a-48fd-8155-2763a084604d/scratchpad/qa-kb-097/at-phasez/backend/tests/agents/test_restart_resume.py:4139: AssertionError: D2: a resumed dispatch must carry the user's clarification answers; got:
+=============================== warnings summary ===============================
+app/core/config.py:93
+  /private/tmp/claude-502/-Users-bilala-Developer-Projects-VELOCITY-AI-worktrees-feat-user-stories-v2/2d1a1575-310a-48fd-8155-2763a084604d/scratchpad/qa-kb-097/at-phasez/backend/app/core/config.py:93: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+    class Settings(BaseSettings):
+
+tests/agents/test_restart_resume.py::test_midwave_resume_does_not_reinvoke_completed_workers
+tests/agents/test_restart_resume.py::test_failed_run_resumes_skips_completed_tasks
+tests/agents/test_restart_resume.py::test_user_resume_persists_output_columns
+tests/agents/test_restart_resume.py::test_resume_dispatch_carries_rehydrated_planning_context
+  /private/tmp/claude-502/-Users-bilala-Developer-Projects-VELOCITY-AI-worktrees-feat-user-stories-v2/2d1a1575-310a-48fd-8155-2763a084604d/scratchpad/qa-kb-097/at-phasez/backend/agents/execution_engine/engine.py:1108: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    _ts = _dt.datetime.utcnow().isoformat(timespec="seconds") + "Z"
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/agents/test_restart_resume.py::test_failed_run_resumes_skips_completed_tasks
+FAILED tests/agents/test_restart_resume.py::test_user_resume_persists_output_columns
+FAILED tests/agents/test_restart_resume.py::test_resume_dispatch_carries_rehydrated_planning_context
+=================== 3 failed, 1 passed, 5 warnings in 6.22s ====================

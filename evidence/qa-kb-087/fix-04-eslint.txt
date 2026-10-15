@@ -1,0 +1,9 @@
+# QA-KB-087 5-fixer: eslint on the edited test file, 2026-10-07 20:22:37 CEST
+$ cd frontend && npx eslint --max-warnings 0 src/components/settings/AccountSettings.iss372.test.tsx
+# exit code: 0
+
+$ cd frontend && npx eslint --max-warnings 0 src/components/library/LibraryPage.copyFeedback.test.tsx   (20:23:59)
+# exit code: 0
+
+$ cd frontend && npx eslint --max-warnings 0 src/components/handoff/IntegrationsCard.copyFeedback.test.tsx   (20:24:01)
+# exit code: 0

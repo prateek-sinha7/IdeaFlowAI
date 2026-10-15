@@ -1,0 +1,6 @@
+### tests/unit/app/test_share_route_hardening.py (after fix, final tree, 2026-10-07T18:27:50Z)
+[XPASS(strict)] ISS-1038 unfixed
+[XPASS(strict)] ISS-1037 unfixed
+FAILED tests/unit/app/test_share_route_hardening.py::test_share_route_sends_csp_sandbox
+FAILED tests/unit/app/test_share_route_hardening.py::test_share_rewrite_survives_empty_api_url
+2 failed, 1 warning in 0.98s

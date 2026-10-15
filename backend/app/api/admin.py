@@ -520,6 +520,15 @@ def reset_user_password(
     self-service reset's revocation: stamps ``tokens_valid_from`` so every access
     token issued before now is rejected on its next request.
     """
+    # Self-action policy (FIX-310), as on tier, role, disable and delete: a
+    # self-reset revokes the admin's own session and leaves a password nobody
+    # is shown (ISS-1170). Their own password changes from their account.
+    if user_id == admin.id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="You cannot reset your own password here. Change it from your account settings.",
+        )
+
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(
@@ -597,7 +606,10 @@ def disable_user(
             status_code=status.HTTP_409_CONFLICT, detail="User is already disabled."
         )
 
-    cognito_admin.disable_user(user, db)
+    try:
+        cognito_admin.disable_user(user, db)
+    except Exception as exc:  # noqa: BLE001 - re-raised as HTTPException below
+        _raise_for(exc)
     db.refresh(user)
 
     auth_events.emit(
@@ -709,7 +721,10 @@ def delete_user(
         )
 
     # Step 1-2: Disable the user (sign out, disable at Cognito, update local status)
-    cognito_admin.delete_user(user, db)
+    try:
+        cognito_admin.delete_user(user, db)
+    except Exception as exc:  # noqa: BLE001 - re-raised as HTTPException below
+        _raise_for(exc)
 
     # Step 3: one local transaction -- dependents, then the row itself.
     deleted_id = user.id

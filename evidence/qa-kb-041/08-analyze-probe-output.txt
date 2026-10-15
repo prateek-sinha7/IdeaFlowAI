@@ -1,0 +1,67 @@
+QA-KB-041 analyzer probe — offline jsdom, vitest 4.1.11, run 2026-10-01 22:19
+tree: 024c03ef8 (+uncommitted working tree), branch feat/user-stories-v2
+HOW TO RE-RUN: copy the 07-* files to a scratch dir (drop the .txt suffix), symlink <scratch>/node_modules -> frontend/node_modules,
+  then from frontend/:  ./node_modules/.bin/vitest run --config <scratch>/vitest.scratch.config.ts --root <scratch> --reporter=verbose --silent=false <file>
+Nothing under frontend/src was created or edited. One file per run, no network.
+Reading guide: a green line for a REPRO test means the bug IS present (the test asserts today's behaviour); CONTROL tests assert the working Chrome-like path.
+
+################################################################ saved.test.tsx
+ RUN  v4.1.11 /private/tmp/claude-502/-Users-bilala-Developer-Projects-VELOCITY-AI-worktrees-feat-user-stories-v2/2d1a1575-310a-48fd-8155-2763a084604d/scratchpad/qa-kb-041-probe
+[control] activeElement after real click = BUTTON[Workflow actions] | aria-expanded = true
+[control] after Escape: aria-expanded = false | activeElement = BUTTON[Workflow actions]
+[repro] activeElement after unfocused click = BODY | aria-expanded = true
+[repro] after Escape: aria-expanded = true | menu present = true
+[repro2] aria-expanded after body Escape = true
+ ✓ saved.test.tsx > QA-KB-041 probe — KebabMenu > CONTROL (Chrome-like): real click focuses the trigger -> Escape closes 248ms
+ ✓ saved.test.tsx > QA-KB-041 probe — KebabMenu > REPRO (Safari/Firefox-like): click that does NOT focus the trigger -> Escape is a no-op 40ms
+[shape] aria-expanded after Escape on the menu node = false
+[delete] dialog open; activeElement = BODY
+[delete] after Escape: dialog still present = true
+[delete] keydown fired ON the dialog node closes it (handler only sees events from inside)
+ ✓ saved.test.tsx > QA-KB-041 probe — KebabMenu > REPRO-2: same, but Escape dispatched straight on document.body (the notes' proposed test shape) 22ms
+ ✓ saved.test.tsx > QA-KB-041 probe — KebabMenu > SHAPE: Escape dispatched ON the wrapper subtree does close it (handler is wrapper-scoped) 27ms
+ ✓ saved.test.tsx > QA-KB-041 probe — Delete-confirm scrim (same pattern, SavedWorkflowsPage.tsx:421) > REPRO: with ordinary real clicks, Escape does not close the Delete confirmation 60ms
+[rename] activeElement = INPUT[nwm-name] | is name input = true
+[rename] after Escape: modal still present = true
+ ✓ saved.test.tsx > QA-KB-041 probe — Rename modal (adjacent: no Escape handler at all) > REPRO: Escape does nothing in the Rename modal even though the name input is autofocused 60ms
+ Test Files  1 passed (1)
+      Tests  6 passed (6)
+   Start at  22:19:03
+   Duration  2.56s (transform 181ms, setup 168ms, import 513ms, tests 459ms, environment 1.26s)
+################################################################ notif-header.test.tsx
+ RUN  v4.1.11 /private/tmp/claude-502/-Users-bilala-Developer-Projects-VELOCITY-AI-worktrees-feat-user-stories-v2/2d1a1575-310a-48fd-8155-2763a084604d/scratchpad/qa-kb-041-probe
+[bell control] activeElement = Notifications
+[bell repro] activeElement = BODY | aria-expanded = true
+ ✓ notif-header.test.tsx > sibling: NotificationPanel bell (NotificationPanel.tsx:233-239, wrapper onKeyDown :262) > CONTROL: focused (Chrome-like) click then Escape closes 174ms
+[bell repro] after Escape: aria-expanded = true | dialog present = true
+ ✓ notif-header.test.tsx > sibling: NotificationPanel bell (NotificationPanel.tsx:233-239, wrapper onKeyDown :262) > REPRO: unfocused click then Escape leaves the panel open 446ms
+[profile repro] activeElement = BODY | aria-expanded = true
+ ✓ notif-header.test.tsx > sibling: AppHeader profile menu (AppHeader.tsx:176-182, wrapper onKeyDown :529) > CONTROL: focused click then Escape closes and refocuses the trigger 143ms
+[profile repro] after Escape: aria-expanded = true | menu present = true
+ ✓ notif-header.test.tsx > sibling: AppHeader profile menu (AppHeader.tsx:176-182, wrapper onKeyDown :529) > REPRO: unfocused click then Escape leaves the profile menu open 441ms
+ Test Files  1 passed (1)
+      Tests  4 passed (4)
+   Start at  22:19:06
+   Duration  3.09s (transform 292ms, setup 67ms, import 880ms, tests 1.21s, environment 764ms)
+################################################################ rowmenu.test.tsx
+ RUN  v4.1.11 /private/tmp/claude-502/-Users-bilala-Developer-Projects-VELOCITY-AI-worktrees-feat-user-stories-v2/2d1a1575-310a-48fd-8155-2763a084604d/scratchpad/qa-kb-041-probe
+[rowmenu control] activeElement = Run actions | aria-expanded = true
+[rowmenu repro] activeElement = BODY | aria-expanded = true
+ ✓ rowmenu.test.tsx > sibling: History RowMenu 'Run actions' > CONTROL: focused click then Escape closes 222ms
+[rowmenu repro] after Escape: aria-expanded = true | menu present = true
+ ✓ rowmenu.test.tsx > sibling: History RowMenu 'Run actions' > REPRO: unfocused click then Escape leaves the menu open 426ms
+ Test Files  1 passed (1)
+      Tests  2 passed (2)
+   Start at  22:19:09
+   Duration  1.89s (transform 128ms, setup 91ms, import 405ms, tests 651ms, environment 593ms)
+################################################################ admin.test.tsx
+ RUN  v4.1.11 /private/tmp/claude-502/-Users-bilala-Developer-Projects-VELOCITY-AI-worktrees-feat-user-stories-v2/2d1a1575-310a-48fd-8155-2763a084604d/scratchpad/qa-kb-041-probe
+[tier control] activeElement = BUTTON | aria-expanded = true
+[tier repro] activeElement = BODY | aria-expanded = true
+ ✓ admin.test.tsx > sibling: admin TierDropdown > CONTROL: focused click then Escape closes 407ms
+[tier repro] after Escape: aria-expanded = true | menu present = true
+ ✓ admin.test.tsx > sibling: admin TierDropdown > REPRO: unfocused click then Escape leaves the tier menu open 447ms
+ Test Files  1 passed (1)
+      Tests  2 passed (2)
+   Start at  22:19:12
+   Duration  2.46s (transform 344ms, setup 162ms, import 647ms, tests 856ms, environment 657ms)

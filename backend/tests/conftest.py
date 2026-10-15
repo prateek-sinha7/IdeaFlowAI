@@ -196,8 +196,8 @@ def _no_live_model_from_a_unit_test(request, monkeypatch):
 # ISS-102 — offline live-model-client construction guard
 #
 # Why the guard exists at all: the suite has **no offline-by-default state**.
-# ``AWS_REGION`` (app/core/config.py:130), ``BEDROCK_INFERENCE_PROFILE_ID`` (:123)
-# and ``BEDROCK_MODEL_ID`` (:118) are hardcoded CODE defaults and there is no
+# ``AWS_REGION``, ``BEDROCK_INFERENCE_PROFILE_ID`` and ``BEDROCK_MODEL_ID``
+# (``Settings`` in app/core/config.py) are hardcoded CODE defaults and there is no
 # ``backend/.env`` file, so unsetting env vars cannot make ``build_model()``
 # offline. The only thing standing between this suite and an AWS bill is whether
 # credentials happen to resolve — which they now do on this machine.

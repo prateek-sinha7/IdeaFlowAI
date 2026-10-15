@@ -1,0 +1,216 @@
+# QA-KB-104 analysis 06: the source lines the root cause and the blast radius rest on (read at HEAD 135e6ea9b; no change under backend/, agents/, frontend/ or tools/ between c9c4c630a and HEAD; 2026-10-08T21:26Z)
+# method: for each file and line range below, awk prints FILE:LINE: text, so every quote can be re-checked with sed -n 'S,Ep' FILE
+
+## 1. The handler: authenticates with get_current_user, checks SUPPORTED + ownership, stores the file manifest, never asks about the tier
+backend/app/api/user_workflows.py:1095: @router.post("/{workflow_id}/sync-from-file", response_model=SyncFromFileResponse)
+backend/app/api/user_workflows.py:1096: def sync_user_workflow_from_file(
+backend/app/api/user_workflows.py:1097:     workflow_id: str,
+backend/app/api/user_workflows.py:1098:     body: SyncFromFileRequest,
+backend/app/api/user_workflows.py:1099:     current_user: User = Depends(get_current_user),
+backend/app/api/user_workflows.py:1100:     db: Session = Depends(get_db),
+backend/app/api/user_workflows.py:1101: ):
+
+backend/app/api/user_workflows.py:1117:     from agents.loader import SUPPORTED_PIPELINE_TYPES
+backend/app/api/user_workflows.py:1118:     from agents.workflows.manifest import ManifestValidationError
+backend/app/api/user_workflows.py:1119: 
+backend/app/api/user_workflows.py:1120:     if body.pipeline_type not in SUPPORTED_PIPELINE_TYPES:
+backend/app/api/user_workflows.py:1121:         raise HTTPException(
+backend/app/api/user_workflows.py:1122:             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+backend/app/api/user_workflows.py:1123:             detail=f"Unknown pipeline_type: {body.pipeline_type!r}",
+backend/app/api/user_workflows.py:1124:         )
+backend/app/api/user_workflows.py:1125: 
+backend/app/api/user_workflows.py:1126:     row = _owned(db, workflow_id, current_user)
+backend/app/api/user_workflows.py:1127: 
+backend/app/api/user_workflows.py:1128:     try:
+backend/app/api/user_workflows.py:1129:         new_manifest = _load_file_manifest_dict(body.pipeline_type)
+
+backend/app/api/user_workflows.py:1144:     old_manifest = row.manifest_json if isinstance(row.manifest_json, dict) else None
+backend/app/api/user_workflows.py:1145:     diff = _diff_manifest_dicts(old_manifest, new_manifest)
+backend/app/api/user_workflows.py:1146: 
+backend/app/api/user_workflows.py:1147:     row.manifest_json = new_manifest
+backend/app/api/user_workflows.py:1148:     db.commit()
+
+## 2. The same router's create door: principal + can_run_pipeline on the caller-chosen base
+backend/app/api/user_workflows.py:705: def create_user_workflow(
+backend/app/api/user_workflows.py:706:     body: SaveUserWorkflowRequest,
+backend/app/api/user_workflows.py:707:     # get_current_principal, not get_current_user: the entitlement gate below
+backend/app/api/user_workflows.py:708:     # resolves the caller's tier from this request's verified ``cognito:groups``
+backend/app/api/user_workflows.py:709:     # (Cognito-only auth migration, Decision 3). Identical verification and
+backend/app/api/user_workflows.py:710:     # revocation checks — the principal is returned rather than discarded.
+backend/app/api/user_workflows.py:711:     auth: tuple[User, Principal] = Depends(get_current_principal),
+backend/app/api/user_workflows.py:712:     db: Session = Depends(get_db),
+
+backend/app/api/user_workflows.py:740:     allowed, reason = can_run_pipeline(
+backend/app/api/user_workflows.py:741:         effective_tier(current_user, principal), body.base_pipeline_type
+backend/app/api/user_workflows.py:742:     )
+backend/app/api/user_workflows.py:743:     if not allowed:
+backend/app/api/user_workflows.py:744:         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=reason)
+
+## 3. create's override TARGET is only checked for membership (probe D: stored 201, inert)
+backend/app/api/user_workflows.py:848:     _ov_target = body.overrides_pipeline_type
+backend/app/api/user_workflows.py:849:     if _ov_target:
+backend/app/api/user_workflows.py:850:         if _ov_target not in SUPPORTED_PIPELINE_TYPES:
+backend/app/api/user_workflows.py:851:             raise HTTPException(
+backend/app/api/user_workflows.py:852:                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+backend/app/api/user_workflows.py:853:                 detail=f"Unknown workflow to override: {_ov_target!r}",
+backend/app/api/user_workflows.py:854:             )
+
+## 4. The entitlement table and the check
+backend/app/core/entitlements.py:10: TIER_PIPELINES: dict[str, set[str]] = {
+backend/app/core/entitlements.py:11:     "basic": {
+backend/app/core/entitlements.py:12:         "user_stories",
+backend/app/core/entitlements.py:13:         "user_stories_revision",
+backend/app/core/entitlements.py:14:         "ppt",
+backend/app/core/entitlements.py:15:         "ppt_v2",
+backend/app/core/entitlements.py:16:         "ppt_revision",
+backend/app/core/entitlements.py:17:     },
+
+backend/app/core/entitlements.py:88:         "ex_playwright_smoke_test",
+backend/app/core/entitlements.py:89:         # reference fan-out fixture — entitled so its canvas rendering can be
+backend/app/core/entitlements.py:90:         # compared against a real workflow.
+backend/app/core/entitlements.py:91:         "sample_subagents_parallel",
+backend/app/core/entitlements.py:92:         "backlog",  # file-manifest workflow: full-application user stories from a prototype (spec 021)
+
+backend/app/core/entitlements.py:112: def can_run_pipeline(user_tier: str, pipeline_type: str) -> tuple[bool, str]:
+backend/app/core/entitlements.py:113:     """Return (allowed, reason). reason is empty string when allowed."""
+backend/app/core/entitlements.py:114:     allowed_pipelines = TIER_PIPELINES.get(user_tier, TIER_PIPELINES["basic"])
+backend/app/core/entitlements.py:115:     if pipeline_type in allowed_pipelines:
+backend/app/core/entitlements.py:116:         return True, ""
+backend/app/core/entitlements.py:117:     next_tier = UPGRADE_PATH.get(user_tier)
+backend/app/core/entitlements.py:118:     if next_tier:
+backend/app/core/entitlements.py:119:         next_label = TIER_LABELS[next_tier]
+backend/app/core/entitlements.py:120:         return (
+backend/app/core/entitlements.py:121:             False,
+backend/app/core/entitlements.py:122:             f"This pipeline requires {next_label} or higher. Upgrade your plan to unlock it.",
+backend/app/core/entitlements.py:123:         )
+backend/app/core/entitlements.py:124:     return False, "This pipeline is not available on your current plan."
+
+## 5. Launch: the row dictates its own base type, the tier gate keys on it, a plain row compiles at trust=db
+backend/app/api/run_commands.py:3311:         if (
+backend/app/api/run_commands.py:3312:             user_workflow_row.manifest_json
+backend/app/api/run_commands.py:3313:             and "steps" in user_workflow_row.manifest_json
+backend/app/api/run_commands.py:3314:         ):
+backend/app/api/run_commands.py:3315:             launch_source = LaunchSource.USER_WORKFLOW_MANIFEST
+
+backend/app/api/run_commands.py:3367:         _trust = (
+backend/app/api/run_commands.py:3368:             "user" if _inline or user_workflow_row.overrides_pipeline_type else "db"
+backend/app/api/run_commands.py:3369:         )
+
+backend/app/api/run_commands.py:3421:         # A saved row dictates its own base type; an inline manifest keeps whatever
+backend/app/api/run_commands.py:3422:         # the client asked for (the Composer sends its fixed-at-entry base, "custom").
+backend/app/api/run_commands.py:3423:         if not _inline:
+backend/app/api/run_commands.py:3424:             body.pipeline_type = user_workflow_row.base_pipeline_type
+
+backend/app/api/run_commands.py:3465:     # Use the RAW pipeline_type (not base_pipeline_type): TIER_PIPELINES carries
+backend/app/api/run_commands.py:3466:     # "od_prototype" and "prototype" as DISTINCT keys, and WorkflowRun.type is
+backend/app/api/run_commands.py:3467:     # stamped from pipeline_type too. Checking the alias-collapsed base would
+backend/app/api/run_commands.py:3468:     # silently mis-key the lookup for every od_prototype launch.
+backend/app/api/run_commands.py:3469:     _require_tier_entitlement(current_user, principal, pipeline_type)
+
+backend/app/api/run_commands.py:2604:     allowed, reason = can_run_pipeline(
+backend/app/api/run_commands.py:2605:         effective_tier(current_user, principal), pipeline_type
+backend/app/api/run_commands.py:2606:     )
+backend/app/api/run_commands.py:2607:     if not allowed:
+backend/app/api/run_commands.py:2608:         raise _reject(
+backend/app/api/run_commands.py:2609:             "tier_not_entitled",
+backend/app/api/run_commands.py:2610:             reason,
+backend/app/api/run_commands.py:2611:             http_status=status.HTTP_403_FORBIDDEN,
+backend/app/api/run_commands.py:2612:         )
+
+## 6. The only two doors that mint a run, and the one with no gate
+backend/app/api/run_commands.py:3842:     _launch_result = await _launch_run_core(
+backend/app/api/run_commands.py:3843:         content=content,
+backend/app/api/run_commands.py:3844:         pipeline_type=pipeline_type,
+backend/app/api/run_commands.py:3845:         agents=agents,
+backend/app/api/run_commands.py:3846:         compiled=compiled,
+
+backend/agents/execution_engine/kernel_services.py:1584:         elif _is_file_backed_workflow(workflow_ref):
+backend/agents/execution_engine/kernel_services.py:1585:             # ── Case 1 parity — a FILE-BACKED workflow id (the A3 fixture's shape) ──
+backend/agents/execution_engine/kernel_services.py:1586:             # Mirrors launch_run's LaunchSource.FILE_PIPELINE resolution: the id is
+backend/agents/execution_engine/kernel_services.py:1587:             # the pipeline_type, the roster is get_pipeline_agents(...) completed from
+backend/agents/execution_engine/kernel_services.py:1588:             # the compiled plan when it is empty OR incomplete (custom-agent steps have
+backend/agents/execution_engine/kernel_services.py:1589:             # no AGENT.md; ISS-878), and `compiled` stays None so the engine's own
+backend/agents/execution_engine/kernel_services.py:1590:             # compile_for_run(pipeline_type) is what routes the run.
+backend/agents/execution_engine/kernel_services.py:1591:             from agents.execution_engine.engine import (
+backend/agents/execution_engine/kernel_services.py:1592:                 compile_for_run,
+backend/agents/execution_engine/kernel_services.py:1593:                 get_execution_engine,
+backend/agents/execution_engine/kernel_services.py:1594:             )
+backend/agents/execution_engine/kernel_services.py:1595:             from agents.registry import get_pipeline_agents
+backend/agents/execution_engine/kernel_services.py:1596: 
+backend/agents/execution_engine/kernel_services.py:1597:             target_pipeline_type = workflow_ref
+backend/agents/execution_engine/kernel_services.py:1598:             target_compiled = None
+backend/agents/execution_engine/kernel_services.py:1599:             target_agents = get_pipeline_agents(workflow_ref)
+backend/agents/execution_engine/kernel_services.py:1600:             _plan = compile_for_run(workflow_ref)
+
+backend/agents/execution_engine/kernel_services.py:1668:         result = await _launch_run_core(
+backend/agents/execution_engine/kernel_services.py:1669:             # R-28: the diverting outcome's ``feedback`` string, threaded down as the
+backend/agents/execution_engine/kernel_services.py:1670:             # child's user message. A triggered run is otherwise minted with content=""
+backend/agents/execution_engine/kernel_services.py:1671:             # — it inherits parent_run_id/owner/workspace/budget but NOT the parent's
+backend/agents/execution_engine/kernel_services.py:1672:             # message, so this is the only channel by which a parent hands the child an
+backend/agents/execution_engine/kernel_services.py:1673:             # instruction. Empty string when the outcome declares no feedback, which is
+backend/agents/execution_engine/kernel_services.py:1674:             # byte-identical to the previous unconditional content="".
+backend/agents/execution_engine/kernel_services.py:1675:             content=content,
+backend/agents/execution_engine/kernel_services.py:1676:             pipeline_type=target_pipeline_type,
+backend/agents/execution_engine/kernel_services.py:1677:             agents=target_agents,
+backend/agents/execution_engine/kernel_services.py:1678:             compiled=target_compiled,
+backend/agents/execution_engine/kernel_services.py:1679:             od_context=None,
+backend/agents/execution_engine/kernel_services.py:1680:             validated_images=[],
+backend/agents/execution_engine/kernel_services.py:1681:             model_overrides={},
+backend/agents/execution_engine/kernel_services.py:1682:             user=SimpleNamespace(id=ectx.owner_id),
+
+backend/agents/execution_engine/engine.py:7170:                         elif _route_trigger == "workflow":
+backend/agents/execution_engine/engine.py:7171:                             # ── [spec 014 / T29] Cross-workflow trigger (R-12/R-13/R-14) ──
+backend/agents/execution_engine/engine.py:7172:                             # Mint + spawn a NEW, independent WorkflowRun via the T28
+backend/agents/execution_engine/engine.py:7173:                             # kernel delegate (``ectx.runner`` is the KernelServices
+backend/agents/execution_engine/engine.py:7174:                             # handle, D-03) — this run does NOT wait on it (R-13,
+backend/agents/execution_engine/engine.py:7175:                             # Option 2: the mint/spawn call is the only await; it
+backend/agents/execution_engine/engine.py:7176:                             # returns as soon as the new run exists, not when it
+backend/agents/execution_engine/engine.py:7177:                             # finishes).
+backend/agents/execution_engine/engine.py:7178:                             logger.info(
+backend/agents/execution_engine/engine.py:7179:                                 "condition: step %s launching workflow %r (this run stops here — R-13)",
+backend/agents/execution_engine/engine.py:7180:                                 step.id,
+backend/agents/execution_engine/engine.py:7181:                                 _route_target,
+backend/agents/execution_engine/engine.py:7182:                             )
+backend/agents/execution_engine/engine.py:7183:                             (
+backend/agents/execution_engine/engine.py:7184:                                 _diverted_to_run_id,
+backend/agents/execution_engine/engine.py:7185:                                 _diverted_to_workflow,
+backend/agents/execution_engine/engine.py:7186:                             ) = await ectx.runner.run_trigger_workflow(
+backend/agents/execution_engine/engine.py:7187:                                 step,
+backend/agents/execution_engine/engine.py:7188:                                 ectx,
+backend/agents/execution_engine/engine.py:7189:                                 workflow_ref=_route_target,
+backend/agents/execution_engine/engine.py:7190:                                 content=_route_feedback or "",
+backend/agents/execution_engine/engine.py:7191:                             )
+
+## 7. The compiler accepts any non-self workflow-trigger target as a syntactic reference
+backend/agents/workflows/compiler.py:1763:           * ``trigger == "workflow"``: ``target`` MUST be the literal ``"self"`` OR
+backend/agents/workflows/compiler.py:1764:             a reference to a real saved ``user_workflow_id``. Existing-helper
+backend/agents/workflows/compiler.py:1765:             search (as directed by this task): ``agents/registry.py`` has no
+backend/agents/workflows/compiler.py:1766:             ``user_workflow_id``/``WorkflowDefinition`` lookup of any kind.
+backend/agents/workflows/compiler.py:1767:             ``app/api/user_workflows.py`` has exactly one —
+backend/agents/workflows/compiler.py:1768:             ``_owned(db: Session, workflow_id: str, user: User) -> WorkflowDefinition``
+backend/agents/workflows/compiler.py:1769:             (`:413`, the sole non-test ``WorkflowDefinition``-by-id query in the
+
+backend/agents/workflows/compiler.py:1782:             non-``"self"`` target is accepted here as a SYNTACTIC reference only
+backend/agents/workflows/compiler.py:1783:             (already non-empty-string-validated by ``_compile_route``); its DB
+backend/agents/workflows/compiler.py:1784:             existence/ownership is authoritatively resolved by that SAME
+backend/agents/workflows/compiler.py:1785:             ``_owned`` helper at launch/trigger time (kernel_services.py's
+backend/agents/workflows/compiler.py:1786:             ``run_trigger_workflow``), exactly as this manifest's other
+backend/agents/workflows/compiler.py:1787:             ``trust="db"`` references already defer ownership checks to the
+backend/agents/workflows/compiler.py:1788:             request-scoped launch path.
+
+## 8. Reads are not tier-gated (so this is an entitlement-to-run bug, not a disclosure)
+backend/app/api/workflows.py:431:     current_user: User = Depends(get_current_user),
+
+backend/app/api/workflows.py:535:         manifest_steps=(
+backend/app/api/workflows.py:536:             list(override_steps(_ov_row) or [])
+backend/app/api/workflows.py:537:             if (_ov_enabled and not original)
+backend/app/api/workflows.py:538:             else (list(manifest.steps) if manifest else None)
+backend/app/api/workflows.py:539:         ),
+
+## 9. The offline operator script is a separate tool with its own diff helpers
+backend/scripts/sync_workflow_from_file.py:9: The endpoint POST /api/user-workflows/{id}/sync-from-file does the same operation
+backend/scripts/sync_workflow_from_file.py:10: through the API; this script is for offline sync by an operator.
+
+## 10. Aliases are the identity today
+backend/agents/registry.py:81: _OD_ALIAS_BASE: dict[str, str] = {}
+

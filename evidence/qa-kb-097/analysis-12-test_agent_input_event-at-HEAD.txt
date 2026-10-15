@@ -1,0 +1,16 @@
+# tests/unit/agents/test_agent_input_event.py at HEAD (one file)
+....F..                                                                  [100%]
+=================================== FAILURES ===================================
+_____________ test_planning_context_injected_into_context_message ______________
+tests/unit/agents/test_agent_input_event.py:143: in test_planning_context_injected_into_context_message
+    assert "## Planning Context" in msg
+E   AssertionError: assert '## Planning Context' in '=== ORIGINAL USER REQUEST ===\ntest brief\n=== END REQUEST ==='
+=============================== warnings summary ===============================
+app/core/config.py:94
+  /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/app/core/config.py:94: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https:
+    class Settings(BaseSettings):
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/unit/agents/test_agent_input_event.py::test_planning_context_injected_into_context_message
+1 failed, 6 passed, 1 warning in 0.97s

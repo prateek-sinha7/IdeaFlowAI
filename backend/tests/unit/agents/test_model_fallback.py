@@ -55,6 +55,7 @@ async def _drive_one_agent(
     primary: str,
     throttle_ids: set[str],
     non_transient_ids: set[str] | None = None,
+    step_fallback: list[str] | None = None,
 ):
     """Run a single text-only agent through ``ExecutionEngine._run_agent`` offline with
     an armed fallback chain, returning ``(results, built_for, events, thread_ids)``.
@@ -78,6 +79,7 @@ async def _drive_one_agent(
     # Force RUNS_ROOT to the harness temp dir at RUNTIME (settings may have been
     # instantiated earlier with the default /app/runs, read-only here) — mirrors _drive.
     from tests.agents._scripted_model import _RUNS_ROOT
+    from app.agents.sandbox import RunSandbox
 
     _settings.RUNS_ROOT = _RUNS_ROOT
 
@@ -134,6 +136,12 @@ async def _drive_one_agent(
     # Arm the active fallback chain the engine retry loop drives (06-03 set_chain/advance).
     resolver.set_chain(primary)
     ectx.model_resolver = resolver
+    if step_fallback is not None:
+        from types import SimpleNamespace
+
+        from agents.model_policy import ModelPolicy
+
+        ectx.current_step = SimpleNamespace(model=ModelPolicy(fallback=step_fallback))
 
     results: list[dict] = []
     events: list[dict] = []
@@ -252,6 +260,20 @@ async def test_multi_entry_chain_exhaustion_reraises() -> None:
     assert errs, "expected the exhausted throttle to surface as an agent_error event"
     assert "throttle" in errs[-1]["data"]["error"].lower()
     assert not _results, "exhausted chain must not record a completed result"
+
+
+@pytest.mark.asyncio
+async def test_step_manifest_fallback_is_honoured() -> None:
+    """A cheap primary has no tier-descent fallback, but the step's manifest declares
+    one: the engine must arm THAT chain, advance to it on a throttle, and complete."""
+    results, built_for, _events, _thread_ids = await _drive_one_agent(
+        primary=ONLY_CHEAP,
+        throttle_ids={ONLY_CHEAP},
+        step_fallback=[PRIMARY_STANDARD],
+    )
+
+    assert built_for == [ONLY_CHEAP, PRIMARY_STANDARD], built_for
+    assert results and f"completed on {PRIMARY_STANDARD}" in results[-1]["output"]
 
 
 # ===========================================================================

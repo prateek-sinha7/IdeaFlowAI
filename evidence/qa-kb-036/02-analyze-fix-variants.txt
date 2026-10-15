@@ -1,0 +1,139 @@
+# QA-KB-036 analyze evidence, 2026-10-01 (analyzer). All output below is real command output.
+# Tree: feat/user-stories-v2, backend/app/api/run_commands.py unmodified (nothing under backend/ was edited by the analyzer).
+# Variants are scratch COPIES of run_commands.py built by analyze/make_*.py (never written under backend/):
+#   agreed = BUGS.md 'agreed minimal fix' (delete lines 840-855, i.e. comment + _latest_complete + degraded);
+#   narrow = comment 840-849 + dead 'degraded' 851-855 + dead 'failed' 838 removed, _latest_complete (850) KEPT;
+#   opt2   = ISS-689 card option 2 (keep last-by-seq 'degraded'; ladder reverted to 'if degraded / elif completes and not failed');
+#   opt3   = FIX-484's ISS-435 change reverted (degraded_complete_seqs dropped from terminal_seqs).
+# Rebuild: cd backend; python analyze/make_variants.py <dir>; python analyze/make_opt2.py <dir>/opt2.py; python analyze/make_opt3.py <dir>/opt3.py
+# Run:     SP=<dir> python analyze/matrix.py     |     python analyze/run_variant.py <dir>/narrow.py <pytest args>   (run from backend/, venv python)
+
+## 1. AST scan of _reconcile_terminal_status: every Store/Load of the suspect locals (head)
+$ python analyze/ast_scan.py app/api/run_commands.py degraded failed _latest_complete
+  _latest_complete   Load   line 852
+  _latest_complete   Load   line 853
+  _latest_complete   Load   line 854
+  _latest_complete   Load   line 986
+  _latest_complete   Load   line 987
+  failed             Store  line 838
+  _latest_complete   Store  line 850
+  degraded           Store  line 851
+function lines 798-1020
+
+## 2. ruff F841/F821 (project ruff 0.7.4, --isolated --select F841,F821) on head and each variant
+$ ruff check <head> --isolated --select F841,F821
+app/api/run_commands.py:838:9: F841 Local variable `failed` is assigned to but never used
+app/api/run_commands.py:851:9: F841 Local variable `degraded` is assigned to but never used
+Found 2 errors.
+$ ruff check <agreed> --isolated --select F841,F821
+agreed.py:838:9: F841 Local variable `failed` is assigned to but never used
+agreed.py:970:21: F821 Undefined name `_latest_complete`
+agreed.py:971:35: F821 Undefined name `_latest_complete`
+Found 3 errors.
+$ ruff check <narrow> --isolated --select F841,F821
+All checks passed!
+$ ruff check <opt2> --isolated --select F841,F821
+opt2.py:933:13: F841 Local variable `degraded_current` is assigned to but never used
+opt2.py:938:13: F841 Local variable `failed_current` is assigned to but never used
+Found 2 errors.
+$ ruff check <opt3> --isolated --select F841,F821
+opt3.py:838:9: F841 Local variable `failed` is assigned to but never used
+opt3.py:851:9: F841 Local variable `degraded` is assigned to but never used
+opt3.py:898:9: F841 Local variable `degraded_complete_seqs` is assigned to but never used
+Found 3 errors.
+
+## 3. Repo's own reconcile tests per variant (tests/integration/agents/test_restart_resume_db.py, 4 functions = 9 cases)
+$ python analyze/run_variant.py none tests/integration/agents/test_restart_resume_db.py -k '<4 reconcile fns>'
+9 passed, 68 deselected, 1 warning in 3.60s
+
+$ python analyze/run_variant.py agreed tests/integration/agents/test_restart_resume_db.py -k '<4 reconcile fns>'
+E   AssertionError: tail ['pipeline_start', 'pipeline_complete', 'run_resuming', 'pipeline_start', 'pipeline_complete'] must reconcile to 'degraded'; got 'generating'
+WARNING  app.api.run_commands:agreed.py:1001 _reconcile_terminal_status(deg-6c0143ec) failed: name '_latest_complete' is not defined
+E   AssertionError: tail ['pipeline_start', 'pipeline_complete'] must reconcile to 'degraded'; got 'generating'
+WARNING  app.api.run_commands:agreed.py:1001 _reconcile_terminal_status(deg-2ea5c90e) failed: name '_latest_complete' is not defined
+FAILED tests/integration/agents/test_restart_resume_db.py::test_reconcile_degraded_tracks_latest_completion_only[clean-then-degraded-resume]
+FAILED tests/integration/agents/test_restart_resume_db.py::test_reconcile_degraded_tracks_latest_completion_only[degraded-only-no-later-completion]
+2 failed, 7 passed, 68 deselected, 1 warning in 2.55s
+
+$ python analyze/run_variant.py narrow tests/integration/agents/test_restart_resume_db.py -k '<4 reconcile fns>'
+9 passed, 68 deselected, 1 warning in 2.56s
+
+$ python analyze/run_variant.py opt2 tests/integration/agents/test_restart_resume_db.py -k '<4 reconcile fns>'
+9 passed, 68 deselected, 1 warning in 1.59s
+
+$ python analyze/run_variant.py opt3 tests/integration/agents/test_restart_resume_db.py -k '<4 reconcile fns>'
+9 passed, 68 deselected, 1 warning in 1.68s
+
+## 4. Plain run of the file's reconcile selection on the unmodified tree
+$ cd backend && python -m pytest tests/integration/agents/test_restart_resume_db.py -k reconcile -q -p no:cacheprovider
+16 passed, 61 deselected, 1 warning in 1.85s
+
+## 5. tail x variant matrix through the repo harness (DB pinned to a temp SQLite file before any app import)
+$ SP=<dir> python analyze/matrix.py
+tail                                    truth      head        narrow      agreed      opt2        opt3        
+T1 degraded -> clean resume             completed  completed   completed   completed   completed   completed   
+T2 clean -> degraded resume             degraded   degraded    degraded    generating  degraded    degraded    
+T3 degraded only                        degraded   degraded    degraded    generating  degraded    degraded    
+T4 no completion at all                 failed     failed      failed      failed      failed      failed      
+T5 ISS-436: degraded -> resume FAILS    failed     failed      failed      failed      degraded    failed      
+T6 ISS-437: failed -> clean resume      completed  completed   completed   completed   failed      completed   
+T7 ISS-435: cancelled -> degraded       degraded   degraded    degraded    generating  degraded    cancelled   
+
+error column for the degraded verdicts (head vs narrow must match):
+  T2 clean -> degraded resume      head='x failed'  narrow='x failed'  agreed=None
+  T3 degraded only                 head='x failed'  narrow='x failed'  agreed=None
+
+## 6. grep: tests that mention the three FIX-484 siblings or FIX-484 by id (expect none)
+$ grep -rn -E 'ISS-43[567]|FIX-484' backend/tests --include='*.py'
+(no lines above = none)
+
+## 7. every FIX-247 citation in backend code (FIX-247 = .knowledge/cards/20260813-0205-FIX-247.md, the frontend clarify-gate repaint fix)
+$ grep -rn FIX-247 backend --include='*.py' --exclude-dir=.venv
+app/api/run_commands.py:840:        # FIX-247: the degraded verdict must track only the LATEST pipeline_complete, not
+app/api/run_commands.py:1031:# NULL" — plain ``None`` could not carry that distinction (FIX-247: _reconcile_terminal_status
+tests/integration/agents/test_restart_resume_db.py:4380:    """FIX-247 (run 4bdf9398): the degraded verdict must read off the LATEST
+tests/integration/agents/test_restart_resume_db.py:4422:    """FIX-247: a tail that reconciles to ``completed`` must clear ``WorkflowRun.error`` —
+
+## 8. git provenance
+$ git merge-base --is-ancestor 18a733e68 f23625911   (FIX-484 commit vs the branch fix)
+NOT an ancestor: independent lines
+$ git log -1 --format='%h %ad parents:%p %s' --date=short 4ebd98e8f
+4ebd98e8f 2026-09-16 parents:66bf725ba 36617b824 Merge branch 'feat/git-versioning' into feat/file-extract-tools
+$ git blame -L838,838 -L851,851 --date=short -- backend/app/api/run_commands.py
+70fc41e87e (imran-hex    2026-07-19 838)         failed = any(e.type == "pipeline_failed" for e in events)
+f236259113 (Bilal Arshad 2026-09-11 851)         degraded = bool(
+$ git show f23625911:backend/app/api/run_commands.py   (ladder reads both flags in that version)
+845:         elif degraded:
+847:         elif completes and not failed:
+$ git show 18a733e68:backend/app/api/run_commands.py   (FIX-484: whole-tail flags already unread there)
+782:         failed = any(e.type == "pipeline_failed" for e in events)
+784:         degraded = any(
+869:             if degraded_current:
+871:             elif current_attempt_completes and not failed_current:
+
+## 9. AST scan of the HISTORICAL versions (git show <c>:backend/app/api/run_commands.py > file; python analyze/ast_scan.py file degraded failed)
+=== 18a733e68
+  failed             Store  line 782
+  degraded           Store  line 784
+function lines 748-886
+=== f23625911
+  degraded           Load   line 845
+  failed             Load   line 847
+  failed             Store  line 795
+  degraded           Store  line 808
+function lines 755-918
+# reading: at 18a733e68 (FIX-484) both whole-tail flags are already Store-only (dead); at f23625911 both are read by the ladder (live).
+
+## 10. The whole '-k reconcile' selection (16 tests) per variant
+$ python analyze/run_variant.py none tests/integration/agents/test_restart_resume_db.py -k reconcile
+16 passed, 61 deselected, 1 warning in 2.08s
+$ python analyze/run_variant.py agreed tests/integration/agents/test_restart_resume_db.py -k reconcile
+FAILED test_reconcile_degraded_tracks_latest_completion_only[clean-then-degraded-resume]
+FAILED test_reconcile_degraded_tracks_latest_completion_only[degraded-only-no-later-completion]
+2 failed, 14 passed, 61 deselected, 1 warning in 2.56s
+$ python analyze/run_variant.py narrow tests/integration/agents/test_restart_resume_db.py -k reconcile
+16 passed, 61 deselected, 1 warning in 1.76s
+$ python analyze/run_variant.py opt2 tests/integration/agents/test_restart_resume_db.py -k reconcile
+16 passed, 61 deselected, 1 warning in 1.79s
+$ python analyze/run_variant.py opt3 tests/integration/agents/test_restart_resume_db.py -k reconcile
+16 passed, 61 deselected, 1 warning in 2.43s

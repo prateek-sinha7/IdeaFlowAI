@@ -1,0 +1,44 @@
+# QA-KB-117 analysis proof (read-only projection of source, no app code executed)
+# date: 2026-10-12   HEAD: 84bfd539c   tree: feat/stale-bug-fixes
+# run: python3 evidence/qa-kb-117/analysis-projection.py $PWD
+# git status --short is empty for: AccountSettings.tsx, UpgradePlanModal.tsx, HomeLaunchGrid.tsx, entitlements.ts (checked 2026-10-12)
+
+PIPELINE_DISPLAY keys: ['app_builder', 'custom', 'dotnet_to_azure', 'migration', 'mulesoft_to_springboot', 'ppt', 'prototype', 'user_stories']
+
+== basic
+  grid (renders)                     : ['ppt', 'user_stories']
+  catalog enabled product            : ['ppt', 'ppt_v2', 'user_stories']
+  catalog enabled engine examples    : []
+  catalog Coming Soon but entitled   : []
+  OMITTED by grid (catalog offers)   : ['ppt_v2']
+  LISTED by grid but catalog does not enable: []
+  entitled base ids with no manifest : []
+== hexaware
+  grid (renders)                     : ['prototype', 'user_stories']
+  catalog enabled product            : ['backlog', 'prototype', 'prototype_v2', 'user_stories']
+  catalog enabled engine examples    : []
+  catalog Coming Soon but entitled   : []
+  OMITTED by grid (catalog offers)   : ['backlog', 'prototype_v2']
+  LISTED by grid but catalog does not enable: []
+  entitled base ids with no manifest : []
+== pro
+  grid (renders)                     : ['app_builder', 'ppt', 'prototype', 'user_stories']
+  catalog enabled product            : ['app_builder', 'backlog', 'ppt', 'ppt_v2', 'prototype', 'prototype_v2', 'user_stories']
+  catalog enabled engine examples    : []
+  catalog Coming Soon but entitled   : []
+  OMITTED by grid (catalog offers)   : ['backlog', 'ppt_v2', 'prototype_v2']
+  LISTED by grid but catalog does not enable: []
+  entitled base ids with no manifest : []
+== enterprise
+  grid (renders)                     : ['app_builder', 'custom', 'dotnet_to_azure', 'migration', 'mulesoft_to_springboot', 'ppt', 'prototype', 'user_stories']
+  catalog enabled product            : ['app_builder', 'backlog', 'custom', 'ppt', 'ppt_v2', 'prototype', 'prototype_v2', 'user_stories']
+  catalog enabled engine examples    : ['ex_A1_loop', 'ex_A2_branch', 'ex_A3_b_spanish', 'ex_A3_c_dutch', 'ex_A3_divert', 'ex_A4_human_divert', 'ex_A4_human_gate', 'ex_playwright_smoke_test']
+  catalog Coming Soon but entitled   : ['dotnet_to_azure', 'mulesoft_to_springboot', 'sample_subagents_parallel']
+  OMITTED by grid (catalog offers)   : ['backlog', 'ex_A1_loop', 'ex_A2_branch', 'ex_A3_b_spanish', 'ex_A3_c_dutch', 'ex_A3_divert', 'ex_A4_human_divert', 'ex_A4_human_gate', 'ex_playwright_smoke_test', 'ppt_v2', 'prototype_v2']
+  LISTED by grid but catalog does not enable: ['dotnet_to_azure', 'migration', 'mulesoft_to_springboot']
+  entitled base ids with no manifest : ['migration']
+
+modal basic->pro: says 'unlocks 4 more deliverable types' ; grid delta = 2 ; modal-only ids = ['backlog', 'prototype_v2']
+modal pro->enterprise: says 'unlocks 13 more deliverable types' ; grid delta = 4 ; modal-only ids = ['ex_A1_loop', 'ex_A2_branch', 'ex_A3_b_spanish', 'ex_A3_c_dutch', 'ex_A3_divert', 'ex_A4_human_divert', 'ex_A4_human_gate', 'ex_playwright_smoke_test', 'sample_subagents_parallel']
+modal hexaware->enterprise: says 'unlocks 16 more deliverable types' ; grid delta = 6 ; modal-only ids = ['ex_A1_loop', 'ex_A2_branch', 'ex_A3_b_spanish', 'ex_A3_c_dutch', 'ex_A3_divert', 'ex_A4_human_divert', 'ex_A4_human_gate', 'ex_playwright_smoke_test', 'ppt_v2', 'sample_subagents_parallel']
+modal basic->enterprise: says 'unlocks 17 more deliverable types' ; grid delta = 6 ; modal-only ids = ['backlog', 'ex_A1_loop', 'ex_A2_branch', 'ex_A3_b_spanish', 'ex_A3_c_dutch', 'ex_A3_divert', 'ex_A4_human_divert', 'ex_A4_human_gate', 'ex_playwright_smoke_test', 'prototype_v2', 'sample_subagents_parallel']

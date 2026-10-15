@@ -253,7 +253,11 @@ export function parseViewPath(segments: string[] | undefined): ParsedView {
   // ─────────────────────────────────────────────────────────────
   // Auth & root
   // ─────────────────────────────────────────────────────────────
-  if (head === 'login') {
+  // ISS-348: exact /login is served by the static app/login/page.tsx, so only
+  // /login/<sub-path> reaches this parser (via [...view]). Without the guard it
+  // resolved to { screen: 'login' }, which nothing renders, and fell through to
+  // the default dashboard instead of the `unknown` -> notFound() gate.
+  if (head === 'login' && segments.length === 1) {
     // Extract query params from the URL if they exist
     // Note: parseViewPath only receives segments, not query params directly
     // Query params must be handled at the call site using useSearchParams
@@ -271,13 +275,20 @@ export function parseViewPath(segments: string[] | undefined): ParsedView {
   // ─────────────────────────────────────────────────────────────
   // Home & creation
   // ─────────────────────────────────────────────────────────────
-  if (head === 'dashboard') {
+  // ISS-910: same depth guard — /dashboard/<sub-path> rendered the real Home
+  // under a bogus URL instead of the `unknown` -> notFound() gate.
+  if (head === 'dashboard' && segments.length === 1) {
     return { screen: 'home' };
   }
 
   if (head === 'create') {
     if (segments.length === 1) {
       return { screen: 'create' };
+    }
+
+    // ISS-911: every arm below is exactly /create/{mode}; a trailing segment is unknown.
+    if (segments.length > 2) {
+      return { screen: 'unknown' };
     }
 
     const mode = segments[1];
@@ -305,13 +316,19 @@ export function parseViewPath(segments: string[] | undefined): ParsedView {
 
     const workflowSegment = segments[1];
     if (workflowSegment === 'new') {
-      return { screen: 'workflow-new' };
+      // ISS-911: /workflows/new/<extra> is unknown, not the new-workflow screen.
+      return segments.length === 2 ? { screen: 'workflow-new' } : { screen: 'unknown' };
     }
 
     // /workflows/{id} or /workflows/{id}/edit or /workflows/{id}/run
     const workflowId = workflowSegment;
     if (segments.length === 2) {
       return { screen: 'workflow', workflowId };
+    }
+
+    // ISS-911: /workflows/{id}/{action} is the deepest workflows route.
+    if (segments.length > 3) {
+      return { screen: 'unknown' };
     }
 
     const action = segments[2];
@@ -352,16 +369,20 @@ export function parseViewPath(segments: string[] | undefined): ParsedView {
     // out here and parse what follows exactly as the un-pinned form, rather
     // than duplicating every tab arm below. A bare pin with no tab after it
     // stays its own screen (`run-version`), unchanged.
+    // ISS-941: `/versions` with no `{v}`, and a pin before `stream` or
+    // `preview/full` (no builder emits a pinned form of either), are unknown.
     let version: string | undefined;
     let tail = segments;
     if (segments[2] === 'versions') {
       version = segments[3];
-      if (segments.length <= 4) {
+      if (segments.length === 4) {
         return { screen: 'run-version', runId, version };
       }
       tail = [segments[0], runId, ...segments.slice(4)];
     }
 
+    // ISS-911: each arm below checks `tail.length`, so a segment after the tab
+    // (e.g. /runs/{id}/files/<x>) falls through to unknown instead of the tab.
     const subpath = tail[2];
 
     // /runs/{id}/steps
@@ -371,32 +392,34 @@ export function parseViewPath(segments: string[] | undefined): ParsedView {
       }
 
       // /runs/{id}/steps/{agentId}
-      const agentId = tail[3];
-      return { screen: 'run-steps-agent', runId, agentId, version };
+      if (tail.length === 4) {
+        const agentId = tail[3];
+        return { screen: 'run-steps-agent', runId, agentId, version };
+      }
     }
 
     // /runs/{id}/files
-    if (subpath === 'files') {
+    if (subpath === 'files' && tail.length === 3) {
       return { screen: 'run-files', runId, version };
     }
 
     // /runs/{id}/workspace
-    if (subpath === 'workspace') {
+    if (subpath === 'workspace' && tail.length === 3) {
       return { screen: 'run-workspace', runId, version };
     }
 
     // /runs/{id}/audit
-    if (subpath === 'audit') {
+    if (subpath === 'audit' && tail.length === 3) {
       return { screen: 'run-audit', runId, version };
     }
 
     // /runs/{id}/stream
-    if (subpath === 'stream') {
+    if (subpath === 'stream' && tail.length === 3 && version === undefined) {
       return { screen: 'run-stream', runId };
     }
 
     // /runs/{id}/preview/full
-    if (subpath === 'preview' && tail[3] === 'full') {
+    if (subpath === 'preview' && tail[3] === 'full' && tail.length === 4 && version === undefined) {
       return { screen: 'run-preview-full', runId };
     }
 
@@ -431,7 +454,8 @@ export function parseViewPath(segments: string[] | undefined): ParsedView {
     }
 
     // Item-DETAIL routes only — unchanged from before this amendment.
-    if (segments.length >= 3) {
+    // ISS-911: exactly /library/{type}/{slug}; a trailing segment is unknown.
+    if (segments.length === 3) {
       const slug = segments[2];
       if (type === 'agents') return { screen: 'library-agent', slug };
       if (type === 'skills') return { screen: 'library-skill', slug };
@@ -452,6 +476,11 @@ export function parseViewPath(segments: string[] | undefined): ParsedView {
       // this parser directly, so the same destination is mirrored here rather
       // than dead-ending at unknown -> 404.
       return { screen: 'settings-profile' };
+    }
+
+    // ISS-911: /settings/{tab} is the deepest settings route; a trailing segment is unknown.
+    if (segments.length > 2) {
+      return { screen: 'unknown' };
     }
 
     const tab = segments[1];
@@ -476,8 +505,10 @@ export function parseViewPath(segments: string[] | undefined): ParsedView {
     return { screen: 'analytics' };
   }
 
-  // Intentionally unreachable dead code: static app/admin/page.tsx takes precedence over [...view] catch-all for /admin path; kept for parseViewPath documentation.
-  if (head === 'admin') {
+  // ISS-349: exact /admin is served by the static app/admin/page.tsx, so only /admin/<sub-path>
+  // reaches this parser (via [...view]). Without the guard it resolved to { screen: 'admin' }, which
+  // nothing renders, and fell through to the default dashboard instead of `unknown` -> notFound().
+  if (head === 'admin' && segments.length === 1) {
     return { screen: 'admin' };
   }
 

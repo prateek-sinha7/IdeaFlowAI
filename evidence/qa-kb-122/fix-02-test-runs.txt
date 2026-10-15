@@ -1,0 +1,34 @@
+QA-KB-122 fix (5-fixer, 2026-10-09). Offline runs only, one file per process, from backend/ with ./.venv/bin/python.
+BEFORE (observed at the start of the fix, before any edit; working tree = HEAD 76cd62b41 for these paths):
+  $ ./.venv/bin/python -m pytest tests/unit/test_e2e_tier_drift.py -q -p no:cacheprovider -rxX
+  XFAIL x9 (ISS-1158 x4, ISS-1185, ISS-1186, ISS-1187, ISS-1188, ISS-1189 'unfixed')
+  9 xfailed, 1 warning in 1.91s
+
+AFTER (2026-10-09 18:31 CEST):
+  $ ./.venv/bin/python -m pytest tests/unit/test_e2e_tier_drift.py -q -p no:cacheprovider -rX
+  [XPASS(strict)] ISS-1158 unfixed
+  [XPASS(strict)] ISS-1158 unfixed
+  [XPASS(strict)] ISS-1158 unfixed
+  [XPASS(strict)] ISS-1158 unfixed
+  [XPASS(strict)] ISS-1185 unfixed
+  [XPASS(strict)] ISS-1186 unfixed
+  [XPASS(strict)] ISS-1187 unfixed
+  [XPASS(strict)] ISS-1188 unfixed
+  [XPASS(strict)] ISS-1189 unfixed
+  9 failed, 1 warning in 1.59s
+
+  $ ./.venv/bin/python -m pytest tests/unit/test_e2e_tier_drift.py -q -p no:cacheprovider --runxfail
+  9 passed, 1 warning in 1.16s
+
+CONTROLS (the app-side twins the analysis names; no app file changed):
+  $ ./.venv/bin/python -m pytest tests/unit/services/test_entitlement_parity.py -q -p no:cacheprovider
+  61 passed, 45 skipped, 1 warning in 1.51s
+  $ ./.venv/bin/python -m pytest tests/unit/test_run_sandbox_api.py -q -p no:cacheprovider
+  28 passed, 5 warnings in 2.77s
+
+SPEC/TEST LINK (static, no browser): python3 tests/integration/capture/_scenarios.py
+  before: scenarios with an id: 511 / implemented: 511 / awaiting a test: 0 / still untagged: 0
+  after:  scenarios with an id: 511
+  after:    implemented:        511
+  after:    awaiting a test:    0
+  after:  still untagged:       0

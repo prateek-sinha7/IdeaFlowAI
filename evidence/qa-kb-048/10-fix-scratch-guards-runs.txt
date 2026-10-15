@@ -1,0 +1,24 @@
+# QA-KB-048 5-fixer scratch guards (09-fix-scratch-guards.test.tsx.txt), copied into frontend/src/components/workflow/ only for each run and deleted right after.
+# Each variant is a scratch COPY of LaunchWizard.tsx with one change; the guards import the copy.
+
+## A. final working-tree LaunchWizard.tsx
+ Test Files  1 passed (1)
+      Tests  4 passed (4)
+
+## B. completion guard removed (diff: '<       if (savedRosterRef.current) return prev;') = pre-fix completion
+     × (b) a restored ppt_v2 3-of-4 saved roster survives the 4-step plan 19ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+ Test Files  1 failed (1)
+      Tests  1 failed | 3 passed (4)
+TestingLibraryElementError: Unable to find an element with the text: 3 agents. This could be because the text is broken up by multiple elements. In this case, you can provide a function for your text matcher to make your matcher more flexible.
+
+  (the rendered Advanced count was '4 agents' for the restored 3-of-4 roster)
+
+## C. the card's literal recommendation: 'savedRosterRef.current = true;' on every non-empty restore
+     × (d) a restored ppt_v2 row that is exactly the 2-agent library default is still completed (unsatisfiable alone) 1019ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+ Test Files  1 failed (1)
+      Tests  1 failed | 3 passed (4)
+TestingLibraryElementError: Unable to find an element with the text: 4 agents. This could be because the text is broken up by multiple elements. In this case, you can provide a function for your text matcher to make your matcher more flexible.
+
+  (rendered Advanced count: '2 agents' -- the legacy row is not completed, and presort_specs refuses it: see 12-fix-presort-legacy-ppt_v2-row.txt)

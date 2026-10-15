@@ -1,0 +1,19 @@
+# Scratch vitest config for 13/15 (kept OUTSIDE the repo, in the session scratchpad). Run recipe, from frontend/:
+#   ln -s <repo>/frontend/node_modules <scratch-dir>/node_modules
+#   ./node_modules/.bin/vitest --run --config <scratch-dir>/vitest.scratch.config.ts
+# Collects ONLY the scratch test; the REAL api.ts runs and only global fetch is faked, so no request leaves the process.
+
+// Scratch config for QA-KB-096 analysis. Lives outside the repo: collects ONLY the scratch test next to it,
+// reuses the app's @ alias and jsdom setup. The REAL api.ts runs; only global fetch is faked (no request leaves the process).
+import { defineConfig } from "vitest/config";
+
+export default defineConfig({
+  root: "/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/frontend",
+  test: {
+    environment: "jsdom",
+    globals: true,
+    setupFiles: ["/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/frontend/vitest.setup.ts"],
+    include: ["/private/tmp/claude-502/-Users-bilala-Developer-Projects-VELOCITY-AI-worktrees-feat-user-stories-v2/2d1a1575-310a-48fd-8155-2763a084604d/scratchpad/qa-kb-096/*.scratch.test.tsx"],
+  },
+  resolve: { alias: { "@": "/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/frontend/src" } },
+});

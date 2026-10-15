@@ -1,0 +1,23 @@
+# QA-KB-101 5-fixer, 2026-10-08 15:08:32, HEAD 70c5ca8b2 + the 2-line fix. Mutants run on a SCRATCH copy of the FIXED test file outside the repo; no repo file mutated.
+# The scratch copy = the fixed test_workflows_api.py byte-for-byte + 25 appended lines that wrap app.api.workflows.load_manifest per $MUTANT:
+#   coalesce  -> display_name = _display_name(id) (the title-cased id; the regression workflows.py:392-397 forbids)
+#   ppt_label -> ppt's manifest label loses ' (Fast)'; every other row untouched
+#   (unset)   -> no mutation (control)
+
+## MUTANT=<unset, control>
+# cmd (cwd backend/): MUTANT= DATABASE_URL=sqlite:///:memory: .venv/bin/python -m pytest <scratchpad>/mutants/test_mutant_workflows_api.py::TestList::test_list_carries_launchable_flags -c pyproject.toml --rootdir=. -p no:cacheprovider -q --tb=line -W ignore
+1 passed in 1.38s
+
+## MUTANT=coalesce
+# cmd (cwd backend/): MUTANT=coalesce DATABASE_URL=sqlite:///:memory: .venv/bin/python -m pytest <scratchpad>/mutants/test_mutant_workflows_api.py::TestList::test_list_carries_launchable_flags -c pyproject.toml --rootdir=. -p no:cacheprovider -q --tb=line -W ignore
+E   AssertionError: user_stories must carry its authored display_name verbatim (got 'User Stories')
+<scratchpad>/mutants/test_mutant_workflows_api.py:225: AssertionError: user_stories must carry its authored display_name verbatim (got 'User Stories')
+FAILED ::TestList::test_list_carries_launchable_flags - AssertionError: user_...
+1 failed in 1.23s
+
+## MUTANT=ppt_label
+# cmd (cwd backend/): MUTANT=ppt_label DATABASE_URL=sqlite:///:memory: .venv/bin/python -m pytest <scratchpad>/mutants/test_mutant_workflows_api.py::TestList::test_list_carries_launchable_flags -c pyproject.toml --rootdir=. -p no:cacheprovider -q --tb=line -W ignore
+E   AssertionError: ppt must carry its authored display_name verbatim (got 'Pitch an idea')
+<scratchpad>/mutants/test_mutant_workflows_api.py:225: AssertionError: ppt must carry its authored display_name verbatim (got 'Pitch an idea')
+FAILED ::TestList::test_list_carries_launchable_flags - AssertionError: ppt m...
+1 failed in 1.18s

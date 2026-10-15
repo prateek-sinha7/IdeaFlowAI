@@ -1,0 +1,143 @@
+// QA-KB-091 analyzer probe. RECORDS, does not assert. __TARGET__ is replaced per variant.
+import { describe, it, vi, beforeEach, afterEach } from "vitest";
+import { render, screen, waitFor, cleanup, fireEvent } from "@testing-library/react";
+import React from "react";
+import userEvent from "@testing-library/user-event";
+import * as fs from "fs";
+
+const OUT = "__OUT__";
+const mockGetToken = vi.fn(() => "test-token");
+const mockGetWorkflow = vi.fn<(token: string, id: string) => Promise<any>>();
+const mockGetRunSandboxRefs = vi.fn();
+vi.mock("@/lib/api", () => ({
+  getToken: () => mockGetToken(),
+  getWorkflow: (token: string, id: string) => mockGetWorkflow(token, id),
+  getRunFamily: vi.fn(),
+  postShareRun: vi.fn(),
+  deleteShareRun: vi.fn(),
+  getRunSandboxRefs: (...a: unknown[]) => mockGetRunSandboxRefs(...a),
+  getRunSandbox: vi.fn().mockResolvedValue({ run_id: "x", expired: false, truncated: false, files: [] }),
+  getRunSandboxFile: vi.fn().mockResolvedValue(""),
+  getRunSandboxFileBlob: vi.fn(),
+  getRunSandboxZip: vi.fn(),
+  resolveRunDeliverable: vi.fn().mockResolvedValue(null),
+}));
+const STRIPPED_MOTION_PROPS = new Set(["initial","animate","exit","transition","whileHover","whileTap","whileFocus","whileInView","viewport","layout","layoutId","drag","dragConstraints","variants","custom"]);
+vi.mock("motion/react", () => ({
+  motion: new Proxy({}, { get: (_t, prop: string) => ({ children, ...rest }: any) => React.createElement(prop, Object.fromEntries(Object.entries(rest).filter(([k]) => !STRIPPED_MOTION_PROPS.has(k))), children) }),
+  AnimatePresence: ({ children }: any) => <>{children}</>,
+}));
+vi.mock("@/components/preview/UserStoryPreview", () => ({ UserStoryPreview: () => <div data-testid="user-story-preview" /> }));
+vi.mock("@/components/preview/PPTPreview", () => ({ PPTPreview: () => <div data-testid="ppt-preview" /> }));
+vi.mock("@/components/preview/PrototypePreview", () => ({ PrototypePreview: () => <div data-testid="proto-preview" /> }));
+vi.mock("@/components/preview/MarkdownPreview", () => ({ MarkdownPreview: () => <div data-testid="markdown-preview" /> }));
+vi.mock("@/components/preview/AppBuilderPreview", () => ({ AppBuilderPreview: () => <div data-testid="appbuilder-preview" /> }));
+vi.mock("@/components/results/FilesTab", () => ({ FilesTab: (p: any) => <div data-testid="files-tab" data-run-status={p.runStatus ?? ""} />, downloadBlob: vi.fn(), deriveDeliverableFilename: () => "prototype.html" }));
+vi.mock("@/components/results/AgentThinkingTab", () => ({ AgentThinkingTab: () => <div data-testid="thinking-tab" /> }));
+vi.mock("@/components/results/AuditTab", () => ({ AuditTab: () => <div data-testid="audit-tab" /> }));
+
+import { PreviewPanel } from "__TARGET__";
+
+const t0 = new Date("2026-08-13T10:00:00Z").toISOString();
+const t1 = new Date("2026-08-13T11:00:00Z").toISOString();
+const tagless: any = {
+  root_id: "root",
+  members: [
+    { id: "root", type: "prototype", title: "v1", status: "completed", revision_index: 0, parent_run_id: null, created_at: t0, completed_at: t0 },
+    { id: "r1", type: "prototype_revision", title: "v2", status: "completed", revision_index: 1, parent_run_id: "root", created_at: t1, completed_at: t1 },
+  ],
+};
+
+const DISTINCT = "No deliverable was saved for this version";
+const flags = (txt: string) => ({
+  distinct: txt.includes(DISTINCT),
+  cancelledCopy: txt.includes("This run was cancelled"),
+  failedCopy: txt.includes("did not complete successfully"),
+  building: txt.includes("Building your deliverable"),
+  neutral: txt.includes("Output will appear here"),
+});
+
+type Scn = { label: string; props: Record<string, unknown>; pin?: Record<string, unknown> };
+
+async function runScenario(s: Scn) {
+  mockGetWorkflow.mockReset();
+  mockGetWorkflow.mockImplementation((_t, id) => Promise.resolve({ id, ...(s.pin ?? { status: "completed", output: null }) } as any));
+  render(<PreviewPanel workflowType="prototype" runFamily={tagless} {...(s.props as any)} />);
+  if (s.pin) {
+    await waitFor(() => { if (mockGetWorkflow.mock.calls.length === 0) throw new Error("pin fetch not issued"); });
+    await screen.findAllByText(/read-only/i);
+  } else {
+    await new Promise((r) => setTimeout(r, 30));
+  }
+  await new Promise((r) => setTimeout(r, 30));
+  const tabEls = screen.queryAllByRole("tab");
+  const tabs = tabEls.map((t) => t.textContent?.trim());
+  const landed = tabEls.find((t) => t.getAttribute("aria-selected") === "true")?.textContent?.trim() ?? "(none)";
+  const txt0 = document.body.textContent || "";
+  const f0 = flags(txt0);
+  const share = !!screen.queryByLabelText("Share this run");
+  const download = !!screen.queryByLabelText("Download the deliverable");
+  const hdrFailed = txt0.includes("Run failed");
+  const partial = txt0.includes("· partial");
+  const proto = !!screen.queryByTestId("proto-preview");
+  // Now force the Preview tab (if it is in the strip) and re-read what it renders.
+  let afterPreview = "n/a (no Preview tab in strip)";
+  const prev = tabEls.find((t) => t.textContent?.trim() === "Preview");
+  if (prev) {
+    fireEvent.click(prev);
+    await new Promise((r) => setTimeout(r, 30));
+    const f1 = flags(document.body.textContent || "");
+    afterPreview = JSON.stringify({ ...f1, proto: !!screen.queryByTestId("proto-preview") });
+  }
+  const line = [
+    "ROW " + s.label,
+    "| tabs=" + JSON.stringify(tabs),
+    "| landed=" + landed,
+    "| landedCopy=" + JSON.stringify({ ...f0, proto }),
+    "| PreviewTabClicked=" + afterPreview,
+    "| header=" + JSON.stringify({ runFailed: hdrFailed, partialChip: partial, shareBtn: share, downloadBtn: download }),
+  ].join(" ");
+  fs.appendFileSync(OUT, line + "\n");
+}
+
+beforeEach(() => { mockGetToken.mockReset().mockReturnValue("test-token"); mockGetRunSandboxRefs.mockReset().mockResolvedValue([]); });
+afterEach(() => cleanup());
+
+const NOPIN_OUT = { status: "completed", output: null };
+const WITH_OUT = { status: "completed", output: "<html>v1</html>" };
+
+
+const tagged: any = { root_id: "root", members: [{ ...tagless.members[0], git_tag: "v1" }, { ...tagless.members[1], git_tag: "v2" }] };
+async function menuFlow(label: string, props: Record<string, unknown>, pin: Record<string, unknown>) {
+  mockGetRunSandboxRefs.mockReset().mockResolvedValue(["v1", "v2"]);
+  mockGetWorkflow.mockReset();
+  mockGetWorkflow.mockImplementation((_t, id) => Promise.resolve({ id, ...pin } as any));
+  const user = userEvent.setup();
+  render(<PreviewPanel workflowType="prototype" runFamily={tagged} liveRunId="r1" {...(props as any)} />);
+  await new Promise((r) => setTimeout(r, 50));
+  const before = document.body.textContent || "";
+  const beforeHdr = { runFailed: before.includes("Run failed"), share: !!screen.queryByLabelText("Share this run"), download: !!screen.queryByLabelText("Download the deliverable") };
+  const chip = (await screen.findAllByRole("button")).find((b) => /v2/.test(b.textContent || ""));
+  if (!chip) { fs.appendFileSync(OUT, "ROW " + label + " | no version chip button\n"); return; }
+  await user.click(chip);
+  await user.click(await screen.findByRole("option", { name: "v1" }));
+  await waitFor(() => expect_(mockGetWorkflow.mock.calls.length > 0));
+  await screen.findAllByText(/Viewing v1 \(read-only\)/);
+  await new Promise((r) => setTimeout(r, 50));
+  const txt = document.body.textContent || "";
+  const tabs = screen.queryAllByRole("tab").map((x) => x.textContent?.trim());
+  const after = { runFailed: txt.includes("Run failed"), partialChip: txt.includes("\u00b7 partial"), share: !!screen.queryByLabelText("Share this run"), download: !!screen.queryByLabelText("Download the deliverable"), tabs };
+  fs.appendFileSync(OUT, "ROW " + label + " | BEFORE-pick(shell on screen)=" + JSON.stringify(beforeHdr) + " | AFTER-pick(v1 pinned, read-only)=" + JSON.stringify(after) + "\n");
+}
+function expect_(ok: boolean) { if (!ok) throw new Error("not yet"); }
+describe("probe3 __TARGET_NAME__", () => {
+  fs.writeFileSync(OUT, "# QA-KB-091 analyzer probe 3 (Version-menu flow), target=__TARGET_NAME__\n");
+  it("G9 failed shell, pick tagged completed v1 from the Version menu", async () => {
+    try { await menuFlow("G9 shell=failed(v2, reopened) -> pick v1 (completed, WITH content) via Version menu", { reopenedRunStatus: "failed" }, { status: "completed", output: "<html>v1</html>" }); }
+    catch (e: any) { fs.appendFileSync(OUT, "ROW G9 ERROR " + String(e?.message ?? e).split("\n")[0] + "\n"); }
+  });
+  it("G9 control: completed shell (v2), pick tagged completed v1", async () => {
+    try { await menuFlow("G9 CONTROL shell=completed(v2, prototypeContent) -> pick v1 via Version menu", { prototypeContent: "<html>latest</html>" }, { status: "completed", output: "<html>v1</html>" }); }
+    catch (e: any) { fs.appendFileSync(OUT, "ROW G9c ERROR " + String(e?.message ?? e).split("\n")[0] + "\n"); }
+  });
+});

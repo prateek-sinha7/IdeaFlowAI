@@ -782,6 +782,11 @@ export class MockApi {
     const familyMatch = path.match(/\/api\/runs\/([^/]+)\/family$/);
     if (familyMatch) return json(this.family(familyMatch[1]));
 
+    // --- sandbox listing (Workspace tab) — the `{}` catch-all left `files`
+    //     undefined, so SandboxTab's `files.filter` crashed the Preview panel ---
+    const sandboxMatch = path.match(/\/api\/runs\/([^/]+)\/sandbox$/);
+    if (sandboxMatch) return json({ run_id: sandboxMatch[1], expired: false, truncated: false, files: [] });
+
     // --- audit reads (Audit tab) — categorized gate / validation / exec rows ---
     //
     // Harness seeding (NOT fabricated production data): the audit tab derives its
@@ -838,13 +843,6 @@ export class MockApi {
       return json({ workflow_id: id, exec_runs });
     }
 
-    // --- run workspace listing (Workspace tab): GET /api/runs/{id}/sandbox ---
-    // Must be a well-formed SandboxListing; the catch-all `{}` has no `files`,
-    // which crashes SandboxTab (artifactGroups(undefined)) once it is selected.
-    const sandboxMatch = path.match(/\/api\/runs\/([^/]+)\/sandbox$/);
-    if (sandboxMatch && method === "GET") {
-      return json({ run_id: sandboxMatch[1], expired: false, truncated: false, files: [] });
-    }
     // --- runs (history) ---
     const runDetailMatch = path.match(/\/api\/runs\/([^/]+)(\/chain-context)?$/);
     if (runDetailMatch) {

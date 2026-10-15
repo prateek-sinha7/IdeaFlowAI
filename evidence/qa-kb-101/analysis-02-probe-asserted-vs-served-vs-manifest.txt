@@ -1,0 +1,39 @@
+# QA-KB-101 analysis, 2026-10-08. Probe: asserted vs served vs manifest display_name, and the loop replay.
+# cwd: backend/   cmd: DATABASE_URL=sqlite:///:memory: .venv/bin/python <scratchpad>/probe_qa_kb_101.py   (source: analysis-02b-probe-source.py.txt)
+# HEAD: 7adb69a3f
+
+# `authored` dict parsed from tests/integration/api/test_workflows_api.py:215 (first key at that line)
+verdict   id                       asserted | served | manifest(yaml)
+OK        user_stories             'Generate product requirements' | 'Generate product requirements' | 'Generate product requirements'  served==manifest:True
+MISMATCH  prototype                'Build an interactive prototype' | 'Build an interactive prototype (Fast)' | 'Build an interactive prototype (Fast)'  served==manifest:True
+MISMATCH  ppt                      'Pitch an idea' | 'Pitch an idea (Fast)' | 'Pitch an idea (Fast)'  served==manifest:True
+OK        app_builder              'Build an end-to-end application' | 'Build an end-to-end application' | 'Build an end-to-end application'  served==manifest:True
+OK        mulesoft_to_springboot   'MuleSoft to Spring Boot' | 'MuleSoft to Spring Boot' | 'MuleSoft to Spring Boot'  served==manifest:True
+OK        dotnet_to_azure          '.NET to Azure' | '.NET to Azure' | '.NET to Azure'  served==manifest:True
+OK        custom                   'Compose a custom workflow' | 'Compose a custom workflow' | 'Compose a custom workflow'  served==manifest:True
+# replay of the test's loop (`for wid, label in authored.items(): assert ...`) over the 6-key dict:
+  loop RAISES at first mismatch -> prototype (dict order), later keys never evaluated
+# keys the loop never reaches after that raise: ['ppt', 'app_builder', 'mulesoft_to_springboot', 'dotnet_to_azure']
+# same loop with ONLY the two literals replaced by the manifest labels -> ALL MATCH
+# same loop with ONLY `prototype` fixed (the one the pytest output names) -> still red: ['ppt']
+# the whole served catalog, user_launchable rows (what a user sees as card titles), for the sibling comparison:
+  app_builder                  beta=False display_name='Build an end-to-end application'
+  backlog                      beta=False display_name='Write backlog from prototype and documents'
+  custom                       beta=False display_name='Compose a custom workflow'
+  dotnet_to_azure              beta=True  display_name='.NET to Azure'
+  ex_A1_loop                   beta=False display_name='Retry until it passes'
+  ex_A2_branch                 beta=False display_name='Branch on a decision'
+  ex_A3_b_spanish              beta=False display_name='Handoff target: Spanish reply'
+  ex_A3_c_dutch                beta=False display_name='Handoff target: Dutch reply'
+  ex_A3_divert                 beta=False display_name='Hand off to another workflow'
+  ex_A4_human_divert           beta=False display_name='Let a reviewer choose the handoff'
+  ex_A4_human_gate             beta=False display_name='Let a reviewer choose the path'
+  ex_playwright_smoke_test     beta=False display_name='Browser check'
+  mulesoft_to_springboot       beta=True  display_name='MuleSoft to Spring Boot'
+  ppt                          beta=False display_name='Pitch an idea (Fast)'
+  ppt_v2                       beta=False display_name='Pitch an idea (Depth)'
+  prototype                    beta=False display_name='Build an interactive prototype (Fast)'
+  prototype_v2                 beta=False display_name='Prototype from documents (Depth)'
+  reverse_engineer             beta=True  display_name='Reverse engineer a codebase'
+  sample_subagents_parallel    beta=True  display_name='Sub-agents in parallel'
+  user_stories                 beta=False display_name='Generate product requirements'

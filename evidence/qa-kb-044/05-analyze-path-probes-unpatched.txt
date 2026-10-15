@@ -1,0 +1,21 @@
+# QA-KB-044 analyze evidence 05 - which UI paths reach the !hasContent placeholder (UNPATCHED source, 2026-10-01, analyzer)
+# Harness: scratch vitest (scratchpad/qa-kb-044/b-pinned-paths.scratch.test.tsx, source saved alongside as scratch-b-pinned-paths.test.tsx.txt).
+# It renders the REAL frontend/src/components/preview/PreviewPanel.tsx. @/lib/api is mocked with the FULL surface RunHeader needs (getRunSandboxRefs included).
+# Each probe asserts the CURRENT behaviour; all 7 pass = this is what the code does today.
+#   B1 deep-link pin (pinnedVersion prop), tagless v1, status completed, output null  -> 'Output will appear here' shown   (BUG REAL, via the real URL-pin path)
+#   B2 same, pinned run status running                                               -> same neutral placeholder shown (a status-blind 'no deliverable saved' copy would be false)
+#   B3 same, pinned run status failed                                                -> neutral placeholder; DegradedRunAffordance copy ABSENT (failure signal is shell-keyed)
+#   B4 control: pinned run WITH output                                               -> prototype renderer, no placeholder
+#   B5 control: no pin, terminal, no content                                         -> neutral copy (pinned as intended by PreviewPanel.degraded.test.tsx:177/259, TS-Q-05, TS-R-03)
+#   B6 Version-MENU path with git tags (pick tag v1, getWorkflow output null)        -> RefVersionPreview branch; placeholder NOT shown
+#   B7 Version menu with NO tags                                                     -> no listbox, no interactive picker at all (static chip)
+#   (B6 additionally asserts the RefVersionPreview banner 'Viewing v1 · read-only' rendered; B7 additionally asserts the chip is a static <span>)
+ ✓ B1. DEEP-LINK pin (pinnedVersion prop), tagless v1, completed, output=null -> placeholder shown (BUG REAL) 306ms
+ ✓ B2. same pin, but the pinned run is still RUNNING (non-terminal) -> same placeholder (a status-blind 'no deliverable saved' copy would be false here) 38ms
+ ✓ B3. pinned run FAILED with output=null -> still the neutral placeholder (shell-keyed failure affordance does not see the pinned status) 31ms
+ ✓ B4. CONTROL: pinned version WITH output renders the deliverable, no placeholder 24ms
+ ✓ B5. CONTROL: no pin, terminal, no content -> neutral copy stays (PreviewPanel.degraded.test.tsx:177/259 + TS-Q-05 pin this) 10ms
+ ✓ B6. VERSION-MENU path with git tags: pick tag v1 -> RefVersionPreview branch, NOT the placeholder, even though getWorkflow output=null 124ms
+ ✓ B7. VERSION MENU with NO tags: no interactive picker is mounted at all (static chip) 69ms
+ Test Files  1 passed (1)
+      Tests  7 passed (7)

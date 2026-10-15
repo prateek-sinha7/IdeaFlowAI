@@ -1,0 +1,18 @@
+# QA-KB-082 fix-02 — AFTER: frontend/src/app/preview-fullscreen/page.previewPayloadShape.test.tsx against the fixed page.tsx
+# it.fails = xfail(strict): 'Expect test to fail' on all 5 rows is the XPASS signal. Marker left for 6-verifier.
+# cmd: npx vitest --run --reporter=verbose src/app/preview-fullscreen/page.previewPayloadShape.test.tsx
+ × src/app/preview-fullscreen/page.previewPayloadShape.test.tsx > preview-fullscreen payload shape — ISS-915 > ISS-915 files string exits via giveUp() instead of crashing 17ms
+   → Expect test to fail
+ × src/app/preview-fullscreen/page.previewPayloadShape.test.tsx > preview-fullscreen payload shape — ISS-915 > ISS-915 files [null] exits via giveUp() instead of crashing 5ms
+   → Expect test to fail
+ × src/app/preview-fullscreen/page.previewPayloadShape.test.tsx > preview-fullscreen payload shape — ISS-915 > ISS-915 files [{}] exits via giveUp() instead of crashing 3ms
+   → Expect test to fail
+ × src/app/preview-fullscreen/page.previewPayloadShape.test.tsx > preview-fullscreen payload shape — ISS-915 > ISS-915 files {length:1} exits via giveUp() instead of crashing 2ms
+   → Expect test to fail
+ × src/app/preview-fullscreen/page.previewPayloadShape.test.tsx > preview-fullscreen payload shape — ISS-915 > ISS-915 files [1] exits via giveUp() instead of crashing 2ms
+   → Expect test to fail
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 5 ⎯⎯⎯⎯⎯⎯⎯
+Error: Expect test to fail
+ Test Files  1 failed (1)
+      Tests  5 failed (5)
+   Start at  19:56:45

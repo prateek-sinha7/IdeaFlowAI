@@ -1,0 +1,83 @@
+QA-KB-120 probe. git: git version 2.50.1 (Apple Git-155)
+engine.py line of the stage call: build_flat_payload -> sandbox.stage_exact(list(_allowlist))
+
+[A] ORIGINAL build_flat_payload, failed run, greeting.md never written, fresh family
+--- A
+Payload: built=True materialized=False chainable=False reason='output_not_materialized'
+Payload.allowlist = ['.chain/greeting.md', '.chain/logs.jsonl', '.chain/summary.md']
+staged entries after the call = []
+.chain/ on disk = ['logs.jsonl', 'summary.md']
+WARNING/ERROR records = 1
+    WARNING: build_flat_payload: stage_exact failed for run=bb29d5e4-dbe8-4de5-9a49-fc437c946150
+        exc: subprocess.CalledProcessError: Command '['git', '-c', 'user.name=Velocity Runtime', '-c', 'user.email=runtime@velocity.local', '-c', 'commit.gpgsign=false', 'add', '--force', '--', '.chain/logs.jsonl', '.chain/summary.md', '.chain
+    DEBUG: build_flat_payload: output file not found run=bb29d5e4-dbe8-4de5-9a49-fc437c946150 basename='greeting.md'   <- the only log the unmaterialized branch emits itself
+RESULT [A]: stage_exact failed warning present = True
+
+[B] CANDIDATE FIX (in-memory prune of the missing output), same setup
+--- B
+Payload: built=True materialized=False chainable=False reason='output_not_materialized'
+Payload.allowlist = ['.chain/logs.jsonl', '.chain/summary.md']
+staged entries after the call = ['.chain/logs.jsonl', '.chain/summary.md']
+.chain/ on disk = ['logs.jsonl', 'summary.md']
+WARNING/ERROR records = 0
+    DEBUG: build_flat_payload: output file not found run=90341ccc-53e2-46cd-bfec-c44e949c589d basename='greeting.md'   <- the only log the unmaterialized branch emits itself
+RESULT [B]: stage_exact failed warning present = False; logs+summary staged = True
+
+[C] ORIGINAL, but a PRIOR snapshot already tracks .chain/greeting.md (resume / revision / chained family)
+--- C
+Payload: built=True materialized=False chainable=False reason='output_not_materialized'
+Payload.allowlist = ['.chain/greeting.md', '.chain/logs.jsonl', '.chain/summary.md']
+staged entries after the call = ['.chain/greeting.md', '.chain/logs.jsonl', '.chain/summary.md']
+.chain/ on disk = ['logs.jsonl', 'summary.md']
+WARNING/ERROR records = 0
+    DEBUG: build_flat_payload: output file not found run=c5a8215c-51c3-4489-859c-6f66d421f49c basename='greeting.md'   <- the only log the unmaterialized branch emits itself
+git diff --cached --name-status = ['D\t.chain/greeting.md', 'M\t.chain/logs.jsonl', 'M\t.chain/summary.md']
+RESULT [C]: stage_exact failed warning present = False (tracked path => git add stages the DELETION)
+
+[D] finalize_terminal_run(candidate_status='failed'), declared greeting.md never written
+--- d-original
+record: published_status='degraded' candidate_status='failed' payload_built=True payload_materialized=False payload_chainable=False non_chainable_reason='output_unmaterializable' git_tag=None
+committed .chain/ tree at HEAD = ['.chain/summary.md']
+    WARNING: build_flat_payload: stage_exact failed for run=9d2b5740-22d3-45da-9a7d-87d277a0f9b7   [exc: subprocess.CalledProcessError: Command '['git', '-c', 'user.name=Velocity Runtime', '-c', 'user.email=runtime@velocity.local', '-c', 'commit.gpgsign=f]
+    WARNING: finalize_terminal_run: metadata_only_snapshot run=9d2b5740-22d3-45da-9a7d-87d277a0f9b7 trigger=output_unmaterializable
+--- d-patched
+record: published_status='degraded' candidate_status='failed' payload_built=True payload_materialized=False payload_chainable=False non_chainable_reason='output_unmaterializable' git_tag=None
+committed .chain/ tree at HEAD = ['.chain/summary.md']
+    WARNING: finalize_terminal_run: metadata_only_snapshot run=d11c1392-0ba5-4474-ad58-632b584588dc trigger=output_unmaterializable
+RESULT [D]: record identical = True; committed tree identical = True; original warns = True; patched warns = False
+
+[E1] SIBLING lead (INFERRED trigger): output materialized, but the logs.jsonl copy fails (PermissionError)
+record: published_status='degraded' payload_materialized=False payload_chainable=False non_chainable_reason='payload_blocked' git_tag=None
+committed .chain/ tree at HEAD = ['.chain/summary.md']
+    WARNING: build_flat_payload: failed to write logs.jsonl for run=edbd18ed-5595-4cda-bde2-c86078065b51   [exc: PermissionError: logs.jsonl is not readable (simulated)]
+    WARNING: build_flat_payload: stage_exact failed for run=edbd18ed-5595-4cda-bde2-c86078065b51   [exc: subprocess.CalledProcessError: Command '['git', '-c', 'user.name=Velocity Runtime', '-c', ]
+    WARNING: commit_in_sandbox: staging failed for run=edbd18ed-5595-4cda-bde2-c86078065b51 step=finalizer-snapshot (Command '['git', '-c', 'user.name=Velocity Runtime', '-c', 'user.e
+    WARNING: finalize_terminal_run: snapshot commit BLOCKED run=edbd18ed-5595-4cda-bde2-c86078065b51 reason=staging_failed — resetting index and rebuilding metadata-only
+
+[E2] SIBLING lead (INFERRED trigger): output materialized, but the FIRST summary.md render raises
+record: published_status='degraded' payload_materialized=False payload_chainable=False non_chainable_reason='payload_blocked' git_tag=None
+committed .chain/ tree at HEAD = ['.chain/summary.md']
+    WARNING: build_flat_payload: failed to write summary.md for run=b5b7ebe0-5b24-4440-becc-8afc7707c58d   [exc: OSError: summary.md could not be rendered (simulated, first call only)]
+    WARNING: build_flat_payload: stage_exact failed for run=b5b7ebe0-5b24-4440-becc-8afc7707c58d   [exc: subprocess.CalledProcessError: Command '['git', '-c', 'user.name=Velocity Runtime', '-c', ]
+    WARNING: commit_in_sandbox: staging failed for run=b5b7ebe0-5b24-4440-becc-8afc7707c58d step=finalizer-snapshot (Command '['git', '-c', 'user.name=Velocity Runtime', '-c', 'user.e
+    WARNING: finalize_terminal_run: snapshot commit BLOCKED run=b5b7ebe0-5b24-4440-becc-8afc7707c58d reason=staging_failed — resetting index and rebuilding metadata-only
+
+[F] every way the declared output can fail to materialize (fresh family each; ORIGINAL vs CANDIDATE FIX)
+variant                                      original: warn/staged/out-in-allowlist       candidate fix: warn/staged/out-in-allowlist
+single_file: file absent                     warn=True  staged=0 out_in_allowlist=True  materialized=False warn=False staged=2 out_in_allowlist=False materialized=False
+single_file: file present but copy raises    warn=True  staged=0 out_in_allowlist=True  materialized=False warn=False staged=2 out_in_allowlist=False materialized=False
+streamed_text: empty stream                  warn=True  staged=0 out_in_allowlist=True  materialized=False warn=False staged=2 out_in_allowlist=False materialized=False
+ppt: empty stream                            warn=True  staged=0 out_in_allowlist=True  materialized=False warn=False staged=2 out_in_allowlist=False materialized=False
+serialized_sandbox: nothing written          warn=True  staged=0 out_in_allowlist=True  materialized=False warn=False staged=2 out_in_allowlist=False materialized=False
+
+[G] CANDIDATE FIX where a PRIOR snapshot already tracks .chain/greeting.md (the case-[C] setup)
+--- G build_flat_payload (fixed)
+Payload: built=True materialized=False chainable=False reason='output_not_materialized'
+Payload.allowlist = ['.chain/logs.jsonl', '.chain/summary.md']
+staged entries after the call = ['.chain/greeting.md', '.chain/logs.jsonl', '.chain/summary.md']
+.chain/ on disk = ['logs.jsonl', 'summary.md']
+WARNING/ERROR records = 0
+    DEBUG: build_flat_payload: output file not found run=c8778faf-330a-481c-90ad-03eff7dc2e51 basename='greeting.md'   <- the only log the unmaterialized branch emits itself
+git diff --cached --name-status = ['D\t.chain/greeting.md', 'M\t.chain/logs.jsonl', 'M\t.chain/summary.md']
+
+done

@@ -29,6 +29,7 @@ Writes ``build/ui/``:
 
 from __future__ import annotations
 
+import asyncio
 import colorsys
 import json
 import logging
@@ -289,9 +290,21 @@ def find_source(sandbox: Any) -> str | None:
         return CHAINED_SOURCE
     uploads = sandbox.path_for(UPLOADS_DIR)
     if uploads.is_dir():
-        for p in sorted(uploads.iterdir()):
-            if p.is_file() and p.suffix.lower() in (".html", ".htm"):
+        html_files = [
+            p
+            for p in sorted(uploads.iterdir())
+            if p.is_file() and p.suffix.lower() in (".html", ".htm")
+        ]
+        # Prefer a file whose name starts with "prototype" (the canonical name
+        # for chained or uploaded prototype HTML). Without this guard, sorted()
+        # would return the first alphabetical HTML upload, which might be an
+        # unrelated document (e.g. "docker-commands-reference.html").
+        for p in html_files:
+            if p.stem.lower().startswith("prototype"):
                 return f"{UPLOADS_DIR}/{p.name}"
+        # Fall back to any HTML upload if no prototype-named file exists.
+        if html_files:
+            return f"{UPLOADS_DIR}/{html_files[0].name}"
     return None
 
 
@@ -358,9 +371,12 @@ async def _probe(source: Path, out: Path) -> tuple[dict, dict]:
             await browser.close()
 
 
-async def extract_prototype_ui(runner: Any) -> str:
-    """Write ``build/ui/`` from the prototype; return the step's one-line reply."""
-    sandbox = runner.sandbox
+async def extract_prototype_ui(sandbox: Any, materialise_html: Any) -> str:
+    """Write ``build/ui/`` from the prototype; return the step's one-line reply.
+
+    ``materialise_html`` is injected by the caller (``ctx.runner.materialise_html``)
+    rather than imported here — a capability must not import the app layer directly
+    (Ports & Adapters; see KernelServices.materialise_html)."""
     out = sandbox.path_for(UI_DIR)
     out.mkdir(parents=True, exist_ok=True)
     # The screenshots are regenerated from the prototype on any rerun, and the
@@ -400,7 +416,8 @@ async def extract_prototype_ui(runner: Any) -> str:
     (out / "components.json").write_text(json.dumps(components, indent=2))
 
     screens_dir = out / "screens"
-    await runner.materialise_html(
+    await asyncio.to_thread(
+        materialise_html,
         path.resolve(),
         path.read_bytes(),
         screens_dir,
@@ -477,7 +494,9 @@ class MechanicalExtractPrototypeUiStrategy:
             },
         }
         started = time.time()
-        content = await extract_prototype_ui(ctx.runner)
+        content = await extract_prototype_ui(
+            ctx.runner.sandbox, ctx.runner.materialise_html
+        )
         yield {"type": "agent_chunk", "data": {"agent_id": spec.id, "chunk": content}}
         duration = time.time() - started
         self._results.append(

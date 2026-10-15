@@ -1,0 +1,121 @@
+QA-KB-029 ANALYZE EVIDENCE (2026-10-01). Everything below is a read or a pure-function execution.
+No application source edited. No server started/restarted. DB access = SELECT inside "SET TRANSACTION READ ONLY".
+Repo: /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2 (branch feat/user-stories-v2)
+
+=====================================================================================================
+[1] THE WIRE SHAPE, produced by the real endpoint builder (backend/app/api/runs.py:1366 _build_lineage_tree)
+=====================================================================================================
+cmd (from backend/):
+  .venv/bin/python - <<'EOF'
+  from types import SimpleNamespace as NS
+  from app.api.runs import _build_lineage_tree
+  def ref(id, kind, version, derived_from=None, parents=None, task_id=None, agent="prototype-specify"):
+      return NS(id=id, kind=kind, producer_step=agent, producer_agent=agent, task_id=task_id,
+                content_hash=f"h-{id}", version=version, visibility="private", retention="run_ttl",
+                location=f"artifact_refs/{agent}", parents=parents or [], derived_from=derived_from, content="x")
+  refs = [ref("v1","spec",1), ref("v2","spec",2,derived_from="v1"), ref("v3","spec",3,derived_from="v2")]
+  tree = _build_lineage_tree(refs, include_content=False)
+  print(len(tree))
+  EOF
+result: 3 refs in -> TOP-LEVEL COUNT: 1. Node v1 carries "children":[ {full node v2 object, "derived_from":"v1",
+        "children":[ {full node v3 object, "derived_from":"v2", "children":[]} ]} ]. Every node has "retention":"run_ttl",
+        "task_id":null, "derived_from": null|<id string>.
+=> on the wire: children is ArtifactNode[] (recursive objects), derived_from is string|null, task_id is string|null,
+   retention is a string. The TS types say string[] / string[] / string and omit retention.
+
+=====================================================================================================
+[2] REAL DATA (Postgres velocity-local-db, SELECT only)
+=====================================================================================================
+SQL: SELECT count(*) AS total, count(task_id) AS task_id_nonnull, count(derived_from) AS derived_from_nonnull,
+            count(*) FILTER (WHERE parents IS NOT NULL AND parents::text NOT IN ('[]','null')) AS parents_nonempty
+       FROM artifact_refs
+  -> (1963, 67, 15, 0)         task_id null on 1896/1963 rows, a string on 67; derived_from set on 15; parents never set.
+SQL: SELECT retention, count(*) FROM artifact_refs GROUP BY retention   -> ('run_ttl', 1963)
+SQL: SELECT kind, count(*) AS n, count(derived_from) AS derived FROM artifact_refs WHERE kind='clarifications' GROUP BY kind
+  -> ('clarifications', 30, 0)   clarify_engine.py:1114 writes no derived_from/parents, so that flat consumer is unaffected.
+SQL: SELECT a.kind, count(*) FROM artifact_refs a JOIN artifact_refs p ON p.id=a.derived_from AND p.run_id=a.run_id GROUP BY a.kind
+  -> ('summary', 2)              the only SAME-RUN derived chains in the DB (13 of the 15 derived rows are cross-run revisions
+                                 whose parent is not in the response, so they surface as roots).
+SQL: SELECT run_id, id, kind, producer_agent, version, content_hash, derived_from FROM artifact_refs
+      WHERE run_id LIKE '429dc032%' ORDER BY created_at, version, id
+  ('429dc032-8038-4f0a-9558-ee666c7f5da3','15ba1296','summary','custom-agent:ask',1,'81ad50fc',None)
+  ('429dc032-...','d18b5973','human_choice','custom-agent:ask',1,'81ad50fc',None)
+  ('429dc032-...','d9f069da','summary','custom-agent:ask',2,'a2a45acf','15ba1296')      <- nested under 15ba1296
+  ('429dc032-...','7cf3b576','summary','custom-agent:pick-language',3,'be980fa2',None)
+  ('429dc032-...','4ba1429a','route_decision','custom-agent:pick-language',1,'be980fa2',None)
+SQL: same for '8d4d2d70%'  (10 rows)
+  ('8d4d2d70-9357-4780-a43f-405a25712807','37b4c2fe','summary','custom-agent:blr-analyst',1,'8f6e5a63',None)
+  ('8d4d2d70-...','d2fd00e6','summary','custom-agent:blr-analyst',2,'8467b3a5','37b4c2fe')   <- nested under 37b4c2fe
+  ... (8 more rows, none derived except the cross-run 9cc44c3a backlog_output)
+SQL: SELECT gate, outcome FROM gate_events WHERE run_id LIKE '8d4d2d70%'  -> ('human','redo')   (Redo => engine.py:10730)
+SQL: SELECT gate, outcome FROM gate_events WHERE run_id LIKE '429dc032%'  -> ('human','pass'),('conditional','route')
+SQL: SELECT w.id, w.type, w.status, u.email FROM workflow_runs w LEFT JOIN users u ON u.id=w.user_id
+      WHERE w.id LIKE '8d4d2d70%' OR w.id LIKE '429dc032%'
+  -> 429dc032 ex_A4_human_divert diverted admin@velocity.ai ; 8d4d2d70 backlog_revision completed admin@velocity.ai
+
+=====================================================================================================
+[3] THE REAL, UNMODIFIED ArtifactVersionPicker.collapseVersions RUN AGAINST THE REAL WIRE
+=====================================================================================================
+Step A (wire dump, from backend/): load the ArtifactRef ORM rows for the run in lineage() order
+  (ORDER BY created_at, version, id - agents/authz.py:357-361), feed _build_lineage_tree(refs, include_content=False),
+  json.dump({"workflow_id":..., "artifacts": tree}) to wire-<prefix>.json.   Result:
+    429dc032: rows=5  top_level=4 nested_children_under_roots=1
+    8d4d2d70: rows=10 top_level=9 nested_children_under_roots=1
+Step B (from frontend/): transpile frontend/src/components/results/ArtifactVersionPicker.tsx (UNMODIFIED) to CommonJS with the
+  repo's own typescript package, require it, call its exported collapseVersions():
+    cmd: NODE_PATH=$PWD/node_modules node run-picker.cjs src/components/results/ArtifactVersionPicker.tsx <scratchpad>
+    harness core:
+      const ts=require("typescript"); const out=ts.transpileModule(fs.readFileSync(SRC,"utf8"),
+        {compilerOptions:{module:ts.ModuleKind.CommonJS,jsx:ts.JsxEmit.ReactJSX,target:ts.ScriptTarget.ES2020}}).outputText;
+      fs.writeFileSync(dst,out); const {collapseVersions}=require(dst);
+      const flatten=(ns,a=[])=>{for(const n of ns){a.push(n);flatten(n.children||[],a)}return a};
+      collapseVersions(wire.artifacts, agent)            // what the picker does today  (ArtifactVersionPicker.tsx:124)
+      collapseVersions(flatten(wire.artifacts), agent)   // what it would do if it walked children
+    OUTPUT:
+      run 429dc032 agent custom-agent:ask
+        collapseVersions(resp.artifacts)            -> 1 version(s)  [picker renders NOTHING]
+        collapseVersions(flatten(resp.artifacts))   -> 2 version(s)  [picker would render a menu]
+      run 8d4d2d70 agent custom-agent:blr-analyst
+        collapseVersions(resp.artifacts)            -> 1 version(s)  [picker renders NOTHING]
+        collapseVersions(flatten(resp.artifacts))   -> 2 version(s)  [picker would render a menu]
+  (ArtifactVersionPicker.tsx:177 `if (versions.length <= 1) return null;` is why 1 means "no picker at all".)
+  NOT done: no browser repro (Static row; the line forbids a browser here). Settling it end-to-end = sign in as
+  admin@velocity.ai, open run 8d4d2d70-9357-4780-a43f-405a25712807, Steps tab, agent custom-agent:blr-analyst: no version picker.
+
+=====================================================================================================
+[4] ORIGIN (git pickaxe, read-only)
+=====================================================================================================
+git log -S'children: string[];' -- frontend/src/lib/api.ts     -> 4a9ba1220 2026-07-03 feat(260702-wwx): getRunArtifacts fetcher + ArtifactNode/ClarifyRound types
+git log -S'"children": []'      -- backend/app/api/runs.py     -> 2f8acbe9a 2026-06-08 feat(api): GET /runs/{id}/artifacts lineage tree + ... (API-04, API-05)
+git log -S'"retention": r.retention' -- backend/app/api/runs.py -> 2f8acbe9a (same commit)
+git log -S'["children"].append(' -- backend/app/api/runs.py     -> 2f8acbe9a (same commit)
+=> the nested tree, retention and the nullable derived_from were all on the wire 25 days BEFORE the TS type was written.
+   The TS type was authored wrong; it never drifted.
+
+=====================================================================================================
+[5] CALLERS / CONSUMERS (grep)
+=====================================================================================================
+grep -rn -E "ArtifactNode|RunArtifactsResponse|getRunArtifacts" frontend/src  (non-test):
+  frontend/src/lib/api.ts:1497,1513,1521     the live declarations + fetcher
+  frontend/src/store/api/runs.ts:40,56,125   a duplicate declaration + runsApi.artifacts; reachable ONLY via store/api/api.ts:22,40
+  frontend/src/components/results/ArtifactVersionPicker.tsx:22,68,103,117,121,152,155   consumer #1 (flat iteration, see [3])
+  frontend/src/components/history/WorkflowHistory.tsx:13,441                              consumer #2 (clarifications; flat but unaffected)
+grep -rn -E "from [\"'](\./api|\.\./api|@/store/api/api|@/store/api)[\"']" frontend/src   -> no output (store/api/api.ts has no importer)
+grep -rn -E "\bapi\.runs\.|runsApi\." frontend/src (excluding runs.ts)                       -> no output (nobody calls runsApi.artifacts)
+No non-test code reads ArtifactNode.derived_from / .children / .task_id / .retention (grep over frontend/src: only the 2 declarations).
+Stale citations: api.ts:1495 "runs.py:590-608"; ArtifactVersionPicker.tsx:266 and ArtifactVersionPicker.test.tsx:29 "runs.py:907-925".
+Real node builder today: backend/app/api/runs.py:1377-1395 (_node), nesting at 1448-1452.
+Backend contract is PINNED as intentional: backend/tests/integration/api/test_runs_api_artifacts_api.py:176-193
+  (root["children"][0]["id"]=="B"; child["derived_from"]=="A"; "retention" in root; root["task_id"]=="t1").
+Test fixture that encodes the stale shape: frontend/src/lib/api.getRunArtifacts.test.ts:42 (`derived_from: [],` - the wire sends string|null)
+  and :43 (`children: [],` - fine only because it is empty). The literal is untyped (okJson(wire) -> unknown), so tsc never checks it.
+
+=====================================================================================================
+[6] BASELINE `tsc --noEmit` (acceptance-gate caveat for the fixer/verifier)
+=====================================================================================================
+cmd (from frontend/): ./node_modules/.bin/tsc --noEmit        -> EXIT=1, 13 `error TS` lines (3.6 s)
+files with errors (all test files, all unrelated): AnalyticsPage.test.tsx, DashboardLayout.chain.test.tsx,
+  WorkflowHistory.modelChip.test.tsx, PreviewPanel.liveVersion.test.tsx, AgentDetailPanel.waveWorkerStatus.test.tsx,
+  useWorkflow.imagePayload.test.ts, RunConnectionProvider.test.tsx
+non-test files with errors: 0.  Lines mentioning ArtifactNode / lib/api.ts / store/api/runs: 0.
+=> "tsc --noEmit exits 0" is NOT a usable gate at this commit. Use: no NEW errors versus these 13, and none naming ArtifactNode.

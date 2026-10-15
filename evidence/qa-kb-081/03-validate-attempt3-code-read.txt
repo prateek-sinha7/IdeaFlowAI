@@ -1,0 +1,5 @@
+attempt 3 2026-10-07T19:29:04Z static re-read (code-only, no browser per BUGS.md)
+17:      .catch(() => { /* non-fatal — the picker stays empty */ });
+                systems.length === 0 ? (
+                  <div className="h-48 animate-pulse rounded-[var(--radius-card)] bg-surface-white/60" />
+0

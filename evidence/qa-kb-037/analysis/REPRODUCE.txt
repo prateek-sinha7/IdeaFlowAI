@@ -1,0 +1,24 @@
+QA-KB-037 / ISS-758 analysis repro. Executed 2026-10-01 by the analyzer at HEAD 024c03ef8, vitest 4.1.11, jsdom.
+No repo file is edited: the harness and the patched COPIES of PreviewPanel.tsx live outside the repo.
+
+Files here
+  compare.test.tsx                      8 scenarios x 3 implementations (A, B, C, D, E, S1, S1b, S2)
+  vitest.scratch.config.mts             scratch config (edit the two absolute paths: root and FE)
+  agreed-fix.diff                       the agreed minimal fix (selectGen), diffed against HEAD: 3 hunks, +4 -2
+  agreed-fix-plus-url-bumps.diff        the same plus two `selectGen.current++` lines (ISS-938): 5 hunks
+  compare-run-3way.log                  the run: 24 tests, 10 failed / 14 passed
+  results.json                          observed chip / banner / content / Steps state per scenario
+  regression-17-files-x3-variants.txt   the 17 existing PreviewPanel*.test.tsx files, one invocation each,
+                                        against an unpatched copy, the agreed-fix copy and the fix+bumps copy
+Both diffs were dry-run (`patch --dry-run -p0`) against the working-tree PreviewPanel.tsx that already carries the
+QA-KB-044 / ISS-154 edit: they apply cleanly with offsets, so the two fixes compose.
+
+Rebuild
+  1. mkdir <scratch> && ln -s <repo>/frontend/node_modules <scratch>/node_modules
+  2. copy compare.test.tsx and vitest.scratch.config.mts into <scratch>
+  3. for V in Fixed FixedX:
+       sed -E 's#from "\./#from "@/components/preview/#g' <repo>/frontend/src/components/preview/PreviewPanel.tsx > <scratch>/PreviewPanel$V.tsx
+     patch <scratch>/PreviewPanelFixed.tsx  < agreed-fix.diff
+     patch <scratch>/PreviewPanelFixedX.tsx < agreed-fix-plus-url-bumps.diff
+  4. cd <repo>/frontend && npx vitest --run --config <scratch>/vitest.scratch.config.mts compare.test.tsx
+Expected: unmodified red on A, B, C, S1, S1b, S2; agreed fix red on S1, S1b, S2; fix + bumps red on S2 only.

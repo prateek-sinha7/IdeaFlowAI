@@ -1,0 +1,90 @@
+diff --git a/backend/agents/capabilities/strategies/_fanout_stream.py b/backend/agents/capabilities/strategies/_fanout_stream.py
+index 914ce6cfc..ae85fcfec 100644
+--- a/backend/agents/capabilities/strategies/_fanout_stream.py
++++ b/backend/agents/capabilities/strategies/_fanout_stream.py
+@@ -7,8 +7,9 @@ optional side-channel queue instead (``fanout.py``: ``event_queue``).
+ 
+ A strategy that wants live per-worker streaming has to consume BOTH — the
+ generator and the queue — concurrently, or the queued events only surface after
+-the whole fan-out finishes. ``parallel_group`` had that merge inline; the wave
+-scheduler needs exactly the same thing, so it lives here once.
++the whole fan-out finishes. ``parallel_group`` uses this merge; the wave
++scheduler keeps its own copy, with wave identity stamping, in
++``_fanout_wave_stream.py``.
+ 
+ Import purity (INV-13): nothing from ``agents.execution_engine`` or ``app.*`` —
+ the kernel is reached only through the caller's ``runner`` handle.
+diff --git a/backend/agents/execution_engine/fanout.py b/backend/agents/execution_engine/fanout.py
+index e68e245cf..12f4bc773 100644
+--- a/backend/agents/execution_engine/fanout.py
++++ b/backend/agents/execution_engine/fanout.py
+@@ -354,8 +354,9 @@ async def run_fanout(
+     ``event_queue`` (optional, default None): when a caller supplies a queue, each
+     worker's own per-agent events (agent_start/agent_chunk/tool_call/tool_result/
+     agent_complete — normally discarded here) are ALSO pushed onto it as a side
+-    channel, for a caller that wants to forward live per-worker streaming (e.g.
+-    ``parallel_group``). None (every other caller today) is a no-op — byte-identical.
++    channel, for a caller that wants to forward live per-worker streaming
++    (``parallel_group`` and ``wave_scheduler`` both pass one). None (``fanout_batch``,
++    the engine tool-result path) is a no-op — byte-identical.
+     """
+ 
+     runner = ctx.runner
+@@ -567,7 +568,8 @@ async def run_fanout(
+ 
+                     # Optional side channel (additive, default-off): a caller that
+                     # supplied event_queue gets this worker's raw per-agent event too.
+-                    # None for every existing caller — dead branch, zero behavior change.
++                    # parallel_group and wave_scheduler supply one on every fan-out;
++                    # fanout_batch and the engine tool-result path pass None.
+                     # RESUME-06 companion: stamp worker identity at PUSH time (this loop is
+                     # the only place that knows it) on a COPY — never mutate the dict
+                     # ``run_worker`` yields, it may be re-read/re-yielded elsewhere.
+diff --git a/backend/agents/execution_engine/kernel_services.py b/backend/agents/execution_engine/kernel_services.py
+index 39cc0b8dc..2710f263c 100644
+--- a/backend/agents/execution_engine/kernel_services.py
++++ b/backend/agents/execution_engine/kernel_services.py
+@@ -1175,10 +1175,11 @@ class KernelServices:
+         engine's single emit boundary.
+ 
+         ``event_queue`` (optional): forwarded straight through to the kernel
+-        ``run_fanout`` so a caller like ``parallel_group`` can receive each
+-        worker's live per-agent events as a side channel. None for every other
+-        caller today (fanout_batch, wave_scheduler, the engine tool-result
+-        path) — unchanged, byte-identical.
++        ``run_fanout`` so a caller can receive each worker's live per-agent
++        events as a side channel. ``parallel_group`` (``_fanout_stream``) and
++        ``wave_scheduler`` (``_fanout_wave_stream``) pass one on every fan-out;
++        fanout_batch and the engine tool-result path pass None — unchanged,
++        byte-identical.
+         """
+         from agents.execution_engine.fanout import run_fanout as _kernel_run_fanout
+ 
+diff --git a/backend/tests/agents/test_wave_scheduler_cancel_row.py b/backend/tests/agents/test_wave_scheduler_cancel_row.py
+index dd87bf2d7..970870405 100644
+--- a/backend/tests/agents/test_wave_scheduler_cancel_row.py
++++ b/backend/tests/agents/test_wave_scheduler_cancel_row.py
+@@ -37,7 +37,7 @@ class _CancelMidWaveRunner:
+     async def update_wave_run(self, row_id, *, status):
+         self.updated.append((row_id, status))
+ 
+-    async def run_fanout(self, requests, ctx, *, step=None):
++    async def run_fanout(self, requests, ctx, *, step=None, event_queue=None):
+         raise asyncio.CancelledError()
+         yield  # pragma: no cover — makes this an async generator
+ 
+diff --git a/backend/tests/unit/agents/test_fanout_cancel.py b/backend/tests/unit/agents/test_fanout_cancel.py
+index d81bc93ff..e1c3a7258 100644
+--- a/backend/tests/unit/agents/test_fanout_cancel.py
++++ b/backend/tests/unit/agents/test_fanout_cancel.py
+@@ -83,7 +83,9 @@ class _CancelRunner:
+         self.allocated.append(ws)
+         return ws
+ 
+-    async def teardown_isolated_workspace(self, base_workspace, worker_ws):
++    async def teardown_isolated_workspace(
++        self, base_workspace, worker_ws, *, delete_branch=True
++    ):
+         if worker_ws is not None:
+             worker_ws.torn_down = True
+             self.torn_down.append(worker_ws.index)

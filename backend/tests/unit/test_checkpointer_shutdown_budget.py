@@ -52,5 +52,5 @@ async def test_close_checkpointer_is_bounded_when_pool_close_hangs():
         pytest.fail(
             "close_checkpointer() did not return within the shutdown budget "
             "when pool.close() hung — it has no internal timeout wrapper "
-            "(checkpointer.py:140-144)."
+            "(the asyncio.wait_for(pool.close(), ...) in close_checkpointer)."
         )

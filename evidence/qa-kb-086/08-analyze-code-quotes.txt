@@ -1,0 +1,247 @@
+# QA-KB-086 analyze 2026-10-02 - code quotes, read from the working tree (HEAD 024c03ef8 + uncommitted edits by other sessions).
+# NOTE: IdeaInputPage.tsx carries 24 uncommitted lines above the gate code; at HEAD the same lines are 1012-1015 / 1622 (git show HEAD:frontend/src/components/workflow/IdeaInputPage.tsx).
+
+--- frontend/src/components/workflow/IdeaInputPage.tsx:1034-1042
+1034:   // Per-run Human-review gate selection, surfaced by <ReviewGatesSection>.
+1035:   // Held in a ref so the section reporting its state doesn't re-render this page
+1036:   // and so `handleRun` always reads the latest value. Untouched ⇒ we omit
+1037:   // `gate_agent_ids` (backend uses its static default); touched ⇒ we send the
+1038:   // explicit array (even when empty = "no gates").
+1039:   const gateSelectionRef = useRef<{ ids: string[]; touched: boolean }>({ ids: [], touched: true });
+1040:   const handleGatesChange = useCallback((ids: string[], touched: boolean) => {
+1041:     gateSelectionRef.current = { ids, touched };
+1042:   }, []);
+
+--- frontend/src/components/workflow/IdeaInputPage.tsx:1589-1592
+1589:     // Only attach gate_agent_ids when the user actually touched the Review-gates
+1590:     // section; otherwise omit it entirely so the backend keeps its static default
+1591:     // (the run_pipeline payload is byte-identical to before this feature).
+1592:     const { ids, touched } = gateSelectionRef.current;
+
+--- frontend/src/components/workflow/IdeaInputPage.tsx:1646-1649
+1646:     const finalExtraParams =
+1647:       touched || hasOverrides || hasMergedSelections || hasImages || hasStaged || hasDesign
+1648:         ? {
+1649:             ...(touched ? { gate_agent_ids: ids } : {}),
+
+--- frontend/src/components/workflow/IdeaInputPage.tsx:2225-2238
+2225:         {(!isMigrationMeta || migrationChoice) && (
+2226:           <motion.div
+2227:             initial={{ opacity: 0 }}
+2228:             animate={{ opacity: 1 }}
+2229:             transition={{ delay: 0.24 }}
+2230:             className="w-full mt-3"
+2231:           >
+2232:             <ReviewGatesSection
+2233:               agents={pipelineAgents}
+2234:               onChange={handleGatesChange}
+2235:               initialGateIds={initialGateIds}
+2236:               selections={liveSelections}
+2237:               onSelectionsChange={handleSelectionsChange}
+2238:             />
+
+--- frontend/src/components/workflow/ReviewGatesSection.tsx:13-20
+13:  * Wiring contract (see plan.md §5 "Gate mechanism"):
+14:  *   - `onChange(gateAgentIds, touched)` fires whenever the selection or the
+15:  *     touched flag changes. `gateAgentIds` is the ids of the currently-checked
+16:  *     agents (possibly empty); `touched` is true once the user toggles anything.
+17:  *   - The caller MUST send `gate_agent_ids` ONLY when `touched` is true (even if
+18:  *     the array is empty — `[]` means "no gates"). When untouched it omits the
+19:  *     field entirely, so the backend uses its static default (byte-identical to
+20:  *     today). `onChange` must be a stable reference (wrap in `useCallback`).
+
+--- frontend/src/components/workflow/ReviewGatesSection.tsx:108-110
+108: export function ReviewGatesSection({ agents, onChange, initialGateIds, selections, onSelectionsChange }: ReviewGatesSectionProps) {
+109:   const [expanded, setExpanded] = useState(false);
+110:   const [touched, setTouched] = useState(false);
+
+--- frontend/src/components/workflow/ReviewGatesSection.tsx:169-178
+169:   // Report the current selection + touched flag upward. Runs on mount and on
+170:   // every change; the initial (untouched) report is harmless because the caller
+171:   // omits `gate_agent_ids` whenever `touched` is false. `onChange` is expected
+172:   // to be stable (useCallback) so this effect does not loop.
+173:   useEffect(() => {
+174:     // Preserve pipeline order in the reported array (deterministic payload).
+175:     const ordered = agents.filter((a) => checkedIds.has(a.id)).map((a) => a.id);
+176:     onChange(ordered, touched);
+177:     // eslint-disable-next-line react-hooks/exhaustive-deps
+178:   }, [checkedIds, touched, agentsKey]);
+
+--- frontend/src/components/workflow/ReviewGatesSection.test.tsx:128-136
+128:   it("first onChange reports empty gate ids with touched=false (no pre-selection by default)", () => {
+129:     const onChange = vi.fn();
+130:     render(<ReviewGatesSection agents={prototypeAgents} onChange={onChange} />);
+131:     // The initial report fires on mount (no expand needed).
+132:     expect(onChange).toHaveBeenCalled();
+133:     const [ids, touched] = onChange.mock.calls[onChange.mock.calls.length - 1];
+134:     expect(ids).toEqual([]);
+135:     expect(touched).toBe(false);
+136:   });
+
+--- frontend/src/components/workflow/IdeaInputPage.designPicker.test.tsx:46-48
+46: vi.mock("./ReviewGatesSection", () => ({
+47:   ReviewGatesSection: () => null,
+48: }));
+
+--- frontend/src/components/workflow/IdeaInputPage.designPicker.test.tsx:148-160
+148:   it("does not offer the picker for a workflow that never declares opendesign", async () => {
+149:     const user = userEvent.setup();
+150:     const { onRun } = renderPage(vi.fn(), []);
+151: 
+152:     expect(screen.queryByRole("button", { name: /attach design/i })).not.toBeInTheDocument();
+153: 
+154:     await user.type(screen.getByRole("textbox"), "Build the prototype.");
+155:     await user.click(screen.getByRole("button", { name: /run workflow/i }));
+156: 
+157:     expect(onRun).toHaveBeenCalledTimes(1);
+158:     const [, , , extraParams] = onRun.mock.calls[0];
+159:     expect(extraParams).toBeUndefined();
+160:   });
+
+--- frontend/src/components/workflow/IdeaInputPage.selections.test.tsx:93-95
+93: vi.mock("./ReviewGatesSection", () => ({
+94:   ReviewGatesSection: () => null,
+95: }));
+
+--- frontend/src/components/workflow/IdeaInputPage.selections.test.tsx:192-198
+192:     const [, , , extraParams] = onRun.mock.calls[0];
+193:     // FIX-323 — the wizard now ALWAYS sends `gate_agent_ids`, so an empty gate
+194:     // selection reaches the backend as an explicit "no gates" rather than an
+195:     // absent field it would fill from its own defaults. INV-3 still holds for
+196:     // every OTHER key, which is what this test guards: nothing else is added.
+197:     expect(extraParams).toEqual({ gate_agent_ids: [] });
+198:     expect(extraParams).not.toHaveProperty("selections");
+
+--- frontend/src/components/workflow/IdeaInputPage.modelOverrides.test.tsx:57-61
+57: // ReviewGatesSection reports gate selection; keep it inert so it never sends
+58: // `gate_agent_ids` (we want to isolate the model_overrides path).
+59: vi.mock("./ReviewGatesSection", () => ({
+60:   ReviewGatesSection: () => null,
+61: }));
+
+--- frontend/src/components/workflow/IdeaInputPage.modelOverrides.test.tsx:138-144
+138:     const [, , , extraParams] = onRun.mock.calls[0];
+139:     // FIX-323 — the wizard now ALWAYS sends `gate_agent_ids`, so an empty gate
+140:     // selection reaches the backend as an explicit "no gates" rather than an
+141:     // absent field it would fill from its own defaults. INV-3 still holds for
+142:     // every OTHER key, which is what this test guards: nothing else is added.
+143:     expect(extraParams).toEqual({ gate_agent_ids: [] });
+144:     expect(extraParams).not.toHaveProperty("model_overrides");
+
+--- frontend/src/components/workflow/IdeaInputPage.imageInput.test.tsx:49-51
+49: vi.mock("./ReviewGatesSection", () => ({
+50:   ReviewGatesSection: () => null,
+51: }));
+
+--- frontend/src/components/workflow/IdeaInputPage.imageInput.test.tsx:131-137
+131:     const [, , , extraParams] = onRun.mock.calls[0];
+132:     // FIX-323 — the wizard now ALWAYS sends `gate_agent_ids`, so an empty gate
+133:     // selection reaches the backend as an explicit "no gates" rather than an
+134:     // absent field it would fill from its own defaults. INV-3 still holds for
+135:     // every OTHER key, which is what this test guards: nothing else is added.
+136:     expect(extraParams).toEqual({ gate_agent_ids: [] });
+137:     expect(extraParams).not.toHaveProperty("images");
+
+--- frontend/src/components/workflow/LaunchWizard.tsx:352-356
+352:   // `touched: true` from the start is FIX-323: `gate_agent_ids` is ALWAYS sent, so
+353:   // an empty selection reads as an explicit "no gates" rather than an absent field
+354:   // the backend would fill from its own defaults. ISS-247 changed the live map, not
+355:   // this contract — do not revert it to false.
+356:   const gateSelectionRef = useRef<{ ids: string[]; touched: boolean }>({ ids: [], touched: true });
+
+--- frontend/src/components/workflow/LaunchWizard.tsx:733-733
+733:     gateSelectionRef.current = { ids: [], touched: true };
+
+--- frontend/src/components/workflow/LaunchWizard.tsx:766-768
+766:   const handleGatesChange = useCallback((ids: string[], touched: boolean) => {
+767:     gateSelectionRef.current = { ids, touched };
+768:   }, []);
+
+--- frontend/src/components/workflow/LaunchWizard.test.tsx:118-122
+118: vi.mock("@/components/workflow/ReviewGatesSection", () => ({
+119:   ReviewGatesSection: ({ onChange }: { onChange: (ids: string[], touched: boolean) => void }) => (
+120:     <button data-testid="gates-specify" onClick={() => onChange(["prototype-specify"], true)}>gates</button>
+121:   ),
+122: }));
+
+--- frontend/src/components/workflow/LaunchWizard.test.tsx:148-165
+148:  * FIX-323 made the wizard always send `gate_agent_ids` (`touched: true` from
+149:  * mount), so an empty selection reaches the backend as an explicit "no gates"
+150:  * instead of an absent field it would fill from its own defaults. The frozen
+151:  * fixtures in `launchContract.ts` model the RETIRED route-split flow, where the
+152:  * field was omitted while untouched — they are the oracle
+153:  * `launchDraft.parity.test.ts` pins `buildLaunchDraft` against byte-for-byte, so
+154:  * they must NOT be edited to chase the component.
+155:  *
+156:  * Instead, re-serialize the scenario's own inputs through that same
+157:  * independently-pinned builder with the one field FIX-323 adds. The chain stays
+158:  * honest: builder ≡ frozen oracle (parity suite), component ≡ builder + FIX-323
+159:  * (here).
+160:  */
+161: const goldenAsWizardWrites = (name: string) => {
+162:   const s = DRAFT_SCENARIOS.find((x) => x.name === name);
+163:   if (!s) throw new Error(`missing scenario ${name}`);
+164:   return buildLaunchDraft(s.mode, { ...s.inputs, gatesTouched: true, gateAgentIds: [] }).draftJson;
+165: };
+
+--- frontend/e2e/tests/ts-g.review-gates.spec.ts:161-169
+161:   test("TS-G-03b run without touching the section → gate_agent_ids omitted", async ({ dashboard, mockSse }) => {
+162:     // Do NOT touch the Review-gates section at all. Run straight away.
+163:     await expect(dashboard.runButton()).toBeEnabled();
+164:     await dashboard.runButton().click();
+165: 
+166:     const f = await mockSse.waitForCommand("run_pipeline");
+167:     // Untouched ⇒ the field is omitted entirely (backend uses its static default).
+168:     expect(f.gate_agent_ids).toBeUndefined();
+169:   });
+
+--- frontend/e2e/tests/ts-h.trigger-contract.spec.ts:44-47
+44:     expect(f).not.toHaveProperty("gate_agent_ids");
+45: 
+46:     // The frame must carry EXACTLY the four legacy keys and nothing else.
+47:     expect(Object.keys(f).sort()).toEqual(["agent_ids", "message", "pipeline_type", "type"]);
+
+--- backend/agents/execution_engine/engine.py:11469-11475
+11469:         gate_ids = ectx.gate_agent_ids
+11470:         selected = (
+11471:             spec.id in set(gate_ids)
+11472:             if gate_ids is not None
+11473:             else getattr(spec, "gate", None) == "Human_Gate"
+11474:         )
+11475:         return invocation_gated and selected
+
+--- backend/agents/execution_engine/engine.py:11726-11731
+11726:             if name in ("human", "before-human") and (
+11727:                 inline_gated
+11728:                 or (
+11729:                     ectx.gate_agent_ids is not None
+11730:                     and getattr(step, "agent_id", None) not in ectx.gate_agent_ids
+11731:                 )
+
+--- backend/app/models/workflow.py:140-147
+140:     # discarded with no error.
+141:     #
+142:     # THREE-VALUED, and the distinction matters: NULL ⇒ use the static AGENT.md
+143:     # defaults; ``[]`` ⇒ this run has no gates at all; a non-empty list ⇒ gate
+144:     # exactly these. A JSON column preserves all three; a nullable ARRAY would
+145:     # collapse the first two. Every legacy run stays NULL → gate_agent_ids=None
+146:     # on resume, the pre-fix behavior (INV-3 parity).
+147:     gate_agent_ids_json = Column(JSON, nullable=True)
+
+=== git facts (read-only)
+$ git show --stat --format="%h %ad %an %s" --date=iso 3de9d05b2 | grep -E "IdeaInputPage|LaunchWizard.tsx|^3de9"
+3de9d05b2 2026-08-28 07:34:51 +0530 Prateek Sinha feat: remove prototype review gate defaults — user opts in explicitly
+ frontend/src/components/workflow/IdeaInputPage.tsx  |  2 +-
+ frontend/src/components/workflow/LaunchWizard.tsx   |  4 ++--
+$ git show 1e329e47b:frontend/src/components/workflow/IdeaInputPage.tsx | grep -n "gateSelectionRef = useRef"
+972:  const gateSelectionRef = useRef<{ ids: string[]; touched: boolean }>({ ids: [], touched: false });
+$ git show HEAD:frontend/src/components/workflow/IdeaInputPage.tsx | grep -n "gateSelectionRef = useRef"
+1015:  const gateSelectionRef = useRef<{ ids: string[]; touched: boolean }>({ ids: [], touched: true });
+$ git log --format="%h %ad %s" --date=short -- frontend/src/components/workflow/IdeaInputPage.designPicker.test.tsx
+380457f99 2026-09-25 chore(workflows): delete pdf_to_prototype, rename the playwright smoke test to ex_playwright_smoke_test
+1e329e47b 2026-09-04 feat(workflows): pdf_to_prototype wave build + stabilization pass
+$ git merge-base --is-ancestor 3de9d05b2 1e329e47b ; git merge-base --is-ancestor 1e329e47b 3de9d05b2
+3de9d05b2 is NOT an ancestor of 1e329e47b
+1e329e47b is NOT an ancestor of 3de9d05b2
+3de9d05b2 is an ancestor of HEAD
+1e329e47b is an ancestor of HEAD

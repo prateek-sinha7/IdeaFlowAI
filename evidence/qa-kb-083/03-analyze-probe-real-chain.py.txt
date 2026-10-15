@@ -1,0 +1,89 @@
+"""Scratch probe 2 (NOT in the repo): QA-KB-083 / ISS-937, REAL dependency chain.
+
+Only Cognito signature verification (app.core.dependencies.verify_credential) is
+stubbed. resolve_principal, the revocation gate, _sync_role_projection ->
+refresh_projection_if_stale and the settings handlers are the real code, so this
+shows when the advisory column and the token's cognito:groups can disagree on a
+VALID request, and what the settings routes do when they do.
+"""
+import time
+from datetime import datetime, timezone
+
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
+
+import app.core.dependencies as deps
+from app.api.auth import router as auth_router
+from app.api.settings import router as settings_router
+from app.core.entitlements import group_for_tier
+from app.core.identity import Principal
+from app.models.database import Base, get_db
+from app.models.user import User
+
+PREMIUM = "eu.anthropic.claude-opus-4-6-v1"
+eng = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+Base.metadata.create_all(bind=eng)
+Session = sessionmaker(bind=eng, autoflush=False, autocommit=False)
+
+state = {}
+deps.verify_credential = lambda token, allow_expired=False: state["principal"]
+
+
+def run(label, *, column_tier, groups_tier, token_age_s, synced_age_s):
+    s = Session()
+    s.query(User).delete()
+    now = int(time.time())
+    u = User(
+        id="u1",
+        email="u1@example.com",
+        tier=column_tier,
+        cognito_sub="sub-u1",
+        roles_synced_at=datetime.fromtimestamp(now - synced_age_s, tz=timezone.utc),
+    )
+    s.add(u)
+    s.commit()
+    state["principal"] = Principal(
+        provider="cognito",
+        sub="sub-u1",
+        jti=None,
+        iat=now - token_age_s,
+        exp=now + 3600,
+        groups=[group_for_tier(groups_tier)],
+    )
+    app = FastAPI()
+    app.include_router(settings_router)
+    app.include_router(auth_router)
+
+    def override_db():
+        yield s
+
+    app.dependency_overrides[get_db] = override_db
+    c = TestClient(app)
+    h = {"Authorization": "Bearer stub"}
+    me = c.get("/api/auth/me", headers=h)
+    g = c.get("/api/settings/preferences", headers=h)
+    allowed = {m["id"]: m["allowed"] for m in g.json()["available_models"]}[PREMIUM]
+    p = c.put("/api/settings/preferences", headers=h, json={"preferred_model": PREMIUM})
+    s.expire_all()
+    row = s.query(User).filter(User.id == "u1").one()
+    print(
+        f"{label}\n"
+        f"   token groups={groups_tier:5} token_iat=now-{token_age_s}s | row.tier BEFORE={column_tier:5} roles_synced_at=now-{synced_age_s}s\n"
+        f"   -> /me tier={me.json().get('tier')} | prefs allowed[premium]={allowed} | PUT premium={p.status_code} "
+        f"| row.tier AFTER={row.tier} | stored preferred_model={row.preferred_model}"
+    )
+    s.close()
+
+
+# 1. ordinary case: token newer than last sync -> the real dependency REFRESHES the column from the token's groups
+run("1. ordinary: newer token (basic groups), stale pro column",
+    column_tier="pro", groups_tier="basic", token_age_s=10, synced_age_s=100)
+# 2. residual window: token OLDER than the last sync, still valid (no tokens_valid_from bump) -> column NOT refreshed
+run("2. residual window: older-but-valid token (basic groups), pro column synced after it was minted",
+    column_tier="pro", groups_tier="basic", token_age_s=3600, synced_age_s=100)
+# 3. mirror: older-but-valid pro token, basic column
+run("3. mirror: older-but-valid token (pro groups), basic column synced after it was minted",
+    column_tier="basic", groups_tier="pro", token_age_s=3600, synced_age_s=100)

@@ -428,7 +428,11 @@ def test_resume_flips_running_and_stamps_marker(env):
 async def test_resume_arm_failure_flips_back_to_failed(env):
     """If ``resume_run`` raises, the thin wrapper flips the row back to ``failed`` +
     records the error — never left stuck ``running`` with no live task. Drives
-    ``_drive_user_resume`` directly from the endpoint-left ``running`` state."""
+    ``_drive_user_resume`` directly from the endpoint-left ``running`` state.
+
+    ISS-1124: the stub raises on demand, so this proves only "a raise is recorded". It
+    does not prove the real engine ever raises — it mostly returns; those paths are
+    driven for real in tests/integration/agents/test_qa_kb_102_silent_resume.py."""
     owner = _seed_user(env, "owner")
     # The endpoint would have already flipped the row to ``running``; simulate that.
     run_id = _seed_run(env, owner.id, status="running")

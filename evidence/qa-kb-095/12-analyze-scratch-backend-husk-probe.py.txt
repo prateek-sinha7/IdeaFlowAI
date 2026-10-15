@@ -1,0 +1,70 @@
+"""QA-KB-095 scratch probe (analysis, 2026-10-07). Lives outside the repo; imports the repo's own env fixture.
+
+The husk = a sandbox directory that EXISTS but holds nothing (a TTL-swept dir re-created by a read path, ISS-996/ISS-992).
+Prints a matrix of what the four sandbox read routes answer, so the numbers can be compared with the live probe (evidence 06).
+"""
+from __future__ import annotations
+
+import shutil
+from pathlib import Path
+
+from tests.integration.api.test_run_files_ref_family_scope_api import _seed_run, _seed_user, env  # noqa: F401
+
+OUT = Path("/private/tmp/claude-502/-Users-bilala-Developer-Projects-VELOCITY-AI-worktrees-feat-user-stories-v2/2d1a1575-310a-48fd-8155-2763a084604d/scratchpad/qa-kb-095-be/probe-output.txt")
+
+
+def say(line: str) -> None:
+    with OUT.open("a") as fh:
+        fh.write(line + "\n")
+
+
+def _matrix(env, run_id: str, label: str) -> dict:
+    c = env["client"]
+    rows = {}
+    for name, url, params in [
+        ("GET /sandbox", f"/api/runs/{run_id}/sandbox", {}),
+        ("GET /sandbox?ref=v1", f"/api/runs/{run_id}/sandbox", {"ref": "v1"}),
+        ("GET /sandbox/zip?ref=v1", f"/api/runs/{run_id}/sandbox/zip", {"ref": "v1"}),
+        ("GET /sandbox/file?ref=v1", f"/api/runs/{run_id}/sandbox/file", {"path": "prototype.html", "ref": "v1"}),
+    ]:
+        r = c.get(url, params=params)
+        body = r.json() if r.headers.get("content-type", "").startswith("application/json") else {}
+        rows[name] = (r.status_code, body.get("expired", body.get("detail")))
+        say(f"  {label:7s} {name:26s} -> {r.status_code} {body if r.status_code != 200 else {'expired': body.get('expired'), 'files': len(body.get('files', []))}}")
+    return rows
+
+
+def test_husk_versus_absent_versus_live_tagless(env):  # noqa: F811
+    user = _seed_user(env)
+    env["state"]["user"] = user
+    root = Path(env["runs_root"])
+    say("# in-process TestClient, real RunSandbox, temp RUNS_ROOT, in-memory SQLite (run row has git_tag='v1')")
+
+    # 1. HUSK: directory exists, empty, no .git
+    run_husk = _seed_run(env, user_id=user.id, git_tag="v1")
+    (root / user.id / run_husk).mkdir(parents=True)
+    husk = _matrix(env, run_husk, "HUSK")
+
+    # 2. ABSENT: never created (the sweeper's end state)
+    run_absent = _seed_run(env, user_id=user.id, git_tag="v1")
+    absent = _matrix(env, run_absent, "ABSENT")
+
+    # 3. LIVE-TAGLESS: has files and a .git, no v1 tag (the ISS-724 fixture shape; this one must keep answering 400)
+    from app.agents.sandbox import RunSandbox
+    from app.core.config import settings
+
+    run_live = _seed_run(env, user_id=user.id, git_tag="v1")
+    sb = RunSandbox(user.id, run_live, runs_root=settings.RUNS_ROOT)
+    sb.ensure()
+    sb.git_init_sandbox()
+    (sb.root / "prototype.html").write_text("<html></html>")
+    sb.commit_all("c")
+    live = _matrix(env, run_live, "TAGLESS")
+
+    say("# husk dir still exists after the four reads: " + str((root / user.id / run_husk).exists()))
+    # the facts this probe pins:
+    assert husk["GET /sandbox"] == (200, False)            # husk reads as live, not expired
+    assert husk["GET /sandbox?ref=v1"][0] == 400           # the bug
+    assert absent["GET /sandbox"] == (200, True)
+    assert absent["GET /sandbox?ref=v1"] == (200, True)    # FIX-691
+    assert live["GET /sandbox?ref=v1"][0] == 400           # correct for a real sandbox that lacks the tag: must stay

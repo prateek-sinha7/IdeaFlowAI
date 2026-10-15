@@ -1,0 +1,45 @@
+# QA-KB-107 fix probe (5-fixer, 2026-10-09). Cold process, cwd backend/, USE_LOCAL_OLLAMA unset in the shell (env -u), so the flag comes from backend/.env only.
+# Command: env -u USE_LOCAL_OLLAMA .venv/bin/python probe_preflight.py (script body below the output). No network, no model call, no run. Token values never printed.
+# Pre-fix, case 1 returned (False, 'Bedrock bearer token expired at 2026-10-08T23:40Z ...'): see analysis-01-live-config.txt.
+
+ENV_FILE=.env USE_LOCAL_OLLAMA(file)='1' USE_LOCAL_OLLAMA(os.environ)=None
+ANTHROPIC_API_KEY set=False bedrock_configured=True MISTRAL_API_KEY set=True
+real bearer token expiry=2026-10-08T23:40Z (value not printed)
+1 real config, unmodified -> (True, None)
+2 fabricated expired token, flag from file only -> (True, None)
+3 same, os.environ USE_LOCAL_OLLAMA=0 (real env wins) -> (False, 'Bedrock bearer token expired at 2026-10-08T23:22Z — rotate AWS_BEARER_TOKEN_BEDROCK and restart the backend.')
+
+# ---- probe_preflight.py ----
+"""Post-fix probe for QA-KB-107: preflight vs the real backend/.env. Never prints a token."""
+import base64
+import os
+import sys
+from datetime import datetime, timedelta, timezone
+
+sys.path.insert(0, os.getcwd())
+from app.agents import model_factory as mf  # noqa: E402
+from app.core.config import ENV_FILE, settings  # noqa: E402
+from dotenv import dotenv_values  # noqa: E402
+
+
+def expired_token():
+    issued = datetime.now(timezone.utc) - timedelta(hours=2)
+    payload = f"X-Amz-Date={issued.strftime('%Y%m%dT%H%M%SZ')}&X-Amz-Expires=60"
+    return "bedrock-api-key-" + base64.b64encode(payload.encode()).decode()
+
+
+file_flag = dotenv_values(ENV_FILE).get("USE_LOCAL_OLLAMA")
+print(f"ENV_FILE={ENV_FILE.name} USE_LOCAL_OLLAMA(file)={file_flag!r} USE_LOCAL_OLLAMA(os.environ)={os.environ.get('USE_LOCAL_OLLAMA')!r}")
+print(f"ANTHROPIC_API_KEY set={bool(settings.ANTHROPIC_API_KEY)} bedrock_configured={mf._bedrock_configured()} MISTRAL_API_KEY set={bool(settings.MISTRAL_API_KEY)}")
+tok = settings.AWS_BEARER_TOKEN_BEDROCK
+if tok:
+    try:
+        print(f"real bearer token expiry={mf.decode_bedrock_bearer_token_expiry(tok):%Y-%m-%dT%H:%MZ} (value not printed)")
+    except mf.BedrockTokenDecodeError as exc:
+        print(f"real bearer token undecodable: {exc}")
+print("1 real config, unmodified ->", mf.preflight_check_provider())
+settings.AWS_BEARER_TOKEN_BEDROCK = expired_token()
+settings.ANTHROPIC_API_KEY = ""
+print("2 fabricated expired token, flag from file only ->", mf.preflight_check_provider())
+os.environ["USE_LOCAL_OLLAMA"] = "0"
+print("3 same, os.environ USE_LOCAL_OLLAMA=0 (real env wins) ->", mf.preflight_check_provider())

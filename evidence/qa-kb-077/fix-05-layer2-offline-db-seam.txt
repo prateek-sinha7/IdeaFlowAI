@@ -1,0 +1,42 @@
+# QA-KB-077 fix — a second layer under ISS-1019's seed fault in the two real-finalization files (2026-10-07T17:38Z)
+
+## 1. With ONLY the cognito_sub seed added (first after-pass, fix-03 section 1), both files still fail, now on the published status:
+   test_version_family_v5.py: 2 failed  (assert 'degraded' == 'completed')
+   test_revision_ordinal_v3.py: 2 failed, 6 passed  (same)
+
+## 2. Why: the finalizer degrades on the tag DB mapping, because the harness swaps SessionLocal for a raiser
+$ pytest tests/agents/test_version_family_v5.py -x (seed-only tree) | grep finalize_terminal_run
+WARNING engine.py:2660 finalize_terminal_run: tag DB mapping attempt 1 FAILED run=<id> tag=v1 ((builtins.Exception) offline harness
+ERROR   engine.py:2678 finalize_terminal_run: tag DB mapping FAILED after 2 attempts run=<id> tag=v1 — rolling back tag
+        -> attempt.degrade("tag_mapping_failed") (engine.py:2701), published_status = "degraded" (engine.py:2737)
+$ grep -n "offline scripted harness: no database" tests/agents/_scripted_model.py
+796:        "offline scripted harness: no database", None, Exception("offline harness")
+$ grep -n "if offline_db:" -A1 tests/agents/_scripted_model.py
+931:    if offline_db:
+932-        _db_mod.SessionLocal = offline_session_local
+--
+
+## 3. When: the seam (default offline_db=True) arrived in 09270703b, five days after b2a621f84 made cognito_sub NOT NULL
+$ git log -S "offline_db" --format="%h %ad %s" --date=short -- tests/agents/_scripted_model.py
+09270703b 2026-09-22 Fix/testcases (#9)
+$ git show 09270703b^:backend/tests/agents/_scripted_model.py | grep -c "SessionLocal"   (the harness before it patched no SessionLocal)
+0
+$ git show 09270703b --stat | grep -E "_scripted_model|run_revision_fe_contract|revision_ordinal|version_family"   (the one caller it moved to offline_db=False)
+ backend/tests/agents/_scripted_model.py            |   79 +-
+ .../agents}/test_run_revision_fe_contract.py       |    9 +-
+$ grep -rln "offline_db=False" tests/
+tests/integration/agents/test_run_revision_fe_contract.py
+tests/agents/test_version_family_v5.py
+tests/agents/_scripted_model.py
+tests/agents/test_revision_ordinal_v3.py
+
+## 4. The two files say they need the REAL SessionLocal (test_revision_ordinal_v3.py, comment above the seed):
+
+        # ``_execute_impl`` resolves the shared sandbox root and computes the
+        # ordinal via its OWN short-lived ``SessionLocal()`` calls — the real,
+        # hermetic per-test-process DB conftest.py pins (not the isolated
+        # in-memory ``db_session`` the other classes in this file use), so
+   and _prepare_engine_run's docstring names this exact case for offline_db=False:
+846:    Pass ``offline_db=False`` when the CALLER has already wired a real, working
+
+## 5. After offline_db=False on the three drives (fix-03 second pass): test_version_family_v5.py 2 passed; test_revision_ordinal_v3.py 8 passed.

@@ -72,7 +72,9 @@ logger = logging.getLogger(__name__)
 #: Trust levels that count as engineer-authored. Anything else — ``user``
 #: or an unrecognised value — is untrusted: an unknown trust level must
 #: never resolve to the more permissive cap.
-TRUSTED_TRUST_LEVELS: frozenset[str] = frozenset({"file", "builtin"})
+# "db" stays trusted (ADR-0039, owner decision 2026-10-12; ADR-0054 superseded) —
+# kept in step with agents/workflows/compiler.py _TRUSTED_SOURCES.
+TRUSTED_TRUST_LEVELS: frozenset[str] = frozenset({"file", "builtin", "db"})
 
 #: Saved-workflow trust (Composer rows, saved step overrides — ADR-0054). Its own
 #: cap: the budget half of trust (``spawn_subagents``) without anything that

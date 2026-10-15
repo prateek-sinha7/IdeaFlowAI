@@ -30,7 +30,6 @@ import {
   orderedStagedUploadIds,
 } from "../IdeaInputPage";
 import { saveUserWorkflow, getToken, getWorkflowDetail } from "@/lib/api";
-import { uploadGateMessage } from "@/hooks/useStagedDocuments";
 import { useSkillsHooks } from "@/context/SkillsHooksContext";
 import {
   addChildInTree,
@@ -115,7 +114,8 @@ function needsFullManifestOnSave(
 }
 
 interface ComposerPageProps {
-  /** base_pipeline_type — fixed at composer entry; the Deliverable-type is read-only (ND-AH). */
+  /** DashboardLayout's shared, mutable workflowType ("user_stories" on /workflows/new). Read only
+   *  by the mount log: the composer's own type is `canvasPipelineType` (BUG-025). */
   workflowType: WorkflowType;
   onBack: () => void;
   /**
@@ -127,13 +127,15 @@ interface ComposerPageProps {
    * sites use. `base_pipeline_type` is the composer's fixed-at-entry workflowType
    * ("custom" for the compose entry, ND-AH) — the SAME value Save-to-catalogue
    * persists, so Run + Save carry an identical base. Absent ⇒ Run-once stays inert.
+   * May return the launch's outcome: a run id, or null when it was refused, which
+   * releases the Run-once latch (ISS-1137).
    */
   onRun?: (
     base_pipeline_type: WorkflowType,
     brief: string,
     agentIds: string[],
     extraParams?: Record<string, unknown>,
-  ) => void;
+  ) => Promise<string | null> | void;
   /** Edit-from-My-Workflows: pre-load the saved composition (agents + selections + name). */
   initialAgentIds?: string[];
   /**
@@ -158,6 +160,9 @@ interface ComposerPageProps {
    *  is explore-and-copy: edits Run fine, but Save creates a NEW workflow the user owns
    *  rather than overwriting anything. Undefined for a saved workflow. */
   builtinCanvasType?: string;
+  /** ISS-923: the saved row `/workflows/{id}/edit` names. Save is held until that row
+   *  has loaded, so a failed or pending fetch cannot POST a new workflow instead. */
+  expectedUserWorkflowId?: string;
   initialSelections?: SelectionsMap;
   initialName?: string;
   initialDescription?: string;
@@ -217,6 +222,7 @@ export function ComposerPage({
   initialManifestSteps,
   initialManifest,
   builtinCanvasType,
+  expectedUserWorkflowId,
   initialSelections,
   initialName,
   initialDescription,
@@ -438,7 +444,11 @@ export function ComposerPage({
     });
   }, [initialManifestSteps]);
   // Spec 012 (R-07/R-37) — workflow-level capability switches (internet toggle).
-  const [capabilities, setCapabilities] = useState<WorkflowCapabilities>({});
+  // Seeded from the saved manifest: `capabilities` is a modeled key, so the
+  // initialManifest passthrough on Save skips it (ISS-875).
+  const [capabilities, setCapabilities] = useState<WorkflowCapabilities>(
+    (initialManifest?.capabilities as WorkflowCapabilities | undefined) ?? {},
+  );
   // Workflow-level run settings (deliverable/planner/clarify) — previously
   // hardcoded server-side defaults at launch (run_commands.py's Case 3
   // manifest synthesis); now UI-editable, persisted into manifest_json.
@@ -642,8 +652,14 @@ export function ComposerPage({
   const deliverableLabel = deliverableStrategyLabel(runConfig?.deliverable?.strategy);
   const strategy = "sequential";
 
+  // BUG-025 — the type every role / library / recommendation read below uses:
+  // "custom" unless this canvas shows a built-in's own manifest. `workflowType`
+  // is DashboardLayout's shared mutable state ("user_stories" by default on
+  // /workflows/new, /edit and /run) and is never the composer's identity.
+  const canvasPipelineType = (builtinCanvasType || "custom") as WorkflowType;
+
   const defaultAgentIds = new Set(
-    LIBRARY_AGENTS.filter((a) => agentMatchesPipelineType(a.pipeline_type, workflowType)).map((a) => a.id),
+    LIBRARY_AGENTS.filter((a) => agentMatchesPipelineType(a.pipeline_type, canvasPipelineType)).map((a) => a.id),
   );
   const optionalCount = pipelineAgents.filter((a) => !defaultAgentIds.has(a.id)).length;
   const canAddMore = optionalCount < MAX_OPTIONAL;
@@ -661,10 +677,10 @@ export function ComposerPage({
 
   const handleDragStart = useCallback(
     (i: number) => {
-      if (getRole(pipelineAgents[i].id, workflowType) === "locked") return;
+      if (getRole(pipelineAgents[i].id, canvasPipelineType) === "locked") return;
       setDraggedIdx(i);
     },
-    [pipelineAgents, workflowType],
+    [pipelineAgents, canvasPipelineType],
   );
   const handleDragOver = useCallback((e: React.DragEvent, i: number) => {
     e.preventDefault();
@@ -785,12 +801,12 @@ export function ComposerPage({
   // backing them). Uses shared functions (INV-12 — single source).
   const [dismissedRecs, setDismissedRecs] = useState<Set<string>>(new Set());
   const currentAgentIds = new Set(pipelineAgents.map((a) => a.id));
-  const recommendations = workflowType === "custom"
+  const recommendations = canvasPipelineType === "custom"
     ? getAgentRecommendations(ALL_LIBRARY_AGENTS, briefText, currentAgentIds)
         .filter((a) => !dismissedRecs.has(a.id))
         .slice(0, 6)
     : [];
-  const companionSuggestion = workflowType === "custom" ? (() => {
+  const companionSuggestion = canvasPipelineType === "custom" ? (() => {
     for (const group of COMPANION_GROUPS) {
       const hasAny = group.ids.some((id) => currentAgentIds.has(id));
       const hasAll = group.ids.every((id) => currentAgentIds.has(id));
@@ -1005,10 +1021,6 @@ export function ComposerPage({
     // — the backend fell back to the full 9-agent custom pool. Same guard
     // IdeaInputPage.handleRun already applies at its own call site.
     if (pipelineAgents.length === 0) return;
-    // A document still uploading (its stage id would be missing from the
-    // payload) or one that failed to upload blocks the run. Checked here too
-    // because Cmd/Ctrl+Enter reaches this handler without the button.
-    if (briefAttachments.uploadGate.kind !== "ready") return;
     // Lives HERE and not only on the Run button, because the button is not the
     // only way in: the Simple-view brief passes `onSubmitShortcut={() =>
     // handleRunOnce(briefText)}`, so Cmd/Ctrl+Enter launched straight past the
@@ -1021,13 +1033,21 @@ export function ComposerPage({
       return;
     }
     // ISS-767 — set AFTER the early returns above (FIX-345's placement rule), so
-    // a bail-out never leaves the latch stuck. Nothing clears it: `onRun` reaches
-    // startPipeline, which flips isRunning=true synchronously, and the surface
-    // auto-transitions to mainView="execution" — this page unmounts whether or
-    // not the POST itself succeeds.
+    // a bail-out never leaves the latch stuck. ISS-1137: the surface leaves the
+    // canvas only once the run id arrives, so a refused launch keeps this page
+    // mounted; the latch is released when `onRun`'s outcome is null (refused).
+    // Never in a `finally`: onRun returns before the POST settles, so that would
+    // reopen the double-click window.
     if (submittingRef.current) return;
     submittingRef.current = true;
     setIsSubmitting(true);
+    const releaseIfRefused = (launch: Promise<string | null> | void) => {
+      void launch?.then((runId) => {
+        if (runId) return;
+        submittingRef.current = false;
+        setIsSubmitting(false);
+      });
+    };
     // KAN-91: compose attached-file content into the message at send time —
     // the EXACT same block format/behavior as IdeaInputPage.handleRun (the
     // textarea itself stays clean; the extracted text only appears here).
@@ -1198,21 +1218,21 @@ export function ComposerPage({
         // so without them the launch reaches the loader with nothing picked.
         ...designLaunchParams,
       };
-      onRun(
+      releaseIfRefused(onRun(
         builtinCanvasType as typeof dispatchType,
         brief,
         [],
         Object.keys(builtinExtras).length > 0 ? builtinExtras : undefined,
-      );
+      ));
       return;
     }
 
-    onRun(
+    releaseIfRefused(onRun(
       dispatchType,
       brief,
       currentIds,
       Object.keys(extraParams).length > 0 ? extraParams : undefined,
-    );
+    ));
   }, [
     onRun,
     pipelineAgents,
@@ -1224,10 +1244,6 @@ export function ComposerPage({
     capabilities,
     briefAttachments.fileBlocks,
     briefAttachments.attachedImages,
-    // Read inside the callback: without these a stage that resolved after the
-    // last change to the other deps launched with a stale (missing) stage id.
-    briefAttachments.stagedUploads,
-    briefAttachments.uploadGate,
     designLaunchParams,
     designMissing,
   ]);
@@ -1246,6 +1262,15 @@ export function ComposerPage({
       {label}
     </button>
   );
+
+  // ISS-410 — a built-in canvas whose manifest has not seeded (still loading, or
+  // the fetch failed for a non-403/404 reason) would Save as copy a blank
+  // composition. Gate on the seed props so the button releases when they land.
+  // ISS-923 — same for /workflows/{id}/edit: until the row id arrives, Save would
+  // POST a new workflow instead of updating the one the URL names.
+  const seedUnresolved =
+    (!!builtinCanvasType && !initialManifestSteps?.length && !initialAgentIds?.length) ||
+    (!!expectedUserWorkflowId && !userWorkflowId);
 
   return (
     <div className="flex h-full flex-col overflow-hidden bg-surface-paper text-ink-900">
@@ -1351,8 +1376,7 @@ export function ComposerPage({
             }
             handleRunOnce(briefText);
           }}
-          disabled={!onRun || isSubmitting || briefAttachments.uploadGate.kind !== "ready"}
-          aria-describedby={briefAttachments.uploadGate.kind !== "ready" ? "composer-upload-gate" : undefined}
+          disabled={!onRun || isSubmitting}
           title={
             !onRun
               ? "Run wiring lands in 41-06"
@@ -1388,8 +1412,14 @@ export function ComposerPage({
             setCanvasResetLayoutSignal((n) => n + 1);
             handleSave(name.trim(), description.trim());
           }}
-          disabled={saving}
-          title={!name.trim() ? "Name the workflow first" : undefined}
+          disabled={saving || seedUnresolved}
+          title={
+            !name.trim()
+              ? "Name the workflow first"
+              : seedUnresolved
+                ? "This workflow has not loaded. Reload the page to retry."
+                : undefined
+          }
           className={`inline-flex w-[148px] items-center justify-center gap-2 rounded-[10px] px-[18px] py-2.5 font-sans text-[12.5px] font-semibold text-surface-white transition-colors enabled:active:scale-[0.97] disabled:cursor-not-allowed ${
             justSaved ? "bg-status-done" : "bg-brand enabled:hover:bg-brand-pressed disabled:opacity-50"
           }`}
@@ -1413,23 +1443,13 @@ export function ComposerPage({
         </button>
       </div>
 
-      {/* Why Run once is blocked by the uploads — always mounted so the live
-          region announces changes; collapses to nothing while ready. */}
-      <p
-        id="composer-upload-gate"
-        role="status"
-        className={`flex-none px-[34px] pt-2 font-sans text-[11px] empty:p-0 ${briefAttachments.uploadGate.kind === "failed" ? "text-status-failed" : "text-ink-500"}`}
-      >
-        {uploadGateMessage(briefAttachments.uploadGate)}
-      </p>
-
       {/* Body */}
       <div className="min-h-0 flex-1">
         {view === "canvas" ? (
           <CanvasView
             pipelineAgents={pipelineAgents}
             selections={selections}
-            pipelineType={workflowType}
+            pipelineType={canvasPipelineType}
             onSelection={handleAgentSelection}
             onRemoveAgent={removeAgent}
             onAddAgent={(insertBefore) => {
@@ -1628,7 +1648,7 @@ export function ComposerPage({
                         agent={agent}
                         index={i}
                         total={pipelineAgents.length}
-                        pipelineType={workflowType}
+                        pipelineType={canvasPipelineType}
                         selection={selections[agent.id]}
                         onSelection={handleAgentSelection}
                         onSkillsChange={handleAgentSkillsChange}
@@ -1665,7 +1685,7 @@ export function ComposerPage({
                   Inject domain instructions and pre/post behaviours across the whole
                   workflow.
                 </p>
-                <HooksTab pipelineType={workflowType} />
+                <HooksTab pipelineType={canvasPipelineType} />
               </div>
             </div>
 
@@ -1705,7 +1725,7 @@ export function ComposerPage({
         subAgentParentName={
           subAgentParentId ? findAgentInTree(pipelineAgents, subAgentParentId)?.name : undefined
         }
-        currentPipelineType={workflowType}
+        currentPipelineType={canvasPipelineType}
         canAddMore={canAddMore}
         // collectAgentIds walks the WHOLE tree (root + nested) — a flat
         // root-only map missed agents already added as a sub-agent, letting

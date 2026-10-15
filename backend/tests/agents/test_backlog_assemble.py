@@ -2194,6 +2194,26 @@ def test_a_big_screens_map_is_drawn_in_parts_that_fit_and_lose_no_arrow():
     assert "## SCR-40 Screen 40" in md  # the per-screen sections are unchanged
 
 
+def test_a_screen_state_written_as_an_object_is_rendered_not_a_crash():
+    md = render_screens_md(
+        {
+            "screens": [
+                {
+                    "id": "SCR-a",
+                    "name": "A",
+                    "states": [
+                        "empty",
+                        {"name": "terms-not-checked", "description": "blocks creation"},
+                        {"name": "loading"},
+                    ],
+                }
+            ]
+        },
+        [],
+    )
+    assert "States: empty, terms-not-checked — blocks creation, loading" in md
+
+
 def test_a_small_graph_stays_one_chart():
     md = render_screens_md(
         {

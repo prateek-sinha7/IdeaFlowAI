@@ -146,8 +146,16 @@ grep -i "<the symptom in plain words>" .knowledge/INDEX.md
 
 `INDEX.md` is one line per card with a `compact_summary` written to be searched by symptom. Match
 semantically on `route + component + trigger + symptom`, not on wording. If an existing
-`ISS`/`BUG` card already covers it → verdict `DUPLICATE`, name that card in the register entry,
-stop. Do not mint a second card for a defect the corpus already knows.
+`ISS`/`BUG` card already covers it, check that card's `status:` first:
+
+- `resolved` (or another live LEDGER row already carries it) → verdict `DUPLICATE`, name that
+  card in the register entry, stop.
+- `open` and no other non-terminal LEDGER row carries it → the defect is real and nobody is
+  fixing it. Verdict `CONFIRMED`, REUSE that card (link it in the Cards cell, do not mint a
+  second one), and skip §5. A `DUPLICATE` here would close a bug nothing fixes; eight rows were
+  lost that way on 2026-10-07.
+
+Do not mint a second card for a defect the corpus already knows.
 
 Re-filing into the register is cheap. Re-filing into a 610-card permanent store is not.
 

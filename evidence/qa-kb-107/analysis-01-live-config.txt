@@ -1,0 +1,13 @@
+# analysis-01: live dev config facts that decide the preflight (secrets never printed)
+# run at: 2026-10-09T00:54Z  tree: feat-user-stories-v2
+ENV_FILE: /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/.env
+USE_LOCAL_OLLAMA in os.environ: False
+USE_LOCAL_OLLAMA in ENV_FILE  : True
+USE_LOCAL_OLLAMA effective (build_model merge): '1'
+hasattr(settings, 'USE_LOCAL_OLLAMA'): False
+ANTHROPIC_API_KEY configured: False
+MISTRAL_API_KEY configured: True
+BEDROCK id configured: True | AWS_REGION configured: True
+AWS_BEARER_TOKEN_BEDROCK configured: True
+AWS_BEARER_TOKEN_BEDROCK expiry (UTC): 2026-10-08T23:40:28+00:00
+preflight_check_provider() against the live .env -> (False, 'Bedrock bearer token expired at 2026-10-08T23:40Z — rotate AWS_BEARER_TOKEN_BEDROCK and restart the backend.')

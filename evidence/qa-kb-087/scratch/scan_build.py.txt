@@ -1,0 +1,68 @@
+"""Builds a mirror of the repo (symlinks everywhere) in which every frontend test file that uses it.fails is a COPY with the
+marker removed, so each xfail case runs as a plain it() and reports where it really fails. No repo file is touched."""
+import os, re, shutil
+from pathlib import Path
+
+REPO = Path("/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2")
+SCAN = Path("/private/tmp/claude-502/-Users-bilala-Developer-Projects-VELOCITY-AI-worktrees-feat-user-stories-v2/2d1a1575-310a-48fd-8155-2763a084604d/scratchpad/scan")
+FE = REPO / "frontend"
+
+if SCAN.exists():
+    shutil.rmtree(SCAN)
+SCAN.mkdir(parents=True)
+
+# top-level repo entries -> symlinks, except frontend (real dir)
+for e in os.listdir(REPO):
+    if e in ("frontend", ".git"):
+        continue
+    (SCAN / e).symlink_to(REPO / e)
+(SCAN / "frontend").mkdir()
+for e in os.listdir(FE):
+    if e == "src":
+        continue
+    (SCAN / "frontend" / e).symlink_to(FE / e)
+
+# src: real dirs, symlinked files
+for root, dirs, files in os.walk(FE / "src"):
+    rel = Path(root).relative_to(FE)
+    (SCAN / "frontend" / rel).mkdir(parents=True, exist_ok=True)
+    for f in files:
+        (SCAN / "frontend" / rel / f).symlink_to(Path(root) / f)
+
+fails_files = [l.strip() for l in open(SCAN.parent / "failsfiles.txt") if l.strip()]
+# widen to any file that uses the .fails marker in code (it.fails.each etc.)
+extra = []
+for root, dirs, files in os.walk(FE / "src"):
+    for f in files:
+        if f.endswith((".test.ts", ".test.tsx")):
+            p = Path(root) / f
+            rel = str(p.relative_to(FE))
+            if rel in fails_files:
+                continue
+            if re.search(r"\b(it|test)\.fails\b", p.read_text(errors="ignore")):
+                extra.append(rel)
+all_files = sorted(set(fails_files) | set(extra))
+for rel in all_files:
+    text = (FE / rel).read_text()
+    new = re.sub(r"\b(it|test)\.fails\b", r"\1", text)
+    dst = SCAN / "frontend" / rel
+    dst.unlink()
+    dst.write_text(new)
+(SCAN.parent / "scan_files.txt").write_text("\n".join(all_files) + "\n")
+print(len(all_files), "files rewritten;", len(extra), "extra beyond the grep list:", extra)
+
+(SCAN / "frontend" / "vitest.scan.config.mts").write_text(f'''import {{ defineConfig }} from "vitest/config";
+export default defineConfig({{
+  root: "{SCAN}/frontend",
+  esbuild: {{ jsx: "automatic" }},
+  test: {{
+    environment: "jsdom",
+    globals: true,
+    setupFiles: ["{FE}/vitest.setup.ts"],
+    include: ["src/**/*.{{test,spec}}.{{ts,tsx}}"],
+    exclude: ["e2e/**", "node_modules/**", "dist/**", ".next/**"],
+  }},
+  resolve: {{ alias: {{ "@": "{SCAN}/frontend/src" }} }},
+}});
+''')
+print("mirror ready")

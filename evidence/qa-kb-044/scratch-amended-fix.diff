@@ -1,0 +1,40 @@
+--- a/frontend/src/components/preview/PreviewPanel.tsx
++++ b/frontend/src/components/preview/PreviewPanel.tsx (proposed; applied to a scratch copy only)
+@@ -25,7 +25,7 @@
+ import type { RunLaneState } from "@/components/chat/RunChatLane";
+ // Phase 32 (plan 07) — shared run-screen underline-tab primitive (SC-1, D-15).
+ import { Tabs } from "@/components/ui/Tabs";
+-import type { WorkflowType, GenericDeliverable, RunFamily, WorkflowRun, AgentThinkingEntry, AgentRunState, PipelineRunState } from "@/types/index";
++import type { WorkflowType, WorkflowStatus, GenericDeliverable, RunFamily, WorkflowRun, AgentThinkingEntry, AgentRunState, PipelineRunState } from "@/types/index";
+ import type { TabDeepLinkTarget } from "@/hooks/useTabDeepLink";
+ import { SandboxPdfPreview } from "@/components/preview/SandboxPdfPreview";
+ import { authedFetch, getToken, getWorkflow, getRunSandbox, getRunSandboxFile, getRunSandboxFileBlob, getRunSandboxZip, resolveRunDeliverable } from "@/lib/api";
+@@ -572,6 +572,7 @@
+ 
+ type VersionView = {
+   id: string;
++  status: WorkflowStatus;
+   content?: string;
+   // QA-PS-057 — the pinned version's OWN brief. Every other field here followed
+   // the version already; this one did not exist, so Steps' "Starting point" (and
+@@ -632,6 +633,7 @@
+   const brief = (parsedInput.revisionInstruction ?? parsedInput.brief ?? "").split("\n")[0].trim();
+   return {
+     id: run.id,
++    status: run.status,
+     content: run.output,
+     runInput: brief || run.title,
+     agents,
+@@ -1824,7 +1826,11 @@
+                 <RunDataSkeleton />
+               ) : !hasContent ? (
+                 <div className="flex items-center justify-center h-full">
+-                  <p className="text-xs text-ink-400">Output will appear here</p>
++                  <p className="text-xs text-ink-400">
++                    {viewingVersion && TERMINAL_RUN_STATUSES.has(viewingVersion.status)
++                      ? "No deliverable was saved for this version"
++                      : "Output will appear here"}
++                  </p>
+                 </div>
+               ) : (
+                 // ─── UXFIX-04 / D-21 (22-07) — generic-primary dispatch TABLE ──

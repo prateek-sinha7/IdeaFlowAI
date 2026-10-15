@@ -1,0 +1,23 @@
+# QA-KB-124 analysis-05: the REAL canvas serializer over the built-in ex_A1_loop steps, by roster seed (offline, no backend)
+# date: 2026-10-09   sources at HEAD 9da59389b, frontend/src/store/api/userWorkflows.ts + lib/manifestAgents.ts + components/workflow/IdeaInputPage.tsx unmodified in the working tree
+# cmd: cd frontend && node ../evidence/qa-kb-124/analysis-05-serializer-probe.mjs
+== BUILT-IN file steps (GET /api/workflows/ex_A1_loop?original=true)
+   emoji  tools={"read_files":false,"write_files":false,"exec":false} produces=null consumes=null depends_on=null
+   greet  tools={"read_files":false,"write_files":false,"exec":false} produces=["greeting"] consumes=null depends_on=["custom-agent:emoji"]
+   check  tools={"read_files":false,"write_files":false,"exec":false} produces=["route_decision"] consumes=["greeting"] depends_on=["custom-agent:greet"]
+   done   tools={"read_files":false,"write_files":false,"exec":false} produces=null consumes=["greeting"] depends_on=["custom-agent:check"]
+== (a) IdeaInputPage hand-rolled projection + gates-only selections  [what the e2e save wrote]
+   emoji  tools={"read_files":true,"write_files":true,"exec":false} produces=null consumes=null depends_on=[]
+   greet  tools={"read_files":true,"write_files":true,"exec":false} produces=null consumes=null depends_on=[]
+   check  tools={"read_files":true,"write_files":true,"exec":false} produces=["route_decision"] consumes=null depends_on=["custom-agent:greet"]
+   done   tools={"read_files":true,"write_files":true,"exec":false} produces=null consumes=null depends_on=[]
+== (b) agentsFromManifest (carries extra) + gates-only selections
+   emoji  tools={"read_files":true,"write_files":true,"exec":false} produces=null consumes=null depends_on=[]
+   greet  tools={"read_files":true,"write_files":true,"exec":false} produces=["greeting"] consumes=null depends_on=["custom-agent:emoji"]
+   check  tools={"read_files":true,"write_files":true,"exec":false} produces=["route_decision"] consumes=["greeting"] depends_on=["custom-agent:greet"]
+   done   tools={"read_files":true,"write_files":true,"exec":false} produces=null consumes=["greeting"] depends_on=["custom-agent:check"]
+== (c) Composer canvas: manifestStepsToAgents + manifestStepsToGateSelections
+   emoji  tools={"read_files":false,"write_files":false,"exec":false} produces=null consumes=null depends_on=[]
+   greet  tools={"read_files":false,"write_files":false,"exec":false} produces=["greeting"] consumes=null depends_on=["custom-agent:emoji"]
+   check  tools={"read_files":false,"write_files":false,"exec":false} produces=["route_decision"] consumes=["greeting"] depends_on=["custom-agent:greet"]
+   done   tools={"read_files":false,"write_files":false,"exec":false} produces=null consumes=["greeting"] depends_on=["custom-agent:check"]

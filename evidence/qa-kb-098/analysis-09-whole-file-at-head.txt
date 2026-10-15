@@ -1,0 +1,7 @@
+# QA-KB-098 analysis 09: whole file at HEAD 165c40316, 2026-10-07T23:27Z
+# cd backend && .venv/bin/python -m pytest tests/agents/test_per_run_paths_v3.py -q -p no:cacheprovider   (one file, offline)
+
+E       AttributeError: module 'app.agents.tools.playwright' has no attribute '_SANDBOX'
+tests/agents/test_per_run_paths_v3.py:427: AttributeError
+FAILED tests/agents/test_per_run_paths_v3.py::TestPerRunPathsDistinct::test_revision_browser_dir_writer_driven
+1 failed, 4 passed, 7 warnings in 8.23s

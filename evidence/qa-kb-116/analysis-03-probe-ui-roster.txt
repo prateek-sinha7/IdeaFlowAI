@@ -1,0 +1,88 @@
+# QA-KB-116 analysis-03: the REAL IdeaInputPage / LaunchWizard / ReviewGatesSection rendered (jsdom) from payloads captured on the live :8000 backend
+# date: 2026-10-09   no application source or existing test touched; stubs = network module, router, speech hook, WizardStepper, NameWorkflowModal, AgentsPopup (prints the roster it is handed)
+# fixtures: evidence/qa-kb-116/analysis-plugins/detail.{admin,pro}.<workflow>.json + library.json (the live GET /api/agents/library, prompt_body blanked)
+#   admin@velocity.ai = enabled overrides of user_stories / ppt / prototype / ppt_v2 (created by the e2e suite); pro@velocity.ai = none
+# run from frontend/ (temporary node_modules symlink in analysis-plugins/, removed afterwards):
+#   ./node_modules/.bin/vitest run --config ../evidence/qa-kb-116/analysis-plugins/vitest.probe.config.ts uiRoster
+# the [wf] console.log lines are the app's own debug output (IdeaInputPage.tsx:1230-1236, :1433)
+
+ RUN  v4.1.11 /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/frontend
+
+stdout | ../evidence/qa-kb-116/analysis-plugins/uiRoster.probe.test.tsx > QA-KB-116 UI probe: the Review gates checklist as rendered > [today] U1 IdeaInputPage /create/user-stories, admin payload (enabled override): rows are raw ids, pill ~6m
+[wf] 4. roster for user_stories { fromLibrary: 6, fromManifest: 0, using: 'library' }
+[wf] 1. fetched user_stories {
+  compiledSteps: 6,
+  manifestSteps: 6,
+  stepsWithGates: [],
+  stepsWithRoute: []
+}
+[wf] 2. manifest selections (gates the canvas reads) {}
+[wf] 3. manifest agents [
+  { id: 'domain-analyst', name: undefined, route: null },
+  { id: 'epic-architect', name: undefined, route: null },
+  { id: 'story-estimator', name: undefined, route: null },
+  { id: 'nfr-specialist', name: undefined, route: null },
+  { id: 'backlog-reviewer', name: undefined, route: null },
+  { id: 'backlog-compiler', name: undefined, route: null }
+]
+[wf] 3b. route targets normalised to node ids []
+
+stdout | ../evidence/qa-kb-116/analysis-plugins/uiRoster.probe.test.tsx > QA-KB-116 UI probe: the Review gates checklist as rendered > [today] U1 IdeaInputPage /create/user-stories, admin payload (enabled override): rows are raw ids, pill ~6m
+[wf] 4. roster for user_stories { fromLibrary: 6, fromManifest: 6, using: 'library' }
+
+stdout | ../evidence/qa-kb-116/analysis-plugins/uiRoster.probe.test.tsx > QA-KB-116 UI probe: the Review gates checklist as rendered > [today] U1 IdeaInputPage /create/user-stories, admin payload (enabled override): rows are raw ids, pill ~6m
+[U1] Review gates rows: ["domain-analyst","epic-architect","story-estimator","nfr-specialist","backlog-reviewer","backlog-compiler"]
+[U1] popup roster names: domain-analyst | epic-architect | story-estimator | nfr-specialist | backlog-reviewer | backlog-compiler
+[U1] Advanced pill: "Advanced6 agents · ~6m"
+
+stdout | ../evidence/qa-kb-116/analysis-plugins/uiRoster.probe.test.tsx > QA-KB-116 UI probe: the Review gates checklist as rendered > [control] U2 IdeaInputPage /create/user-stories, pro payload (no override): rows are the agents' names
+[wf] 4. roster for user_stories { fromLibrary: 6, fromManifest: 0, using: 'library' }
+[wf] 1. fetched user_stories {
+  compiledSteps: 6,
+  manifestSteps: 6,
+  stepsWithGates: [],
+  stepsWithRoute: []
+}
+[wf] 2. manifest selections (gates the canvas reads) {}
+[wf] 3. manifest agents [
+  { id: 'domain-analyst', name: undefined, route: null },
+  { id: 'epic-architect', name: undefined, route: null },
+  { id: 'story-estimator', name: undefined, route: null },
+  { id: 'nfr-specialist', name: undefined, route: null },
+  { id: 'backlog-reviewer', name: undefined, route: null },
+  { id: 'backlog-compiler', name: undefined, route: null }
+]
+[wf] 3b. route targets normalised to node ids []
+
+stdout | ../evidence/qa-kb-116/analysis-plugins/uiRoster.probe.test.tsx > QA-KB-116 UI probe: the Review gates checklist as rendered > [control] U2 IdeaInputPage /create/user-stories, pro payload (no override): rows are the agents' names
+[wf] 4. roster for user_stories { fromLibrary: 6, fromManifest: 6, using: 'library' }
+
+stdout | ../evidence/qa-kb-116/analysis-plugins/uiRoster.probe.test.tsx > QA-KB-116 UI probe: the Review gates checklist as rendered > [control] U2 IdeaInputPage /create/user-stories, pro payload (no override): rows are the agents' names
+[U2] Review gates rows: ["Domain Discovery Agent","Backlog Architecture Agent","Estimation Agent","Quality Requirements Agent","Quality Review Agent","Delivery Compilation Agent"]
+[U2] Advanced pill: "Advanced6 agents · ~35s"
+
+stdout | ../evidence/qa-kb-116/analysis-plugins/uiRoster.probe.test.tsx > QA-KB-116 UI probe: the Review gates checklist as rendered > [today] U3 LaunchWizard ppt_v2, pro payload (NO override): rows are raw ids
+[U3] Review gates rows: ["ppt-brief-analyst","ppt-composer","ppt-deck-qa-v2","ppt-code-generator"]
+[U3] popup roster names: ppt-brief-analyst | ppt-composer | ppt-deck-qa-v2 | ppt-code-generator
+
+ ✓ ../evidence/qa-kb-116/analysis-plugins/uiRoster.probe.test.tsx > QA-KB-116 UI probe: the Review gates checklist as rendered > [today] U1 IdeaInputPage /create/user-stories, admin payload (enabled override): rows are raw ids, pill ~6m 163ms
+ ✓ ../evidence/qa-kb-116/analysis-plugins/uiRoster.probe.test.tsx > QA-KB-116 UI probe: the Review gates checklist as rendered > [control] U2 IdeaInputPage /create/user-stories, pro payload (no override): rows are the agents' names 47ms
+stdout | ../evidence/qa-kb-116/analysis-plugins/uiRoster.probe.test.tsx > QA-KB-116 UI probe: the Review gates checklist as rendered > [today] U4 LaunchWizard ppt_v2, admin payload (enabled override): rows are raw ids
+[U4] Review gates rows: ["ppt-brief-analyst","ppt-composer","ppt-deck-qa-v2","ppt-code-generator"]
+
+stdout | ../evidence/qa-kb-116/analysis-plugins/uiRoster.probe.test.tsx > QA-KB-116 UI probe: the Review gates checklist as rendered > [control] U5 LaunchWizard ppt, pro payload (no override): rows are the agents' names
+[U5] Review gates rows: ["Presentation Strategist Agent","Deck Engineer Agent","Deck QA Agent"]
+
+stdout | ../evidence/qa-kb-116/analysis-plugins/uiRoster.probe.test.tsx > QA-KB-116 UI probe: the Review gates checklist as rendered > [today] U6 LaunchWizard ppt, admin payload (enabled override): rows are raw ids
+[U6] Review gates rows: ["ppt-brief-analyst","ppt-composer","ppt-validator"]
+
+ ✓ ../evidence/qa-kb-116/analysis-plugins/uiRoster.probe.test.tsx > QA-KB-116 UI probe: the Review gates checklist as rendered > [today] U3 LaunchWizard ppt_v2, pro payload (NO override): rows are raw ids 32ms
+ ✓ ../evidence/qa-kb-116/analysis-plugins/uiRoster.probe.test.tsx > QA-KB-116 UI probe: the Review gates checklist as rendered > [today] U4 LaunchWizard ppt_v2, admin payload (enabled override): rows are raw ids 31ms
+ ✓ ../evidence/qa-kb-116/analysis-plugins/uiRoster.probe.test.tsx > QA-KB-116 UI probe: the Review gates checklist as rendered > [control] U5 LaunchWizard ppt, pro payload (no override): rows are the agents' names 32ms
+ ✓ ../evidence/qa-kb-116/analysis-plugins/uiRoster.probe.test.tsx > QA-KB-116 UI probe: the Review gates checklist as rendered > [today] U6 LaunchWizard ppt, admin payload (enabled override): rows are raw ids 32ms
+
+ Test Files  1 passed (1)
+      Tests  6 passed (6)
+   Start at  16:50:59
+   Duration  2.39s (transform 348ms, setup 101ms, import 846ms, tests 339ms, environment 978ms)
+

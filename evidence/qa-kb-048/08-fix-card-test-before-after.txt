@@ -1,0 +1,27 @@
+# QA-KB-048 5-fixer, 2026-10-02: card test file before and after the LaunchWizard.tsx fix
+# cmd: cd frontend && ./node_modules/.bin/vitest --run src/components/workflow/LaunchWizard.savedRoster.iss943.test.tsx
+# BEFORE (working tree before the edit, 11:47:32): Test Files 1 passed (1) / Tests 3 expected fail (3)
+# AFTER (final code): all three it.fails bodies pass, which vitest reports as 'Error: Expect test to fail' (the XPASS signal). Markers left for the 6-verifier.
+
+
+ RUN  v4.1.11 /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/frontend
+
+ ❯ src/components/workflow/LaunchWizard.savedRoster.iss943.test.tsx (3 tests | 3 failed) 260ms
+     × ISS-943 cold: library lands after the full plan -> Continue carries the saved roster 158ms
+     × ISS-943 warm: library preloaded, full plan lands after restore -> Continue carries the saved roster 54ms
+     × ISS-967 a saved custom-pool agent is not dropped by the draft restore 47ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/components/workflow/LaunchWizard.savedRoster.iss943.test.tsx > QA-KB-048 saved roster survives plan completion / restore > ISS-943 cold: library lands after the full plan -> Continue carries the saved roster
+ FAIL  src/components/workflow/LaunchWizard.savedRoster.iss943.test.tsx > QA-KB-048 saved roster survives plan completion / restore > ISS-943 warm: library preloaded, full plan lands after restore -> Continue carries the saved roster
+ FAIL  src/components/workflow/LaunchWizard.savedRoster.iss943.test.tsx > QA-KB-048 saved roster survives plan completion / restore > ISS-967 a saved custom-pool agent is not dropped by the draft restore
+Error: Expect test to fail
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/3]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  3 failed (3)
+   Start at  11:57:41
+   Duration  1.28s (transform 217ms, setup 48ms, import 460ms, tests 260ms, environment 358ms)
+

@@ -1,0 +1,192 @@
+# 3-analyzer QA-KB-087, 2026-10-02 11:16 CEST. Exact quotes (line number, colon, source) so every file:line in the cards can be re-checked. Working tree of feat/user-stories-v2 @ 024c03ef + uncommitted changes.
+
+=== 1. The defective case and the mock it contradicts
+
+--- frontend/src/components/settings/AccountSettings.iss372.test.tsx:9-9
+   9: import { render, screen, waitFor } from "@testing-library/react";
+
+--- frontend/src/components/settings/AccountSettings.iss372.test.tsx:14-17
+  14: vi.mock("@/lib/api", () => ({
+  15:   authedFetch: (input: string, init?: RequestInit) => fetch(input, init),
+  16:   getConstitution: () => Promise.resolve({ content: "" }),
+  17:   getToken: () => "test-token",
+
+--- frontend/src/components/settings/AccountSettings.iss372.test.tsx:37-39
+  37: beforeEach(() => {
+  38:   vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => ({ content: "" }) }));
+  39: });
+
+--- frontend/src/components/settings/AccountSettings.iss372.test.tsx:77-88
+  77: describe("ISS-921 — Constitution draft counts as unsaved work", () => {
+  78:   it.fails("reports dirty after the Constitution draft is edited (not before it loads)", async () => {
+  79:     const onUnsavedChange = await renderPage();
+  80:     const user = userEvent.setup();
+  81:     await user.click(screen.getAllByText("Constitution").map((n) => n.closest("button")).find(Boolean)!);
+  82:     const area = await screen.findByRole("textbox");
+  83:     await waitFor(() => expect(fetch).toHaveBeenCalled());
+  84:     expect(onUnsavedChange).not.toHaveBeenCalledWith(true);
+  85:     await user.type(area, "draft");
+  86:     expect(onUnsavedChange).toHaveBeenLastCalledWith(true);
+  87:   });
+  88: });
+
+=== 2. The Constitution load never touches fetch: it goes through getConstitution; the only authedFetch call sites are Save (PUT) and Clear (DELETE)
+
+--- frontend/src/components/settings/AccountSettings.tsx:618-639
+ 618:   useEffect(() => {
+ 619:     const token = getToken();
+ 620:     if (!token) { setLoading(false); return; }
+ 621:     // ISS-799: getConstitution, not a hand-rolled authedFetch — this effect is
+ 622:     // double-invoked by `next dev` and the two invocations had nothing to share,
+ 623:     // so the GET fired twice. The shared GET cache in lib/api.ts gives them one
+ 624:     // response; its PUT/DELETE below evict it. Still FR-015-safe: the shared
+ 625:     // path handles the 401 that this `.catch(() => {})` would otherwise swallow.
+ 626:     getConstitution(token)
+ 627:       .then((data) => {
+ 628:         const loaded = data.content || "";
+ 629:         // Only overwrite editor content if the user hasn't started typing yet.
+ 630:         // A second invocation from StrictMode or an in-flight duplicate request
+ 631:         // must not silently undo a draft the user is actively editing.
+ 632:         if (!userHasEdited.current) {
+ 633:           setContent(loaded);
+ 634:         }
+ 635:         setLoadedValue(loaded);
+ 636:       })
+ 637:       .catch(() => {})
+ 638:       .finally(() => setLoading(false));
+ 639:   }, [setContent, setLoadedValue]);
+
+--- grep authedFetch\( in frontend/src/components/settings/AccountSettings.tsx
+647:      const r = await authedFetch(`${ENV.API_URL}/api/settings/constitution`, {
+680:      const r = await authedFetch(`${ENV.API_URL}/api/settings/constitution`, {
+
+=== 3. The textarea mounts only after the load settled (spinner while loading), so findByRole("textbox") at test :82 is already a load-complete signal
+
+--- frontend/src/components/settings/AccountSettings.tsx:602-602
+ 602:   const [loading, setLoading] = useState(true);
+
+--- frontend/src/components/settings/AccountSettings.tsx:727-741
+ 727:         {loading ? (
+ 728:           <div className="h-56 flex items-center justify-center">
+ 729:             <div className="h-4 w-4 border-2 border-line-control border-t-brand rounded-full animate-spin" />
+ 730:           </div>
+ 731:         ) : (
+ 732:           <textarea
+ 733:             value={content}
+ 734:             onChange={(e) => { userHasEdited.current = true; setContent(e.target.value); setStatus("idle"); }}
+ 735:             aria-label="Constitution content"
+ 736:             name="constitution"
+ 737:             maxLength={CONSTITUTION_MAX_CHARS}
+ 738:             placeholder={"# My Constitution\n\n## Principle 1 — Quality First\nEvery output must be production-ready…\n\n## Principle 2 — Security\nNever expose secrets or PII…"}
+ 739:             className="w-full h-64 text-[13px] text-ink-800 bg-surface-card px-4 py-3.5 resize-none focus:outline-none font-mono leading-relaxed"
+ 740:           />
+ 741:         )}
+
+=== 4. The dirty compare and the Back report FIX-704 added (the app is correct)
+
+--- frontend/src/components/settings/AccountSettings.tsx:124-137
+ 124:   // ISS-372 / ISS-921 — typed passwords, an unsaved model pick and an unsaved
+ 125:   // Constitution draft are work Back would silently discard. Each is compared
+ 126:   // with what is saved (empty, for the password fields), and the loads set both
+ 127:   // sides together, so a pristine page never reads as dirty. Trimmed: Save
+ 128:   // stores the trimmed draft, so surrounding whitespace alone is nothing to lose.
+ 129:   const constitutionDirty = constitutionContent.trim() !== constitutionLoadedValue.trim();
+ 130:   const hasUnsavedWork =
+ 131:     !!(currentPassword || newPassword || confirmPassword) ||
+ 132:     pendingModel !== selectedModel ||
+ 133:     constitutionDirty;
+ 134:   useEffect(() => {
+ 135:     onUnsavedChange?.(hasUnsavedWork);
+ 136:     return () => onUnsavedChange?.(false);
+ 137:   }, [hasUnsavedWork, onUnsavedChange]);
+
+=== 5. getConstitution in lib/api.ts is a shared TTL-cached GET (ISS-799); it does not call fetch on a cache hit
+
+--- frontend/src/lib/api.ts:1950-1961
+1950: 
+1951: /**
+1952:  * ISS-799 — the Constitution tab's mount read. It used to hand-roll
+1953:  * `authedFetch` at the call site, where a second mount invocation had nothing
+1954:  * to share; routed through the shared cache it is fetched once, and the PUT and
+1955:  * DELETE next to it drop that entry via `dropAccountReadsOnWrite`.
+1956:  */
+1957: export async function getConstitution(
+1958:   token: string
+1959: ): Promise<{ content?: string | null }> {
+1960:   return cachedGet<{ content?: string | null }>("/api/settings/constitution", token);
+1961: }
+
+=== 6. The file that does this right: AccountSettings.render.test.tsx delegates getConstitution to fetch, then waits on fetch
+
+--- frontend/src/components/settings/AccountSettings.render.test.tsx:47-56
+  47:   // ISS-799: the constitution READ moved again, from this file's own
+  48:   // `authedFetch` call to lib/api's `getConstitution` (same fetchWithAuth path,
+  49:   // plus the shared GET cache that stops the mount effect fetching twice). Same
+  50:   // delegation as `authedFetch` above and for the same reason — the assertion
+  51:   // below still checks that the section reads /api/settings/constitution with an
+  52:   // auth header, not that some mock was called.
+  53:   getConstitution: (t: string) =>
+  54:     fetch(`${ENV.API_URL}/api/settings/constitution`, {
+  55:       headers: { Authorization: `Bearer ${t}` },
+  56:     }).then((r: Response) => r.json()),
+
+--- frontend/src/components/settings/AccountSettings.render.test.tsx:176-188
+ 176:   it("the constitution section reads /api/settings/constitution", async () => {
+ 177:     const user = userEvent.setup();
+ 178:     render(<AccountSettings onBack={() => {}} />);
+ 179:     await waitFor(() => expect(mockGetMe).toHaveBeenCalled());
+ 180: 
+ 181:     await clickNav(user, "Constitution");
+ 182:     await waitFor(() =>
+ 183:       expect(fetch).toHaveBeenCalledWith(
+ 184:         `${ENV.API_URL}/api/settings/constitution`,
+ 185:         expect.objectContaining({ headers: expect.anything() }),
+ 186:       ),
+ 187:     );
+ 188:   });
+
+=== 7. The FIX-704 sources file mocks the same empty payload (the sibling card)
+
+--- frontend/src/components/settings/AccountSettings.iss372.sources.test.tsx:12-15
+  12: vi.mock("@/lib/api", () => ({
+  13:   authedFetch: (input: string, init?: RequestInit) => fetch(input, init),
+  14:   getConstitution: () => Promise.resolve({ content: "" }),
+  15:   getToken: () => "test-token",
+
+=== 8. Blast radius greps
+$ grep -rn "getConstitution" frontend/src backend tests --include=*.ts --include=*.tsx --include=*.py
+frontend/src/components/settings/AccountSettings.tsx:10:import { authedFetch, getToken, getMe, changePassword, getPreferences, updatePreferences, getCapabilities, getConstitution } from "@/lib/api";
+frontend/src/components/settings/AccountSettings.tsx:621:    // ISS-799: getConstitution, not a hand-rolled authedFetch — this effect is
+frontend/src/components/settings/AccountSettings.tsx:626:    getConstitution(token)
+frontend/src/components/settings/AccountSettings.render.test.tsx:48:  // `authedFetch` call to lib/api's `getConstitution` (same fetchWithAuth path,
+frontend/src/components/settings/AccountSettings.render.test.tsx:53:  getConstitution: (t: string) =>
+frontend/src/components/settings/AccountSettings.iss372.sources.test.tsx:14:  getConstitution: () => Promise.resolve({ content: "" }),
+frontend/src/components/settings/AccountSettings.iss372.test.tsx:16:  getConstitution: () => Promise.resolve({ content: "" }),
+frontend/src/lib/api.ts:1957:export async function getConstitution(
+frontend/src/store/api/settings.ts:62:  getConstitution: async (): Promise<{ content: string | null }> => {
+
+$ grep -rnE "waitFor\(\(\) => expect\((global\.|globalThis\.)?fetch(Mock|Spy)?\)" frontend/src --include=*.ts --include=*.tsx
+frontend/src/components/settings/AccountSettings.iss372.test.tsx:83:    await waitFor(() => expect(fetch).toHaveBeenCalled());
+
+$ test files that vi.mock("@/lib/api") AND expect(...fetch...)
+== components/settings/AccountSettings.render.test.tsx
+183:      expect(fetch).toHaveBeenCalledWith(
+== components/settings/AccountSettings.iss372.test.tsx
+83:    await waitFor(() => expect(fetch).toHaveBeenCalled());
+
+$ it.fails cases in frontend/src (the blind spot: a case that throws at a precondition reads "expected fail")
+count: 51 `.fails(` occurrences (comment lines included) in 25 files; the scan in 07-analyze-itfails-scan.txt counts 52 xfail cases in 26 files (it.fails.each expands to 5, comment-only mentions drop out)
+
+=== 9. History: when the load moved off fetch
+$ git log -S"getConstitution" --oneline -- frontend/src/components/settings/AccountSettings.tsx
+2e2b1df47 fix(frontend): run detail, composer, settings and wizard UI fixes
+$ git status --short -- frontend/src/components/settings/   (both iss372 test files are untracked, i.e. written after that commit)
+ M frontend/src/components/settings/AccountSettings.tsx
+?? frontend/src/components/settings/AccountSettings.iss372.sources.test.tsx
+?? frontend/src/components/settings/AccountSettings.iss372.test.tsx
+
+=== 10. Blast-radius re-check with both quote styles (added after the first grep missed single-quoted vi.mock)
+$ grep -rlE "vi\.mock\(['\"]@/lib/api['\"]" frontend/src --include=*.test.ts --include=*.test.tsx | wc -l      -> 109
+of those, files with expect(<fetch-like>): AccountSettings.iss372.test.tsx:83 (the bug), AccountSettings.render.test.tsx:183 (mock delegates to fetch: sound),
+components/results/__tests__/AuditTab.test.tsx:106,120,149 (expect(fetchSpy).not.toHaveBeenCalled() inside the auditExporter describe: the exporters are real, pure
+client-side functions that never import @/lib/api, so the negative check can fail: sound). No other file waits on or asserts a global fetch while mocking @/lib/api.

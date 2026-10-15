@@ -1,0 +1,76 @@
+"""ISS-687 / ISS-976 / ISS-978 (QA-KB-054) — a custom-agent file workflow's own roster.
+
+Compiled ids of e.g. ``prototype_v2`` are ``custom-agent:<instance_id>`` with no AGENT.md,
+so ``allowed_custom_agent_ids`` can never contain them. Launch (and save) must accept a
+workflow's own roster, and the stale-override message must not blame a saved override for it.
+"""
+
+from __future__ import annotations
+
+import re
+
+import pytest
+
+from tests.integration.api.test_rest_run_launch_api import (  # noqa: F401
+    _post_launch,
+    _run_count,
+    _seed_user,
+    env,
+)
+from tests.integration.api.test_user_workflows_api import (  # noqa: F401
+    _valid_body,
+    api,
+    db_session,
+)
+
+_PLAN = ["custom-agent:fi-planner", "custom-agent:fi-readers"]
+
+
+@pytest.mark.issue("ISS-687")
+@pytest.mark.xfail(reason="ISS-687 unfixed", strict=True)
+def test_launch_with_own_custom_agent_roster_succeeds(env):  # noqa: F811
+    """ISS-687 — prototype_v2 launched with its own compiled ids must not 400."""
+    env["state"]["user"] = _seed_user(env)
+    resp = _post_launch(
+        env, message="build it", pipeline_type="prototype_v2", agent_ids=_PLAN
+    )
+    assert resp.status_code < 400, resp.text
+    assert _run_count(env) == 1
+
+
+@pytest.mark.issue("ISS-978")
+@pytest.mark.xfail(reason="ISS-978 unfixed", strict=True)
+def test_override_sentence_does_not_blame_plan_member_ids(env):  # noqa: F811
+    """ISS-978 — a plan-member id must not be reported as a stale saved-override step."""
+    env["state"]["user"] = _seed_user(env)
+    resp = _post_launch(
+        env,
+        message="build it",
+        pipeline_type="prototype_v2",
+        agent_ids=["custom-agent:fi-planner", "custom-agent:ghost-not-in-plan"],
+    )
+    assert resp.status_code == 400
+    message = resp.json()["detail"]["error"]
+    blame = [s for s in re.split(r"(?<=\.)\s", message) if "override" in s.lower()]
+    assert all("fi-planner" not in s for s in blame), message
+
+
+@pytest.mark.issue("ISS-976")
+@pytest.mark.xfail(reason="ISS-976 unfixed", strict=True)
+@pytest.mark.parametrize(
+    "pipeline,ids",
+    [("prototype_v2", _PLAN), ("backlog", ["custom-agent:us-planner"])],
+)
+def test_save_flat_custom_agent_roster_succeeds(api, pipeline, ids):  # noqa: F811
+    """ISS-976 — save == launch: the workflow's own flat roster must be savable."""
+    client, _ = api
+    r = client.post(
+        "/api/user-workflows",
+        json=_valid_body(
+            name=f"iss976-{pipeline}",
+            base_pipeline_type=pipeline,
+            agent_ids=ids,
+            model_overrides=None,
+        ),
+    )
+    assert r.status_code == 201, r.text

@@ -1,0 +1,19 @@
+== tests/unit/test_workflow_override.py
+[XPASS(strict)] ISS-1092 unfixed
+WARNING  agents.execution_engine.overrides:overrides.py:118 override: ppt failed to compile — running the file plan instead (capability ('gate', 'security') is not user-allowed in step 'custom-agent' — a user/db manifest may not reference it (CAP-03))
+[XPASS(strict)] ISS-1111 unfixed
+WARNING  agents.execution_engine.overrides:overrides.py:118 override: ppt failed to compile — running the file plan instead (capability ('gate', 'security') is not user-allowed in step 'custom-agent' — a user/db manifest may not reference it (CAP-03))
+[XPASS(strict)] ISS-1111 unfixed
+WARNING  agents.execution_engine.overrides:overrides.py:118 override: ppt failed to compile — running the file plan instead (step grant of ['spawn_subagents'] is not permitted for 'user'-trust manifests in step 'custom-agent' — exec/network/secrets/spawn_subagents are engineer-only (file/builtin trust))
+  /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/app/core/config.py:94: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+3 failed, 5 passed, 1 warning in 1.14s
+== tests/integration/api/test_iss1112_override_writers_trust.py
+[XPASS(strict)] ISS-1112 unfixed
+[XPASS(strict)] ISS-1112 unfixed
+[XPASS(strict)] ISS-1112 unfixed
+  /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/app/core/config.py:94: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+3 failed, 6 warnings in 1.51s
+== tests/integration/api/test_iss1113_override_row_launch_trust.py
+[XPASS(strict)] ISS-1113 unfixed
+  /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/app/core/config.py:94: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+1 failed, 4 warnings in 1.16s

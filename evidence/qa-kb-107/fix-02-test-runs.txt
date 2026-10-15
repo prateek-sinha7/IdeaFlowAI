@@ -1,0 +1,60 @@
+# QA-KB-107 fix 02: test runs, HEAD 8fb136808 vs HEAD + this change. 5-fixer, 2026-10-09 ~03:20-03:40 local.
+# HEAD side = git archive HEAD backend tools into the session scratchpad, backend/.env copied in, the same backend/.venv (Python 3.13) symlinked; imports verified to resolve to the copy.
+# cmd per file (one file per run, offline): cd backend && PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -m pytest <file> -q -p no:cacheprovider -W ignore
+# This machine: backend/.env sets USE_LOCAL_OLLAMA=1 and holds a Bedrock bearer token that expired 2026-10-08T23:40Z (fix-01).
+
+## HEAD source, existing files as committed
+tests/unit/agents/test_iss033a_fixloop_token_fold_offline.py: 1 failed, 2 passed in 1.30s
+tests/unit/app/test_model_factory.py: 25 failed, 18 passed in 1.70s
+tests/unit/agents/test_bedrock_cache_and_thinking.py: 4 failed, 18 passed in 1.38s
+tests/unit/agents/test_model_output_cap.py: 1 failed, 13 passed in 1.17s
+tests/unit/app/test_iss102_live_model_guard.py: 1 failed, 5 passed in 1.19s
+tests/unit/app/test_preflight_ollama_override.py: 2 xfailed in 1.08s
+tests/integration/api/test_rest_run_launch_api.py: 8 failed, 19 passed in 1.89s
+tests/unit/agents/test_iss056_clarify_quality_fixes.py: 36 passed in 1.37s
+tests/unit/app/test_brief_max_chars.py: 4 passed in 1.70s
+tests/unit/tools/ci/test_offline_provider_construction.py: 48 passed in 1.21s
+
+## HEAD source + this change's TEST files only (new tests in test_preflight_ollama_override.py, the unit-tier pin in tests/unit/conftest.py): red before the source fix
+HEAD source + new tests + unit pin: 5 xfailed in 1.24s
+HEAD source + unit pin, test_model_factory.py: 43 passed in 1.05s
+--- --runxfail, HEAD source:
+E       AssertionError: Bedrock bearer token expired at 2026-10-08T23:32Z — rotate AWS_BEARER_TOKEN_BEDROCK and restart the backend.
+E       assert False is True
+E       AssertionError: Bedrock bearer token expired at 2026-10-08T23:32Z — rotate AWS_BEARER_TOKEN_BEDROCK and restart the backend.
+E       assert False is True
+E       AssertionError: assert (False, 'Bedr...the backend.') == (True, None)
+E       AssertionError: assert (False, 'Bedr...the backend.') == (True, None)
+E           AssertionError: Expected 'ChatOllama' to have been called once. Called 0 times.
+FAILED tests/unit/app/test_preflight_ollama_override.py::test_expired_bedrock_token_does_not_block_launch_when_ollama_on[1]
+FAILED tests/unit/app/test_preflight_ollama_override.py::test_expired_bedrock_token_does_not_block_launch_when_ollama_on[true]
+FAILED tests/unit/app/test_preflight_ollama_override.py::test_flag_set_only_in_the_env_file_is_honoured
+FAILED tests/unit/app/test_preflight_ollama_override.py::test_expired_bedrock_token_does_not_block_the_mistral_fallback
+FAILED tests/unit/app/test_preflight_ollama_override.py::test_smart_planner_builds_the_local_model_when_ollama_on
+5 failed in 1.24s
+final test file (with the ISS-1134 control) on HEAD source: 1 passed, 5 xfailed
+
+## HEAD + this change (working tree)
+tests/unit/agents/test_iss033a_fixloop_token_fold_offline.py: 1 failed, 2 passed in 1.25s
+tests/unit/app/test_model_factory.py: 43 passed in 0.97s
+tests/unit/agents/test_bedrock_cache_and_thinking.py: 22 passed in 1.03s
+tests/unit/agents/test_model_output_cap.py: 14 passed in 0.86s
+tests/unit/app/test_iss102_live_model_guard.py: 6 passed in 0.93s
+tests/unit/app/test_preflight_ollama_override.py: 5 failed in 0.95s
+tests/integration/api/test_rest_run_launch_api.py: 27 passed in 1.51s
+tests/unit/agents/test_iss056_clarify_quality_fixes.py: 36 passed in 1.18s
+tests/unit/app/test_brief_max_chars.py: 4 passed in 0.83s
+tests/unit/tools/ci/test_offline_provider_construction.py: 48 passed in 1.00s
+tests/unit/app/test_cached_invoke.py: 17 passed in 0.58s
+tests/integration/agents/test_iss033_aux_token_fold_offline.py: 2 passed in 6.08s
+tests/unit/app/test_preflight_ollama_override.py --runxfail: 5 passed in 0.92s
+tests/unit/app/test_preflight_ollama_override.py -rX: 5 XPASS(strict) lines
+final test file (with the ISS-1134 control): 5 failed (all five XPASS(strict)), 1 passed; --runxfail: 6 passed
+
+## Environment sensitivity not caused by this change (ISS card filed): working tree, USE_LOCAL_OLLAMA=0 exported
+tests/integration/api/test_rest_run_launch_api.py: 8 failed, 19 passed (the same 8 launch tests HEAD fails; 503 model_provider_unavailable on the real expired token from backend/.env)
+
+## Mutation checks (scratch copy only, never the shared tree), cmd as above with --runxfail
+helper reads os.environ only (the ISS-1133 trap): test_flag_set_only_in_the_env_file_is_honoured FAILED, 1 failed / 4 passed
+preflight skips whenever Bedrock is unconfigured, no Mistral-key condition (the ISS-1135 trap), test_model_factory.py: TestPreflightCheckProvider::test_expired_token_rejects_with_actionable_message and ::test_token_within_skew_window_rejects FAILED, 2 failed / 41 passed
+planner routed through build_model unconditionally (INV-3 break): test_smart_planner_keeps_its_own_client_when_ollama_off FAILED, 1 failed / 5 passed

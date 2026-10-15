@@ -602,3 +602,80 @@ describe("useRunChat — family-anchored transcript reducer", () => {
     },
   );
 });
+
+// QA-KB-020 / ISS-654: review_gate_approved must resolve the gate card of the run
+// named by the frame's pipeline_run_id, not the transcript's positionally-last one.
+describe("useRunChat — review_gate_approved run identity (ISS-654)", () => {
+  function setupGates(runIds: string[]) {
+    const conn = makeConn();
+    const { result } = renderHook(() =>
+      useRunChat({ runId: "run-A", subscribe: conn.subscribe, sendCommand: conn.sendCommand }),
+    );
+    runIds.forEach((rid, i) =>
+      conn.emit(
+        frame("chat_reply", {
+          message_id: `gate-${i}`,
+          card_kind: "gate",
+          text: `gate ${rid}`,
+          agent_name: "agentX",
+          pipeline_run_id: rid,
+        }),
+      ),
+    );
+    const resolved = () => result.current.messages.map((m) => [m.runId, !!m.resolved]);
+    return { conn, resolved };
+  }
+
+  it("ISS-654: approving run A (earlier gate) resolves only A", () => {
+    const { conn, resolved } = setupGates(["run-A", "run-B"]);
+    conn.emit(frame("review_gate_approved", { pipeline_run_id: "run-A" }));
+    expect(resolved()).toEqual([["run-A", true], ["run-B", false]]);
+  });
+
+  it("ISS-654 guard: approving run B (later gate) resolves only B", () => {
+    const { conn, resolved } = setupGates(["run-A", "run-B"]);
+    conn.emit(frame("review_gate_approved", { pipeline_run_id: "run-B" }));
+    expect(resolved()).toEqual([["run-A", false], ["run-B", true]]);
+  });
+
+  it("ISS-654 guard: approval without pipeline_run_id resolves the single gate card", () => {
+    const { conn, resolved } = setupGates(["run-A"]);
+    conn.emit(frame("review_gate_approved", {}));
+    expect(resolved()).toEqual([["run-A", true]]);
+  });
+
+  it("ISS-654: approval for a run with no card in the transcript resolves nothing", () => {
+    const { conn, resolved } = setupGates(["run-A"]);
+    conn.emit(frame("review_gate_approved", { pipeline_run_id: "run-Z" }));
+    expect(resolved()).toEqual([["run-A", false]]);
+  });
+
+  it("ISS-654 guard: two unresolved gates of the same run, the newest resolves", () => {
+    const { conn, resolved } = setupGates(["run-A", "run-A"]);
+    conn.emit(frame("review_gate_approved", { pipeline_run_id: "run-A" }));
+    expect(resolved()).toEqual([["run-A", false], ["run-A", true]]);
+  });
+});
+
+// ISS-926 (INFERRED sibling of ISS-654): one transcript-wide seq cursor spans every
+// family run although run_events.seq is per run.
+describe("useRunChat — per-run seq cursor (ISS-926)", () => {
+  it("ISS-926: re-fetch after a send asks the viewed run for ITS last seq, not the family max", async () => {
+    const conn = makeConn();
+    const fetchEvents = vi.fn(async () => []);
+    const { result } = renderHook(() =>
+      useRunChat({ runId: "R", subscribe: conn.subscribe, sendCommand: conn.sendCommand, fetchEvents }),
+    );
+    const msg = (id: string, rid: string, seq: number) =>
+      frame("chat_message", { message_id: id, text: id, run_id: rid, seq });
+    act(() => {
+      result.current.seedTranscript([msg("p1", "P", 500), msg("r1", "R", 1), msg("r2", "R", 20)]);
+    });
+    await act(async () => {
+      result.current.sendMessage("hi");
+    });
+    await vi.waitFor(() => expect(fetchEvents).toHaveBeenCalled());
+    expect(fetchEvents).toHaveBeenCalledWith("R", 20);
+  });
+});
+

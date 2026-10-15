@@ -267,7 +267,7 @@ def test_a_user_with_no_runs_sees_an_empty_state(shot, disposable_user, browser,
     from framework import settings
     from framework.locators import auth as AUTH
 
-    user = disposable_user(tier="basic")
+    user = disposable_user(tier="basic", signs_in=True)
     context = browser.new_context(
         base_url=settings.BASE_URL,
         viewport=settings.VIEWPORT,

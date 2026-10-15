@@ -1,0 +1,48 @@
+== PART 1: streamed_text payload bytes vs StreamedTextResolver.resolve(ectx)
+--- A: ISS-791 / BUGS.md repro (wrapper + preamble)
+declared name        : output.md
+last_streamed        : 'Thinking...\n<artifact><!DOCTYPE html><html></html></artifact>'
+resolver output      : '<!DOCTYPE html><html></html>'
+payload.materialized : True  chainable=True
+materialized bytes   : 'Thinking...\n<artifact><!DOCTYPE html><html></html></artifact>'
+payload == resolver  : False
+--- B: ISS-979 (composer .html pick, markdown stream)
+declared name        : output.html
+last_streamed        : '# Title\n\nbody text\n'
+resolver output      : '<!DOCTYPE html>\n<html lang="en">\n<head>\n<meta charset="utf-8" />\n<meta name="viewport" content="width=device-width, initial-scale=1" />\n<title>Title</title>\n<style>body{max-width:52rem;margin:2rem auto;padding:0 1.25rem;font:16px/1.6 system-ui,sans-serif}pre,code{background:#f2f3f5;border-radius:4px}pre{padding:1rem;overflow:auto}</style>\n</head>\n<body>\n<h1>Title</h1>\n<p>body text</p>\n</body>\n</html>\n'
+payload.materialized : True  chainable=True
+materialized bytes   : '# Title\n\nbody text\n'
+payload == resolver  : False
+--- C: ISS-980 (wrapper-only stream)
+declared name        : output.md
+last_streamed        : '<artifact>\n</artifact>'
+resolver output      : ''
+payload.materialized : True  chainable=True
+materialized bytes   : '<artifact>\n</artifact>'
+payload == resolver  : False
+--- D: control (plain markdown, .md name -- must stay equal)
+declared name        : user_stories.md
+last_streamed        : '# Backlog\n\n- story one\n'
+resolver output      : '# Backlog\n\n- story one\n'
+payload.materialized : True  chainable=True
+materialized bytes   : '# Backlog\n\n- story one\n'
+payload == resolver  : True
+
+== PART 2: what finalize_terminal_run publishes (DB stubbed, real git sandbox)
+--- empty stream (existing test pins degraded + untagged)
+last_streamed    : ''
+published_status : 'degraded'  degraded_reason='output_unmaterializable'
+tags             : []
+--- wrapper-only stream (resolver output is '')
+last_streamed    : '<artifact>\n</artifact>'
+published_status : 'completed'  degraded_reason=None
+tags             : ['v1']
+--- wrapper + preamble
+last_streamed    : 'Thinking...\n<artifact><!DOCTYPE html><html></html></artifact>'
+published_status : 'completed'  degraded_reason=None
+tags             : ['v1']
+
+== PART 3: control -- the ppt branch IS in parity with PptResolver
+ppt wrapper + preamble: materialized=True payload==resolver: True
+ppt code fence: materialized=True payload==resolver: True
+ppt bare prose + deck: materialized=True payload==resolver: True

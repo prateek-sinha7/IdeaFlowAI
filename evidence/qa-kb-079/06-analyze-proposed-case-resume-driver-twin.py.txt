@@ -1,0 +1,99 @@
+"""QA-KB-079 sibling scratch -- the resume-driver twin of
+test_execute_restamps_seq_onto_the_frame_it_yields (test_run_events_db.py:365) and of
+test_execute_wrapper_stored_payload_seq_matches_row (test_run_events_payload_seq_db.py:59).
+
+ExecutionEngine._drive_resumed_stream (engine.py:15832) is a coroutine, not a generator: it
+delivers frames through ``live_queue`` instead of ``yield``. Same arming seam as the execute()
+tests: a scripted ``_execute_impl`` arms the injected ``_sink`` with the test store.
+
+NOT part of the repo; the 4-test-writer places the accepted case beside the execute() ones.
+"""
+
+from __future__ import annotations
+
+import asyncio
+
+import pytest
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
+
+from agents.authz import ScopedStore
+from agents.execution_engine.engine import ExecutionEngine
+from app.models.database import Base
+from app.models.run_event import RunEvent
+from app.models.workflow import WorkflowRun
+
+
+@pytest.fixture
+def db_session():
+    engine = create_engine(
+        "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
+    )
+    Base.metadata.create_all(bind=engine)
+    session = sessionmaker(bind=engine, autocommit=False, autoflush=False)()
+    session.add(
+        WorkflowRun(
+            id="run-1", user_id="alice", title="t", type="prototype",
+            status="running", input="idea", owner_id="alice", workspace_id="ws-1",
+        )
+    )
+    session.commit()
+    try:
+        yield session
+    finally:
+        session.close()
+        Base.metadata.drop_all(bind=engine)
+
+
+@pytest.mark.issue("ISS-907")
+async def test_resume_driver_restamps_live_frame_and_stored_payload_after_a_collision(
+    db_session, monkeypatch
+):
+    """A chat turn takes the seq the resumed engine's counter still owns: for every engine
+    event the live frame seq == the row seq == the stored payload seq."""
+    store = ScopedStore(owner_id="alice", workspace_id="ws-1", session=db_session)
+
+    async def _scripted_impl(self, **kwargs):
+        kwargs["_sink"].arm(store, "run-1")
+        yield {"type": "review_gate_ready", "data": {"gate_key": "run-1:a"}}
+        await store.append_event_next_seq(
+            "run-1", event_id="chat:m1", type="chat_message", payload_json={"t": "stop"}
+        )
+        yield {"type": "pipeline_cancelled", "data": {}}
+        yield {"type": "agent_chunk", "data": {}}
+
+    monkeypatch.setattr(ExecutionEngine, "_execute_impl", _scripted_impl)
+    queue: asyncio.Queue = asyncio.Queue()
+    await ExecutionEngine()._drive_resumed_stream(
+        "run-1",
+        agents=[],
+        user_message="",
+        pipeline_type="prototype",
+        user_id="alice",
+        session_id=None,
+        parent_run_id=None,
+        selections=None,
+        start_seq=1,
+        live_queue=queue,
+    )
+    frames = []
+    while not queue.empty():
+        item = queue.get_nowait()
+        if item is not None:  # the None sentinel ends the live drainer
+            frames.append(item)
+
+    db_session.expire_all()
+    by_type = {
+        r.type: r
+        for r in db_session.query(RunEvent).order_by(RunEvent.seq.asc()).all()
+    }
+    # The collision really happened (the control): the chat row took seq 2, so the engine's
+    # pipeline_cancelled (requested 2) landed at 3 and the allocator moved past it.
+    assert by_type["chat_message"].seq == 2
+    assert by_type["pipeline_cancelled"].seq == 3
+    assert by_type["agent_chunk"].seq == 4
+    live = {f["type"]: f["data"]["seq"] for f in frames}
+    for kind in ("review_gate_ready", "pipeline_cancelled", "agent_chunk"):
+        row = by_type[kind]
+        assert live[kind] == row.seq == row.payload_json["seq"], kind

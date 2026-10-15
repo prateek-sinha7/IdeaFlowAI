@@ -223,14 +223,16 @@ describe("DashboardPage shallow run-tab navigation", () => {
     expect(h.api.getWorkflow).toHaveBeenCalledTimes(1);
   });
 
-  it("requests no tab when the path moves to a pinned version of the open run", async () => {
+  it("requests the Preview tab when the path moves to a pinned version of the open run", async () => {
     const view = mount("/runs/r1");
     await waitFor(() => expect(props()?.contentSourceRunId).toBe("r1"));
 
     navigateShallow(view, "/runs/r1/versions/2");
 
     await waitFor(() => expect(props().pinnedVersion).toBe("2"));
-    expect(props().deepLinkTarget).toBeNull();
+    // ISS-1026: /runs/{id}/versions/{v} is the pinned twin of run-detail, so a
+    // shallow move onto it opens Preview, as /runs/{id} does.
+    expect(props().deepLinkTarget).toMatchObject({ tab: "preview" });
     expect(h.api.getWorkflow).toHaveBeenCalledTimes(1);
   });
 });

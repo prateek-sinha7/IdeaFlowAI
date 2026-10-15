@@ -1,0 +1,58 @@
+# QA-KB-121 / ISS-1199 / FIX-784 — test runs observed by the 5-fixer, 2026-10-12 (CEST)
+# Offline tier only, one file per pytest process, from backend/:
+#   .venv/bin/python -m pytest <file> -q -p no:cacheprovider -W ignore
+# "fixed" = working tree (HEAD cd70d2979 + the uncommitted engine.py change in fix-01-change.diff)
+# "HEAD"  = `git archive cd70d2979 backend` extracted to the session scratchpad (read-only; no worktree,
+#           no ref change). Import check there: agents.execution_engine.engine resolved to the extracted
+#           file and had no _INVALID_KEY_AGENT_ERROR, so the HEAD runs measured HEAD code.
+
+## A. The card's test, BEFORE the change (working tree == HEAD cd70d2979)
+tests/agents/test_invalid_bedrock_key_message.py   4 xfailed in 1.26s
+  XFAIL ...::test_rejected_key_message_says_invalid_key_and_rotate[AccessDeniedException] - ISS-1199 unfixed
+  XFAIL ...::test_rejected_key_message_says_invalid_key_and_rotate[403] - ISS-1199 unfixed
+  XFAIL ...::test_rejected_key_message_says_invalid_key_and_rotate[AccessDenied] - ISS-1199 unfixed
+  XFAIL ...::test_rejected_key_stops_the_run_at_the_first_step - ISS-1199 unfixed
+
+## B. The card's test, AFTER the change (strict xfail: XPASS fails the run = the fix signal)
+tests/agents/test_invalid_bedrock_key_message.py   4 failed in 1.70s
+  [XPASS(strict)] ISS-1199 unfixed   (x4: the three wire shapes + the engine-level run-stop test)
+  The xfail markers are left in place for the 6-verifier.
+
+## C. Controls the card says must stay green (fixed tree)
+tests/agents/test_credential_failure_stops_run.py  3 passed in 3.05s   (FIX-657: constant still stops the run; :60 ExpiredToken still credential)
+tests/agents/test_image_payload_guard.py           18 passed in 0.96s  (A4 text stays credential; unknown text stays generic; no ARN echoed)
+tests/unit/agents/test_fanout.py                   31 passed in 1.22s  (deterministic worker error fails at once; transient retries)
+
+## D. SC-001 / import guards
+fixed tests/unit/agents/test_banned_patterns.py    2 failed, 16 passed in 2.00s
+HEAD  tests/unit/agents/test_banned_patterns.py    2 failed, 16 passed in 2.11s
+  same two ids on both trees (pre-existing, carded):
+  - test_capabilities_do_not_import_kernel_or_web_layer          prototype_ui_extract.py:333 -> app (ISS-1068)
+  - TestSC001RevisionPipelineCompliance::test_no_revision_pipeline_names_in_kernel
+        engine.py docstring "with a ``prototype_revision`` child" (HEAD :982, fixed :999 only because
+        17 lines were added above it; introduced by 632fbda77, 2026-09-22) (ISS-814)
+fixed lint-imports (from backend/)   Contracts: 3 kept, 2 broken
+HEAD  lint-imports (from backend/)   Contracts: 3 kept, 2 broken
+  BROKEN on both: "kernel imports only capability ports (scaffold)",
+                  "agents.capabilities must not import the execution kernel or the web layer"
+  The change adds no import statement.
+
+## E. Goldens (INV-3)
+fixed tests/agents/test_event_contract.py                                     24 passed in 1.47s
+HEAD  tests/agents/test_event_contract.py                                     24 passed in 1.17s
+fixed tests/contract/agents/test_characterization_app_builder.py              2 passed in 6.72s
+HEAD  tests/contract/agents/test_characterization_app_builder.py              2 passed in 6.91s
+fixed tests/contract/agents/test_characterization_ppt.py                      2 passed in 3.02s
+HEAD  tests/contract/agents/test_characterization_ppt.py                      2 passed in 3.16s
+fixed tests/contract/agents/test_characterization_prototype_feature_revision.py 4 passed in 52.11s
+HEAD  tests/contract/agents/test_characterization_prototype_feature_revision.py 4 passed in 53.06s
+fixed tests/contract/agents/test_characterization_prototype_large_revision.py 2 passed in 26.43s
+HEAD  tests/contract/agents/test_characterization_prototype_large_revision.py 2 passed in 27.01s
+fixed tests/contract/agents/test_characterization_prototype_revision.py       2 passed in 7.34s
+HEAD  tests/contract/agents/test_characterization_prototype_revision.py       2 passed in 7.94s
+fixed tests/contract/agents/test_characterization_prototype.py                2 passed in 20.74s
+HEAD  tests/contract/agents/test_characterization_prototype.py                2 passed in 20.78s
+
+## F. Fan-out parity (no test file extends test_fanout.py for the new copy; proved by the probe instead)
+fix-02-probe.txt: new copy is 173 chars (< the 400 cut at fanout.py:604-606), is NOT in
+TRANSIENT_AGENT_ERRORS (fanout.py:610 retries only those), so a worker carrying it fails at once.

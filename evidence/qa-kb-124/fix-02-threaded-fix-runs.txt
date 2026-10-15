@@ -1,0 +1,181 @@
+QA-KB-124 / ISS-1156 fix stage (5-fixer), 2026-10-09. Tree: feat-user-stories-v2 worktree (branch feat/stale-bug-fixes). factory.py and engine.py are byte-identical at 4a2be7e27, 06e45b9cc and 465b43b8d (git diff 4a2be7e27 HEAD on both is empty); the fix is the working-tree diff in fix-02-change.diff.
+Every pytest run below is ONE file: cd backend && .venv/bin/python -m pytest <file> -q -p no:cacheprovider
+
+## A. the two verification files on the FIXED tree (strict xfail => XPASS(strict) is the pass signal)
+-- tests/agents/test_decision_step_delivery_via_engine_iss1156.py
+[XPASS(strict)] ISS-1156 unfixed
+WARNING  agents.execution_engine.engine:engine.py:4900 execute(): workspace/capabilities persist failed ((builtins.Exception) offline harness
+WARNING  agents.workflow_memory.memory:memory.py:90 WorkflowMemory.get_entry failed: (builtins.Exception) offline harness
+WARNING  agents.execution_engine.engine:engine.py:3360 run_events persist failed for run harness-ex_A1_loop-37dea847 seq 1 ((builtins.Exception) offline harness
+WARNING  agents.execution_engine.engine:engine.py:5764 pipeline_start created_at lookup failed ((builtins.Exception) offline harness
+WARNING  agents.execution_engine.engine:engine.py:3360 run_events persist failed for run harness-ex_A1_loop-37dea847 seq 2 ((builtins.Exception) offline harness
+WARNING  agents.execution_engine.kernel_services:kernel_services.py:480 record_hook_run(hook=audit_logger event=before_step outcome=continue) failed: (builtins.Exception) offline harness
+WARNING  agents.execution_engine.engine:engine.py:3360 run_events persist failed for run harness-ex_A1_loop-37dea847 seq 3 ((builtins.Exception) offline harness
+WARNING  agents.execution_engine.engine:engine.py:3360 run_events persist failed for run harness-ex_A1_loop-37dea847 seq 4 ((builtins.Exception) offline harness
+WARNING  agents.execution_engine.engine:engine.py:3360 run_events persist failed for run harness-ex_A1_loop-37dea847 seq 5 ((builtins.Exception) offline harness
+WARNING  agents.execution_engine.engine:engine.py:3360 run_events persist failed for run harness-ex_A1_loop-37dea847 seq 6 ((builtins.Exception) offline harness
+WARNING  agents.execution_engine.kernel_services:kernel_services.py:480 record_hook_run(hook=secret_scan event=before_write outcome=continue) failed: (builtins.Exception) offline harness
+WARNING  agents.execution_engine.engine:engine.py:13973 artifact_refs persist failed for run harness-ex_A1_loop-37dea847 kind summary ((builtins.Exception) offline harness
+WARNING  agents.execution_engine.engine:engine.py:3360 run_events persist failed for run harness-ex_A1_loop-37dea847 seq 7 ((builtins.Exception) offline harness
+WARNING  agents.execution_engine.engine:engine.py:3360 run_events persist failed for run harness-ex_A1_loop-37dea847 seq 8 ((builtins.Exception) offline harness
+WARNING  agents.execution_engine.kernel_services:kernel_services.py:480 record_hook_run(hook=audit_logger event=after_step outcome=continue) failed: (builtins.Exception) offline harness
+WARNING  agents.execution_engine.kernel_services:kernel_services.py:480 record_hook_run(hook=audit_logger event=before_step outcome=continue) failed: (builtins.Exception) offline harness
+WARNING  agents.execution_engine.engine:engine.py:3360 run_events persist failed for run harness-ex_A1_loop-37dea847 seq 9 ((builtins.Exception) offline harness
+WARNING  agents.execution_engine.engine:engine.py:3360 run_events persist failed for run harness-ex_A1_loop-37dea847 seq 10 ((builtins.Exception) offline harness
+WARNING  agents.execution_engine.engine:engine.py:3360 run_events persist failed for run harness-ex_A1_loop-37dea847 seq 11 ((builtins.Exception) offline harness
+WARNING  agents.execution_engine.engine:engine.py:3360 run_events persist failed for run harness-ex_A1_loop-37dea847 seq 12 ((builtins.Exception) offline harness
+WARNING  agents.execution_engine.kernel_services:kernel_services.py:480 record_hook_run(hook=secret_scan event=before_write outcome=continue) failed: (builtins.Exception) offline harness
+WARNING  agents.execution_engine.engine:engine.py:13973 artifact_refs persist failed for run harness-ex_A1_loop-37dea847 kind summary ((builtins.Exception) offline harness
+WARNING  agents.execution_engine.engine:engine.py:13973 artifact_refs persist failed for run harness-ex_A1_loop-37dea847 kind greeting ((builtins.Exception) offline harness
+WARNING  agents.execution_engine.engine:engine.py:3360 run_events persist failed for run harness-ex_A1_loop-37dea847 seq 13 ((builtins.Exception) offline harness
+WARNING  agents.execution_engine.engine:engine.py:3360 run_events persist failed for run harness-ex_A1_loop-37dea847 seq 14 ((builtins.Exception) offline harness
+WARNING  agents.execution_engine.kernel_services:kernel_services.py:480 record_hook_run(hook=audit_logger event=after_step outcome=continue) failed: (builtins.Exception) offline harness
+WARNING  agents.execution_engine.kernel_services:kernel_services.py:480 record_hook_run(hook=audit_logger event=before_step outcome=continue) failed: (builtins.Exception) offline harness
+WARNING  agents.execution_engine.engine:engine.py:3360 run_events persist failed for run harness-ex_A1_loop-37dea847 seq 15 ((builtins.Exception) offline harness
+WARNING  agents.execution_engine.engine:engine.py:3360 run_events persist failed for run harness-ex_A1_loop-37dea847 seq 16 ((builtins.Exception) offline harness
+WARNING  agents.execution_engine.engine:engine.py:3360 run_events persist failed for run harness-ex_A1_loop-37dea847 seq 17 ((builtins.Exception) offline harness
+WARNING  agents.execution_engine.engine:engine.py:3360 run_events persist failed for run harness-ex_A1_loop-37dea847 seq 18 ((builtins.Exception) offline harness
+WARNING  agents.execution_engine.kernel_services:kernel_services.py:480 record_hook_run(hook=secret_scan event=before_write outcome=continue) failed: (builtins.Exception) offline harness
+WARNING  agents.execution_engine.engine:engine.py:13973 artifact_refs persist failed for run harness-ex_A1_loop-37dea847 kind summary ((builtins.Exception) offline harness
+WARNING  agents.execution_engine.engine:engine.py:13973 artifact_refs persist failed for run harness-ex_A1_loop-37dea847 kind route_decision ((builtins.Exception) offline harness
+WARNING  agents.execution_engine.engine:engine.py:3360 run_events persist failed for run harness-ex_A1_loop-37dea847 seq 19 ((builtins.Exception) offline harness
+WARNING  agents.execution_engine.engine:engine.py:3360 run_events persist failed for run harness-ex_A1_loop-37dea847 seq 20 ((builtins.Exception) offline harness
+WARNING  agents.execution_engine.kernel_services:kernel_services.py:480 record_hook_run(hook=audit_logger event=after_step outcome=continue) failed: (builtins.Exception) offline harness
+WARNING  agents.execution_engine.kernel_services:kernel_services.py:408 record_gate_event(step=custom-agent:check gate=conditional outcome=route) failed: (builtins.Exception) offline harness
+WARNING  agents.execution_engine.kernel_services:kernel_services.py:480 record_hook_run(hook=audit_logger event=before_step outcome=continue) failed: (builtins.Exception) offline harness
+WARNING  agents.execution_engine.engine:engine.py:3360 run_events persist failed for run harness-ex_A1_loop-37dea847 seq 21 ((builtins.Exception) offline harness
+WARNING  agents.execution_engine.engine:engine.py:3360 run_events persist failed for run harness-ex_A1_loop-37dea847 seq 22 ((builtins.Exception) offline harness
+WARNING  agents.execution_engine.engine:engine.py:3360 run_events persist failed for run harness-ex_A1_loop-37dea847 seq 23 ((builtins.Exception) offline harness
+WARNING  agents.execution_engine.engine:engine.py:3360 run_events persist failed for run harness-ex_A1_loop-37dea847 seq 24 ((builtins.Exception) offline harness
+WARNING  agents.execution_engine.kernel_services:kernel_services.py:480 record_hook_run(hook=secret_scan event=before_write outcome=continue) failed: (builtins.Exception) offline harness
+WARNING  agents.execution_engine.engine:engine.py:13973 artifact_refs persist failed for run harness-ex_A1_loop-37dea847 kind summary ((builtins.Exception) offline harness
+WARNING  agents.execution_engine.engine:engine.py:3360 run_events persist failed for run harness-ex_A1_loop-37dea847 seq 25 ((builtins.Exception) offline harness
+WARNING  agents.execution_engine.engine:engine.py:3360 run_events persist failed for run harness-ex_A1_loop-37dea847 seq 26 ((builtins.Exception) offline harness
+WARNING  agents.execution_engine.kernel_services:kernel_services.py:480 record_hook_run(hook=audit_logger event=after_step outcome=continue) failed: (builtins.Exception) offline harness
+WARNING  agents.execution_engine.engine:engine.py:13973 artifact_refs persist failed for run harness-ex_A1_loop-37dea847 kind deliverable ((builtins.Exception) offline harness
+WARNING  agents.execution_engine.engine:engine.py:3360 run_events persist failed for run harness-ex_A1_loop-37dea847 seq 27 ((builtins.Exception) offline harness
+FAILED tests/agents/test_decision_step_delivery_via_engine_iss1156.py::test_write_granted_decision_step_is_not_told_to_deliver_to_a_file
+1 failed, 3 warnings in 2.66s
+-- tests/unit/agents/test_decision_step_no_delivery_block.py
+[XPASS(strict)] ISS-1156 unfixed
+PASSED tests/unit/agents/test_decision_step_no_delivery_block.py::test_plain_custom_step_with_write_access_still_gets_delivery_block
+FAILED tests/unit/agents/test_decision_step_no_delivery_block.py::test_route_decision_step_gets_no_write_file_delivery_block
+1 failed, 1 passed, 1 warning in 1.32s
+
+## B. the same two files on a scratch copy of backend/ holding HEAD's factory.py and engine.py (git show HEAD:<path>)
+-- tests/agents/test_decision_step_delivery_via_engine_iss1156.py
+XFAIL tests/agents/test_decision_step_delivery_via_engine_iss1156.py::test_write_granted_decision_step_is_not_told_to_deliver_to_a_file - ISS-1156 unfixed
+1 xfailed, 3 warnings in 2.86s
+-- tests/unit/agents/test_decision_step_no_delivery_block.py
+XFAIL tests/unit/agents/test_decision_step_no_delivery_block.py::test_route_decision_step_gets_no_write_file_delivery_block - ISS-1156 unfixed
+1 passed, 1 xfailed, 1 warning in 1.45s
+
+## C. regression files on the FIXED tree (the analyzer's eleven, analysis-08 section C, plus conditional-route and guard files)
+tests/unit/agents/test_custom_agent_prompt.py                  5 passed, 1 warning in 1.27s
+tests/agents/test_conditional_loop_completion_t23.py           1 passed, 3 warnings in 2.98s
+tests/unit/agents/test_artifact_fallback_and_roster.py         13 passed, 1 warning in 0.99s
+tests/unit/agents/test_tool_grant_invariants.py                26 passed, 1 warning in 1.44s
+tests/unit/agents/test_capabilities_threading.py               2 passed, 5 warnings in 1.90s
+tests/unit/agents/test_deliverable_readback_scope.py           1 passed, 1 warning in 1.11s
+tests/unit/agents/test_step_reply.py                           5 passed, 1 warning in 1.10s
+tests/agents/test_agent_input_system_prompt_v3.py              3 passed, 2 warnings in 1.39s
+tests/unit/agents/test_create_runner.py                        2 failed, 21 passed, 1 warning in 1.99s
+tests/contract/agents/test_skill_prompt_baseline.py            2 failed, 1 warning in 1.37s
+tests/agents/test_prompt_ledger_v2.py                          1 failed, 53 passed, 2 warnings in 2.18s
+tests/agents/test_conditional_branch_route_t25.py              3 passed, 6 warnings in 4.03s
+tests/agents/test_conditional_human_gate_source_t26.py         2 passed, 6 warnings in 3.07s
+tests/agents/test_loop_revisit_thread.py                       4 passed, 2 warnings in 1.73s
+tests/agents/test_conditional_loop_budget_t24.py               1 failed, 3 warnings in 3.48s
+tests/unit/agents/test_banned_patterns.py                      2 failed, 16 passed, 1 warning in 1.74s
+
+## D. every red id in C, on the FIXED tree and on the HEAD copy (identical ids = pre-existing)
+-- tests/unit/agents/test_create_runner.py
+   fixed:
+     FAILED tests/unit/agents/test_create_runner.py::test_tool_provider_workspace_binds_identical_set
+     FAILED tests/unit/agents/test_create_runner.py::test_tool_provider_prototype_binds_report_task_complete
+   HEAD copy:
+     FAILED tests/unit/agents/test_create_runner.py::test_tool_provider_workspace_binds_identical_set
+     FAILED tests/unit/agents/test_create_runner.py::test_tool_provider_prototype_binds_report_task_complete
+-- tests/contract/agents/test_skill_prompt_baseline.py
+   fixed:
+     FAILED tests/contract/agents/test_skill_prompt_baseline.py::test_text_only_no_skills_prompt_is_stable
+     FAILED tests/contract/agents/test_skill_prompt_baseline.py::test_disk_skill_only_prompt_is_stable
+   HEAD copy:
+     FAILED tests/contract/agents/test_skill_prompt_baseline.py::test_text_only_no_skills_prompt_is_stable
+     FAILED tests/contract/agents/test_skill_prompt_baseline.py::test_disk_skill_only_prompt_is_stable
+-- tests/agents/test_prompt_ledger_v2.py
+   fixed:
+     FAILED tests/agents/test_prompt_ledger_v2.py::TestLedgerAC4NoRequestMd::test_request_md_absence_documented_in_engine
+   HEAD copy:
+     FAILED tests/agents/test_prompt_ledger_v2.py::TestLedgerAC4NoRequestMd::test_request_md_absence_documented_in_engine
+-- tests/agents/test_conditional_loop_budget_t24.py
+   fixed:
+     FAILED tests/agents/test_conditional_loop_budget_t24.py::test_always_retry_stops_looping_but_completes_cleanly_with_a_warning
+   HEAD copy:
+     FAILED tests/agents/test_conditional_loop_budget_t24.py::test_always_retry_stops_looping_but_completes_cleanly_with_a_warning
+-- tests/unit/agents/test_banned_patterns.py
+   fixed:
+     FAILED tests/unit/agents/test_banned_patterns.py::test_capabilities_do_not_import_kernel_or_web_layer
+     FAILED tests/unit/agents/test_banned_patterns.py::TestSC001RevisionPipelineCompliance::test_no_revision_pipeline_names_in_kernel
+   HEAD copy:
+     FAILED tests/unit/agents/test_banned_patterns.py::test_capabilities_do_not_import_kernel_or_web_layer
+     FAILED tests/unit/agents/test_banned_patterns.py::TestSC001RevisionPipelineCompliance::test_no_revision_pipeline_names_in_kernel
+
+## E. lint-imports (run from backend/), fixed tree vs HEAD copy
+-- fixed:
+kernel imports only capability ports (scaffold) BROKEN
+agents.workflows must not import the execution kernel or the web layer KEPT
+agents.capabilities must not import the execution kernel or the web layer BROKEN
+agents.runtime must not import the execution kernel or the web layer KEPT
+shipped code must not import the build-time tooling package KEPT
+Contracts: 3 kept, 2 broken.
+-- HEAD copy:
+kernel imports only capability ports (scaffold) BROKEN
+agents.workflows must not import the execution kernel or the web layer KEPT
+agents.capabilities must not import the execution kernel or the web layer BROKEN
+agents.runtime must not import the execution kernel or the web layer KEPT
+shipped code must not import the build-time tooling package KEPT
+Contracts: 3 kept, 2 broken.
+
+## F. the analyzer's end-to-end probe (evidence/qa-kb-124/analysis-07-candidate-fix-probe.py) run UNCHANGED on the fixed repo tree
+   cd backend && PYTHONPATH=. .venv/bin/python ../evidence/qa-kb-124/analysis-07-candidate-fix-probe.py   (summary block, last 26 lines)
+backend under test: /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend
+
+===== builtin plan (control: tool-free, must not change)
+dispatch order         : ['emoji', 'greet', 'check', 'greet', 'check', 'done']
+check 'How to deliver' : False | context_message: '\n--- Output from Greet (A user-defined workflow agent) ---
+check 'How to deliver' : False | context_message: '\n--- Output from Greet (A user-defined workflow agent) ---
+pipeline_complete {}
+greet (non-decision) 'How to deliver': False (must stay as it is: the block is right for a step whose answer is a file)
+
+===== admin's saved override bdf009f2 (the reported failure)
+dispatch order         : ['emoji', 'greet', 'check', 'greet', 'check', 'done']
+check 'How to deliver' : False | context_message: ''
+   check tool_call     : read_file {"file_path": "/greet-build-me-a-thing-for-managing-tasks.md"}
+check 'How to deliver' : False | context_message: ''
+   check tool_call     : read_file {"file_path": "/greet-build-me-a-thing-for-managing-tasks.md"}
+pipeline_complete {}
+greet (non-decision) 'How to deliver': True (must stay as it is: the block is right for a step whose answer is a file)
+
+===== ISS-1182: built-in edges with the Composer's default read+write grants (no override)
+dispatch order         : ['emoji', 'greet', 'check', 'greet', 'check', 'done']
+check 'How to deliver' : False | context_message: ''
+   check tool_call     : read_file {"file_path": "/greet-build-me-a-thing-for-managing-tasks.md"}
+check 'How to deliver' : False | context_message: ''
+   check tool_call     : read_file {"file_path": "/greet-build-me-a-thing-for-managing-tasks.md"}
+pipeline_complete {}
+greet (non-decision) 'How to deliver': True (must stay as it is: the block is right for a step whose answer is a file)
+
+## G. characterization goldens (INV-3), one file at a time, fixed tree vs HEAD copy (observed 2026-10-09 18:5x)
+fixed tests/contract/agents/test_characterization_app_builder.py         2 passed, 3 warnings in 7.35s
+HEAD  tests/contract/agents/test_characterization_app_builder.py         2 passed, 3 warnings in 7.34s
+fixed tests/contract/agents/test_characterization_ppt.py                 2 passed, 3 warnings in 3.31s
+HEAD  tests/contract/agents/test_characterization_ppt.py                 2 passed, 3 warnings in 3.84s
+fixed tests/contract/agents/test_characterization_prototype_feature_revision.py 4 passed, 5 warnings in 57.99s
+HEAD  tests/contract/agents/test_characterization_prototype_feature_revision.py 4 passed, 5 warnings in 57.21s
+fixed tests/contract/agents/test_characterization_prototype_large_revision.py 2 passed, 3 warnings in 29.13s
+HEAD  tests/contract/agents/test_characterization_prototype_large_revision.py 2 passed, 3 warnings in 30.03s
+fixed tests/contract/agents/test_characterization_prototype_revision.py  2 passed, 3 warnings in 8.25s
+HEAD  tests/contract/agents/test_characterization_prototype_revision.py  2 passed, 3 warnings in 7.82s
+fixed tests/contract/agents/test_characterization_prototype.py           2 passed, 3 warnings in 22.48s
+HEAD  tests/contract/agents/test_characterization_prototype.py           2 passed, 3 warnings in 23.52s

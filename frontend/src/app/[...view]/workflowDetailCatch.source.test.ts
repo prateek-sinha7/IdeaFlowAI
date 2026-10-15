@@ -75,15 +75,18 @@ describe("page.tsx /workflows/{id} read-view catch block (F7, FR-009)", () => {
     expect(t30Effect.split("setWorkflowDetailFailed(true);").length - 1).toBe(1);
   });
 
-  it("matches the exact narrowed pattern used at the run-detail and edit catch blocks (no drift)", () => {
+  it("keeps a floor of 5 catch blocks on the narrowed 403/404 pattern (a drop fails, a new site does not)", () => {
     const narrowedPattern =
       "if (err instanceof ApiError && (err.status === 403 || err.status === 404)) {";
-    // Present at: run-detail fetch (T24), /workflows/{id}/edit fetch (T8), and
-    // /workflows/{id} read-view fetch (T30) — three sites, until feat/bug-hunter
-    // brought two more fetches through the same narrowing. Five now.
-    // The pin only ever goes UP by inspection: a DROP means a catch block went
+    // A FLOOR, not an exact count (ISS-442). Five sites today: the
+    // /workflows/{type}/canvas seed fetch (FIX-368), run-detail fetch (T24),
+    // /workflows/{id}/edit fetch (T8), /workflows/{id} read-view fetch (T30)
+    // and /workflows/{id}/run fetch (ISS-380). A DROP means a catch block went
     // back to swallowing every error, which is the defect this file exists for.
+    // A new catch adopting the idiom must not turn this red: raise the floor
+    // when you add one so it is protected too, lower it only when a site is
+    // deliberately removed, never to turn a regression green.
     const occurrences = pageSource.split(narrowedPattern).length - 1;
-    expect(occurrences).toBe(5);
+    expect(occurrences).toBeGreaterThanOrEqual(5);
   });
 });

@@ -1,0 +1,27 @@
+import { defineConfig } from "vitest/config";
+import path from "path";
+
+const FE = "/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/frontend";
+const H = path.join(__dirname, "head");
+// Scratch-only: same as vitest.scratch.config.ts, but the four QA-KB-041 components resolve to their
+// PRE-FIX (git HEAD) copies, so a test can be run against the unfixed code without touching the tree.
+export default defineConfig({
+  root: __dirname,
+  resolve: {
+    alias: [
+      { find: "@/components/ui/NotificationPanel", replacement: path.join(H, "NotificationPanel.tsx") },
+      { find: "@/app/admin/page", replacement: path.join(H, "admin-page.tsx") },
+      { find: "@/components/history/RevisionFamilyView", replacement: path.join(H, "RevisionFamilyView.tsx") },
+      { find: "@/components/layout/AppHeader", replacement: path.join(H, "AppHeader.tsx") },
+      { find: "@", replacement: path.join(FE, "src") },
+    ],
+  },
+  server: { fs: { strict: false } },
+  test: {
+    environment: "jsdom",
+    globals: true,
+    setupFiles: [path.join(FE, "vitest.setup.ts")],
+    include: ["*.test.tsx"],
+    coverage: { enabled: false },
+  },
+});

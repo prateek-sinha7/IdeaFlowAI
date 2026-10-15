@@ -821,7 +821,7 @@ def _restore_env(tmp_path):
         User(
             id=user_id,
             email=f"restore-test-{_uuid.uuid4().hex[:8]}@example.com",
-            cognito_sub=f"sub-{user_id}",
+            cognito_sub=str(_uuid.uuid4()),
         )
     )
     db.add(

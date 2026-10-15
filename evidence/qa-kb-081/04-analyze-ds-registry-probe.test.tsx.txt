@@ -1,0 +1,208 @@
+/**
+ * QA-KB-081 / ISS-909 analyzer scratch probe (NOT part of the repo).
+ *
+ * Same module mocks as frontend/src/components/workflow/LaunchWizard.test.tsx
+ * (stepper stubbed so the render slots are visible; DesignSystemPicker stubbed to
+ * a single button), with the registry fetches made per-test.
+ *
+ * Every test whose name starts "EXPECTED:" asserts the behaviour BUGS.md asks for
+ * and is meant to FAIL at HEAD. The "CONTROL:" tests pass and show the neighbouring
+ * paths work, so the failures are about this defect and not about the harness.
+ */
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { render } from "@testing-library/react";
+import { renderWithProviders, screen, waitFor } from "@/test/renderWithProviders";
+import userEvent from "@testing-library/user-event";
+import { PROTO_AGENTS, PPT_AGENTS } from "@/components/workflow/__fixtures__/launchContract";
+import type { AgentDef } from "@/types/index";
+
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: vi.fn(), replace: vi.fn(), prefetch: vi.fn() }),
+}));
+vi.mock("@/lib/api", () => ({
+  getToken: () => "test-token",
+  getMe: vi.fn().mockResolvedValue({ id: "u1", email: "qa@flowinqa.com", tier: "enterprise" }),
+  extractFileText: vi.fn(),
+  stageRunFile: vi.fn(),
+  createUserWorkflow: vi.fn().mockResolvedValue({ id: "wf-1" }),
+  saveUserWorkflow: vi.fn().mockResolvedValue({ id: "wf-1" }),
+  handleSessionExpiry: vi.fn(),
+  getWorkflowDetail: vi.fn().mockResolvedValue({
+    id: "ppt", steps: [], manifest_steps: null, has_override: false, is_overridden: false, override_id: null,
+  }),
+  setWorkflowOverrideEnabled: vi.fn().mockResolvedValue({}),
+}));
+vi.mock("@/lib/prototype-api", () => ({
+  listPrototypeTemplates: vi.fn(),
+  listDesignSystems: vi.fn(),
+  getDesignSystem: vi.fn().mockResolvedValue({ id: "x", name: "x", body: "" }),
+}));
+vi.mock("@/lib/ppt-api", () => ({
+  listPPTTemplates: vi.fn(),
+}));
+vi.mock("@/hooks/useSpeechRecognition", () => ({
+  useSpeechRecognition: () => ({
+    isListening: false, transcript: "", startListening: vi.fn(), stopListening: vi.fn(), isSupported: false,
+  }),
+}));
+vi.mock("@/components/workflow/WizardStepper", () => ({
+  WizardStepper: (props: {
+    mode: "web" | "deck";
+    onDeckSelect: (id: string) => void;
+    steps?: string[];
+    dsSlot?: React.ReactNode;
+  }) => (
+    <div data-testid="stepper" data-mode={props.mode} data-steps={(props.steps ?? ["template", "design-system", "discovery"]).join(",")}>
+      <button data-testid="pick-deck" onClick={() => props.onDeckSelect("pitch")}>deckpick</button>
+      <div data-testid="ds-slot">{props.dsSlot}</div>
+    </div>
+  ),
+}));
+vi.mock("@/components/workflow/prototype/DesignSystemPicker", () => ({
+  DesignSystemPicker: ({ onSelect }: { onSelect: (id: string) => void }) => (
+    <button data-testid="pick-ds" onClick={() => onSelect("midnight")}>ds</button>
+  ),
+}));
+vi.mock("@/components/workflow/ReviewGatesSection", () => ({
+  ReviewGatesSection: () => <div data-testid="gates" />,
+}));
+vi.mock("@/components/workflow/AgentsPopup", () => ({
+  AgentsPopup: () => <div data-testid="agents-popup" />,
+}));
+vi.mock("@/components/catalog/NameWorkflowModal", () => ({
+  NameWorkflowModal: () => <div data-testid="save-modal" />,
+}));
+
+import { LaunchWizard } from "@/components/workflow/LaunchWizard";
+import { listDesignSystems, listPrototypeTemplates } from "@/lib/prototype-api";
+import { listPPTTemplates } from "@/lib/ppt-api";
+
+const agents = (): AgentDef[] =>
+  [...PROTO_AGENTS.map((id, i) => ({ id, name: id, role: "t", description: "t", pipeline_type: "prototype", order: i + 1, icon: "zap", estimated_duration: 60, has_skill: false })),
+   ...PPT_AGENTS.map((id, i) => ({ id, name: id, role: "t", description: "t", pipeline_type: "ppt", order: i + 1, icon: "zap", estimated_duration: 60, has_skill: false }))] as AgentDef[];
+
+const preloaded = () => ({
+  agents: { agents: agents(), totalCount: agents().length, pipelines: {}, status: "succeeded" as const, error: null },
+});
+
+const settle = () => new Promise((r) => setTimeout(r, 80));
+
+const TEMPLATES_OK = [{ id: "kanban", name: "Kanban", example_prompt: "Example brief" }];
+const DECKS_OK = [
+  { id: "pitch", name: "Pitch", design_system: { requires: true } },
+  { id: "onepager", name: "One Pager", design_system: { requires: false } },
+];
+
+beforeEach(() => {
+  sessionStorage.clear();
+  vi.mocked(listPrototypeTemplates).mockReset().mockResolvedValue(TEMPLATES_OK as never);
+  vi.mocked(listPPTTemplates).mockReset().mockResolvedValue(DECKS_OK as never);
+  vi.mocked(listDesignSystems).mockReset().mockResolvedValue([{ id: "midnight", name: "Midnight" }] as never);
+});
+
+describe("QA-KB-081 design-system step: loading vs failed vs empty", () => {
+  it("CONTROL: a loaded registry renders the picker and no skeleton", async () => {
+    renderWithProviders(<LaunchWizard initialMode="prototype" />, { preloadedState: preloaded() });
+    expect(await screen.findByTestId("pick-ds")).toBeInTheDocument();
+    expect(screen.getByTestId("ds-slot").querySelector(".animate-pulse")).toBeNull();
+  });
+
+  it("OBSERVE: while the fetch is still pending the skeleton is shown (this must survive any fix)", async () => {
+    vi.mocked(listDesignSystems).mockReturnValue(new Promise(() => {}) as never);
+    renderWithProviders(<LaunchWizard initialMode="prototype" />, { preloadedState: preloaded() });
+    await waitFor(() => expect(listDesignSystems).toHaveBeenCalled());
+    expect(screen.getByTestId("ds-slot").querySelector(".animate-pulse")).not.toBeNull();
+  });
+
+  it("EXPECTED: registry REJECTS -> an error is shown and the skeleton is gone", async () => {
+    vi.mocked(listDesignSystems).mockRejectedValue(new Error("500: boom"));
+    renderWithProviders(<LaunchWizard initialMode="prototype" />, { preloadedState: preloaded() });
+    await waitFor(() => expect(listDesignSystems).toHaveBeenCalled());
+    await settle();
+    const slot = screen.getByTestId("ds-slot");
+    // Report what is actually there before asserting, so the output is evidence.
+    console.log("[reject arm] ds-slot html:", slot.innerHTML);
+    expect(slot.querySelector(".animate-pulse")).toBeNull();
+    expect(slot.textContent ?? "").toMatch(/couldn.t|could not|failed|error|unavailable|retry/i);
+  });
+
+  it("EXPECTED: registry resolves [] -> an empty message is shown and the skeleton is gone", async () => {
+    vi.mocked(listDesignSystems).mockResolvedValue([] as never);
+    renderWithProviders(<LaunchWizard initialMode="prototype" />, { preloadedState: preloaded() });
+    await waitFor(() => expect(listDesignSystems).toHaveBeenCalled());
+    await settle();
+    const slot = screen.getByTestId("ds-slot");
+    console.log("[empty arm] ds-slot html:", slot.innerHTML);
+    expect(slot.querySelector(".animate-pulse")).toBeNull();
+    expect(slot.textContent ?? "").toMatch(/no design systems|none available|unavailable|empty/i);
+  });
+
+  it("OBSERVE: in the failed arm Continue stays disabled and the pill demands a design system", async () => {
+    vi.mocked(listDesignSystems).mockRejectedValue(new Error("500: boom"));
+    const user = userEvent.setup();
+    renderWithProviders(<LaunchWizard initialMode="prototype" />, { preloadedState: preloaded() });
+    await user.type(await screen.findByLabelText("Brief"), "Build a kanban board");
+    await settle();
+    expect(screen.getByRole("button", { name: "Continue" })).toBeDisabled();
+    expect(screen.getByText("Pick a design system")).toBeInTheDocument();
+  });
+
+  it("OBSERVE: the custom-design-system escape hatch is not reachable in the empty arm (picker is not mounted)", async () => {
+    vi.mocked(listDesignSystems).mockResolvedValue([] as never);
+    renderWithProviders(<LaunchWizard initialMode="prototype" />, { preloadedState: preloaded() });
+    await waitFor(() => expect(listDesignSystems).toHaveBeenCalled());
+    await settle();
+    expect(screen.queryByTestId("pick-ds")).toBeNull();
+    expect(screen.queryByRole("button", { name: /upload custom/i })).toBeNull();
+  });
+
+  it("CONTROL: the REAL DesignSystemPicker given systems=[] DOES offer 'Upload custom' (so the picker could stay mounted)", async () => {
+    const actual = await vi.importActual<typeof import("@/components/workflow/prototype/DesignSystemPicker")>(
+      "@/components/workflow/prototype/DesignSystemPicker",
+    );
+    render(<actual.DesignSystemPicker systems={[]} selectedId={null} onSelect={vi.fn()} onSelectCustom={vi.fn()} />);
+    expect(screen.getAllByRole("button", { name: /upload custom/i }).length).toBeGreaterThan(0);
+    expect(screen.getByText("0 design systems")).toBeInTheDocument();
+  });
+
+  it("OBSERVE (deck, post FIX-695): a DS-requiring deck template mounts the DS step and it is the same skeleton when the registry fails", async () => {
+    vi.mocked(listDesignSystems).mockRejectedValue(new Error("500: boom"));
+    const user = userEvent.setup();
+    renderWithProviders(<LaunchWizard initialMode="ppt" />, { preloadedState: preloaded() });
+    await waitFor(() => expect(listPPTTemplates).toHaveBeenCalled());
+    await user.click(await screen.findByTestId("pick-deck"));
+    await settle();
+    expect(screen.getByTestId("stepper").getAttribute("data-steps")).toBe("template,design-system");
+    expect(screen.getByTestId("ds-slot").querySelector(".animate-pulse")).not.toBeNull();
+    expect(screen.getByText("Pick a design system")).toBeInTheDocument();
+  });
+});
+
+describe("QA-KB-081 sibling: template registry failures in the same component", () => {
+  it("CONTROL: web template fetch failure shows the 'Couldn't load templates' banner", async () => {
+    vi.mocked(listPrototypeTemplates).mockRejectedValue(new Error("500: boom"));
+    renderWithProviders(<LaunchWizard initialMode="prototype" />, { preloadedState: preloaded() });
+    expect(await screen.findByText(/Couldn.t load templates: 500: boom/)).toBeInTheDocument();
+  });
+
+  it("EXPECTED: deck template fetch failure shows the same banner", async () => {
+    vi.mocked(listPPTTemplates).mockRejectedValue(new Error("500 boom"));
+    renderWithProviders(<LaunchWizard initialMode="ppt" />, { preloadedState: preloaded() });
+    await waitFor(() => expect(listPPTTemplates).toHaveBeenCalled());
+    await settle();
+    console.log("[deck template reject] page text mentions banner:", /Couldn.t load templates/.test(document.body.textContent ?? ""));
+    expect(screen.getByText(/Couldn.t load templates/)).toBeInTheDocument();
+  });
+});
+
+describe("QA-KB-081 test-harness facts for the test-writer", () => {
+  it("OBSERVE: call count of listDesignSystems per mount under the repo's next/navigation mock (fresh router object each render)", async () => {
+    vi.mocked(listDesignSystems).mockRejectedValue(new Error("500: boom"));
+    renderWithProviders(<LaunchWizard initialMode="prototype" />, { preloadedState: preloaded() });
+    await waitFor(() => expect(listDesignSystems).toHaveBeenCalled());
+    await settle();
+    console.log("[call count] listDesignSystems calls after one mount + settle:", vi.mocked(listDesignSystems).mock.calls.length);
+    console.log("[call count] listPrototypeTemplates calls:", vi.mocked(listPrototypeTemplates).mock.calls.length);
+    expect(vi.mocked(listDesignSystems).mock.calls.length).toBeGreaterThan(0);
+  });
+});

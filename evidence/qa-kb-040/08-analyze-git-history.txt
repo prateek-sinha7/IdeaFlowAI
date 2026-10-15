@@ -1,0 +1,37 @@
+# git facts behind the 'stale test, not an app regression' call (read-only git log/show; no git writes)
+
+## test file history (created 2026-09-04, touched once since, never for startedAt)
+a56c90506 2026-09-29 feat(runs-ui): model and token usage for waves, fan-outs and sub-agents
+1e329e47b 2026-09-04 feat(workflows): pdf_to_prototype wave build + stabilization pass
+
+## commit that added 'startedAt: prior?.startedAt ?? Date.now()' to upsertWaveWorker
+05b7bce54 2026-09-10 feat: mid-run ask_user clarification, wave-worker identity and UI, file-extract sharding, run-view and chat fixes
+
+## files that commit touched under frontend/src/hooks (the waveWorkers test is NOT among them)
+ frontend/src/hooks/useChatAttachments.ts |   9 +-
+ frontend/src/hooks/useRunStateStore.ts   |  58 ++++++-
+ frontend/src/hooks/useWorkflow.ts        | 277 ++++++++++++++++++++++++++++++-
+ 3 files changed, 330 insertions(+), 14 deletions(-)
+
+## that commit's own message lists the tests it ran (full 'Tests:' paragraph); useWorkflow.waveWorkers.test.ts is absent:
+Tests: test_fanout (27), test_fanout_parent_task_id (5), test_ask_user (30),
+test_extract_shards (13), test_file_extract_tools (76), test_image_payload_guard
+(17), test_tool_result_text (4), test_wave_scheduler (13), registry (106);
+vitest: AgentDetailPanel waveWorkers (4) + waveWorkerStatus (29),
+StepsOverviewSpine waveStepDone (4), JudgedContent (5), contentKind (13),
+InlineClarifyActions (18), PreviewPanel (19) + degraded, AgentThinkingTab (9),
+AdvancedExpander (11). Known: four pre-existing type errors inside
+AgentDetailPanel.waveWorkerStatus.test.tsx (tests pass at runtime).
+(occurrences of the string 'useWorkflow' in that paragraph: 0)
+
+## the hunk (added lines only) that introduced startedAt + the duration fallback
+89:+    // Start the clock on the FIRST event for this member, whatever it is — its
+91:+    startedAt: prior?.startedAt ?? Date.now(),
+101:+      ? (prior?.startedAt && Date.now() - prior.startedAt >= 1000
+102:+          ? Date.now() - prior.startedAt
+139:+    ? ({ taskId, status: "running", startedAt: Date.now() } as WaveWorkerEntry)
+
+## e7305f9dd (the 'Task message' label commit) is NOT an ancestor of 05b7bce54 (created the waveWorkerStatus test):
+no
+## contextIsFileBased present in AgentDetailPanel.tsx at 05b7bce54? (count)
+0

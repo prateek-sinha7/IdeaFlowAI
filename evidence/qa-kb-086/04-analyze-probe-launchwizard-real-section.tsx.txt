@@ -1,0 +1,217 @@
+/**
+ * LaunchWizard (plan 37-07) — the unified prototype+ppt launch page.
+ *
+ * Proves (1) the REAL component's launch hand-off is byte-identical to the
+ * frozen golden fixtures per mode (a component-level parity proof on top of the
+ * lib-level launchDraft.parity gate), and (2) the ported behaviors: brief,
+ * blank-canvas, example-prompt, review gates, out-of-band images, save-workflow,
+ * draft restore, discovery, and the Web/Deck deliverable-mode toggle (SC-001).
+ *
+ * The WizardStepper chrome is stubbed to expose its render-slots + selection
+ * callbacks directly (the stepper's own chrome/a11y is covered by
+ * WizardStepper.test.tsx); the heavy pickers are stubbed at the module boundary.
+ */
+
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import fs from "node:fs";
+import { renderWithProviders, screen, waitFor } from "@/test/renderWithProviders";
+import userEvent from "@testing-library/user-event";
+import { act } from "@testing-library/react";
+import { DRAFT_SCENARIOS, PROTO_AGENTS, PPT_AGENTS } from "@/components/workflow/__fixtures__/launchContract";
+import { buildLaunchDraft } from "@/lib/launchDraft";
+import type { AgentDef } from "@/types/index";
+
+const pushMock = vi.fn();
+const createUserWorkflowMock = vi.fn().mockResolvedValue({ id: "wf-1" });
+// AgentsPopup (rendered by LaunchWizard, always mounted) imports saveUserWorkflow
+// from the same mocked module for its own footer save button — stubbed here so
+// it doesn't resolve to undefined if a test ever exercises that button.
+const saveUserWorkflowMock = vi.fn().mockResolvedValue({ id: "wf-1" });
+const extractFileTextMock = vi.fn();
+const stageRunFileMock = vi.fn();
+
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: pushMock, replace: vi.fn(), prefetch: vi.fn() }),
+}));
+vi.mock("@/lib/api", () => ({
+  getToken: () => "test-token",
+  // ISS-321 — the wizard now reads the signed-in tier to gate an
+  // unentitled launch. Entitled here, so every assertion below stays on
+  // the un-gated path these tests were written for.
+  getMe: vi.fn().mockResolvedValue({ id: "u1", email: "qa@flowinqa.com", tier: "enterprise" }),
+  extractFileText: (...args: unknown[]) => extractFileTextMock(...args),
+  stageRunFile: (...args: unknown[]) => stageRunFileMock(...args),
+  createUserWorkflow: (...args: unknown[]) => createUserWorkflowMock(...args),
+  saveUserWorkflow: (...args: unknown[]) => saveUserWorkflowMock(...args),
+  // Spec 016 — the wizard asks whether THIS user has saved an override of the
+  // built-in. Answering "no override" keeps every assertion in this file on the
+  // un-overridden path, which is the point: they pin the existing behaviour as
+  // unchanged for a user who has not opted in.
+  getWorkflowDetail: vi.fn().mockResolvedValue({
+    id: "ppt",
+    steps: [],
+    manifest_steps: null,
+    has_override: false,
+    is_overridden: false,
+    override_id: null,
+  }),
+  setWorkflowOverrideEnabled: vi.fn().mockResolvedValue({}),
+}));
+vi.mock("@/lib/prototype-api", () => ({
+  listPrototypeTemplates: vi.fn().mockResolvedValue([
+    { id: "kanban", name: "Kanban", example_prompt: "Example brief" },
+  ]),
+  listDesignSystems: vi.fn().mockResolvedValue([{ id: "midnight", name: "Midnight" }]),
+}));
+vi.mock("@/lib/ppt-api", () => ({
+  listPPTTemplates: vi.fn().mockResolvedValue([
+    { id: "pitch", name: "Pitch", design_system: { requires: true } },
+    { id: "onepager", name: "One Pager", design_system: { requires: false } },
+  ]),
+}));
+vi.mock("@/hooks/useSpeechRecognition", () => ({
+  useSpeechRecognition: () => ({
+    isListening: false, transcript: "", startListening: vi.fn(), stopListening: vi.fn(), isSupported: false,
+  }),
+}));
+
+// Stub the stepper chrome: expose the render-slots + template/toggle callbacks.
+vi.mock("@/components/workflow/WizardStepper", () => ({
+  WizardStepper: (props: {
+    mode: "web" | "deck";
+    onModeChange: (m: "web" | "deck") => void;
+    onWebSelect: (id: string | null) => void;
+    onWebSelectCustomTemplate?: (ct: { id: string; name: string; body: string } | null) => void;
+    onDeckSelect: (id: string) => void;
+    onDeckSelectCustomTemplate?: (ct: { id: string; name: string; body: string } | null) => void;
+    steps?: string[];
+    dsSlot?: React.ReactNode;
+    discoverySlot?: React.ReactNode;
+  }) => (
+    // data-steps exposes the `steps` prop the real stepper uses to decide which
+    // tabs (and so which slots) it mounts; ds-slot is still always rendered here
+    // so the older tests that pick a DS keep their shape.
+    <div data-testid="stepper" data-mode={props.mode} data-steps={(props.steps ?? ["template", "design-system", "discovery"]).join(",")}>
+      <button data-testid="toggle-web" onClick={() => props.onModeChange("web")}>web</button>
+      <button data-testid="toggle-deck" onClick={() => props.onModeChange("deck")}>deck</button>
+      <button data-testid="pick-web" onClick={() => props.onWebSelect("kanban")}>webpick</button>
+      <button data-testid="pick-web-blank" onClick={() => props.onWebSelect(null)}>webblank</button>
+      <button
+        data-testid="pick-web-custom"
+        onClick={() => props.onWebSelectCustomTemplate?.({ id: "ct1", name: "c", body: "<html>custom</html>" })}
+      >webcustom</button>
+      <button data-testid="pick-deck" onClick={() => props.onDeckSelect("pitch")}>deckpick</button>
+      <button data-testid="pick-deck-onepager" onClick={() => props.onDeckSelect("onepager")}>deckone</button>
+      <button
+        data-testid="pick-deck-custom"
+        onClick={() => props.onDeckSelectCustomTemplate?.({ id: "ct1", name: "c", body: "<html>custom</html>" })}
+      >deckcustom</button>
+      <div data-testid="ds-slot">{props.dsSlot}</div>
+      <div data-testid="discovery-slot">{props.discoverySlot}</div>
+    </div>
+  ),
+}));
+vi.mock("@/components/workflow/prototype/DesignSystemPicker", () => ({
+  DesignSystemPicker: ({ onSelect }: { onSelect: (id: string) => void }) => (
+    <button data-testid="pick-ds" onClick={() => onSelect("midnight")}>ds</button>
+  ),
+}));
+vi.mock("@/components/workflow/AgentsPopup", () => ({
+  AgentsPopup: ({ pipelineType }: { pipelineType: string }) => (
+    <div data-testid="agents-pipeline">{pipelineType}</div>
+  ),
+}));
+vi.mock("@/components/catalog/NameWorkflowModal", () => ({
+  NameWorkflowModal: ({ title, onSave }: { title: string; onSave: (n: string, d: string) => void }) => (
+    <div data-testid="save-modal">
+      <p data-testid="save-modal-title">{title}</p>
+      <button data-testid="confirm-save" onClick={() => onSave("My WF", "desc")}>save</button>
+    </div>
+  ),
+}));
+
+import { LaunchWizard } from "@/components/workflow/LaunchWizard";
+
+const golden = (name: string) => {
+  const s = DRAFT_SCENARIOS.find((x) => x.name === name);
+  if (!s) throw new Error(`missing scenario ${name}`);
+  return s.expected;
+};
+
+/**
+ * The golden draft as the WIZARD writes it today.
+ *
+ * FIX-323 made the wizard always send `gate_agent_ids` (`touched: true` from
+ * mount), so an empty selection reaches the backend as an explicit "no gates"
+ * instead of an absent field it would fill from its own defaults. The frozen
+ * fixtures in `launchContract.ts` model the RETIRED route-split flow, where the
+ * field was omitted while untouched — they are the oracle
+ * `launchDraft.parity.test.ts` pins `buildLaunchDraft` against byte-for-byte, so
+ * they must NOT be edited to chase the component.
+ *
+ * Instead, re-serialize the scenario's own inputs through that same
+ * independently-pinned builder with the one field FIX-323 adds. The chain stays
+ * honest: builder ≡ frozen oracle (parity suite), component ≡ builder + FIX-323
+ * (here).
+ */
+const goldenAsWizardWrites = (name: string) => {
+  const s = DRAFT_SCENARIOS.find((x) => x.name === name);
+  if (!s) throw new Error(`missing scenario ${name}`);
+  return buildLaunchDraft(s.mode, { ...s.inputs, gatesTouched: true, gateAgentIds: [] }).draftJson;
+};
+
+// Create test agents matching the expected library
+const createTestAgents = (): AgentDef[] => {
+  const protoAgents: AgentDef[] = PROTO_AGENTS.map((id, idx) => ({
+    id,
+    name: id,
+    role: "Test Agent",
+    description: "Test description",
+    pipeline_type: "prototype",
+    order: idx + 1,
+    icon: "zap",
+    estimated_duration: 60,
+    has_skill: false,
+  }));
+  const pptAgents: AgentDef[] = PPT_AGENTS.map((id, idx) => ({
+    id,
+    name: id,
+    role: "Test Agent",
+    description: "Test description",
+    pipeline_type: "ppt",
+    order: idx + 1,
+    icon: "zap",
+    estimated_duration: 60,
+    has_skill: false,
+  }));
+  return [...protoAgents, ...pptAgents];
+};
+
+beforeEach(() => {
+  sessionStorage.clear();
+  pushMock.mockClear();
+  createUserWorkflowMock.mockClear();
+  saveUserWorkflowMock.mockClear();
+  extractFileTextMock.mockReset();
+  stageRunFileMock.mockReset();
+});
+
+
+describe("PROBE real ReviewGatesSection inside LaunchWizard", () => {
+  it("untouched prototype launch: does the draft carry gateAgentIds?", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<LaunchWizard initialMode="prototype" />, {
+      preloadedState: { agents: { agents: createTestAgents(), totalCount: createTestAgents().length, pipelines: {}, status: "succeeded" as const, error: null } },
+    });
+    await user.type(await screen.findByLabelText("Brief"), "Build a kanban board");
+    await user.click(screen.getByTestId("pick-web"));
+    await user.click(await screen.findByTestId("pick-ds"));
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+    const raw = sessionStorage.getItem("prototype.draft") ?? "__no_draft__";
+    let has = "n/a", val = "n/a";
+    try { const d = JSON.parse(raw); has = String("gateAgentIds" in d); val = JSON.stringify(d.gateAgentIds ?? "__absent__"); } catch {}
+    const golden = goldenAsWizardWrites("prototype · base (template + ds + brief)");
+    fs.appendFileSync("<SCRATCH>/out2.txt", "RAW_DRAFT=" + raw + "\nGOLDEN_AS_WIZARD_WRITES=" + golden + "\n");
+    fs.appendFileSync("<SCRATCH>/out.txt", "PROBE_WIZARD_untouched hasGateAgentIds=" + has + " value=" + val + " equalsGoldenAsWizardWrites=" + String(raw === golden) + "\n");
+  });
+});

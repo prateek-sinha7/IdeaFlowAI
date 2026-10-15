@@ -1,0 +1,44 @@
+# QA-KB-048 5-fixer, 2026-10-02 — sibling suites, one file per vitest process, BEFORE the edit and AFTER the final code (identical)
+# cmd: cd frontend && ./node_modules/.bin/vitest --run <file>
+src/components/workflow/LaunchWizard.test.tsx                 before: 2 failed | 25 passed (27)   after: 2 failed | 25 passed (27)
+    the 2 reds were red before this edit on the same tree (and are FIX-701's recorded baseline), not this bug:
+    "WR-07: chaining launch threads sourceRunId and clears the key ..." and
+    "a genuine chain (chain.from + chain.source_run_id -> isChaining=true) still threads the source id and clears the key"
+src/components/workflow/LaunchWizard.chain.test.tsx           before: 3 expected fail (3)          after: 3 expected fail (3)   (QA-KB-062's it.fails, untouched)
+src/components/workflow/LaunchWizard.iss837.test.tsx          before: 1 passed (1)                 after: 1 passed (1)
+src/components/workflow/LaunchWizard.saveRace.iss284.test.tsx before: 4 passed (4)                 after: 4 passed (4)
+src/components/workflow/mergePlanWithLibrary.test.ts          before: 3 passed (3)                 after: 3 passed (3)
+src/components/workflow/overrideAgentPool.source.test.ts      before: 10 passed (10)               after: 10 passed (10)
+src/lib/launchDraft.parity.test.ts                            before: 16 passed (16)               after: 16 passed (16)
+
+# backend (no backend file changed): cd backend && .venv/bin/python -m pytest tests/integration/agents/test_saved_subset_roster_iss966.py -q
+XFAIL tests/integration/agents/test_saved_subset_roster_iss966.py::test_strict_subset_roster_runs_as_subset - ISS-966 unfixed
+1 xfailed, 1 warning in 1.23s      (ISS-966 is an owner decision, deliberately not fixed here)
+
+# eslint -f json src/components/workflow/LaunchWizard.tsx — before: 11 findings, after: 10 (no new finding; the completion
+# effect's set-state-in-effect report no longer fires; every other finding is the same rule and message, lines shifted)
+## before
+280 @typescript-eslint/no-unused-vars 'setChainContextBlock' is assigned a value but never used. Allowed unused elements of arra
+375 react-hooks/set-state-in-effect Error: Calling setState synchronously within an effect can trigger cascading renders
+408 react-hooks/set-state-in-effect Error: Calling setState synchronously within an effect can trigger cascading renders
+471 react-hooks/set-state-in-effect Error: Calling setState synchronously within an effect can trigger cascading renders
+483 react-hooks/set-state-in-effect Error: Calling setState synchronously within an effect can trigger cascading renders
+508 react-hooks/set-state-in-effect Error: Calling setState synchronously within an effect can trigger cascading renders
+688 react-hooks/exhaustive-deps React Hook useEffect has a missing dependency: 'mode'. Either include it or remove the dep
+734 react-hooks/exhaustive-deps React Hook useCallback has a missing dependency: 'webMode'. Either include it or remove th
+902 react-hooks/exhaustive-deps React Hook useMemo has a missing dependency: 'isWeb'. Either include it or remove the depe
+1054 react-hooks/exhaustive-deps React Hook useCallback has a missing dependency: 'isWeb'. Either include it or remove the 
+1494 react-hooks/refs Error: Cannot access refs during render
+## after
+280 @typescript-eslint/no-unused-vars 'setChainContextBlock' is assigned a value but never used. Allowed unused elements of arra
+378 react-hooks/set-state-in-effect Error: Calling setState synchronously within an effect can trigger cascading renders
+411 react-hooks/set-state-in-effect Error: Calling setState synchronously within an effect can trigger cascading renders
+482 react-hooks/set-state-in-effect Error: Calling setState synchronously within an effect can trigger cascading renders
+521 react-hooks/set-state-in-effect Error: Calling setState synchronously within an effect can trigger cascading renders
+701 react-hooks/exhaustive-deps React Hook useEffect has a missing dependency: 'mode'. Either include it or remove the dep
+749 react-hooks/exhaustive-deps React Hook useCallback has a missing dependency: 'webMode'. Either include it or remove th
+917 react-hooks/exhaustive-deps React Hook useMemo has a missing dependency: 'isWeb'. Either include it or remove the depe
+1069 react-hooks/exhaustive-deps React Hook useCallback has a missing dependency: 'isWeb'. Either include it or remove the 
+1509 react-hooks/refs Error: Cannot access refs during render
+
+# tsc --noEmit -p tsconfig.json — 15 errors project-wide, all in 8 unrelated test files; 0 in LaunchWizard.tsx

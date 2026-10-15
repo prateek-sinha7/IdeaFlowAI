@@ -1,0 +1,13 @@
+# QA-KB-063 5-fixer, 2026-10-07, BEFORE the fix (tail of the observed output)
+# cd tests/integration/e2e && .venv/bin/python -m pytest "suites/18_chat_lane/test_chat_lane.py::test_the_clarification_exchange_is_not_duplicated" --run-name qa-kb-063-fix-before-s18-08 -p no:cacheprovider
+>       assert asks > 1 and answered > 1, (
+            f"the exchange no longer repeats ({asks} asks, {answered} answers) — "
+            "D-21 is fixed; rewrite this as the spec's S-18-08"
+        )
+E       AssertionError: the exchange no longer repeats (4 asks, 0 answers) — D-21 is fixed; rewrite this as the spec's S-18-08
+E       assert (4 > 1 and 0 > 1)
+
+suites/18_chat_lane/test_chat_lane.py:297: AssertionError
+=========================== short test summary info ============================
+FAILED suites/18_chat_lane/test_chat_lane.py::test_the_clarification_exchange_is_not_duplicated[chromium]
+1 failed in 43.51s

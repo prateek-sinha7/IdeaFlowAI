@@ -1,0 +1,198 @@
+diff --git a/backend/app/api/run_commands.py b/backend/app/api/run_commands.py
+index 081c38144..62dd7149d 100644
+--- a/backend/app/api/run_commands.py
++++ b/backend/app/api/run_commands.py
+@@ -98,6 +98,7 @@ from app.api.run_engine import (
+     _review_gate_owned_by,
+     _review_gate_run_is_terminal,
+     _revalidate_selections_trust_user,
++    _trigger_entitlement_error,
+     _validate_images,
+     _validate_model_overrides,
+ )
+@@ -698,6 +699,14 @@ async def resume_run_endpoint(
+         # must deny exactly as a fresh launch would — never a way to route around
+         # the launch-time gate.
+         _require_tier_entitlement(current_user, principal, wr.type)
++        # ISS-1131: and the persisted manifest's trigger targets, as launch checks them.
++        _trigger_error = _trigger_entitlement_error(
++            effective_tier(current_user, principal), wr.manifest_json
++        )
++        if _trigger_error is not None:
++            raise _reject(
++                "tier_not_entitled", _trigger_error[1], http_status=_trigger_error[0]
++            )
+ 
+         # specs/014: resume re-drives new agent work exactly like a fresh launch —
+         # gated at the same point, same as the tier check immediately above.
+@@ -3763,6 +3772,16 @@ async def launch_run(
+             _model_error[1],
+             http_status=_model_error[0],
+         )
++    # ISS-1131: the same manifest's `trigger: workflow` targets, which the run would
++    # mint mid-run with no tier in scope. Covers a row saved before the gate existed
++    # and an owner downgraded since.
++    _trigger_error = _trigger_entitlement_error(
++        caller_tier, persisted_manifest or {"steps": _ov_steps}
++    )
++    if _trigger_error is not None:
++        raise _reject(
++            "tier_not_entitled", _trigger_error[1], http_status=_trigger_error[0]
++        )
+     # ISS-936: the run's session model is the stored preference only while this
+     # tier may still select it.
+     run_user = _entitled_user(current_user, caller_tier)
+diff --git a/backend/app/api/run_engine.py b/backend/app/api/run_engine.py
+index a329f42fa..21c677864 100644
+--- a/backend/app/api/run_engine.py
++++ b/backend/app/api/run_engine.py
+@@ -671,6 +671,47 @@ def _model_entitlement_error(
+     return None
+ 
+ 
++def _trigger_entitlement_error(tier: str, manifest: Any) -> tuple[int, str] | None:
++    """The tier gate for every pipeline a manifest's conditional gates can start (ISS-1131).
++
++    A ``route.outcomes`` entry with ``trigger: workflow`` names a workflow that
++    ``run_trigger_workflow`` mints mid-run, where no principal (so no tier) is in
++    scope. The target is a static string, so it is checked here instead, at each
++    door where the manifest arrives with a principal: create, PATCH and
++    sync-from-file before storing, launch and resume before driving. A target the
++    trigger resolves as a file pipeline (``_is_file_backed_workflow``, the same
++    predicate) must be one ``tier`` may run, else ``(403, reason)``; ``self`` and a
++    saved ``user_workflow_id`` are not pipeline names and pass. Walked like
++    ``_model_entitlement_error``: the compiler flattens ``subagents`` children into
++    the plan, so a nested route fires like a top-level one. ``None`` when all pass.
++    """
++    from agents.execution_engine.kernel_services import _is_file_backed_workflow
++    from app.core.entitlements import can_run_pipeline
++
++    targets: list = []
++
++    def _walk(node: Any) -> None:
++        if not isinstance(node, dict):
++            return
++        route = node.get("route")
++        outcomes = route.get("outcomes") if isinstance(route, dict) else None
++        for outcome in outcomes.values() if isinstance(outcomes, dict) else []:
++            if isinstance(outcome, dict) and outcome.get("trigger") == "workflow":
++                targets.append(outcome.get("target"))
++        steps = node.get("steps")
++        for step in steps if isinstance(steps, list) else []:
++            _walk(step)
++        _walk(node.get("subagents"))
++
++    _walk(manifest)
++    for target in targets:
++        if isinstance(target, str) and _is_file_backed_workflow(target):
++            allowed, reason = can_run_pipeline(tier, target)
++            if not allowed:
++                return 403, f"conditional gate triggers {target!r}: {reason}"
++    return None
++
++
+ def _validate_images(
+     images: Any, *, effective_model_ids: set[str] | None = None
+ ) -> str | None:
+diff --git a/backend/app/api/user_workflows.py b/backend/app/api/user_workflows.py
+index f46cb3d80..fadb7fdc3 100644
+--- a/backend/app/api/user_workflows.py
++++ b/backend/app/api/user_workflows.py
+@@ -45,7 +45,11 @@ from fastapi import APIRouter, Depends, HTTPException, Response, status
+ from pydantic import BaseModel, Field, field_validator, model_validator
+ from sqlalchemy.orm import Session
+ 
+-from app.api.run_engine import _model_entitlement_error, _own_plan_roster
++from app.api.run_engine import (
++    _model_entitlement_error,
++    _own_plan_roster,
++    _trigger_entitlement_error,
++)
+ from app.core.dependencies import get_current_principal, get_current_user
+ from app.core.entitlements import can_run_pipeline
+ from app.core.identity import Principal, effective_tier
+@@ -794,6 +798,13 @@ def create_user_workflow(
+     if model_error:
+         raise HTTPException(status_code=model_error[0], detail=model_error[1])
+ 
++    # ISS-1131: and every pipeline the manifest's conditional gates can trigger.
++    trigger_error = _trigger_entitlement_error(
++        effective_tier(current_user, principal), body.manifest
++    )
++    if trigger_error:
++        raise HTTPException(status_code=trigger_error[0], detail=trigger_error[1])
++
+     # CWF-001 D1: order-independent produces/consumes satisfiability check +
+     # producer-first pre-sort (via the app-layer helper — this module honors its
+     # "MUST NOT import agents.execution_engine" convention by going through
+@@ -1006,6 +1017,13 @@ def update_user_workflow(
+     if model_error:
+         raise HTTPException(status_code=model_error[0], detail=model_error[1])
+ 
++    # ISS-1131: the trigger gate as create, on the manifest this PATCH would store.
++    trigger_error = _trigger_entitlement_error(
++        effective_tier(current_user, principal), body.manifest
++    )
++    if trigger_error:
++        raise HTTPException(status_code=trigger_error[0], detail=trigger_error[1])
++
+     if body.name is not None and body.name != row.name:
+         dup = (
+             db.query(WorkflowDefinition)
+@@ -1096,7 +1114,8 @@ def delete_user_workflow(
+ def sync_user_workflow_from_file(
+     workflow_id: str,
+     body: SyncFromFileRequest,
+-    current_user: User = Depends(get_current_user),
++    # get_current_principal, as create: the entitlement gate below reads the EFFECTIVE tier.
++    auth: tuple[User, Principal] = Depends(get_current_principal),
+     db: Session = Depends(get_db),
+ ):
+     """Overwrite this row's ``manifest_json`` with its source ``workflow.yaml``, verbatim.
+@@ -1110,10 +1129,13 @@ def sync_user_workflow_from_file(
+     offline sync (``_load_file_manifest_dict`` / ``_diff_manifest_dicts``), so an operator
+     and this endpoint can never disagree about what "matches the file" means.
+ 
+-    Cross-owner / missing row → 404 (IDOR→404, ``_owned``). Only a ``pipeline_type`` in
+-    ``SUPPORTED_PIPELINE_TYPES`` with an actual ``workflow.yaml`` on disk is syncable —
+-    anything else is a 422 naming the reason.
++    Cross-owner / missing row → 404 (IDOR→404, ``_owned``). A ``pipeline_type`` the
++    caller's effective tier may not run is a 403, as create refuses such a base
++    (ISS-1117), and so is a file whose conditional gates trigger one (ISS-1131). Only a
++    ``pipeline_type`` in ``SUPPORTED_PIPELINE_TYPES`` with an actual ``workflow.yaml``
++    on disk is syncable — anything else is a 422 naming the reason.
+     """
++    current_user, principal = auth
+     from agents.loader import SUPPORTED_PIPELINE_TYPES
+     from agents.workflows.manifest import ManifestValidationError
+ 
+@@ -1123,6 +1145,15 @@ def sync_user_workflow_from_file(
+             detail=f"Unknown pipeline_type: {body.pipeline_type!r}",
+         )
+ 
++    # ISS-1117: a stored copy launches under the row's own base type, so copying a
++    # pipeline the tier may not run is running it. Create's gate, before the row or
++    # the file is read.
++    allowed, reason = can_run_pipeline(
++        effective_tier(current_user, principal), body.pipeline_type
++    )
++    if not allowed:
++        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=reason)
++
+     row = _owned(db, workflow_id, current_user)
+ 
+     try:
+@@ -1133,6 +1164,13 @@ def sync_user_workflow_from_file(
+             detail=f"No usable file manifest for pipeline_type {body.pipeline_type!r}: {exc}",
+         ) from exc
+ 
++    # ISS-1131: and every pipeline the file's conditional gates can trigger.
++    trigger_error = _trigger_entitlement_error(
++        effective_tier(current_user, principal), new_manifest
++    )
++    if trigger_error:
++        raise HTTPException(status_code=trigger_error[0], detail=trigger_error[1])
++
+     # ISS-1112: syncing into an override row stores steps the merge will compile at
+     # trust="user", so they must pass that check here (steps only: the file's own
+     # workflow-level fields are never read off an override row).

@@ -1,0 +1,43 @@
+/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/.venv/lib/python3.13/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+  from starlette.testclient import TestClient as TestClient  # noqa
+09:30:47  main        LangSmith tracing disabled
+09:30:47  main        CORS allow_origins=['http://localhost:3000', 'http://localhost:3001', 'http://127.0.0.1:3000'] (env=development)
+== A. /login/challenge : AdminRespondToAuthChallenge (signed op)
+TokenRetrievalError (expired SSO)                              status=500 ACAO=None                       body='Internal Server Error'
+09:30:47  api         ERROR Cognito AdminRespondToAuthChallenge failed: InternalErrorException  2a94336e
+control: ClientError InternalErrorException                    status=503 ACAO='http://localhost:3000'    body='{"detail":"Authentication service unavailable"}'
+== B. /refresh : AdminInitiateAuth REFRESH_TOKEN_AUTH (signed op)
+TokenRetrievalError (expired SSO)                              status=500 ACAO=None                       body='Internal Server Error'
+09:30:47  api         ERROR Cognito REFRESH_TOKEN_AUTH failed: InternalErrorException  84f81ac3
+control: ClientError InternalErrorException                    status=503 ACAO='http://localhost:3000'    body='{"detail":"Authentication service unavailable"}'
+== C. MFA writes : apply_mfa_preference pre-reads AdminGetUser (signed op)
+POST /mfa/totp/verify   TokenRetrievalError                    status=500 ACAO=None                       body='Internal Server Error'
+09:30:47  api         ERROR Cognito VerifySoftwareToken failed: InternalErrorException  47c33cbe
+POST /mfa/totp/verify   control ClientError                    status=503 ACAO='http://localhost:3000'    body='{"detail":"Authentication service unavailable"}'
+POST /mfa/email/enable  TokenRetrievalError                    status=500 ACAO=None                       body='Internal Server Error'
+09:30:47  api         ERROR Cognito SetUserMFAPreference (email on) failed: InternalErrorException  d62ae80f
+POST /mfa/email/enable  control ClientError                    status=503 ACAO='http://localhost:3000'    body='{"detail":"Authentication service unavailable"}'
+POST /mfa/email/disable TokenRetrievalError                    status=500 ACAO=None                       body='Internal Server Error'
+09:30:47  api         ERROR Cognito SetUserMFAPreference (email off) failed: InternalErrorException  8ad33425
+POST /mfa/email/disable control ClientError                    status=503 ACAO='http://localhost:3000'    body='{"detail":"Authentication service unavailable"}'
+09:30:47  api         WARN  Could not read MFA factors for u-probe: Error when retrieving token from sso: Token has expired and refresh failed  8f174c3f
+GET  /mfa (already `except Exception`) TokenRetrievalError     status=200 ACAO='http://localhost:3000'    body='{"enabled":false,"factors":[],"email_available":false,"totp_available"'
+== D. network-only endpoints (unsigned ops): EndpointConnectionError
+POST /forgot-password         EndpointConnectionError          status=500 ACAO=None                       body='Internal Server Error'
+09:30:47  api         ERROR Cognito ForgotPassword failed: InternalErrorException  b27f6047
+POST /forgot-password         control ClientError              status=202 ACAO='http://localhost:3000'    body='{"message":"If that account exists, a reset code has been sent."}'
+POST /forgot-password/confirm EndpointConnectionError          status=500 ACAO=None                       body='Internal Server Error'
+POST /change-password         EndpointConnectionError          status=500 ACAO=None                       body='Internal Server Error'
+09:30:47  api         ERROR Cognito ChangePassword failed: InternalErrorException  48b7d0b6
+POST /change-password         control ClientError              status=503 ACAO='http://localhost:3000'    body='{"detail":"Authentication service unavailable"}'
+POST /mfa/totp/associate      EndpointConnectionError          status=500 ACAO=None                       body='Internal Server Error'
+== E. admin lifecycle layer (core/cognito_admin.py): which exception reaches the route layer?
+is_last_admin       (TokenRetrievalError)                      raised botocore.exceptions.TokenRetrievalError
+change_tier         (TokenRetrievalError)                      raised botocore.exceptions.TokenRetrievalError
+09:30:47  cognito_ad  ERROR Group lookup failed for probe@example.com during tier change: InternalErrorException
+change_tier         control (ClientError)                      raised app.core.cognito_admin.ProviderUnavailableError
+invite_user         (TokenRetrievalError)                      raised botocore.exceptions.TokenRetrievalError
+09:30:47  cognito_ad  ERROR AdminCreateUser failed for new@example.com: InternalErrorException
+invite_user         control (ClientError)                      raised app.core.cognito_admin.ProviderUnavailableError
+disable_user        (TokenRetrievalError)                      raised botocore.exceptions.TokenRetrievalError
+api/admin.py::_raise_for(TokenRetrievalError)                  re-raised TokenRetrievalError UNCHANGED (docstring: 'never swallows or reshapes')

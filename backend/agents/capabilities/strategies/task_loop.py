@@ -156,6 +156,13 @@ class TaskLoopStrategy:
 
     name = "task_loop"
 
+    # ISS-132: ``run`` DOES call ``ctx.runner.run_agent`` for the step's own agent,
+    # but every per-task call passes ``invocation_gated=False`` (ff37f777a), so the
+    # inline review gate never opens for this step. Declared ``False`` so the
+    # step-boundary dedupe runs the step's declared ``gates:[human]`` /
+    # ``before-human`` gate instead of skipping it for an inline gate that never fires.
+    runs_agent_inline = False
+
     def __init__(self) -> None:
         # Module-level singleton registry (capabilities are stateless) — used to
         # resolve the task parser + the task-2+ compaction by NAME (D-02).
@@ -210,12 +217,9 @@ class TaskLoopStrategy:
         parser = self._registry.resolve("task_parser", parser_name)
         target = getattr(task_source_decl, "target", None) if task_source_decl else None
         sandbox = getattr(runner, "sandbox", None)
-        if hasattr(parser, "parse_preferring_target"):
-            tasks = parser.parse_preferring_target(
-                plan_output, sandbox=sandbox, target=target
-            )
-        else:
-            tasks = parser.parse(plan_output)
+        tasks = task_identity.parse_step_tasks(
+            parser, plan_output, sandbox=sandbox, target=target
+        )
 
         # A count of 0 means the planner did NOT emit a task plan — run one
         # fallback pass with an empty task block (byte-identical to the engine).

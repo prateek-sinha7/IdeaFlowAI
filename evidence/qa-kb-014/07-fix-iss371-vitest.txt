@@ -1,0 +1,17 @@
+# cwd frontend/, HEAD 024c03ef8 + uncommitted tree, 2026-10-02 00:36 CEST
+$ vitest --run src/components/workflow/IdeaInputPage.iss371.test.tsx
+ RUN  v4.1.11 /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/frontend
+ ❯ src/components/workflow/IdeaInputPage.iss371.test.tsx (3 tests | 3 failed) 210ms
+     × reports dirty after a brief is typed 167ms
+     × is not dirty after the async roster re-seed alone, and clears when the brief is emptied 38ms
+     × DashboardLayout feeds the IdeaInputPage mount into the guard (Back with dirty state prompts) 3ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+ FAIL  src/components/workflow/IdeaInputPage.iss371.test.tsx > ISS-371 — IdeaInputPage reports unsaved work to the Back guard > reports dirty after a brief is typed
+ FAIL  src/components/workflow/IdeaInputPage.iss371.test.tsx > ISS-371 — IdeaInputPage reports unsaved work to the Back guard > is not dirty after the async roster re-seed alone, and clears when the brief is emptied
+ FAIL  src/components/workflow/IdeaInputPage.iss371.test.tsx > ISS-371 — IdeaInputPage reports unsaved work to the Back guard > DashboardLayout feeds the IdeaInputPage mount into the guard (Back with dirty state prompts)
+Error: Expect test to fail
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/3]⎯
+ Test Files  1 failed (1)
+      Tests  3 failed (3)
+   Start at  00:36:30
+   Duration  1.43s (transform 257ms, setup 60ms, import 536ms, tests 210ms, environment 502ms)

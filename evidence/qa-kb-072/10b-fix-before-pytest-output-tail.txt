@@ -1,0 +1,7 @@
+5-fixer baseline, 2026-10-07, BEFORE the test edit (xfail(strict=True) marker from 4-test-writer in place).
+Command: cd backend && ./.venv/bin/python -m pytest tests/agents/test_declared_gate_redo.py -q -p no:cacheprovider -rxXs
+Tail of the output as printed:
+
+=========================== short test summary info ============================
+XFAIL tests/agents/test_declared_gate_redo.py::test_non_redoable_declared_gate_unaffected_by_redo_action - ISS-899 unfixed
+1 passed, 1 xfailed, 4 warnings in 63.14s (0:01:03)

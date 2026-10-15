@@ -1,0 +1,54 @@
+# QA-KB-066 5-fixer, 2026-10-07. npx eslint -f json on PreviewPanel.tsx. BEFORE = HEAD blob efc7b9190 piped via --stdin; AFTER = working tree. 'line rule message' per finding.
+## BEFORE (25 lines)
+833 react-hooks/set-state-in-effect Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effe
+848 react-hooks/exhaustive-deps The 'sortedMembers' conditional could make the dependencies of useCallback Hook (at line 9
+848 react-hooks/exhaustive-deps The 'sortedMembers' conditional could make the dependencies of useCallback Hook (at line 9
+894 None Unused eslint-disable directive (no problems were reported from 'react-hooks/exhaustive-de
+1007 react-hooks/set-state-in-effect Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effe
+1036 react-hooks/set-state-in-effect Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effe
+1182 @typescript-eslint/no-unused-vars 'showCancelledAffordance' is assigned a value but never used. Allowed unused vars must mat
+1285 react-hooks/set-state-in-effect Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effe
+1402 react-hooks/set-state-in-effect Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effe
+1472 react-hooks/set-state-in-effect Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effe
+1602 react-hooks/set-state-in-effect Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effe
+## AFTER (25 lines)
+849 react-hooks/set-state-in-effect Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effe
+864 react-hooks/exhaustive-deps The 'sortedMembers' conditional could make the dependencies of useCallback Hook (at line 9
+864 react-hooks/exhaustive-deps The 'sortedMembers' conditional could make the dependencies of useCallback Hook (at line 9
+910 None Unused eslint-disable directive (no problems were reported from 'react-hooks/exhaustive-de
+1025 react-hooks/set-state-in-effect Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effe
+1054 react-hooks/set-state-in-effect Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effe
+1201 @typescript-eslint/no-unused-vars 'showCancelledAffordance' is assigned a value but never used. Allowed unused vars must mat
+1328 react-hooks/set-state-in-effect Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effe
+1445 react-hooks/set-state-in-effect Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effe
+1515 react-hooks/set-state-in-effect Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effe
+1645 react-hooks/set-state-in-effect Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effe
+## Same 11 findings (10 errors, 1 warning) before and after, only line-shifted by the inserted lines: +16 (833/848/894), +18 (1007/1036), +19 (1182), +43 (1285/1402/1472/1602). None is on a changed line.

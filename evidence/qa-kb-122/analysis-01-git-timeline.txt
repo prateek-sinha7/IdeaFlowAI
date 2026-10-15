@@ -1,0 +1,30 @@
+== last repair of the offline e2e tier, and the merge that brought the Cognito cut-over in the day after
+14ce62c59 2026-09-22 test(integration): repair the offline suite, 57 failures to 2
+1d95275b4 2026-09-23 Merge origin/dev into feat/stable
+b2a621f84 is NOT an ancestor of 14ce62c59 (the repair sweep ran on a tree without the cut-over)
+b2a621f84 IS an ancestor of 1d95275b4 (the 2026-09-23 merge)
+
+== intentional app changes: date, subject, and how many tests/integration/e2e files each touched
+b2a621f84  2026-09-17  e2e files touched: 0 of 788   Fix/cognito login (#8)
+f9df3737c  2026-09-29  e2e files touched: 0 of 11   feat(workspace): list and serve every sandbox file; 64 MB read cap
+911547c7d  2026-09-29  e2e files touched: 0 of 14   feat(composer): code steps declare what they read, do and write; canvas rail shows it
+87903ab3b  2026-10-01  e2e files touched: 0 of 5   chore(workflows): hide the revision workflows; v2 names say (Depth); prototype v2 icon
+5336d910c  2026-10-07  e2e files touched: 0 of 18   fix(QA-KB-066): a pinned version shows its own clarify rounds, never the shell run's
+
+== the unit-tier twin each of them DID update in the same commit
+frontend/src/components/workflow/composer/CanvasConfigRail.dataTab.test.tsx
+frontend/src/components/workflow/composer/stepKind.ts
+backend/tests/unit/test_run_sandbox_api.py
+frontend/src/components/results/SandboxTab.test.tsx
+.knowledge/architecture/files/frontend/src/app/admin/admin.reskin.test.tsx.md
+frontend/src/app/admin/admin.reskin.test.tsx
+
+== QA-KB-060 closed 2026-10-07: it flipped the unit-tier it.fails to it(), and touched no e2e file
+   32cfcf599 chore(QA-KB-060): close after verify
+   
+   LEDGER.md
+   evidence/qa-kb-060/verify-after.png
+   frontend/src/components/workflow/composer/ComposerPage.iss923.test.tsx
+
+== no CI job or pre-commit hook references the e2e tier (empty output below = no reference)
+(end)

@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import subprocess
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -417,6 +418,35 @@ def page_as(browser, signed_in_state, pytestconfig):
         c.close()
 
 
+def _give_password(email: str) -> None:
+    """Set the shared password on an invited account, permanently (ISS-1187).
+
+    The same `AdminSetUserPassword(permanent=True)` `seed_test_users.py` gives the
+    seeded accounts, run in the backend's own venv for its pool id and AWS
+    credentials: this venv carries no AWS client on purpose (requirements.txt).
+    Never through the admin API — it takes no password, by design.
+    """
+    backend = INTEGRATION.parent.parent / "backend"
+    out = subprocess.run(
+        [
+            str(backend / ".venv/bin/python"),
+            "-c",
+            "import sys; from app.core import cognito; "
+            "cognito.admin_set_user_password(sys.argv[1], sys.stdin.read(), permanent=True)",
+            email,
+        ],
+        input=accounts.PASSWORD,
+        cwd=backend,
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert out.returncode == 0, (
+        f"could not set a password on {email} (needs the backend venv and its AWS "
+        f"credentials, as seed_test_users.py does): {out.stderr[-500:]}"
+    )
+
+
 @pytest.fixture
 def disposable_user(page_as):
     """Create throwaway accounts through the admin API, and delete them after.
@@ -431,7 +461,10 @@ def disposable_user(page_as):
     only way back is a direct database write. That is D-31, and it cost this
     suite a two-hour outage.
 
-    Yields a factory: `make(tier="hexaware")` -> `{"id", "email", "password"}`.
+    Yields a factory: `make(tier="hexaware")` -> `{"id", "email", "row"}`, `row`
+    being the 201 body. Creation is invitation-only (b2a621f84), so the account
+    has no password anyone here knows; `make(..., signs_in=True)` gives it the
+    shared one and adds `"password"`.
     """
     from framework import api as _api
 
@@ -439,7 +472,7 @@ def disposable_user(page_as):
     admin.goto("/dashboard")
     created: list[str] = []
 
-    def make(tier: str = "basic", *, email: str | None = None) -> dict:
+    def make(tier: str = "basic", *, email: str | None = None, signs_in: bool = False) -> dict:
         address = email or f"e2e-{uuid.uuid4().hex[:12]}@velocity.ai"
         result = _api.full(
             admin,
@@ -447,7 +480,6 @@ def disposable_user(page_as):
             "/api/admin/users",
             {
                 "email": address,
-                "password": accounts.PASSWORD,
                 "tier": tier,
                 "is_admin": False,
             },
@@ -458,7 +490,11 @@ def disposable_user(page_as):
         )
         row = json.loads(result["body"])
         created.append(row["id"])
-        return {"id": row["id"], "email": address, "password": accounts.PASSWORD}
+        user = {"id": row["id"], "email": address, "row": row}
+        if signs_in:
+            _give_password(address)
+            user["password"] = accounts.PASSWORD
+        return user
 
     make.admin_page = admin
     yield make

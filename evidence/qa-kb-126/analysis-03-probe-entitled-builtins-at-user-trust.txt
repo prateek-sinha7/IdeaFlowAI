@@ -1,0 +1,25 @@
+# QA-KB-126 analysis 03: regression surface of compiling a non-Composer plain row at trust=user (HEAD facae452a, 2026-10-09T13:52Z)
+# cmd: cd backend && PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=. DATABASE_URL=sqlite:///:memory: .venv/bin/python ../evidence/qa-kb-126/analysis-plugins/probe_entitled_builtins_at_user_trust.py
+# read-only, no server/DB/model/run. Each pipeline some tier may run: its OWN file manifest (what sync-from-file stores) compiled at db (today) and at user with the row's own built-in as baseline (ISS-1118; the best case a fix can offer).
+pipelines some tier may run: 30; compile at db AND at user-with-own-baseline: 15; compile at db but REFUSED at user: 14; no workflow.yaml: 1; neither: 0
+
+REFUSED at user (would stop launching as a plain row of a non-Composer owner):
+  app_builder_revision               tiers=['enterprise', 'pro']  CompilerError: capability ('context_provider', 'previous_run') is not user-allowed in workflow 'app_builder_revision' — a user/db manif
+  backlog                            tiers=['enterprise', 'hexaware', 'pro']  CompilerError: limits.max_subagents=200 raises the cap above the default ceiling 8 in workflow 'backlog' — a user/db manifest may only 
+  backlog_revision                   tiers=['enterprise', 'hexaware', 'pro']  CompilerError: capability ('context_provider', 'previous_run') is not user-allowed in workflow 'backlog_revision' — a user/db manifest 
+  custom_revision                    tiers=['enterprise']  CompilerError: capability ('context_provider', 'previous_run') is not user-allowed in workflow 'custom_revision' — a user/db manifest m
+  ppt                                tiers=['basic', 'enterprise', 'pro']  CompilerError: capability ('deliverable', 'ppt') is not user-allowed in workflow 'ppt' — a user/db manifest may not reference it (CAP-0
+  ppt_revision                       tiers=['basic', 'enterprise', 'pro']  CompilerError: capability ('context_provider', 'previous_run') is not user-allowed in workflow 'ppt_revision' — a user/db manifest may 
+  prototype_feature_revision         tiers=['enterprise', 'hexaware', 'pro']  CompilerError: capability ('context_provider', 'previous_run') is not user-allowed in workflow 'prototype_feature_revision' — a user/db
+  prototype_large_revision           tiers=['enterprise', 'hexaware', 'pro']  CompilerError: capability ('context_provider', 'previous_run') is not user-allowed in workflow 'prototype_large_revision' — a user/db m
+  prototype_revision                 tiers=['enterprise', 'hexaware', 'pro']  CompilerError: capability ('context_provider', 'previous_run') is not user-allowed in workflow 'prototype_revision' — a user/db manifes
+  prototype_v2                       tiers=['enterprise', 'hexaware', 'pro']  CompilerError: limits.max_subagents=200 raises the cap above the default ceiling 8 in workflow 'prototype_v2' — a user/db manifest may 
+  prototype_v2_feature_revision      tiers=['enterprise', 'hexaware', 'pro']  CompilerError: capability ('context_provider', 'previous_run') is not user-allowed in workflow 'prototype_v2_feature_revision' — a user
+  prototype_v2_revision              tiers=['enterprise', 'hexaware', 'pro']  CompilerError: capability ('context_provider', 'previous_run') is not user-allowed in workflow 'prototype_v2_revision' — a user/db mani
+  sample_subagents_parallel          tiers=['enterprise']  CompilerError: step grant of ['spawn_subagents'] is not permitted for 'user'-trust manifests in step 'custom-agent' — exec/network/secr
+  user_stories_revision              tiers=['basic', 'enterprise', 'hexaware', 'pro']  CompilerError: capability ('context_provider', 'previous_run') is not user-allowed in workflow 'user_stories_revision' — a user/db mani
+
+compile at both:
+  app_builder[enterprise,pro], custom[enterprise], dotnet_to_azure[enterprise], ex_A1_loop[enterprise], ex_A2_branch[enterprise], ex_A3_b_spanish[enterprise], ex_A3_c_dutch[enterprise], ex_A3_divert[enterprise], ex_A4_human_divert[enterprise], ex_A4_human_gate[enterprise], ex_playwright_smoke_test[enterprise], mulesoft_to_springboot[enterprise], ppt_v2[basic,enterprise,pro], prototype[enterprise,hexaware,pro], user_stories[basic,enterprise,hexaware,pro]
+
+no file / other: [('migration', 'no-file', 'FileNotFoundError')]

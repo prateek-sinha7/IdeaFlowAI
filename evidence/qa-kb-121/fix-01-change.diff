@@ -1,0 +1,70 @@
+diff --git a/backend/agents/execution_engine/engine.py b/backend/agents/execution_engine/engine.py
+index 06f4c9612..6c10af014 100644
+--- a/backend/agents/execution_engine/engine.py
++++ b/backend/agents/execution_engine/engine.py
+@@ -197,6 +197,14 @@ _CREDENTIAL_AGENT_ERROR = (
+     "The model could not be reached — a provider credential or permission problem "
+     "(the run's cloud session may have expired)."
+ )
++# QA-KB-121: the provider rejected the API key itself. The launch preflight checks
++# only the key's expiry, so a revoked key first shows up here: name the key and
++# the remedy rather than a cloud session.
++_INVALID_KEY_AGENT_ERROR = (
++    "The model could not be reached — the provider rejected its API key (invalid, "
++    "revoked or expired). Rotate the key (Bedrock: AWS_BEARER_TOKEN_BEDROCK) and "
++    "restart the backend."
++)
+ _UNAVAILABLE_AGENT_ERROR = "The model service was temporarily unavailable."
+ _TIMEOUT_AGENT_ERROR = "The model did not respond in time."
+ # A fresh call can succeed where these failed (fan-out retries a worker on them);
+@@ -204,6 +212,11 @@ _TIMEOUT_AGENT_ERROR = "The model did not respond in time."
+ TRANSIENT_AGENT_ERRORS: frozenset[str] = frozenset(
+     {_THROTTLED_AGENT_ERROR, _UNAVAILABLE_AGENT_ERROR, _TIMEOUT_AGENT_ERROR}
+ )
++# Every later step would call the same provider with the same credential, so any
++# of these stops the run at the failing step (FIX-657).
++_CREDENTIAL_AGENT_ERRORS: frozenset[str] = frozenset(
++    {_CREDENTIAL_AGENT_ERROR, _INVALID_KEY_AGENT_ERROR}
++)
+ 
+ 
+ class StepRaised(Exception):
+@@ -223,6 +236,10 @@ _AGENT_ERROR_CATEGORIES: tuple[tuple[tuple[str, ...], str], ...] = (
+         "The request was too large for the model — the agent's context grew past the limit.",
+     ),
+     (("throttl", "rate limit", "too many requests"), _THROTTLED_AGENT_ERROR),
++    # QA-KB-121: above the credential row, whose "accessdenied" also matches a
++    # rejected key (first match wins). Matched on the message, not the code:
++    # botocore reports it as AccessDeniedException, AccessDenied or a bare 403.
++    (("api key invalid", "invalid api key", "api key is invalid"), _INVALID_KEY_AGENT_ERROR),
+     # Widened after run 54da544c: an expired STS session says "The security token
+     # included in the request is invalid" — which matched NONE of the original
+     # needles, so a pure credential failure rendered as the generic message and
+@@ -6530,6 +6547,7 @@ class ExecutionEngine:
+                 # (byte/event-identical) unless the step declares retry.max_attempts > 0.
+                 _terminated = False
+                 _credential_failed_id: str | None = None
++                _credential_error: str | None = None
+                 async for event in self._guarded_step(step, ectx, strategy, spec.id, pipeline_run_id):
+                     # F3 (13-06): observe agent_error events for the terminal
+                     # semantics decision (no mutation — the event flows unchanged).
+@@ -6537,8 +6555,9 @@ class ExecutionEngine:
+                         _failed_id = event.get("data", {}).get("agent_id")
+                         if _failed_id:
+                             _failed_agent_ids.add(_failed_id)
+-                        if event.get("data", {}).get("error") == _CREDENTIAL_AGENT_ERROR:
++                        if event.get("data", {}).get("error") in _CREDENTIAL_AGENT_ERRORS:
+                             _credential_failed_id = _failed_id or spec.id
++                            _credential_error = event["data"]["error"]
+                     # ── ISS-091: a TERMINAL event arriving through the stream ends
+                     # the RUN, not just the step. The inline review gate's reject
+                     # handler (_run_agent :4458) cancels the run and returns — but a
+@@ -6583,7 +6602,7 @@ class ExecutionEngine:
+                             "agents_completed": cursor,
+                             "agents_total": len(ordered_agents),
+                             "agents_failed": [_credential_failed_id],
+-                            "error": _CREDENTIAL_AGENT_ERROR,
++                            "error": _credential_error,
+                             "timestamp": _now(),
+                         },
+                     }

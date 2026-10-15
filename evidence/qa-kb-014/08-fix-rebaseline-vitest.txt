@@ -1,0 +1,25 @@
+# cwd frontend/, HEAD 024c03ef8 + uncommitted tree, 2026-10-02 00:36 CEST
+$ vitest --run --reporter=verbose src/components/workflow/IdeaInputPage.iss371.rebaseline.test.tsx
+ RUN  v4.1.11 /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/frontend
+  compiledSteps: 1,
+  manifestSteps: 0,
+  stepsWithGates: [],
+  stepsWithRoute: []
+}
+  compiledSteps: 1,
+  manifestSteps: 0,
+  stepsWithGates: [],
+  stepsWithRoute: []
+}
+ ✓ src/components/workflow/IdeaInputPage.iss371.rebaseline.test.tsx > ISS-371 — the unsaved-work baseline follows seeds and saves > a roster that arrives after mount is not unsaved work 175ms
+  compiledSteps: 1,
+  manifestSteps: 0,
+  stepsWithGates: [],
+  stepsWithRoute: []
+}
+ ✓ src/components/workflow/IdeaInputPage.iss371.rebaseline.test.tsx > ISS-371 — the unsaved-work baseline follows seeds and saves > a successful Save is not unsaved work 213ms
+ ✓ src/components/workflow/IdeaInputPage.iss371.rebaseline.test.tsx > ISS-371 — the unsaved-work baseline follows seeds and saves > unmount reports clean 59ms
+ Test Files  1 passed (1)
+      Tests  3 passed (3)
+   Start at  00:36:42
+   Duration  2.31s (transform 331ms, setup 116ms, import 837ms, tests 450ms, environment 773ms)

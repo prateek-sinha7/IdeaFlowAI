@@ -1,0 +1,24 @@
+# local dev DB, read-only transaction, run 2026-10-08T14:35:12
+
+-- runs of type user_stories_v2 (the id no checkout of this repo carries a workflow.yaml for)
+SQL> SELECT left(id::text,8) AS run, type, status, created_at::timestamp(0) AS created, left(coalesce(error,'<NULL>'),90) AS error, (SELECT count(*) FROM run_events e WHERE e.run_id = w.id) AS durable_events, (manifest_json IS NOT NULL) AS has_manifest FROM workflow_runs w WHERE type = 'user_stories_v2' ORDER BY created_at
+     ['run', 'type', 'status', 'created', 'error', 'durable_events', 'has_manifest']
+     ('5ab1be23', 'user_stories_v2', 'degraded', datetime.datetime(2026, 9, 25, 13, 50, 25), "The agent ran out of steps before finishing — it reached the graph's step limit (recursion", 27138, True)
+     ('05832e65', 'user_stories_v2', 'failed', datetime.datetime(2026, 9, 25, 15, 2, 58), 'sequence item 0: expected str instance, int found', 24391, True)
+
+-- all distinct run types in the DB with counts (to see which ids a checkout may not carry)
+SQL> SELECT type, count(*) AS n, max(created_at)::date AS last FROM workflow_runs GROUP BY type ORDER BY n DESC
+     ['type', 'n', 'last']
+     ('prototype_v2', 16, datetime.date(2026, 9, 28))
+     ('backlog', 9, datetime.date(2026, 9, 30))
+     ('backlog_revision', 7, datetime.date(2026, 10, 1))
+     ('prototype_revision', 6, datetime.date(2026, 9, 29))
+     ('ex_A2_branch', 5, datetime.date(2026, 10, 7))
+     ('prototype_v2_feature_revision', 3, datetime.date(2026, 10, 1))
+     ('ex_A1_loop', 3, datetime.date(2026, 10, 7))
+     ('prototype_v2_revision', 2, datetime.date(2026, 10, 1))
+     ('user_stories_v2', 2, datetime.date(2026, 9, 25))
+     ('ex_A4_human_gate', 1, datetime.date(2026, 10, 2))
+     ('prototype_large_revision', 1, datetime.date(2026, 9, 28))
+     ('ex_A3_c_dutch', 1, datetime.date(2026, 9, 24))
+     ('ex_A4_human_divert', 1, datetime.date(2026, 9, 24))

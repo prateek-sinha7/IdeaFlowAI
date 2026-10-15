@@ -1,0 +1,76 @@
+# QA-KB-077 fix, AFTER the edits. 2026-10-07T17:32Z, HEAD 2997acb71 + working tree.
+# cd backend && .venv/bin/python -m pytest <file> -q -p no:cacheprovider   (one file per invocation, offline)
+
+## tests/unit/test_user_seed_kwargs_are_columns.py
+[XPASS(strict)] ISS-904 unfixed
+1 failed, 1 warning in 2.26s
+FAILED tests/unit/test_user_seed_kwargs_are_columns.py::test_user_seeds_only_use_real_columns
+
+## tests/unit/app/test_main.py
+1 passed, 3 warnings in 1.33s
+
+## tests/agents/test_per_run_paths_v3.py
+1 failed, 4 passed, 7 warnings in 7.88s
+E       AttributeError: module 'app.agents.tools.playwright' has no attribute '_SANDBOX'
+FAILED tests/agents/test_per_run_paths_v3.py::TestPerRunPathsDistinct::test_revision_browser_dir_writer_driven
+
+## tests/agents/test_version_family_v5.py
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+(Background on this error at: https://sqlalche.me/e/20/e3q8))
+(Background on this error at: https://sqlalche.me/e/20/e3q8)) — DB write degraded (offline harness / schema unavailable); stream unaffected (PERSIST-03 best-effort)
+(Background on this error at: https://sqlalche.me/e/20/e3q8)) — DB write degraded (offline harness / schema unavailable); typed graph unaffected (PERSIST-02 best-effort)
+(Background on this error at: https://sqlalche.me/e/20/e3q8)) — degrading to run_id
+(Background on this error at: https://sqlalche.me/e/20/e3q8)) — departure N1: returning in-memory record
+(Background on this error at: https://sqlalche.me/e/20/e3q8)) — emitting without it
+(Background on this error at: https://sqlalche.me/e/20/e3q8)) — proceeding (typed-substrate DB writes degrade; deliverable/events unaffected)
+2 failed, 6 warnings in 4.85s
+E         
+E         - completed
+E         + degraded
+
+## tests/agents/test_revision_ordinal_v3.py
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+(Background on this error at: https://sqlalche.me/e/20/e3q8))
+(Background on this error at: https://sqlalche.me/e/20/e3q8)) — DB write degraded (offline harness / schema unavailable); stream unaffected (PERSIST-03 best-effort)
+(Background on this error at: https://sqlalche.me/e/20/e3q8)) — DB write degraded (offline harness / schema unavailable); typed graph unaffected (PERSIST-02 best-effort)
+(Background on this error at: https://sqlalche.me/e/20/e3q8)) — degrading to run_id
+(Background on this error at: https://sqlalche.me/e/20/e3q8)) — departure N1: returning in-memory record
+(Background on this error at: https://sqlalche.me/e/20/e3q8)) — emitting without it
+(Background on this error at: https://sqlalche.me/e/20/e3q8)) — proceeding (typed-substrate DB writes degrade; deliverable/events unaffected)
+2 failed, 6 passed, 8 warnings in 6.03s
+E             
+E             - completed
+E             + degraded
+
+## tests/integration/api/test_settings_api_key_whitespace_name_api.py
+1 passed, 1 warning in 0.89s
+
+## tests/integration/api/test_settings_github_pat_race_api.py
+[XPASS(strict)] ISS-470 unfixed
+1 failed, 1 warning in 0.86s
+FAILED tests/integration/api/test_settings_github_pat_race_api.py::test_losing_requests_response_reports_its_own_value
+
+## tests/integration/api/test_settings_github_pat_race_api.py --runxfail
+1 passed, 1 warning in 0.87s
+
+## tests/integration/api/test_admin_privilege_atomicity_api.py -k TestPasswordResetAtomicity
+3 passed, 3 deselected, 1 warning in 0.86s
+
+# ---- second pass, 2026-10-07T17:37Z: after adding offline_db=False to the real-finalization drives (layer 2 beneath the seed) ----
+
+## tests/agents/test_version_family_v5.py
+2 passed, 14 warnings in 20.78s
+
+## tests/agents/test_revision_ordinal_v3.py
+8 passed, 12 warnings in 14.30s
+
+## tests/agents/test_per_run_paths_v3.py
+1 failed, 4 passed, 7 warnings in 9.16s
+E       AttributeError: module 'app.agents.tools.playwright' has no attribute '_SANDBOX'
+FAILED tests/agents/test_per_run_paths_v3.py::TestPerRunPathsDistinct::test_revision_browser_dir_writer_driven
+
+## tests/integration/api/test_logout_api.py
+8 passed, 3 warnings in 4.61s
+
+## tests/integration/api/test_handoff_api.py
+26 passed, 3 warnings in 9.81s

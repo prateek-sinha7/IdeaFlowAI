@@ -243,7 +243,7 @@
       "index": 3,
       "input_tokens": "<normalized>",
       "name": "Build Agent",
-      "output_length": 84,
+      "output_length": 24,
       "output_tokens": "<normalized>",
       "total": 5,
       "total_tokens": "<normalized>"
@@ -479,7 +479,7 @@
       "index": 4,
       "input_tokens": "<normalized>",
       "name": "Validation Agent",
-      "output_length": 84,
+      "output_length": 32,
       "output_tokens": "<normalized>",
       "total": 5,
       "total_tokens": "<normalized>"

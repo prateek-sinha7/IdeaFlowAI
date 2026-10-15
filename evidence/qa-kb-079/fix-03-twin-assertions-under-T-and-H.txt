@@ -1,0 +1,15 @@
+# QA-KB-079 fix phase: the ISS-1025 twin under mutants T and H (plugin = evidence/qa-kb-079/04-analyze-mutant-plugin.py.txt), 2026-10-07 19:20
+=== KB079_MUTANT=T .venv/bin/python -m pytest tests/integration/repositories/test_run_events_db.py -k test_resume_driver_restamps -p kb079_mutant
+E           AssertionError: pipeline_cancelled
+E           assert 2 == 3
+E            +  where 3 = <app.models.run_event.RunEvent object at 0x10e7ef650>.seq
+tests/integration/repositories/test_run_events_db.py:487: AssertionError
+1 failed, 9 deselected, 1 warning in 1.13s
+=== KB079_MUTANT=H .venv/bin/python -m pytest tests/integration/repositories/test_run_events_db.py -k test_resume_driver_restamps -p kb079_mutant
+E           AssertionError: pipeline_cancelled
+E           assert 3 == 2
+E            +  where 3 = <app.models.run_event.RunEvent object at 0x10bf747c0>.seq
+tests/integration/repositories/test_run_events_db.py:487: AssertionError
+1 failed, 9 deselected, 1 warning in 1.12s
+=== no plugin (real source)
+1 passed, 9 deselected, 1 warning in 0.99s

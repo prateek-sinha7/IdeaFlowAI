@@ -1,0 +1,17 @@
+import { defineConfig } from "vitest/config";
+import path from "path";
+
+const FE = "/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/frontend";
+// Scratch-only config: lives OUTSIDE the repo, points at the real src via the @ alias.
+export default defineConfig({
+  root: path.join(__dirname, "hist"),
+  resolve: { alias: { "@": path.join(FE, "src") } },
+  server: { fs: { strict: false } },
+  test: {
+    environment: "jsdom",
+    globals: true,
+    setupFiles: [path.join(FE, "vitest.setup.ts")],
+    include: ["*.test.tsx"],
+    coverage: { enabled: false },
+  },
+});

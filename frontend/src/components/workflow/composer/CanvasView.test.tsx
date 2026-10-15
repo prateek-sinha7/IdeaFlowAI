@@ -378,11 +378,6 @@ function renderCanvas(props: Record<string, unknown> = {}) {
         removeFile: vi.fn(),
         removeImage: vi.fn(),
         fileBlocks: "",
-        documents: [],
-        previewFailedKeys: [],
-        uploadGate: { kind: "ready" },
-        retryFile: vi.fn(),
-        settleUploads: vi.fn(),
       }}
       {...props}
     />,

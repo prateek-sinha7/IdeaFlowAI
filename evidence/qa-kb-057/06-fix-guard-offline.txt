@@ -1,0 +1,14 @@
+# 06 fix run, 2026-10-02T10:57:04Z, AWS_BEARER_TOKEN_BEDROCK blanked (CI_OFFLINE condition: zero provider credentials)
+$ AWS_BEARER_TOKEN_BEDROCK= .venv/bin/python -m pytest tests/integration/api/test_duplicate_context_guard_api.py -q -p no:cacheprovider -rxX
+[XPASS(strict)] ISS-905 unfixed
+[XPASS(strict)] ISS-905 unfixed
+[XPASS(strict)] ISS-905 unfixed
+[XPASS(strict)] ISS-905 unfixed
+[XPASS(strict)] ISS-905 unfixed
+[XPASS(strict)] ISS-905 unfixed
+[XPASS(strict)] ISS-905 unfixed
+[XPASS(strict)] ISS-905 unfixed
+8 failed, 9 warnings in 1.26s
+
+$ (same, --runxfail: the assertions themselves)
+8 passed, 9 warnings in 1.15s

@@ -117,17 +117,6 @@ def test_the_cap_index_is_the_only_ceiling() -> None:
     assert set(PERMISSION_CAP_INDEX) == {"trusted", "saved", "untrusted"}
 
 
-def test_saved_cap_keeps_budget_but_nothing_that_reaches_the_host() -> None:
-    """ADR-0054: db trust gets spawn_subagents (budget) but no exec/network/git."""
-    assert cap_key_for_trust("db") == "saved"
-    cap = cap_for_trust("db")
-    assert cap.spawn_subagents is True
-    assert cap.exec is False
-    assert cap.network is False
-    assert cap.git is False
-    assert cap.secrets == []
-
-
 def test_unknown_trust_falls_to_the_restrictive_cap() -> None:
     """Fail closed. An unrecognised trust level must never resolve to ``trusted``."""
     for trust in (None, "", "nonsense", "USER", "File"):

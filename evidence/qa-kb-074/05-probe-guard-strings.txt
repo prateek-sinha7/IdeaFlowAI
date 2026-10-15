@@ -1,0 +1,6 @@
+PASS  ABSENT-after-fix occurrences=1  authz.py: this class's own ``append_event_next_seq`` seq allocation
+PASS  ABSENT-after-fix occurrences=1  authz.py: and is why the engine sink cannot allocate through :meth:`append_event_next_seq`
+PASS  ABSENT-after-fix occurrences=1  engine.py: that allocator re-reads EVERY row
+PASS  PRESENT-always   occurrences=1  authz.py: that would add two index probes per event
+PASS  PRESENT-always   occurrences=1  engine.py: mints a fresh ``event_id`` per call
+-- every string occurs exactly once today

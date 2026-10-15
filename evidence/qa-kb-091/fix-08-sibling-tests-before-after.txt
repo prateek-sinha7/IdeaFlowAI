@@ -1,0 +1,32 @@
+# QA-KB-091 fixer evidence 08 - the new sibling regression file (ISS-1031 / ISS-1032), observed RED on the pre-fix copy and GREEN on the fixed tree, 2026-10-07T18:49:44Z
+# BEFORE: byte-identical copy of the test file placed beside a copy of HEAD's PreviewPanel.tsx (md5 1a015e419d13b57eec4c3947e5212e5d) + symlinked siblings, run with the scratch config (root = scratch dir, alias @ -> frontend/src)
+# Harness check: the ISS-952 test file, copied the same way, must reproduce the test-writer's red baseline there (2 passed | 5 expected fail).
+
+## harness check: iss952 test file on the pre-fix copy
+ Test Files  1 passed (1)
+      Tests  2 passed | 5 expected fail (7)
+
+## BEFORE: sibling file on the pre-fix copy
+     × ISS-1031 pinned completed WITH content under failed shell -> settled header with Share and Download 37ms
+     × ISS-1031 pinned completed WITH content under degraded shell -> settled header with Share and Download 8ms
+     × ISS-1031 Version-menu pick of completed v1 under a failed shell -> settled header with Share and Download 98ms
+     × ISS-1032 pinned failed+null under a streaming shell -> the pin's failed copy, not Building 29ms
+     × ISS-1032 pinned completed+null under a streaming shell -> the pin's saved-nothing copy, not Building 22ms
+     × ISS-1032 pinned RUNNING+null under a streaming shell -> neutral copy (TERMINAL_RUN_STATUSES guard) 21ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 6 ⎯⎯⎯⎯⎯⎯⎯
+AssertionError: expected <span …(1)>…(1)</span> to be null
+     66|   expect(screen.queryByText(/Run failed/)).toBeNull();
+AssertionError: expected <span …(1)>…(1)</span> to be null
+     66|   expect(screen.queryByText(/Run failed/)).toBeNull();
+TestingLibraryElementError: Unable to find an element with the text: /did not complete successfully/. This could be because the text is broken up by multiple elements. In this case, you can provide a function for your text matcher to make your matcher more flexible.
+    102|     expect(screen.queryByText(BUILDING)).toBeNull();
+TestingLibraryElementError: Unable to find an element with the text: No deliverable was saved for this version. This could be because the text is broken up by multiple elements. In this case, you can provide a function for your text matcher to make your matcher more flexible.
+    108|     expect(screen.queryByText(BUILDING)).toBeNull();
+TestingLibraryElementError: Unable to find an element with the text: Output will appear here. This could be because the text is broken up by multiple elements. In this case, you can provide a function for your text matcher to make your matcher more flexible.
+    114|     expect(screen.queryByText(BUILDING)).toBeNull();
+ Test Files  1 failed (1)
+      Tests  6 failed | 3 passed (9)
+
+## AFTER: sibling file in place on the fixed tree (npx vitest run <file>)
+ Test Files  1 passed (1)
+      Tests  9 passed (9)

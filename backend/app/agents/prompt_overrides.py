@@ -36,10 +36,17 @@ import logging
 from pathlib import Path
 from typing import Optional
 
+from app.core.config import settings
+
 logger = logging.getLogger("app.agents.prompt_overrides")
 
 _BACKEND_DIR = Path(__file__).parent.parent.parent
-_USER_SKILLS_DIR = _BACKEND_DIR / "skills" / "users"
+# Same root as app/agents/skills.py USER_SKILLS_DIR (settings.USER_SKILLS_ROOT).
+_USER_SKILLS_DIR = (
+    Path(settings.USER_SKILLS_ROOT)
+    if settings.USER_SKILLS_ROOT
+    else _BACKEND_DIR / "skills" / "users"
+)
 
 # Prompt overrides can legitimately be longer than skill files (they replace
 # the whole system prompt body), so cap at 32 KB — still a firm anti-abuse

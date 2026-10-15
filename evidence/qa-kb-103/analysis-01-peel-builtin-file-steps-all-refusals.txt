@@ -1,0 +1,19 @@
+# QA-KB-103 analysis 01: every engineer-only key the built-ins' OWN file steps carry, peeled one refusal at a time at trust=user (2026-10-08T19:32Z, HEAD c9c4c630a)
+# cmd: cd backend && PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=. DATABASE_URL=sqlite:///:memory: .venv/bin/python ../evidence/qa-kb-103/analysis-plugins/peel_builtin_file_steps.py
+# read-only, no DB. Uses compile_override_steps (overrides.py:50-71), the shared check every override writer and reader calls.
+== app_builder: 15 file step(s)
+   passes at trust=user after stripping 1 key(s): ['post_step:api_prefix_audit @ app-infra-generator']
+== prototype: 5 file step(s)
+   passes at trust=user after stripping 1 key(s): ['compaction:html_skeleton @ prototype-build']
+== prototype_feature_revision: 5 file step(s)
+   passes at trust=user after stripping 2 key(s): ['compaction:html_skeleton @ prototype-build', 'post_step:revision_validation @ prototype-build']
+== prototype_large_revision: 4 file step(s)
+   passes at trust=user after stripping 2 key(s): ['compaction:html_skeleton @ prototype-build', 'post_step:revision_validation @ prototype-build']
+== prototype_revision: 3 file step(s)
+   passes at trust=user after stripping 1 key(s): ['post_step:revision_validation @ prototype-revision-agent']
+== sample_fanout: 2 file step(s)
+   passes at trust=user after stripping 1 key(s): ["tool-grant:'spawn_subagents' @ sample-fanout-worker"]
+== sample_subagents_parallel: 1 file step(s)
+   passes at trust=user after stripping 1 key(s): ["tool-grant:'spawn_subagents' @ custom-agent"]
+== sample_wave: 2 file step(s)
+   passes at trust=user after stripping 1 key(s): ["tool-grant:'spawn_subagents' @ sample-wave-worker"]

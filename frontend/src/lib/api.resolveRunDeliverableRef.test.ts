@@ -33,9 +33,7 @@ function okJson(body: unknown) {
 }
 
 describe("resolveRunDeliverable — ref-scoped resolution (ISS-665)", () => {
-  // it.fails: ISS-665 unfixed — this must start passing (and the .fails
-  // wrapper removed) once resolveRunDeliverable gains a ref parameter.
-  it.fails("ISS-665: forwards a supplied ref to the sandbox listing fetch, not the live tree", async () => {
+  it("ISS-665: forwards a supplied ref to the sandbox listing fetch, not the live tree", async () => {
     fetchMock.mockResolvedValue(
       okJson({
         run_id: "run-1",
@@ -45,8 +43,6 @@ describe("resolveRunDeliverable — ref-scoped resolution (ISS-665)", () => {
       }),
     );
 
-    // @ts-expect-error — ISS-665: resolveRunDeliverable has no ref parameter
-    // yet; the fix adds a 4th argument threaded through to getRunSandbox.
     await resolveRunDeliverable("test-token", "run-1", "prototype.html", "v1");
 
     const sandboxCall = fetchMock.mock.calls.find(([url]) =>

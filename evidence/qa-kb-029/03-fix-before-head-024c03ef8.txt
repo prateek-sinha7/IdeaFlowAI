@@ -1,0 +1,26 @@
+# QA-KB-029 fix phase — BEFORE the fix. Tree: git archive of HEAD 024c03ef8 frontend/{src,package.json,tsconfig.json,vitest.config.ts,vitest.setup.ts} plus the two untracked test-phase files (typecheck/, ArtifactVersionPicker.iss869.test.tsx), node_modules symlinked.
+# cwd: <snapshot>/frontend
+
+$ ./node_modules/.bin/tsc -p typecheck/tsconfig.iss077.json
+typecheck/artifactNode.iss077.check.cts(12,3): error TS2322: Type 'null' is not assignable to type 'string'.
+typecheck/artifactNode.iss077.check.cts(13,53): error TS2322: Type 'string' is not assignable to type 'string[]'.
+typecheck/artifactNode.iss077.check.cts(18,3): error TS2322: Type 'null' is not assignable to type 'string'.
+typecheck/artifactNode.iss077.check.cts(19,53): error TS2322: Type 'null' is not assignable to type 'string[]'.
+typecheck/artifactNode.iss077.check.cts(19,84): error TS2322: Type 'ArtifactNode' is not assignable to type 'string'.
+EXIT=2
+
+$ ./node_modules/.bin/vitest run src/components/results/ArtifactVersionPicker.iss869.test.tsx
+ RUN  v4.1.11 /private/tmp/claude-502/-Users-bilala-Developer-Projects-VELOCITY-AI-worktrees-feat-user-stories-v2/2d1a1575-310a-48fd-8155-2763a084604d/scratchpad/qakb029-head/frontend
+ Test Files  1 passed (1)
+      Tests  1 expected fail (1)
+   Start at  21:21:19
+   Duration  3.19s (transform 221ms, setup 252ms, import 384ms, tests 1.02s, environment 1.36s)
+EXIT=0
+
+$ ./node_modules/.bin/vitest run src/components/results/AgentDetailPanel.artifactVersions.test.tsx   (pre-existing red, proves independence from this fix)
+⎯⎯⎯⎯⎯⎯ Failed Tests 10 ⎯⎯⎯⎯⎯⎯⎯
+Error: [vitest] No "getCapabilities" export is defined on the "@/lib/api" mock. Did you forget to return it from "vi.mock"?
+ ❯ src/components/results/AgentDetailPanel.tsx:1325:5
+ Test Files  1 failed (1)
+      Tests  10 failed (10)
+EXIT=1

@@ -1,0 +1,49 @@
+# QA-KB-050: every read of the shared workflowType in ComposerPage.tsx (working tree 2026-10-02, HEAD 024c03ef8)
+# cmd: grep -n workflowType frontend/src/components/workflow/composer/ComposerPage.tsx
+120:  workflowType: WorkflowType;
+128:   * sites use. `base_pipeline_type` is the composer's fixed-at-entry workflowType
+214:  workflowType,
+298:      workflowType,
+322:    // library template. `"custom"` is the only workflowType this component
+635:  // Hardcoded ("Custom"), not derived from `workflowType`: this component only
+636:  // ever legitimately represents the "custom" pipeline, but `workflowType` is a
+651:    LIBRARY_AGENTS.filter((a) => agentMatchesPipelineType(a.pipeline_type, workflowType)).map((a) => a.id),
+669:      if (getRole(pipelineAgents[i].id, workflowType) === "locked") return;
+672:    [pipelineAgents, workflowType],
+793:  const recommendations = workflowType === "custom"
+798:  const companionSuggestion = workflowType === "custom" ? (() => {
+925:          // Hardcoded, not `workflowType`: ComposerPage only ever legitimately
+927:          // `workflowType` is a shared mutable variable other screens (viewing
+994:  // is the composer's fixed-at-entry `workflowType` ("custom" for the compose entry,
+1039:    // "custom" literally, not the `workflowType` prop: resolveDispatchType
+1041:    // (IdeaInputPage.tsx:449), so a stale `workflowType` (shared, mutable,
+1430:            pipelineType={workflowType}
+1629:                        pipelineType={workflowType}
+1666:                <HooksTab pipelineType={workflowType} />
+1706:        currentPipelineType={workflowType}
+
+# the three reads commit 9cf42ca8e hardened to the literal "custom"
+641:  const pipelineLabel = PIPELINE_LABEL.custom;
+931:          base_pipeline_type: "custom",
+1044:    const { type: dispatchType, deliverableOverride } = resolveDispatchType(pipelineAgents, "custom");
+
+# getRole callers
+frontend/src/components/workflow/composer/AgentRow.tsx:84:  const role = getRole(agent.id, pipelineType);
+frontend/src/components/workflow/composer/CanvasNode.tsx:478:  const role = getRole(agent.id, pipelineType);
+frontend/src/components/workflow/AgentsPopup.tsx:210:export function getRole(agentId: string, pipelineType: WorkflowType): AgentRole {
+frontend/src/components/workflow/AgentsPopup.tsx:2823:    if (getRole(agentId, pipelineType) !== "optional") return;
+frontend/src/components/workflow/composer/ComposerPage.tsx:669:      if (getRole(pipelineAgents[i].id, workflowType) === "locked") return;
+
+# the badge predicate vs the lock predicate
+frontend/src/components/workflow/composer/AgentRow.tsx:85:  const locked = role === "locked";
+frontend/src/components/workflow/composer/AgentRow.tsx:86:  const removable = role === "optional";
+frontend/src/components/workflow/composer/AgentRow.tsx:135:            className="grid h-4 w-5 place-items-center rounded text-ink-300 disabled:text-line-faint enabled:hover:text-ink-700"
+frontend/src/components/workflow/composer/AgentRow.tsx:144:            className="grid h-4 w-5 place-items-center rounded text-ink-300 disabled:text-line-faint enabled:hover:text-ink-700"
+frontend/src/components/workflow/composer/AgentRow.tsx:170:            {locked && (
+frontend/src/components/workflow/composer/AgentRow.tsx:199:          disabled={!removable}
+frontend/src/components/workflow/composer/AgentRow.tsx:201:          className="grid h-7 w-7 flex-none place-items-center rounded-[7px] text-ink-200 enabled:hover:text-ink-500 disabled:cursor-not-allowed disabled:text-line-faint"
+frontend/src/components/workflow/composer/CanvasNode.tsx:479:  const locked = role === "locked";
+frontend/src/components/workflow/composer/CanvasNode.tsx:480:  const removable = role === "optional";
+frontend/src/components/workflow/composer/CanvasNode.tsx:639:            disabled={!removable}
+frontend/src/components/workflow/composer/CanvasNode.tsx:644:            className="grid h-5 w-5 place-items-center rounded-[6px] text-ink-200 enabled:hover:text-ink-500 disabled:cursor-not-allowed disabled:opacity-0"
+frontend/src/components/workflow/composer/CanvasNode.tsx:731:          {locked && (

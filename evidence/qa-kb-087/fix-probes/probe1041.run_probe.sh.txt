@@ -1,0 +1,12 @@
+#!/bin/bash
+cd "$(dirname "$0")"
+VT=/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/frontend/node_modules/.bin/vitest
+echo "# QA-KB-087 5-fixer probe for ISS-1041, $(date '+%Y-%m-%d %H:%M:%S %Z'), repo HEAD $(git -C /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2 rev-parse --short HEAD)"
+echo "# legacy_marker_off_* = HEAD's ArtifactVersionPicker.iss802.test.tsx with it.fails -> it; network_* = HEAD's .network test, unedited"
+echo "# *_real = shipped component (FIX-636 bail at :126); *_prefix = the same component without that bail (the ISS-802 double fetch)"
+echo "# A guard is sound when it passes on _real and FAILS on _prefix."
+for v in legacy_marker_off_real legacy_marker_off_prefix network_real network_prefix; do
+  echo; echo "### $v"
+  $VT run --config vitest.config.mts "$v" --reporter=verbose 2>&1 | sed 's/\x1b\[[0-9;]*m//g' \
+    | grep -E "^ (✓|×|↓)|^   →|Tests |AssertionError|❯ [a-z0-9_]+\.test\.tsx:[0-9]+:[0-9]+" | grep -v "^$" | head -10
+done

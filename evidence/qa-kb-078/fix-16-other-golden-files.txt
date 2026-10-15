@@ -1,0 +1,7 @@
+tests/contract/agents/test_characterization_ppt.py: 2 passed in 3.62s
+tests/contract/agents/test_characterization_prototype.py: 2 passed in 22.29s
+tests/contract/agents/test_characterization_prototype_revision.py: 2 passed in 7.61s
+tests/contract/agents/test_characterization_prototype_large_revision.py: 2 passed in 27.34s
+tests/contract/agents/test_characterization_prototype_feature_revision.py: 4 passed in 55.65s
+tests/contract/agents/test_skill_prompt_baseline.py: 2 failed in 1.42s
+tests/unit/agents/test_phase3_parity.py: 1 passed in 1.19s

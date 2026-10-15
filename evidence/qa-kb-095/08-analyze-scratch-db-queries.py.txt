@@ -1,0 +1,84 @@
+# Scratch scripts used for evidence 04 and 07 (read-only against the DB; outside the repo's source tree; kept as .txt so nothing executes them).
+# ===== script 1: family rows =====
+import os, sys, re
+import psycopg2
+# read DATABASE_URL from backend/.env without printing it
+url = None
+for line in open('/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/.env'):
+    if line.startswith('DATABASE_URL='):
+        url = line.split('=',1)[1].strip()
+conn = psycopg2.connect(url)
+conn.set_session(readonly=True, autocommit=True)
+cur = conn.cursor()
+rid = '0f62f7bc-d3a2-4748-8004-0b534e1741ae'
+cur.execute("""
+SELECT id, type, status, parent_run_id, git_tag, created_at, deliverable_filename
+FROM workflow_runs
+WHERE id = %s OR parent_run_id = %s
+ORDER BY created_at
+""", (rid, rid))
+cols = [d[0] for d in cur.description]
+print(cols)
+for r in cur.fetchall():
+    print(r)
+print('--- columns of workflow_runs')
+cur.execute("select column_name from information_schema.columns where table_name='workflow_runs' order by ordinal_position")
+print([r[0] for r in cur.fetchall()])
+
+# ===== script 2: tag-vs-sandbox scan =====
+import os, subprocess, collections
+import psycopg2
+url = None
+for line in open('/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/.env'):
+    if line.startswith('DATABASE_URL='):
+        url = line.split('=',1)[1].strip()
+conn = psycopg2.connect(url)
+conn.set_session(readonly=True, autocommit=True)
+cur = conn.cursor()
+cur.execute("select id, user_id, parent_run_id, status, git_tag, type, created_at from workflow_runs")
+rows = {r[0]: r for r in cur.fetchall()}
+RUNS = '/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/runs'
+
+def root_of(rid):
+    seen=set()
+    while rows[rid][2] and rows[rid][2] in rows and rid not in seen:
+        seen.add(rid); rid = rows[rid][2]
+    return rid
+
+fam = collections.defaultdict(list)
+for rid, r in rows.items():
+    fam[root_of(rid)].append(r)
+
+def sandbox_state(user, root):
+    d = os.path.join(RUNS, user, root)
+    if not os.path.isdir(d): return 'absent(expired)', []
+    if not os.path.exists(os.path.join(d,'.git')):
+        n = len(os.listdir(d))
+        return ('husk(empty,no .git)' if n==0 else f'no-.git({n} entries)'), []
+    env = dict(os.environ, GIT_CEILING_DIRECTORIES=os.path.dirname(d))
+    try:
+        out = subprocess.run(['git','-C',d,'tag','--list'],capture_output=True,text=True,env=env,timeout=10).stdout.split()
+    except Exception as e:
+        out = []
+    return 'git', sorted(out)
+
+cats = collections.Counter()
+examples = collections.defaultdict(list)
+for root, members in fam.items():
+    members.sort(key=lambda r: r[6])
+    if len(members) < 1: continue
+    user = rows[root][1]
+    st, tags = sandbox_state(user, root)
+    latest = members[-1]
+    for m in members:
+        if m[4] is None: continue          # no DB tag
+        is_older = (m[0] != latest[0])
+        if not is_older: continue          # displayRef only set for non-latest members
+        key = (st if st!='git' else ('git: tag present' if m[4] in tags else 'git: tag MISSING'))
+        cats[key]+=1
+        if len(examples[key])<3: examples[key].append((m[0][:8], m[4], root[:8], len(members), ','.join(tags)[:30]))
+print("older family members that have a DB git_tag (these pin ?ref=<tag> on their own /runs/{id} page):")
+for k,v in cats.most_common(): print(f"  {v:4d}  {k}")
+print()
+for k,ex in examples.items():
+    print(k, ex)

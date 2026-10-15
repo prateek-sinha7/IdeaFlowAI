@@ -1,0 +1,46 @@
+# QA-KB-094 analyze 2026-10-02 - SELECT only (read-only session + SET TRANSACTION READ ONLY), local DB velocity-local-db (backend/.env DATABASE_URL, password not recorded).
+# Run under test: 9eb70b6e-5a70-41e8-9d5f-fbb05e11440d, produced by tools/api/runs/run.ex_A4_human_gate_auto.http (log: tools/api/runs/logs/ex_A4_human_gate_auto/20261002-025201.log).
+# Corroboration of the static reading: the human edit is stored RAW (no JSON wrapping) and the conditional gate then records decision=null.
+
+Q1: select id, type, status, created_at from workflow_runs where id = '9eb70b6e-5a70-41e8-9d5f-fbb05e11440d'
+('9eb70b6e-5a70-41e8-9d5f-fbb05e11440d', 'ex_A4_human_gate', 'failed', datetime.datetime(2026, 10, 2, 0, 52, 3, 345150))
+
+Q2: select step, gate, outcome, detail::text, created_at from gate_events where run_id = '<run>' order by created_at
+('custom-agent:pick-language', 'human', 'pass', '{"edited": true}', 2026-10-02 00:52:18)
+('custom-agent:pick-language', 'conditional', 'block', '{"decision": null, "reason": "no matching route outcome and no default_next"}', 2026-10-02 00:52:40)
+
+Q3: select producer_agent, kind, version, left(content,160), derived_from is not null as derived, created_at from artifact_refs where run_id = '<run>' order by created_at
+('custom-agent:ask', 'summary', 1, 'Hello! How can I help you today?', False, 00:52:17)
+('custom-agent:ask', 'route_decision', 1, 'Hello! How can I help you today?', False, 00:52:17)
+('custom-agent:ask', 'summary', 2, 'spanish', True, 00:52:18)            <- the human edit, stored RAW (bare word)
+('custom-agent:pick-language', 'summary', 3, '{"decision":"spanish"}', False, 00:52:40)
+('custom-agent:pick-language', 'route_decision', 2, '{"decision":"spanish"}', False, 00:52:40)   <- the model's own reply was valid JSON; condition_agent: ask means the gate never reads it
+
+# Runner log lines (tools/api/runs/logs/ex_A4_human_gate_auto/20261002-025201.log):
+02:52:18  api         ✓ gate answered with edited_content="spanish"
+02:52:18  api         agent_complete: custom-agent:ask
+02:52:40  api         agent_complete: custom-agent:pick-language
+02:52:41  api         pipeline_failed
+02:52:41  api         ✓ human gate opened
+02:52:41  api         ✗ expected exactly one branch, got 0 []
+02:52:41  api         pick-language decided: "spanish"  (from "{"decision":"spanish"}")
+02:52:41  api         ✓ ask and pick-language each ran once
+02:52:41  api         ✗ conditional gate BLOCKED at custom-agent:pick-language — the run fell through instead of routing
+02:52:41  api         ✗ pipeline_complete not found
+
+# ---- Offline reproduction (2026-10-02, 3-analyzer) ----
+# Script: evidence/qa-kb-094/probe-offline-bare-word-vs-json.py  (run with backend/.venv/bin/python; asserts DATABASE_URL is sqlite before anything runs;
+# reuses tests/agents/test_conditional_human_gate_source_t26.py::_run_pipeline, scripted model, no live LLM, hermetic sqlite temp DB).
+# The FOREIGN KEY "persist failed ... best-effort" log lines it prints are the harness's normal degrade (same as T26), not part of the result.
+#
+# --- A) the .http runner's answer (bare word): edited_content='spanish'
+#   agent_start      : ['custom-agent:ask', 'custom-agent:pick-language']
+#   gate_blocked     : [{'step': 'custom-agent:pick-language', 'gate': 'conditional', 'reason': 'no matching route outcome and no default_next', ...}]
+#   terminal         : [('pipeline_start', None), ('pipeline_failed', "Pick Language's conditional gate had nowhere to route: no matching outcome and no default_next.")]
+# --- B) the UI chip's answer (JSON decision): edited_content='{"decision": "spanish"}'
+#   agent_start      : ['custom-agent:ask', 'custom-agent:pick-language', 'custom-agent:say-hola']
+#   gate_blocked     : []
+#   terminal         : [('pipeline_start', None), ('pipeline_complete', None)]
+#
+# T26 as shipped (cd backend && .venv/bin/python -m pytest tests/agents/test_conditional_human_gate_source_t26.py -q -p no:cacheprovider): 2 passed in 2.67s.
+# (python3.11's pytest 8.3.4 INTERNALERRORs at collection on this tree: "'agents' not found in markers configuration option"; use the .venv interpreter.)

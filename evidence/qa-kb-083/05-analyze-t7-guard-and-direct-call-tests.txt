@@ -1,0 +1,33 @@
+# T7 guard, one file: cd backend && DATABASE_URL=sqlite:///:memory: .venv/bin/python -m pytest tests/security/test_no_projection_reads.py -q -p no:cacheprovider   (HEAD 024c03ef8, 2026-10-02)
+E           AssertionError: Projection reads found in code that is not declared display-only.
+E           
+E           `users.is_admin` / `users.tier` are a non-authoritative projection of
+E           Cognito groups. Use effective_is_admin() / effective_tier() for any
+E           decision. If the read only shapes a response, add it below with a reason.
+E           
+E             app/api/settings.py::get_preferences::tier   (app/api/settings.py:341)
+E             app/api/settings.py::update_preferences::tier   (app/api/settings.py:388)
+E           
+E           Allow-list format (projection_read_allowlist.txt):
+E             app/api/admin.py::_to_response::tier  # response field, not a decision
+FAILED tests/security/test_no_projection_reads.py::test_no_projection_reads_in_decision_context
+1 failed, 1 passed, 1 warning in 1.34s
+
+# ISS-319 direct-call test, one file: tests/unit/test_settings_preferences_race.py
+==================================== ERRORS ====================================
+____ ERROR at setup of test_losing_requests_response_reports_its_own_value _____
+>       raise UnitIsolationError(
+E       tests.unit.conftest.UnitIsolationError: Unit test opened a real database connection. Move it to tests/integration/<mirror>/ (the hermetic in-memory SQLite db_session fixture lives in tests/integration/repositories/conftest.py), or mock the Session with MagicMock(spec=Session) / AsyncMock(spec=AsyncSession). Deliberate exception: @pytest.mark.allow_io("reason").
+tests/unit/conftest.py:81: UnitIsolationError
+  /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/app/core/config.py:94: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+
+# sibling direct-call settings unit tests, one file each
+== tests/unit/test_settings_github_pat_race.py
+  /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/app/core/config.py:94: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+XFAIL tests/unit/test_settings_github_pat_race.py::test_losing_requests_response_reports_its_own_value - ISS-470 unfixed
+1 xfailed, 1 warning in 0.99s
+== tests/unit/test_settings_api_key_whitespace_name.py
+==================================== ERRORS ====================================
+_______ ERROR at setup of test_whitespace_only_name_not_stored_verbatim ________
+  /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/app/core/config.py:94: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+ERROR tests/unit/test_settings_api_key_whitespace_name.py::test_whitespace_only_name_not_stored_verbatim

@@ -1,0 +1,10 @@
+
+  1 scenario against http://localhost:3000
+  The first navigation can take a while — the dev server compiles on demand.
+
+  [1/1]  S-18-08  The clarification exchange is not duplicated
+s                                                                        [100%]         report  /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/tests/integration/test-runs/2026-10-07T18-29-qa-kb-063-fix-after-s18-08/0-report.html
+
+=========================== short test summary info ============================
+SKIPPED [1] suites/18_chat_lane/test_chat_lane.py:106: no completed run shows a duplicated clarification exchange
+1 skipped in 68.70s (0:01:08)

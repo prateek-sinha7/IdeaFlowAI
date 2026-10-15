@@ -1,0 +1,120 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_________________ TestList.test_list_carries_launchable_flags __________________
+
+self = <tests.integration.api.test_workflows_api.TestList object at 0x10c4a3840>
+client = <starlette.testclient.TestClient object at 0x10c1c3cb0>
+
+    def test_list_carries_launchable_flags(self, client):
+        # Plan 20-01 (+ Plan 20-02 is_beta sibling): launchability is a DECLARED
+        # manifest flag surfaced per row, never a hardcoded name list. Every
+        # non-revision, non-internal pipeline is user_launchable=true (including
+        # reverse_engineer/the sample_* proofs — nothing is hidden from the
+        # catalog; incomplete pipelines are marked is_beta=true instead, which
+        # the FE renders greyed-out and non-interactive rather than absent).
+        # Every *_revision id stays user_launchable=false (revisions are dispatched
+        # from an existing run, never launched standalone from the catalog); `chat`
+        # also stays user_launchable=false — its launch surface is the dedicated
+        # ChatRunner, not run_pipeline/ExecutionEngine, so a catalog card would
+        # submit a launch this backend path cannot service (see chat/workflow.yaml).
+        resp = client.get("/api/workflows")
+        assert resp.status_code == 200, resp.text
+        by_id = {w["id"]: w for w in resp.json()}
+    
+        # sample_brownfield/sample_fanout/sample_wave carry catalog metadata too
+        # (display_name/user_launchable/is_beta) for consistency, but never reach
+        # this endpoint at all — SUPPORTED_PIPELINE_TYPES excludes them (ISS-015:
+        # they are execution-engine test fixtures with no product launch surface),
+        # so they are asserted absent below, not launchable.
+        launchable_plain = {
+            "app_builder",
+            "user_stories",
+            "custom",
+            "mulesoft_to_springboot",
+            "dotnet_to_azure",
+            "reverse_engineer",
+        }
+        for wid in launchable_plain:
+            assert by_id[wid]["user_launchable"] is True, f"{wid} should be launchable"
+            assert by_id[wid]["launch_surface"] is None, f"{wid} has no wizard surface"
+    
+        # ADR-0005: these three used to be ABSENT here, but only because the
+        # hand-typed SUPPORTED_PIPELINE_TYPES frozenset happened to omit them —
+        # an accident this test's own first paragraph forbids ("never a hardcoded
+        # name list ... nothing is hidden from the catalog"). Now that the set is
+        # derived from disk they appear, and they say what they are: their
+        # manifests declare `user_launchable: false` because their agents have no
+        # AGENT.md and a launch would raise. Assert the DECLARED FLAG, which is
+        # the rule, instead of absence, which was the accident.
+        for sample_id in ("sample_brownfield", "sample_fanout", "sample_wave"):
+            assert sample_id in by_id, (
+                f"{sample_id} has a manifest, so it belongs in the catalog "
+                "response — hiding it by name is the SC-001 violation this "
+                "test's own preamble rules out"
+            )
+            assert by_id[sample_id]["user_launchable"] is False, (
+                f"{sample_id} references agents with no AGENT.md and cannot run; "
+                "its manifest must declare user_launchable: false"
+            )
+            assert (
+                by_id[sample_id]["is_beta"] is True
+            ), f"{sample_id} is incomplete and must render greyed-out"
+    
+        for wid in ("prototype", "ppt"):
+            assert by_id[wid]["user_launchable"] is True, f"{wid} should be launchable"
+            assert by_id[wid]["launch_surface"] == "wizard", f"{wid} is a wizard tile"
+    
+        # Non-launchables: the *_revision ids + chat (dedicated ChatRunner surface).
+        non_launchable = {wid for wid in by_id if wid.endswith("_revision")} | {"chat"}
+        assert non_launchable, "expected at least one non-launchable id to assert on"
+        for wid in non_launchable:
+            assert (
+                by_id[wid]["user_launchable"] is False
+            ), f"{wid} must NOT be user_launchable"
+            assert by_id[wid]["launch_surface"] is None
+    
+        # display_name carries ONLY the manifest's EXPLICIT label (WR-01 /
+        # UXFIX-01-D-18): the BE never coalesces to the title-cased raw id, so a
+        # row's display_name is exactly what its manifest authors (or None where
+        # intentionally unauthored — the FE then falls back to the friendly
+        # WORKFLOW_LABELS map). `name` keeps the _display_name value for
+        # back-compat consumers (asserted via test_list_entries_carry_metadata).
+        #
+        # 22-07 authored friendly names on the launchable manifests; `custom`
+        # (the user-composed entry) stays unauthored on purpose. Assert BOTH
+        # halves of the coalesce contract: authored rows carry their verbatim
+        # label, and the deliberately-unauthored row stays None.
+        authored = {
+            "user_stories": "Generate product requirements",
+            "prototype": "Build an interactive prototype",
+            "ppt": "Pitch an idea",
+            "app_builder": "Build an end-to-end application",
+            "mulesoft_to_springboot": "MuleSoft to Spring Boot",
+            "dotnet_to_azure": ".NET to Azure",
+        }
+        for wid, label in authored.items():
+            if wid in by_id:
+>               assert by_id[wid]["display_name"] == label, (
+                    f"{wid} must carry its authored display_name verbatim "
+                    f"(got {by_id[wid]['display_name']!r})"
+                )
+E               AssertionError: prototype must carry its authored display_name verbatim (got 'Build an interactive prototype (Fast)')
+E               assert 'Build an int...totype (Fast)' == 'Build an int...ive prototype'
+E                 
+E                 - Build an interactive prototype
+E                 + Build an interactive prototype (Fast)
+E                 ?                               +++++++
+
+tests/integration/api/test_workflows_api.py:225: AssertionError
+=============================== warnings summary ===============================
+app/core/config.py:94
+  /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/app/core/config.py:94: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+
+.venv/lib/python3.13/site-packages/fastapi/testclient.py:1
+
+.venv/lib/python3.13/site-packages/starlette/testclient.py:53
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/integration/api/test_workflows_api.py::TestList::test_list_carries_launchable_flags
+1 failed, 3 warnings in 2.04s

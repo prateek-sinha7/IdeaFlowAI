@@ -1,0 +1,14 @@
+# QA-KB-005 fix phase — 2026-10-01 21:22:35 — cwd frontend/ — regression: reducer accumulator registry (card baseline pre-fix: 46 passed)
+# cmd: ./node_modules/.bin/vitest --run src/hooks/useWorkflow.accumulators.test.ts
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - ESM syntax in a file loaded as CommonJS (vitest.config.ts:1:1). Use a `.mjs` extension or set `"type": "module"` in the closest package.json
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+
+ RUN  v4.1.11 /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/frontend
+
+
+ Test Files  1 passed (1)
+      Tests  46 passed (46)
+   Start at  21:22:35
+   Duration  1.54s (transform 220ms, setup 100ms, import 234ms, tests 12ms, environment 991ms)
+

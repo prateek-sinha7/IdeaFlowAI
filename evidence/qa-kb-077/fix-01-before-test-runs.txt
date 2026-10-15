@@ -1,0 +1,81 @@
+# QA-KB-077 fix, BEFORE any edit. 2026-10-07T17:28Z, HEAD 2997acb71 + working tree.
+# cd backend && .venv/bin/python -m pytest <file> -q -p no:cacheprovider   (one file per invocation, offline)
+
+## tests/unit/test_user_seed_kwargs_are_columns.py
+  /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/app/core/config.py:94: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+1 xfailed, 1 warning in 2.50s
+
+## tests/unit/test_iss401_reset_password_message.py
+  /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/app/core/config.py:94: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+1 warning, 1 error in 1.23s
+E                                                                        [100%]
+E       tests.unit.conftest.UnitIsolationError: Unit test opened a real database connection. Move it to tests/integration/<mirror>/ (the hermetic in-memory SQLite db_session fixture lives in tests/integration/repositories/conftest.py), or mock the Session with MagicMock(spec=Session) / AsyncMock(spec=AsyncSession). Deliberate exception: @pytest.mark.allow_io("reason").
+ERROR tests/unit/test_iss401_reset_password_message.py::test_reset_password_409_does_not_claim_credentials_are_managed_externally
+
+## tests/unit/test_register_password_echo.py
+  /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/app/core/config.py:94: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+3 warnings, 1 error in 1.05s
+E                                                                        [100%]
+E       tests.unit.conftest.UnitIsolationError: Unit test opened a real database connection. Move it to tests/integration/<mirror>/ (the hermetic in-memory SQLite db_session fixture lives in tests/integration/repositories/conftest.py), or mock the Session with MagicMock(spec=Session) / AsyncMock(spec=AsyncSession). Deliberate exception: @pytest.mark.allow_io("reason").
+ERROR tests/unit/test_register_password_echo.py::test_a_too_short_password_is_never_echoed_back_in_the_422_body
+
+## tests/unit/test_register_password_echo_fixture_mounts_real_app.py
+  /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/app/core/config.py:94: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+3 warnings, 1 error in 1.07s
+E                                                                        [100%]
+E       tests.unit.conftest.UnitIsolationError: Unit test opened a real database connection. Move it to tests/integration/<mirror>/ (the hermetic in-memory SQLite db_session fixture lives in tests/integration/repositories/conftest.py), or mock the Session with MagicMock(spec=Session) / AsyncMock(spec=AsyncSession). Deliberate exception: @pytest.mark.allow_io("reason").
+ERROR tests/unit/test_register_password_echo_fixture_mounts_real_app.py::test_password_echo_harness_observes_app_mains_redaction_fix
+
+## tests/agents/test_per_run_paths_v3.py
+        assert root_result.completed, f"Root run failed: {root_result.error}"
+  /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/app/core/config.py:94: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+3 failed, 2 passed, 4 warnings in 4.71s
+E       (Background on this error at: https://sqlalche.me/e/20/gkpj)
+E       [parameters: ('v7-6668df68', 'v7-6668df68@test.local', None, 'basic', 0, None, None, 'active', None, None, None, None, '2026-10-07 17:28:34.456740', '2026-10-07 17:28:34.456742')]
+E       [parameters: ('v7-7470134f', 'v7-7470134f@test.local', None, 'basic', 0, None, None, 'active', None, None, None, None, '2026-10-07 17:28:36.404192', '2026-10-07 17:28:36.404193')]
+E       [SQL: INSERT INTO users (id, email, password_changed_at, tier, is_admin, preferred_model, cognito_sub, status, tokens_valid_from, roles_synced_at, mfa_verified_at, encrypted_cognito_refresh_token, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)]
+E       AttributeError: module 'app.agents.tools.playwright' has no attribute '_SANDBOX'
+E       sqlalchemy.exc.IntegrityError: (sqlite3.IntegrityError) NOT NULL constraint failed: users.cognito_sub
+E       sqlite3.IntegrityError: NOT NULL constraint failed: users.cognito_sub
+FAILED tests/agents/test_per_run_paths_v3.py::TestPerRunPathsDistinct::test_revision_browser_dir_writer_driven
+FAILED tests/agents/test_per_run_paths_v3.py::TestPerRunPathsDistinct::test_three_runs_produce_three_distinct_log_paths
+FAILED tests/agents/test_per_run_paths_v3.py::TestPerRunPathsDistinct::test_two_revisions_write_distinct_log_paths
+
+## tests/agents/test_version_family_v5.py
+  /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/app/core/config.py:94: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+2 failed, 4 warnings in 1.40s
+E       (Background on this error at: https://sqlalche.me/e/20/gkpj)
+E       [parameters: ('harness-user', 'harness-user@test.local', None, 'basic', 0, None, None, 'active', None, None, None, None, '2026-10-07 17:28:39.167527', '2026-10-07 17:28:39.167532')]
+E       [parameters: ('harness-user', 'harness-user@test.local', None, 'basic', 0, None, None, 'active', None, None, None, None, '2026-10-07 17:28:39.464486', '2026-10-07 17:28:39.464491')]
+E       [SQL: INSERT INTO users (id, email, password_changed_at, tier, is_admin, preferred_model, cognito_sub, status, tokens_valid_from, roles_synced_at, mfa_verified_at, encrypted_cognito_refresh_token, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)]
+E       sqlalchemy.exc.IntegrityError: (sqlite3.IntegrityError) NOT NULL constraint failed: users.cognito_sub
+E       sqlite3.IntegrityError: NOT NULL constraint failed: users.cognito_sub
+FAILED tests/agents/test_version_family_v5.py::TestConcurrentBrowseDuringInFlightRevision::test_browsing_v1_v2_while_v4_in_flight_does_not_affect_it
+FAILED tests/agents/test_version_family_v5.py::TestFiveDistinctVersionFamily::test_five_versions_distinct_content_tags_and_reread
+
+## tests/agents/test_revision_ordinal_v3.py
+  /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/app/core/config.py:94: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+2 failed, 6 passed, 6 warnings in 2.78s
+E       (Background on this error at: https://sqlalche.me/e/20/gkpj)
+E       [parameters: ('harness-user', 'harness-user@test.local', None, 'basic', 0, None, None, 'active', None, None, None, None, '2026-10-07 17:28:43.101008', '2026-10-07 17:28:43.101016')]
+E       [parameters: ('harness-user', 'harness-user@test.local', None, 'basic', 0, None, None, 'active', None, None, None, None, '2026-10-07 17:28:43.483027', '2026-10-07 17:28:43.483032')]
+E       [SQL: INSERT INTO users (id, email, password_changed_at, tier, is_admin, preferred_model, cognito_sub, status, tokens_valid_from, roles_synced_at, mfa_verified_at, encrypted_cognito_refresh_token, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)]
+E       sqlalchemy.exc.IntegrityError: (sqlite3.IntegrityError) NOT NULL constraint failed: users.cognito_sub
+E       sqlite3.IntegrityError: NOT NULL constraint failed: users.cognito_sub
+FAILED tests/agents/test_revision_ordinal_v3.py::TestSequentialTagsAcrossRealFinalization::test_three_completed_revisions_tag_v1_v2_v3
+FAILED tests/agents/test_revision_ordinal_v3.py::TestSequentialTagsAcrossSiblingRevisions::test_two_sibling_revisions_tag_v1_v2_v3_not_v1_v2_v2
+tests/agents/test_revision_ordinal_v3.py::TestFinalizerTagsFromContextNotFromDb::test_failed_run_in_same_family_gets_no_tag
+
+## tests/unit/test_settings_api_key_whitespace_name.py
+  /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/app/core/config.py:94: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+1 warning, 1 error in 1.14s
+E                                                                        [100%]
+E       tests.unit.conftest.UnitIsolationError: Unit test opened a real database connection. Move it to tests/integration/<mirror>/ (the hermetic in-memory SQLite db_session fixture lives in tests/integration/repositories/conftest.py), or mock the Session with MagicMock(spec=Session) / AsyncMock(spec=AsyncSession). Deliberate exception: @pytest.mark.allow_io("reason").
+ERROR tests/unit/test_settings_api_key_whitespace_name.py::test_whitespace_only_name_not_stored_verbatim
+
+## tests/unit/test_settings_github_pat_race.py
+  /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/app/core/config.py:94: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+1 xfailed, 1 warning in 1.03s
+
+## tests/integration/api/test_admin_privilege_atomicity_api.py -k TestPasswordResetAtomicity
+3 passed, 3 deselected, 1 warning in 0.86s

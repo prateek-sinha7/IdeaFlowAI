@@ -1,0 +1,7 @@
+[XPASS(strict)] ISS-684 unfixed
+ERROR    agents.execution_engine.engine:engine.py:6515 step custom-agent:publish: Code step kind 'zz_new_kind' has no engine dispatch branch
+ERROR    agents.execution_engine.engine:engine.py:2603 finalize_terminal_run: create_run_ref FAILED run=harness-ex_publish_step-69a838b4 (run_id must be a UUID (hex digits and hyphens only): 'harness-
+ERROR    agents.execution_engine.engine:engine.py:2790 finalize_terminal_run: DB session creation FAILED run=harness-ex_publish_step-69a838b4 ((builtins.Exception) offline harness
+PASSED tests/agents/test_iss684_unhandled_mechanical_kind.py::test_engine_dispatch_matches_registered_kinds
+FAILED tests/agents/test_iss684_unhandled_mechanical_kind.py::test_unhandled_mechanical_kind_fails_the_run
+1 failed, 1 passed, 4 warnings in 1.94s

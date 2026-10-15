@@ -29,13 +29,30 @@ import logging
 from pathlib import Path
 from typing import Optional
 
+from app.core.config import settings
+
 logger = logging.getLogger("app.agents.skills")
 
 _BACKEND_DIR = Path(__file__).parent.parent.parent
 SKILLS_DIR = _BACKEND_DIR / "skills"
-USER_SKILLS_DIR = SKILLS_DIR / "users"
-GLOBAL_SKILLS_DIR = SKILLS_DIR / "global"
-PPTX_SKILLS_DIR = _BACKEND_DIR / "pptx"
+# Each root is overridable from settings (see app/core/config.py); the default is
+# the backend-relative path. GLOBAL_SKILLS_DIR follows the same GLOBAL_SKILLS_ROOT
+# as the catalog, since backend/skills/global is not baked under /app/skills.
+USER_SKILLS_DIR = (
+    Path(settings.USER_SKILLS_ROOT)
+    if settings.USER_SKILLS_ROOT
+    else SKILLS_DIR / "users"
+)
+GLOBAL_SKILLS_DIR = (
+    Path(settings.GLOBAL_SKILLS_ROOT)
+    if settings.GLOBAL_SKILLS_ROOT
+    else SKILLS_DIR / "global"
+)
+PPTX_SKILLS_DIR = (
+    Path(settings.PPTX_SKILLS_ROOT)
+    if settings.PPTX_SKILLS_ROOT
+    else _BACKEND_DIR / "pptx"
+)
 
 # Maximum size in bytes accepted for a custom SKILL.md payload.
 # Enforced at the API layer (POST /api/agents/skills) and again at load time

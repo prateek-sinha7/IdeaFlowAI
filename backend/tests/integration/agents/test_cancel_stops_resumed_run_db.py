@@ -255,24 +255,41 @@ async def test_a_cancelled_resumed_run_is_not_re_adopted_by_auto_resume(registry
     seconds after boot and billed 7.5M further tokens). So a cancel is only real if it
     leaves the row OUTSIDE the non-terminal set.
 
-    RED pre-fix: the cancel is ignored, the resumed drive dies on the scripted wave crash
-    with the row still ``generating``, and the restore scan picks the run straight back up.
+    RED pre-fix: the cancel is ignored and the resumed drive dies on the scripted wave
+    crash, so the row ends ``failed`` instead of ``cancelled``.
     """
+    from app.models.workflow import WorkflowRun
+
     session, db_engine = _make_session()
     call_log: dict[str, int] = {}
     run_id, _owner = await _interrupted_run(session, db_engine, call_log)
+
+    # A real crash (process death) leaves the row non-terminal; the scripted crash is a
+    # StepRaised that writes ``failed`` (FIX-669). Put the row back so the restore scan
+    # below has something to re-adopt unless the resumed drive terminates it (ISS-1102).
+    session.expire_all()
+    row = session.query(WorkflowRun).filter(WorkflowRun.id == run_id).first()
+    row.status = "generating"
+    session.commit()
 
     registry._register_resume_task(run_id, object())
     registry._CANCEL_EVENTS[run_id].set()
 
     # The resumed drive would crash on the wave-1 fan-out (as instance A did) if the
-    # cancel were ignored — leaving the row non-terminal, which is the re-adoption setup.
+    # cancel were ignored.
     with _ResumeHarness(
         session, call_log, fail_on=set(), db_engine=db_engine, raise_on_fanout_call=1
     ) as h:
         engine_b = h.make_engine()
         engine_b._resume_cancel_event = registry._resume_cancel_event
         await engine_b.resume_run(run_id)
+
+    session.expire_all()
+    row = session.query(WorkflowRun).filter(WorkflowRun.id == run_id).first()
+    assert row.status == "cancelled", (
+        f"the cancelled resume must end the row cancelled, not {row.status!r} — "
+        "an ignored cancel lets the drive run on (or crash) instead of stopping"
+    )
 
     # A fresh boot scans for non-terminal runs.
     adopted: list[str] = []

@@ -1,0 +1,18 @@
+# fix-01 (QA-KB-103 / ISS-1118, 2026-10-09): shared decision, re-attach and refusal controls
+# cmd: cd backend && PYTHONPATH=. .venv/bin/python ../evidence/qa-kb-103/fix-plugins/probe_iss1118.py
+
+app_builder: refs equal file plan=True caller-steps-untouched=True {'app-infra-generator': (None, 'api_prefix_audit')}
+prototype: refs equal file plan=True caller-steps-untouched=True {'prototype-build': ('html_skeleton', None)}
+prototype_feature_revision: refs equal file plan=True caller-steps-untouched=True {'prototype-build': ('html_skeleton', 'revision_validation')}
+prototype_large_revision: refs equal file plan=True caller-steps-untouched=True {'prototype-build': ('html_skeleton', 'revision_validation')}
+prototype_revision: refs equal file plan=True caller-steps-untouched=True {'prototype-revision-agent': (None, 'revision_validation')}
+REFUSED  post_step moved to app-code-generator: capability ('post_step', 'api_prefix_audit') is not user-allowed in step 'app-code-generator' — a user/db mani
+REFUSED  post_step value swapped: capability ('post_step', 'revision_validation') is not user-allowed in step 'app-infra-generator' — a user/db 
+REFUSED  gates: [security] added: capability ('gate', 'security') is not user-allowed in step 'prototype-specify' — a user/db manifest may not r
+REFUSED  tools.exec granted: step grant of ['exec'] is not permitted for 'user'-trust manifests in step 'prototype-specify' — exec/network/
+REFUSED  tools.spawn_subagents granted: step grant of ['spawn_subagents'] is not permitted for 'user'-trust manifests in step 'prototype-specify' — ex
+REFUSED  sample_fanout own steps (spawn trio): step grant of ['spawn_subagents'] is not permitted for 'user'-trust manifests in step 'sample-fanout-worker' —
+REFUSED  sample_subagents_parallel own steps (spawn trio): step grant of ['spawn_subagents'] is not permitted for 'user'-trust manifests in step 'custom-agent' — exec/ne
+REFUSED  sample_wave own steps (spawn trio): step grant of ['spawn_subagents'] is not permitted for 'user'-trust manifests in step 'sample-wave-worker' — e
+REFUSED  prototype steps under override target ppt: capability ('compaction', 'html_skeleton') is not user-allowed in step 'prototype-build' — a user/db manifest 
+merge applied: True | prototype-build compaction: html_skeleton | cache untouched: True

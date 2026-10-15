@@ -1,0 +1,91 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_______________ test_cancelled_error_mid_wave_marks_row_terminal _______________
+
+    @pytest.mark.issue("ISS-098")
+    @pytest.mark.asyncio
+    async def test_cancelled_error_mid_wave_marks_row_terminal():
+        """A CancelledError raised mid-wave must still flip the wave_runs row to a
+        terminal status — not leave it stuck at ``running``."""
+        strat = WaveSchedulerStrategy()
+        runner = _CancelMidWaveRunner()
+        ctx = _CancelCtx(runner)
+        step = _CancelStep("wave-step")
+    
+        tasks = [_t("ta", targets=["a.txt"])]
+    
+        class _FakeParser:
+            def parse(self, _text):
+                return tasks
+    
+        strat._registry = type("R", (), {"resolve": lambda self, k, n: _FakeParser()})()
+    
+        with pytest.raises(asyncio.CancelledError):
+>           async for _ in strat.run(step, ctx):
+
+tests/agents/test_wave_scheduler_cancel_row.py:76: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+agents/capabilities/strategies/wave_scheduler.py:490: in run
+    async for event in _dispatch_wave(requests, task_ids):
+agents/capabilities/strategies/wave_scheduler.py:474: in _dispatch_wave
+    async for event in stream_wave_fanout(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+runner = <tests.agents.test_wave_scheduler_cancel_row._CancelMidWaveRunner object at 0x10b989400>
+requests = [{'agent': 'self', 'input': 'body-ta', 'task_author_id': 'ta', 'task_id': 'e6048b33cf24dee0cdadefe9e6ffc064c8d2284a1be8cea052617e5c3ce9714b'}]
+ctx = <tests.agents.test_wave_scheduler_cancel_row._CancelCtx object at 0x10b989550>
+
+    async def stream_wave_fanout(
+        runner: Any,
+        requests: list[dict],
+        ctx: Any,
+        *,
+        step: Any,
+        wave_index: int,
+        task_ids: list[str],
+    ) -> AsyncIterator[dict]:
+        """Run one wave's fan-out, stamping wave identity onto each queued worker event.
+    
+        ``requests``/``task_ids`` are parallel lists (index ``i`` of each belongs to the
+        same worker). Fan-out lifecycle events (``subagent_spawned``/``subagent_result``)
+        pass through UNCHANGED — the caller stamps those itself (CR-06). Every event
+        sourced off the worker side-channel queue already carries ``worker_index``/
+        ``task_id`` (stamped by ``fanout.py`` at push time); this layers on ``wave_index``,
+        ``step`` (the parent step id) and ``wave_total`` on a COPY of its data dict (a
+        shared dict must never be mutated under the kernel). An event missing
+        ``worker_index``/``task_id`` passes through unstamped rather than guessing.
+        """
+        step_id = getattr(step, "agent_id", None)
+        wave_total = len(task_ids)
+    
+        def _stamp_queued(event: dict) -> dict:
+            data = event.get("data") or {}
+            if "worker_index" not in data or "task_id" not in data:
+                return event
+    
+            data = dict(data)
+            data["wave_index"] = wave_index
+            data["step"] = step_id
+            data["wave_total"] = wave_total
+            return {**event, "data": data}
+    
+        child_events: asyncio.Queue[dict] = asyncio.Queue()
+>       fanout_iter = runner.run_fanout(
+            requests, ctx, step=step, event_queue=child_events
+        ).__aiter__()
+E       TypeError: _CancelMidWaveRunner.run_fanout() got an unexpected keyword argument 'event_queue'
+
+agents/capabilities/strategies/_fanout_wave_stream.py:71: TypeError
+=============================== warnings summary ===============================
+app/core/config.py:94
+  /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/app/core/config.py:94: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+    class Settings(BaseSettings):
+
+tests/conftest.py:484
+  /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/tests/conftest.py:484: PytestUnknownMarkWarning: Unknown pytest.mark.agents - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    item.add_marker(getattr(pytest.mark, suite))
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/agents/test_wave_scheduler_cancel_row.py::test_cancelled_error_mid_wave_marks_row_terminal
+1 failed, 2 warnings in 1.12s

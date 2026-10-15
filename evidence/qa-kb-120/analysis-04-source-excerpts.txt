@@ -1,0 +1,392 @@
+QA-KB-120 exact source excerpts (3-analyzer, 2026-10-09, HEAD 9cd0d6c5a); none of these files has an uncommitted change
+
+=== backend/agents/execution_engine/engine.py:1553-1557  (allowlist is built from the DECLARED name, before anything is written)
+1553:         if _output_basename:
+1554:             _allowlist = _payload_allowlist(_output_basename, _text_basename or None)
+1555:         else:
+1556:             # Metadata-only snapshot — no output file in the allowlist.
+1557:             _allowlist = frozenset({".chain/logs.jsonl", ".chain/summary.md"})
+
+=== backend/agents/execution_engine/engine.py:1597-1608  (output copy; _materialized flips only on success)
+1597:     # ── Copy the output file (materialized iff successful) ──────────────────
+1598:     # Must run BEFORE summary.md is rendered so payload_chainable (which derives
+1599:     # from _materialized) is a known value when render_summary_md is called.
+1600:     _materialized = False
+1601:     if _output_basename:
+1602:         try:
+1603:             import shutil as _shutil2  # noqa: PLC0415
+1604: 
+1605:             _src_output = sandbox.root / _output_basename
+1606:             if _src_output.is_file():
+1607:                 _shutil2.copy2(_src_output, _staging_abs / _output_basename)
+1608:                 _materialized = True
+
+=== backend/agents/execution_engine/engine.py:1648-1659  (the unmaterialized branch: a debug log, allowlist untouched)
+1648:             else:
+1649:                 logger.debug(
+1650:                     "build_flat_payload: output file not found run=%s basename=%r",
+1651:                     run_id,
+1652:                     _output_basename,
+1653:                 )
+1654:         except Exception:  # noqa: BLE001
+1655:             logger.warning(
+1656:                 "build_flat_payload: failed to copy output file for run=%s",
+1657:                 run_id,
+1658:                 exc_info=True,
+1659:             )
+
+=== backend/agents/execution_engine/engine.py:1661-1674  (PRECEDENT: the text form IS pruned when not staged)
+1661:     # ── Copy the binary deliverable's text form beside it ────────────────────
+1662:     if _text_basename:
+1663:         try:
+1664:             import shutil as _shutil3  # noqa: PLC0415
+1665: 
+1666:             _shutil3.copy2(sandbox.path_for(_text_basename), _staging_abs / _text_basename)
+1667:         except Exception:  # noqa: BLE001 — not staged, so stage_exact never names a missing file
+1668:             logger.warning(
+1669:                 "build_flat_payload: failed to copy text form %r for run=%s",
+1670:                 _text_basename,
+1671:                 run_id,
+1672:                 exc_info=True,
+1673:             )
+1674:             _allowlist = _allowlist - {f".chain/{_text_basename}"}
+
+=== backend/agents/execution_engine/engine.py:1689-1699  (payload_chainable / non_chainable_reason derive from _materialized)
+1689:     _payload_chainable: bool = _materialized
+1690:     # No declared name (Req 4 AC 4) is non-chainable BY DESIGN, distinct from a
+1691:     # declared name whose bytes could not be produced — the finalizer (Step 5)
+1692:     # keys off this exact string to skip the degrade for the former (GAPS R6).
+1693:     _non_chainable_reason: str = (
+1694:         ""
+1695:         if _payload_chainable
+1696:         else "no_declared_output"
+1697:         if not _output_basename
+1698:         else "output_not_materialized"
+1699:     )
+
+=== backend/agents/execution_engine/engine.py:1732-1766  (stale reconciliation + the one stage_exact call, swallowed at WARN with exc_info)
+1732:     # ── Stale-basename reconciliation ───────────────────────────────────────
+1733:     # Any path currently tracked under .chain/ that is NOT in the new allowlist
+1734:     # must be removed from the index so a renamed deliverable does not leave an
+1735:     # orphan tracked entry (Requirement 4 AC 9).
+1736:     try:
+1737:         _tracked = sandbox.tracked_chain_paths()
+1738:         for _old_path in _tracked:
+1739:             if _old_path not in _allowlist:
+1740:                 sandbox.git_rm_cached(_old_path)
+1741:                 logger.debug(
+1742:                     "build_flat_payload: git_rm_cached stale path=%r run=%s",
+1743:                     _old_path,
+1744:                     run_id,
+1745:                 )
+1746:     except Exception:  # noqa: BLE001
+1747:         logger.warning(
+1748:             "build_flat_payload: stale-basename reconciliation failed for run=%s",
+1749:             run_id,
+1750:             exc_info=True,
+1751:         )
+1752: 
+1753:     # ── Force-stage the allowlist paths ─────────────────────────────────────
+1754:     # stage_exact raises when has_git=False — only call when git is present.
+1755:     if getattr(sandbox, "has_git", False):
+1756:         try:
+1757:             sandbox.stage_exact(list(_allowlist))
+1758:             logger.debug(
+1759:                 "build_flat_payload: staged allowlist=%r run=%s", _allowlist, run_id
+1760:             )
+1761:         except Exception:  # noqa: BLE001
+1762:             logger.warning(
+1763:                 "build_flat_payload: stage_exact failed for run=%s",
+1764:                 run_id,
+1765:                 exc_info=True,
+1766:             )
+
+=== backend/agents/execution_engine/engine.py:1768-1774  (Payload returned with the unpruned allowlist)
+1768:     return Payload(
+1769:         allowlist=_allowlist,
+1770:         built=True,
+1771:         materialized=_materialized,
+1772:         chainable=_payload_chainable,
+1773:         non_chainable_reason=_non_chainable_reason,
+1774:     )
+
+=== backend/agents/execution_engine/engine.py:2322-2353  (the ONLY production caller; it replaces an unmaterialized payload with the metadata-only one)
+2322:         _commit_was_blocked: bool = bool(getattr(ectx, "last_commit_blocked", False))
+2323:         _built_payload: "Payload"
+2324: 
+2325:         if _commit_was_blocked:
+2326:             # payload_blocked trigger: a prior step-boundary commit was blocked.
+2327:             _built_payload = build_metadata_only_snapshot(
+2328:                 run_id, ectx, non_chainable_reason="payload_blocked"
+2329:             )
+2330:             logger.warning(
+2331:                 "finalize_terminal_run: metadata_only_snapshot run=%s trigger=payload_blocked",
+2332:                 run_id,
+2333:             )
+2334:         else:
+2335:             _built_payload = build_flat_payload(run_id, ectx)
+2336:             # output_unmaterializable trigger
+2337:             _deliv_check = getattr(ectx, "deliverable", None)
+2338:             _has_declared_deliverable: bool = bool(
+2339:                 getattr(_deliv_check, "name", None) if _deliv_check else None
+2340:             )
+2341:             if (
+2342:                 _built_payload.built
+2343:                 and not _built_payload.materialized
+2344:                 and _has_declared_deliverable
+2345:             ):
+2346:                 _built_payload = build_metadata_only_snapshot(
+2347:                     run_id, ectx, non_chainable_reason="output_unmaterializable"
+2348:                 )
+2349:                 logger.warning(
+2350:                     "finalize_terminal_run: metadata_only_snapshot run=%s "
+2351:                     "trigger=output_unmaterializable",
+2352:                     run_id,
+2353:                 )
+
+=== backend/agents/execution_engine/engine.py:2385-2391  (output_not_materialized still degrades)
+2385:         if (
+2386:             not _built_payload.chainable
+2387:             and _built_payload.non_chainable_reason != "no_declared_output"
+2388:         ):
+2389:             attempt.degrade(
+2390:                 _built_payload.non_chainable_reason or "payload_not_chainable"
+2391:             )
+
+=== backend/agents/execution_engine/engine.py:2414-2430  (snapshot commit force-adds Payload.allowlist)
+2414:         if _sandbox is not None and getattr(_sandbox, "has_git", False):
+2415:             try:
+2416:                 _snap_result = await commit_in_sandbox(
+2417:                     _sandbox,
+2418:                     _commit_msg,
+2419:                     ectx,
+2420:                     _snap_step,
+2421:                     audit_operation="snapshot_commit",
+2422:                     paths=[],  # already staged by build_flat_payload
+2423:                     force_add=_built_payload.allowlist or None,
+2424:                     audit_detail={
+2425:                         "tag_name": "",
+2426:                         "source_ref": "",
+2427:                         "idempotency_key": "",
+2428:                     },
+2429:                     registry=None,  # no per-finalizer declared hooks
+2430:                 )
+
+=== backend/agents/execution_engine/engine.py:613-638  (commit_in_sandbox: any force_add failure => blocked/staging_failed)
+613:     try:
+614:         _ws = sandbox._ws()  # type: ignore[attr-defined]
+615:         # Force-add the payload allowlist entries first (before the main stage).
+616:         if force_add:
+617:             for _fa_path in sorted(force_add):
+618:                 _ws._git("add", "--force", "--", _fa_path)  # type: ignore[attr-defined]
+619:         # Main stage.
+620:         if paths is None:
+621:             _ws._git("add", "-A")  # type: ignore[attr-defined]
+622:         else:
+623:             if paths:
+624:                 _ws._git("add", "--", *paths)  # type: ignore[attr-defined]
+625:     except Exception as _stage_exc:  # noqa: BLE001
+626:         logger.warning(
+627:             "commit_in_sandbox: staging failed for run=%s step=%s (%s) — "
+628:             "leaving diff uncommitted",
+629:             getattr(ectx, "run_id", "?"),
+630:             getattr(step, "agent_id", "?"),
+631:             _stage_exc,
+632:         )
+633:         ectx.last_commit_blocked = True  # type: ignore[attr-defined]
+634:         ectx.last_commit_block_reason = "staging_failed"  # type: ignore[attr-defined]
+635:         return CommitInSandboxResult(
+636:             blocked=True,
+637:             block_reason="staging_failed",
+638:         )
+
+=== backend/agents/execution_engine/engine.py:2439-2455  (blocked snapshot => metadata-only retry labelled payload_blocked)
+2439:         if _snap_result.blocked:
+2440:             # A blocked snapshot: reset index, rebuild metadata-only, retry once.
+2441:             logger.warning(
+2442:                 "finalize_terminal_run: snapshot commit BLOCKED run=%s reason=%s — "
+2443:                 "resetting index and rebuilding metadata-only",
+2444:                 run_id,
+2445:                 _snap_result.block_reason,
+2446:             )
+2447:             _reset_idx3 = getattr(_sandbox, "reset_index", None) if _sandbox else None
+2448:             if _reset_idx3 is not None:
+2449:                 try:
+2450:                     _reset_idx3()
+2451:                 except Exception:  # noqa: BLE001
+2452:                     pass
+2453:             _retry_payload = build_metadata_only_snapshot(
+2454:                 run_id, ectx, non_chainable_reason="payload_blocked"
+2455:             )
+
+=== backend/agents/execution_engine/engine.py:2485-2485  (unconditional payload_blocked degrade)
+2485:             attempt.degrade("payload_blocked")
+
+=== backend/agents/execution_engine/engine.py:1876-1889  (metadata-only snapshot step 1: reset_index discards whatever build_flat_payload staged)
+1876:     # ── Step 1: Reset the index to HEAD ────────────────────────────────────
+1877:     # Clears any staged bytes from a prior blocked build attempt so they cannot
+1878:     # bleed into the metadata-only commit (Requirement 5 AC 16).
+1879:     if getattr(sandbox, "has_git", False):
+1880:         try:
+1881:             sandbox.reset_index()
+1882:             logger.debug("build_metadata_only_snapshot: index reset run=%s", run_id)
+1883:         except Exception:  # noqa: BLE001
+1884:             logger.warning(
+1885:                 "build_metadata_only_snapshot: reset_index failed for run=%s",
+1886:                 run_id,
+1887:                 exc_info=True,
+1888:             )
+1889:             # Continue — the untrack step below is a further safeguard.
+
+=== backend/agents/execution_engine/engine.py:1903-1926  (metadata-only snapshot step 2: untrack every other .chain path)
+1903:     if getattr(sandbox, "has_git", False):
+1904:         try:
+1905:             _tracked = sandbox.tracked_chain_paths()
+1906:         except Exception:  # noqa: BLE001
+1907:             _tracked = []
+1908:         for _untrack_path in _tracked:
+1909:             if _untrack_path in _SUMMARY_ONLY_ALLOWLIST:
+1910:                 continue
+1911:             try:
+1912:                 sandbox.git_rm_cached(_untrack_path)
+1913:                 logger.debug(
+1914:                     "build_metadata_only_snapshot: git_rm_cached path=%r run=%s",
+1915:                     _untrack_path,
+1916:                     run_id,
+1917:                 )
+1918:             except Exception:  # noqa: BLE001
+1919:                 # git_rm_cached is already best-effort (no-op when not tracked),
+1920:                 # so any other exception is also logged and swallowed here.
+1921:                 logger.warning(
+1922:                     "build_metadata_only_snapshot: git_rm_cached failed path=%r run=%s",
+1923:                     _untrack_path,
+1924:                     run_id,
+1925:                     exc_info=True,
+1926:                 )
+
+=== backend/agents/execution_engine/engine.py:1974-1988  (metadata-only snapshot step 5: stage summary.md only)
+1974:     # ── Step 5: Force-stage only summary.md ─────────────────────────────────
+1975:     # Only the one metadata file; logs.jsonl and the output file are absent by
+1976:     # design and must NOT be staged (Requirement 4 AC 16).
+1977:     if getattr(sandbox, "has_git", False):
+1978:         try:
+1979:             sandbox.stage_exact([".chain/summary.md"])
+1980:             logger.debug(
+1981:                 "build_metadata_only_snapshot: staged summary.md run=%s", run_id
+1982:             )
+1983:         except Exception:  # noqa: BLE001
+1984:             logger.warning(
+1985:                 "build_metadata_only_snapshot: stage_exact failed for run=%s",
+1986:                 run_id,
+1987:                 exc_info=True,
+1988:             )
+
+=== backend/app/agents/runtime/local.py:385-405  (the single git subprocess owner: check=True, capture_output=True)
+385:     def _git(self, *args: str, env: dict[str, str] | None = None) -> str:
+386:         result = subprocess.run(
+387:             [
+388:                 "git",
+389:                 "-c",
+390:                 "user.name=Velocity Runtime",
+391:                 "-c",
+392:                 "user.email=runtime@velocity.local",
+393:                 "-c",
+394:                 "commit.gpgsign=false",
+395:                 *args,
+396:             ],
+397:             cwd=str(self._root),
+398:             check=True,
+399:             capture_output=True,
+400:             text=True,
+401:             env=self._git_env(
+402:                 env
+403:             ),  # None ⇒ inherit; clone threads a GIT_ALLOW_PROTOCOL guard
+404:         )
+405:         return result.stdout
+
+=== backend/app/agents/runtime/local.py:1426-1434  (stage_exact: ONE git add --force -- <all paths>)
+1426:     def stage_exact(self, paths: list[str]) -> None:
+1427:         """Stage exactly the listed paths with ``git add --force -- <paths>``.
+1428: 
+1429:         Only the given exact paths are staged — no glob expansion.
+1430:         Raises ``subprocess.CalledProcessError`` on failure.
+1431:         """
+1432:         if not paths:
+1433:             return
+1434:         self._git("add", "--force", "--", *paths)
+
+=== backend/app/agents/sandbox.py:1199-1215  (RunSandbox.stage_exact: 'A staging failure must be visible')
+1199:     def stage_exact(self, paths: list[str]) -> None:
+1200:         """Stage exactly the listed paths with ``git add --force -- <paths>``.
+1201: 
+1202:         Delegates to ``LocalWorkspace.stage_exact`` via duck-typing.
+1203:         Raises when ``has_git=False`` or when the underlying workspace does not
+1204:         support it.  A staging failure must be visible.
+1205:         """
+1206:         if not self.has_git:
+1207:             raise RuntimeError(
+1208:                 f"stage_exact called on a non-git sandbox (has_git=False) run={self.run_id!r}"
+1209:             )
+1210:         fn = getattr(self._ws(), "stage_exact", None)
+1211:         if fn is None:
+1212:             raise AttributeError(
+1213:                 "stage_exact not available on the underlying workspace"
+1214:             )
+1215:         fn(paths)
+
+=== backend/app/agents/sandbox.py:299-318  (payload_allowlist returns the declared names verbatim)
+299:     names = [output_basename] + ([text_basename] if text_basename else [])
+300:     for name in names:
+301:         if "/" in name or "\\" in name:
+302:             raise ValueError(
+303:                 f"payload_allowlist: output_basename contains a path separator: {name!r}"
+304:             )
+305:         if name in (".", ".."):
+306:             raise ValueError(
+307:                 f"payload_allowlist: output_basename must not be '.' or '..': {name!r}"
+308:             )
+309:         if name.lower() in ("logs.jsonl", "summary.md"):
+310:             raise ValueError(
+311:                 f"payload_allowlist: output_basename collides with a reserved payload name: "
+312:                 f"{name!r}"
+313:             )
+314:     return frozenset(
+315:         {
+316:             ".chain/logs.jsonl",
+317:             ".chain/summary.md",
+318:             *(f".chain/{name}" for name in names),
+
+=== backend/tests/agents/test_finalizer_v2.py:181-183  (FakeSandbox.stage_exact: per path, NOT all-or-nothing like the real one)
+181:     def stage_exact(self, paths: list[str]) -> None:
+182:         for p in paths:
+183:             _run_git("add", "--force", "--", p, cwd=self.root)
+
+=== backend/tests/agents/test_finalizer_v2.py:2094-2110  (existing test that runs the failing path and asserts nothing about staging or logs)
+2094:     def test_payload_materialized_false_when_output_absent(self, tmp_path: Path) -> None:
+2095:         """build_flat_payload.materialized=False when output file does not exist."""
+2096:         if not shutil.which("git"):
+2097:             pytest.skip("git not available")
+2098: 
+2099:         sandbox, run_id = _setup_sandbox(tmp_path)
+2100:         _plant_logs(sandbox, run_id)
+2101:         # Do NOT write output.html
+2102: 
+2103:         ectx = _make_ectx(run_id, sandbox)
+2104: 
+2105:         from agents.execution_engine.engine import build_flat_payload  # noqa: PLC0415
+2106:         result = build_flat_payload(run_id, ectx)
+2107: 
+2108:         assert result.built is True
+2109:         assert result.materialized is False
+2110:         assert result.chainable is False
+
+=== backend/tests/unit/app/test_binary_deliverable.py:111-118  (PRECEDENT test: real RunSandbox + git_init_sandbox + allow_io mark)
+111: def test_a_text_form_that_is_not_a_plain_file_on_disk_is_not_staged(tmp_path):
+112:     sb = _sandbox(tmp_path, pdf=True)
+113:     sb.has_git = False  # the files and the allowlist are the point here, not the index
+114:     for text_name in ("../escape.md", "docs/backlog.md", "missing.md"):
+115:         spec = DeliverableSpec(strategy="single_file", name="Backlog.pdf", text_name=text_name)
+116:         payload = _flat_payload(sb, spec)
+117:         assert payload.allowlist == frozenset({".chain/logs.jsonl", ".chain/summary.md", ".chain/Backlog.pdf"})
+118:         assert sorted(p.name for p in (sb.root / ".chain").iterdir()) == ["Backlog.pdf", "logs.jsonl", "summary.md"]
+

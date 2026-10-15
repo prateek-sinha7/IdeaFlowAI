@@ -1,0 +1,18 @@
+== attempt 1
+launch-gate: 403
+create: {"id":"296d0de9-ec7c-409d-b00f-d8e422599cb4","name":"qa104-basic-1","description":null,"base_pipeline_type":"ppt","agent_ids":["ppt-brief-analyst","ppt-composer"],"model_overrides":null,"selections":null,"manifest":null,"attached_skills":null,"attached_hooks":null,"overrides_pipeline_type":n
+{"diff":["capabilities: <absent> != <dict len=1>","clarify: <absent> != <dict len=2>","context_providers: <absent> != <list len=0>","deliverable: <absent> != <dict len=2>","description: <absent> != 'One parent over three independent sibling agents, dispatched concurrently.'","display_name: <absent> != 'Sub-agents in parallel'","icon: <absent> != 'Network'","id: <absent> != 'sample_subagents_parall
+steps: [None]
+cleanup 204
+== attempt 2
+launch-gate: 403
+create: {"id":"0f79ed7b-f005-4eab-a99a-c1550a02bb9f","name":"qa104-basic-2","description":null,"base_pipeline_type":"ppt","agent_ids":["ppt-brief-analyst","ppt-composer"],"model_overrides":null,"selections":null,"manifest":null,"attached_skills":null,"attached_hooks":null,"overrides_pipeline_type":n
+{"diff":["capabilities: <absent> != <dict len=1>","clarify: <absent> != <dict len=2>","context_providers: <absent> != <list len=0>","deliverable: <absent> != <dict len=2>","description: <absent> != 'One parent over three independent sibling agents, dispatched concurrently.'","display_name: <absent> != 'Sub-agents in parallel'","icon: <absent> != 'Network'","id: <absent> != 'sample_subagents_parall
+steps: [None]
+cleanup 204
+== attempt 3
+launch-gate: 403
+create: {"id":"11317dd1-319a-483c-8aa3-5b9e7b869977","name":"qa104-basic-3","description":null,"base_pipeline_type":"ppt","agent_ids":["ppt-brief-analyst","ppt-composer"],"model_overrides":null,"selections":null,"manifest":null,"attached_skills":null,"attached_hooks":null,"overrides_pipeline_type":n
+{"diff":["capabilities: <absent> != <dict len=1>","clarify: <absent> != <dict len=2>","context_providers: <absent> != <list len=0>","deliverable: <absent> != <dict len=2>","description: <absent> != 'One parent over three independent sibling agents, dispatched concurrently.'","display_name: <absent> != 'Sub-agents in parallel'","icon: <absent> != 'Network'","id: <absent> != 'sample_subagents_parall
+steps: [None]
+cleanup 204

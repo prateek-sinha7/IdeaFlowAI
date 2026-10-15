@@ -124,3 +124,35 @@ describe("handlePipelineMessage — top-level error frame", () => {
     expect(h.state.pipelineError).toBeUndefined();
   });
 });
+
+// ISS-107 (QA-KB-005) — hook_run reads only msg.data; page.tsx:1570 hands the reducer a
+// FLAT frame, so every field fell back to "audit_logger"/""/"continue".
+describe("hook_run payload (ISS-107)", () => {
+  const payload = {
+    hook: "secret_scan",
+    event: "before_write",
+    outcome: "block",
+    agent_id: "writer",
+    timestamp: "2026-10-01T10:00:00.000Z",
+  };
+  const expectAllFive = (row: PipelineRunState["hookRuns"]) => {
+    expect(row).toHaveLength(1);
+    expect(row![0].hook).toBe("secret_scan");
+    expect(row![0].event).toBe("before_write");
+    expect(row![0].outcome).toBe("block");
+    expect(row![0].created_at).toBe("2026-10-01T10:00:00.000Z");
+    expect(row![0].detail).toMatchObject({ agent_id: "writer" });
+  };
+
+  it("keeps all five fields from a nested {type, data} frame", () => {
+    const h = makeHarness();
+    handlePipelineMessage({ type: "hook_run", data: payload }, h.setPipelineState, h.agentStartTimesRef);
+    expectAllFive(h.state.hookRuns);
+  });
+
+  it("keeps all five fields from a flat frame (the shape page.tsx sends)", () => {
+    const h = makeHarness();
+    handlePipelineMessage({ type: "hook_run", ...payload }, h.setPipelineState, h.agentStartTimesRef);
+    expectAllFive(h.state.hookRuns);
+  });
+});

@@ -23,6 +23,7 @@ import { NotificationPanel } from "@/components/ui/NotificationPanel";
 import type { PipelineNotification } from "@/hooks/useNotifications";
 import { useWorkflowLabels } from "@/hooks/useWorkflowMetadata";
 import { useTheme } from "@/hooks/useTheme";
+import { useEscapeToClose } from "@/hooks/useEscapeToClose";
 import type { Tier } from "@/lib/entitlements";
 import { TIER_LABELS } from "@/lib/entitlements";
 import type { SettingsSection } from "@/components/settings/AccountSettings";
@@ -171,15 +172,10 @@ export function AppHeader({
     return () => document.removeEventListener("mousedown", handleClick);
   }, [runningDropdownOpen]);
 
-  // a11y: Escape closes the menu and refocuses the trigger. Bound on the wrapper
-  // so it fires whether focus is on the trigger button or a menu item.
-  const handleMenuKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Escape" && profileOpen) {
-      e.stopPropagation();
-      setProfileOpen(false);
-      triggerRef.current?.focus();
-    }
-  };
+  // a11y: Escape closes the menu and refocuses the trigger. ISS-928: a document
+  // listener, so it fires wherever focus is, including BODY when the opening
+  // click did not focus the trigger (Safari/Firefox on macOS).
+  useEscapeToClose(() => { setProfileOpen(false); triggerRef.current?.focus(); }, profileOpen);
 
   // Derive running/in-flight runs from the server-sourced recentRuns (the same
   // ground-truth data that powers "Jump Back In" on the home page). Falls back
@@ -526,7 +522,7 @@ export function AppHeader({
         />
 
         {/* Profile dropdown */}
-        <div className="relative" ref={dropdownRef} onKeyDown={handleMenuKeyDown}>
+        <div className="relative" ref={dropdownRef}>
           <button
             ref={triggerRef}
             onClick={() => !disabled && setProfileOpen(!profileOpen)}

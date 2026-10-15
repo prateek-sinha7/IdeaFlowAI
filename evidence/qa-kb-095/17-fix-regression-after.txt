@@ -1,0 +1,37 @@
+# 17 — fix, regression AFTER the fix and both fixture edits (2026-10-07, 5-fixer)
+# One file per pytest run, cwd backend/, .venv/bin/python 3.13.14, -q -W ignore -rfEX.
+# Expected red: the ISS-1072 XPASS(strict) (pass signal); test_git_versioning_e2e (pre-existing, see 16);
+# test_phase3_acceptance's 2 TypeError failures (pre-existing, identical under the pre-fix plugin, see 18).
+
+=== tests/integration/api/test_sandbox_ref_scoped_endpoints_api.py
+    FAILED tests/integration/api/test_sandbox_ref_scoped_endpoints_api.py::test_empty_husk_sandbox_with_ref_is_expired_not_400
+    1 failed, 10 passed, 1 xfailed in 5.06s
+=== tests/integration/api/test_run_files_ref_family_scope_api.py
+    3 passed in 1.52s
+=== tests/agents/test_revision_routes_v3.py
+    12 passed in 2.50s
+=== tests/unit/test_run_sandbox_api.py
+    28 passed in 1.63s
+=== tests/integration/api/test_sandbox_refs_swept_run_api.py
+    1 passed in 0.90s
+=== tests/integration/api/test_run_sandbox_has_git_derived_api.py
+    2 passed in 0.90s
+=== tests/agents/test_iss720_ref_scoped_sizes.py
+    6 passed in 1.55s
+=== tests/unit/test_figma_export_ref_render_iss974.py
+    3 passed in 0.85s
+=== tests/unit/test_figma_export_ref_iss974.py
+    1 passed in 0.85s
+=== tests/agents/test_restore_guard_v3.py
+    4 passed in 2.00s
+=== tests/integration/test_git_versioning_e2e.py
+    FAILED tests/integration/test_git_versioning_e2e.py::test_chained_run_agent_1_gets_bare_brief_only
+    1 failed, 7 passed, 1 skipped in 25.42s
+=== tests/agents/test_phase6_sandbox_versioning.py
+    48 passed in 1.35s
+=== tests/agents/test_reserved_path_registry.py
+    118 passed, 15 skipped in 1.15s
+=== tests/agents/test_phase3_acceptance.py
+    FAILED tests/agents/test_phase3_acceptance.py::TestRevisionConcurrencyGuard::test_mint_revision_row_raises_409_on_active_child
+    FAILED tests/agents/test_phase3_acceptance.py::TestRevisionConcurrencyGuard::test_second_mint_is_rejected_not_first
+    2 failed, 25 passed in 1.12s

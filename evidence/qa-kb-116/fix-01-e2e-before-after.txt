@@ -1,0 +1,35 @@
+# QA-KB-116 fix stage: the card's e2e test node, one node, offline tier, http://localhost:3000 (next dev, this worktree) + :8000
+# cmd (from tests/integration/e2e): .venv/bin/python -m pytest 'suites/03_launch_panels/test_launch_panels.py::test_checking_a_review_gate_sets_that_agents_gate_in_the_advanced_modal' -rxXfE --run-name <name>
+
+## BEFORE the fix (run-name qa-kb-116-fix-before; screenshots tests/integration/test-runs/2026-10-09T17-21-qa-kb-116-fix-before/)
+
+  1 scenario against http://localhost:3000
+  The first navigation can take a while — the dev server compiles on demand.
+
+  [1/1]  UNMARKED  ISS-247 — checking an agent in the "Review gates" checklist must be
+      1  Given a fresh "/create/user-stories" load                   0.6s  ok
+      2  When I check "Domain Discovery Agent" in Review gates      30.1s  FAILED
+x                                                                        [100%]         report  /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/tests/integration/test-runs/2026-10-09T17-21-qa-kb-116-fix-before/0-report.html
+
+=========================== short test summary info ============================
+XFAIL suites/03_launch_panels/test_launch_panels.py::test_checking_a_review_gate_sets_that_agents_gate_in_the_advanced_modal[chromium] - ISS-1157 unfixed: Review gates rows/nodes labelled by agent id
+1 xfailed in 37.31s
+
+## AFTER the fix (run-name qa-kb-116-fix-after; screenshots tests/integration/test-runs/2026-10-09T17-23-qa-kb-116-fix-after/)
+
+  1 scenario against http://localhost:3000
+  The first navigation can take a while — the dev server compiles on demand.
+
+  [1/1]  UNMARKED  ISS-247 — checking an agent in the "Review gates" checklist must be
+      1  Given a fresh "/create/user-stories" load                   0.7s  ok
+      2  When I check "Domain Discovery Agent" in Review gates       0.1s  ok
+      3  Then its Advanced modal Gate combobox is not "No gate"      0.5s  ok
+     FAIL  3 shots  2.4s
+F                                                                        [100%]         report  /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/tests/integration/test-runs/2026-10-09T17-23-qa-kb-116-fix-after/0-report.html
+
+=================================== FAILURES ===================================
+_ test_checking_a_review_gate_sets_that_agents_gate_in_the_advanced_modal[chromium] _
+[XPASS(strict)] ISS-1157 unfixed: Review gates rows/nodes labelled by agent id
+=========================== short test summary info ============================
+FAILED suites/03_launch_panels/test_launch_panels.py::test_checking_a_review_gate_sets_that_agents_gate_in_the_advanced_modal[chromium]
+1 failed in 7.25s

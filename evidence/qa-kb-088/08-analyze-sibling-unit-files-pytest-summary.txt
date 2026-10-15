@@ -1,0 +1,32 @@
+# Siblings: other tests/unit files that open their own SQLite engine without @pytest.mark.allow_io, run ONE FILE AT A TIME at HEAD 33d55657.
+# cmd per file: cd backend && PYTHONDONTWRITEBYTECODE=1 DATABASE_URL=sqlite:///:memory: .venv/bin/python -m pytest <file> -p no:cacheprovider -q -W ignore
+# list source: grep -rln 'create_engine(' tests/unit --include='*.py'  (minus files carrying allow_io)
+
+== tests/unit/test_workflow_override_e2e.py
+7 errors in 2.11s
+UnitIsolationError lines: 7
+
+== tests/unit/test_workflow_override.py
+1 failed, 6 passed, 16 errors in 2.76s
+UnitIsolationError lines: 16
+FAILED tests/unit/test_workflow_override.py::test_a_not_user_allowed_gate_is_rejected
+
+== tests/unit/api/test_workflows_api.py
+4 passed, 49 errors in 6.83s
+UnitIsolationError lines: 49
+
+== tests/unit/test_chain_projection.py
+11 errors in 2.26s
+UnitIsolationError lines: 11
+
+== tests/unit/test_authz_bounded_calls.py
+2 passed, 5 errors in 3.00s
+UnitIsolationError lines: 5
+
+# Not siblings (already tracked): tests/unit/test_restore_guard_v3.py -> ISS-891 (stale password_hash seed); tests/unit/test_admin_privilege_race.py -> ISS-1064; tests/unit/services/test_user_workflows_selections.py -> 23 passed (no engine connect).
+
+# Tracked-anywhere check (LEDGER.md BUGS.md .knowledge/INDEX.md ESCALATIONS.md WONTFIX.md UNREPRODUCIBLE.md): hits per file name
+test_workflow_override.py: 0 hits
+test_workflows_api: 0 hits
+test_chain_projection: 0 hits
+test_authz_bounded_calls: 0 hits

@@ -1,0 +1,15 @@
+# Run from a scratch root OUTSIDE the repo (node_modules symlinked to frontend/node_modules); the real reducer + reducerHarness are imported by absolute path.
+# cmd: ./node_modules/.bin/vitest --run --root <scratch> --config <scratch>/vitest.config.mjs --reporter=verbose --disableConsoleIntercept
+ RUN  v4.1.11 /private/tmp/claude-502/-Users-bilala-Developer-Projects-VELOCITY-AI-worktrees-feat-user-stories-v2/2d1a1575-310a-48fd-8155-2763a084604d/scratchpad/qa-kb-040-exp
+TOTAL KEYS 30 DEFINED KEYS ["startedAt","status","taskId","waveIndex","waveTotal","workerIndex"]
+ ✓ matchers.test.ts > which matcher survives the 30-key WaveWorkerEntry > A. the entry has 30 keys, only 6 defined: the 5 asserted + startedAt (24 are undefined) 3ms
+ ✓ matchers.test.ts > which matcher survives the 30-key WaveWorkerEntry > B. toEqual as written FAILS (current test) 3ms
+ ✓ matchers.test.ts > which matcher survives the 30-key WaveWorkerEntry > C. toEqual PASSES once startedAt is stripped -> the 24 undefined keys are ignored by toEqual 0ms
+ ✓ matchers.test.ts > which matcher survives the 30-key WaveWorkerEntry > D. toEqual with startedAt: expect.any(Number) PASSES 0ms
+ ✓ matchers.test.ts > which matcher survives the 30-key WaveWorkerEntry > E. toMatchObject PASSES with the 5 asserted fields 1ms
+ ✓ matchers.test.ts > which matcher survives the 30-key WaveWorkerEntry > F. toMatchObject still FAILS on a duplicate row (array length is enforced) 0ms
+ ✓ matchers.test.ts > which matcher survives the 30-key WaveWorkerEntry > G. toMatchObject still FAILS on a wrong status / wrong field value 0ms
+ Test Files  1 passed (1)
+      Tests  7 passed (7)
+   Start at  21:02:03
+   Duration  1.13s (transform 136ms, setup 0ms, import 178ms, tests 10ms, environment 820ms)

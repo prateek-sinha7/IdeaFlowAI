@@ -32,7 +32,7 @@
 
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import type { ReactNode } from "react";
-import { motion } from "motion/react";
+import { motion, useReducedMotion } from "motion/react";
 import {
   AlertTriangle,
   ArrowRight,
@@ -757,6 +757,34 @@ function DeliverableCard({
   );
 }
 
+/** The lane's single collapse panel: height/opacity reveal, INSTANT under reduced motion (QA-KB-001). */
+function CollapsePanel({
+  open,
+  children,
+  ...rest
+}: {
+  open: boolean;
+  children: ReactNode;
+  id?: string;
+  role?: string;
+  inert?: boolean;
+  "aria-hidden"?: boolean;
+  "data-testid"?: string;
+}) {
+  const reduce = useReducedMotion();
+  return (
+    <motion.div
+      {...rest}
+      initial={false}
+      animate={{ height: open ? "auto" : 0, opacity: open ? 1 : 0 }}
+      transition={reduce ? { duration: 0 } : { duration: 0.22, ease: "easeOut" }}
+      className="overflow-hidden"
+    >
+      {children}
+    </motion.div>
+  );
+}
+
 /**
  * Settled run-summary strip (BUG-018 Part B): the completed transcript's
  * adornments (ClarifyCountRow + PipelineMini + DeliverableCard) collapsed
@@ -818,16 +846,13 @@ function SettledSummaryStrip({
         )}
       </button>
 
-      <motion.div
+      <CollapsePanel
         id={panelId}
         data-testid="lane-adornments"
         role="region"
         aria-hidden={!open}
         inert={!open ? true : undefined}
-        initial={false}
-        animate={{ height: open ? "auto" : 0, opacity: open ? 1 : 0 }}
-        transition={{ duration: 0.22, ease: "easeOut" }}
-        className="overflow-hidden"
+        open={open}
       >
         <div className="flex flex-col gap-4 pt-3">
           {clarifyCount > 0 && (
@@ -842,7 +867,7 @@ function SettledSummaryStrip({
             />
           )}
         </div>
-      </motion.div>
+      </CollapsePanel>
     </div>
   );
 }
@@ -2138,13 +2163,7 @@ export function RunChatLane({
                 </span>
               </button>
               {/* Animated body — PipelineMini without its own header */}
-              <motion.div
-                initial={false}
-                animate={{ height: pipelineMiniCollapsed ? 0 : "auto", opacity: pipelineMiniCollapsed ? 0 : 1 }}
-                transition={{ duration: 0.22, ease: "easeOut" }}
-                className="overflow-hidden"
-                aria-hidden={pipelineMiniCollapsed}
-              >
+              <CollapsePanel open={!pipelineMiniCollapsed} aria-hidden={pipelineMiniCollapsed}>
                 <PipelineMini
                   agents={agents}
                   onOpen={goSteps}
@@ -2153,7 +2172,7 @@ export function RunChatLane({
                   pipelineState={pipelineState}
                   hideHeader
                 />
-              </motion.div>
+              </CollapsePanel>
             </div>
           )}
         </div>

@@ -1,62 +1,50 @@
-"""Unit tests for ``app/main.py`` — the unauthenticated public share route.
+"""app/main.py's 422 handler never echoes a rejected value (FIX-332; ISS-257, ISS-357, ISS-1017).
 
-``view_shared_run`` must answer an unknown / expired token, or a run with no
-deliverable, with a 404 (no enumeration). It used to raise ``HTTPException``
-without importing it, so that path died with ``NameError`` — a 500 instead of
-the 404 the route promises.
+``_validation_error_handler`` (``app/main.py``) drops Pydantic's ``input`` key, the
+complete value that failed validation, from every 422 body. The test mounts the
+real ``app.main.app``: a bare ``FastAPI()`` falls back to FastAPI's stock handler,
+which still echoes the value, so it could never see this one (ISS-357).
+
+The vehicle is ``PUT /api/settings/github-pat`` (``GithubPATRequest.pat``,
+``min_length=10``). ISS-257's original vehicle, ``POST /api/auth/register``, was
+removed by the Cognito-only migration (ISS-1017). Auth and ``get_db`` are
+overridden with stubs: body validation fails before the route body runs, so no
+engine is opened, and the client is not entered as a context manager, so the
+lifespan never runs.
 """
 
-from unittest.mock import MagicMock
+from __future__ import annotations
+
+from types import SimpleNamespace
 
 import pytest
-from fastapi import HTTPException
-from sqlalchemy.orm import Session
+from fastapi.testclient import TestClient
 
-from app.models.workflow import WorkflowRun
+from app.core.dependencies import get_current_user
+from app.models.database import get_db
 
 
 @pytest.fixture
-def share_lookup(monkeypatch):
-    """Point the share route at a spec'd fake session and a stubbed token lookup.
+def client():
+    from app.main import app
 
-    Returns a setter: call it with the run the lookup should return (or None).
-    """
-    import app.api.runs as runs_module
-    import app.models.database as database_module
-
-    def _fake_get_db():
-        yield MagicMock(spec=Session)
-
-    monkeypatch.setattr(database_module, "get_db", _fake_get_db)
-
-    def _returning(run):
-        monkeypatch.setattr(
-            runs_module, "get_shared_run_by_token", lambda token, db: run
-        )
-
-    return _returning
+    app.dependency_overrides[get_current_user] = lambda: SimpleNamespace(
+        id="u1", email="u@example.com"
+    )
+    app.dependency_overrides[get_db] = lambda: None
+    yield TestClient(app)
+    app.dependency_overrides.clear()
 
 
-async def test_view_shared_run_raises_not_found_when_token_unknown(share_lookup):
-    from app.main import view_shared_run
+@pytest.mark.issue("ISS-1017")
+def test_validation_error_handler_omits_rejected_value_when_credential_too_short(
+    client,
+):
+    rejected = "short7!"  # 7 chars, below GithubPATRequest.pat min_length=10
 
-    share_lookup(None)
+    resp = client.put("/api/settings/github-pat", json={"pat": rejected})
 
-    with pytest.raises(HTTPException) as exc_info:
-        await view_shared_run("unknown-token")
-
-    assert exc_info.value.status_code == 404
-    assert exc_info.value.detail == "Share not found or expired."
-
-
-async def test_view_shared_run_raises_not_found_when_run_has_no_output(share_lookup):
-    from app.main import view_shared_run
-
-    run = MagicMock(spec=WorkflowRun)
-    run.output = ""
-    share_lookup(run)
-
-    with pytest.raises(HTTPException) as exc_info:
-        await view_shared_run("token-for-empty-run")
-
-    assert exc_info.value.status_code == 404
+    assert resp.status_code == 422, resp.text
+    assert (
+        rejected not in resp.text
+    ), f"the rejected PAT was echoed back in the 422 body: {resp.text[:300]!r}"

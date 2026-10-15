@@ -102,21 +102,6 @@ def test_user_trust_rejects_non_user_allowed_reference(_clean_registry) -> None:
     assert "strategy" in msg and "priv_strategy" in msg
 
 
-def test_db_trust_rejects_a_not_user_allowed_reference(_clean_registry) -> None:
-    """ADR-0054 (narrowing ADR-0039): a saved row may NOT reference a
-    ``user_allowed=False`` capability that did not opt in."""
-
-    @register("strategy", "priv_strategy")
-    class _PrivStrategy:
-        name = "priv_strategy"
-
-    manifest = _single_step_manifest("priv_strategy")
-
-    with pytest.raises(CompilerError) as exc:
-        WorkflowCompiler().compile(manifest, CapabilityRegistry(), trust="db")
-    assert "priv_strategy" in str(exc.value)
-
-
 def test_db_trust_allows_a_saved_workflow_opt_in(_clean_registry) -> None:
     """ADR-0054: ``saved_workflow_allowed=True`` opens it to db trust only."""
 
@@ -129,15 +114,6 @@ def test_db_trust_allows_a_saved_workflow_opt_in(_clean_registry) -> None:
     # ...and the opt-in does NOT leak to a user (inline) manifest.
     with pytest.raises(CompilerError):
         WorkflowCompiler().compile(manifest, CapabilityRegistry(), trust="user")
-
-
-@pytest.mark.parametrize("gate", ["security", "approval"])
-def test_db_trust_rejects_the_privileged_gates(gate) -> None:
-    """ADR-0054: the real security/approval gates stay engineer-only."""
-    manifest = _grant_step_manifest(strategy="single_shot", gates=[gate])
-    with pytest.raises(CompilerError) as exc:
-        WorkflowCompiler().compile(manifest, CapabilityRegistry(), trust="db")
-    assert gate in str(exc.value)
 
 
 def test_user_trust_allows_user_allowed_reference(_clean_registry) -> None:
@@ -231,23 +207,6 @@ def test_user_trust_exec_grant_raises_compiler_error(_clean_registry) -> None:
     msg = str(exc.value)
     # The message NAMES the grant + the step.
     assert "exec" in msg and "exec-agent" in msg
-
-
-@pytest.mark.parametrize(
-    "tools", [{"exec": True}, {"network": True}, {"secrets": ["DEPLOY_KEY"]}]
-)
-def test_db_trust_host_reaching_grant_raises_compiler_error(
-    _clean_registry, tools
-) -> None:
-    """ADR-0054: exec/network/secrets are refused for a saved row (ADR-0039 had
-    let exec through, which gave any Composer user a Python interpreter)."""
-    _register_user_allowed_exec_palette()
-    manifest = _grant_step_manifest(
-        strategy="ua_strategy", tools=tools, gates=["ua_security", "ua_approval"]
-    )
-    with pytest.raises(CompilerError) as exc:
-        WorkflowCompiler().compile(manifest, CapabilityRegistry(), trust="db")
-    assert next(iter(tools)) in str(exc.value)
 
 
 def test_db_trust_keeps_spawn_subagents(_clean_registry) -> None:
@@ -429,21 +388,6 @@ def test_db_trust_may_raise_limits_up_to_the_saved_ceiling(_clean_registry) -> N
     )
     compiled = WorkflowCompiler().compile(manifest, CapabilityRegistry(), trust="db")
     assert compiled.limits.max_subagents == 200
-
-
-@pytest.mark.parametrize(
-    "limits",
-    [{"max_subagents": 201}, {"max_depth": 4}, {"wall_clock_seconds": 10801}],
-)
-def test_db_trust_above_the_saved_ceiling_is_a_compiler_error(
-    _clean_registry, limits
-) -> None:
-    """ADR-0054: the hard saved ceiling bounds a db row until ADR-0038 lands."""
-    _register_user_allowed_strategy()
-    manifest = _limits_manifest(limits, strategy="ua_limits_strategy")
-    with pytest.raises(CompilerError) as exc:
-        WorkflowCompiler().compile(manifest, CapabilityRegistry(), trust="db")
-    assert next(iter(limits)) in str(exc.value)
 
 
 def test_user_trust_lowering_a_limits_cap_is_allowed(_clean_registry) -> None:

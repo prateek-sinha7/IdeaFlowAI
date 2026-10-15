@@ -1,0 +1,19 @@
+verified in src/components/workflow/composer/CanvasNode.tsx:  const locked = role === "locked";  const removable = role === "optional";
+verified in src/components/workflow/composer/AgentRow.tsx:  const locked = role === "locked";  const removable = role === "optional";
+
+pipelineType  agent             role / Core badge / Remove enabled
+user_stories  domain-analyst    {"role":"locked","coreBadge":true,"removeEnabled":false}
+user_stories  epic-architect    {"role":"required","coreBadge":false,"removeEnabled":false}
+user_stories  story-estimator   {"role":"required","coreBadge":false,"removeEnabled":false}
+user_stories  backlog-compiler  {"role":"locked","coreBadge":true,"removeEnabled":false}
+user_stories  nfr-specialist    {"role":"required","coreBadge":false,"removeEnabled":false}
+custom        domain-analyst    {"role":"optional","coreBadge":false,"removeEnabled":true}
+custom        epic-architect    {"role":"optional","coreBadge":false,"removeEnabled":true}
+custom        story-estimator   {"role":"optional","coreBadge":false,"removeEnabled":true}
+custom        backlog-compiler  {"role":"optional","coreBadge":false,"removeEnabled":true}
+custom        nfr-specialist    {"role":"optional","coreBadge":false,"removeEnabled":true}
+ppt           domain-analyst    {"role":"optional","coreBadge":false,"removeEnabled":true}
+ppt           epic-architect    {"role":"optional","coreBadge":false,"removeEnabled":true}
+ppt           story-estimator   {"role":"optional","coreBadge":false,"removeEnabled":true}
+ppt           backlog-compiler  {"role":"optional","coreBadge":false,"removeEnabled":true}
+ppt           nfr-specialist    {"role":"optional","coreBadge":false,"removeEnabled":true}

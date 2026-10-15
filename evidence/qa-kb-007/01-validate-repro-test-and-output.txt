@@ -1,0 +1,6 @@
+QA-KB-007 repro (3/3 cold runs, backend/.venv/bin/python -m pytest <file> -s -q, in-memory SQLite)
+Test: seed row seq=1 (event a), then ScopedStore.append_event_at_or_after(run, 1, "b", "t", {"seq": 1}); read row b.
+Run1: LANDED 2 row.seq 2 payload.seq 1 -> AssertionError (payload.seq != row.seq)
+Run2: LANDED 2 row.seq 2 payload.seq 1 -> AssertionError
+Run3: LANDED 2 row.seq 2 payload.seq 1 -> AssertionError
+Code: backend/agents/authz.py:601-650; except IntegrityError branch sets attempt_seq = tail + 1 (line ~644) but never updates payload_json.

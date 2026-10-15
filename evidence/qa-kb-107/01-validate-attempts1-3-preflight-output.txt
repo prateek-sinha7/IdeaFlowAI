@@ -1,0 +1,6 @@
+USE_LOCAL_OLLAMA= 1
+(False, 'Bedrock bearer token expired at 2020-01-01T12:00Z — rotate AWS_BEARER_TOKEN_BEDROCK and restart the backend.')
+USE_LOCAL_OLLAMA= 1
+(False, 'Bedrock bearer token expired at 2020-01-01T12:00Z — rotate AWS_BEARER_TOKEN_BEDROCK and restart the backend.')
+USE_LOCAL_OLLAMA= 1
+(False, 'Bedrock bearer token expired at 2020-01-01T12:00Z — rotate AWS_BEARER_TOKEN_BEDROCK and restart the backend.')

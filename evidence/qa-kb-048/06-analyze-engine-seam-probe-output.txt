@@ -1,0 +1,21 @@
+== Q1: frontend defaultAgentsFor (library agents whose pipeline_type includes the mode) vs compiled plan ==
+  prototype     library-default 5 of plan 5: ['prototype-specify', 'prototype-plan', 'prototype-analyze', 'prototype-build', 'prototype-validate']
+  ppt           library-default 3 of plan 3: ['ppt-brief-analyst', 'ppt-composer', 'ppt-validator']
+  ppt_v2        library-default 2 of plan 4: ['ppt-deck-qa-v2', 'ppt-code-generator']
+  prototype_v2  library-default 0 of plan 11: []
+
+== Q2: strict-subset saved rosters through launch_run + engine ==
+-- ppt_v2: saved roster sent as agent_ids = ['ppt-brief-analyst', 'ppt-composer', 'ppt-code-generator']
+   launch_run presort_specs: UnsatisfiableComposition -> 422 workflow_unsatisfiable: Workflow DAG is unsatisfiable: Agent 'ppt-code-generator' consumes 'ppt-deck-qa-v2' but no agent in the workflow produces it.
+-- ppt_v2: saved roster sent as agent_ids = ['ppt-brief-analyst', 'ppt-composer', 'ppt-deck-qa-v2']
+   launch_run presort_specs: ok
+   _launch_run_core would mint agent_count=3 (run_commands.py:3020: len(agents))
+   engine pipeline_start.agent_count=4 agents=['ppt-brief-analyst', 'ppt-composer', 'ppt-deck-qa-v2', 'ppt-code-generator']
+   engine log: roster expanded from plan: run=probe-97128257 pipeline=ppt_v2 requested=['ppt-brief-analyst', 'ppt-composer', 'ppt-deck-qa-v2'] plan=['ppt-brief-analyst', 'ppt-composer', 'ppt-deck-qa-v2', 'ppt-code-generator']
+-- prototype: saved roster sent as agent_ids = ['prototype-specify', 'prototype-plan', 'prototype-analyze', 'prototype-build']
+   launch_run presort_specs: ok
+   _launch_run_core would mint agent_count=4 (run_commands.py:3020: len(agents))
+   engine pipeline_start.agent_count=5 agents=['prototype-specify', 'prototype-plan', 'prototype-analyze', 'prototype-build', 'prototype-validate']
+   engine log: roster expanded from plan: run=probe-df9a24a2 pipeline=prototype requested=['prototype-specify', 'prototype-plan', 'prototype-analyze', 'prototype-build'] plan=['prototype-specify', 'prototype-plan', 'prototype-analyze', 'prototype-build', 'prototype-validate']
+-- prototype: saved roster sent as agent_ids = ['prototype-plan']
+   launch_run presort_specs: UnsatisfiableComposition -> 422 workflow_unsatisfiable: Workflow DAG is unsatisfiable: Agent 'prototype-plan' consumes 'prototype-specify' but no agent in the workflow produces it.; Agent 'prototype-plan' consumes 'prototype-revision-feature-specify' but no agent in the workflow produces it.

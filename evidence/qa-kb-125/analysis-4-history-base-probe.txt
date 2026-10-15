@@ -1,0 +1,32 @@
+### QA-KB-125 history/base probe, 2026-10-09T13:50:29Z
+browser: Google Chrome 151.0.7922.138 headless=True (channel=chrome, fresh temp profile)
+[D  srcdoc + sandbox='allow-scripts']
+    replaceState_#/3: THREW SecurityError
+    pushState_#/4: THREW SecurityError
+    location.hash=#/5: #/5
+    history.back(): called
+    proto_relative_img.src: http://app.test/pixel.png
+    relative_img.src: http://app.test/runs/pixel.png
+    document.baseURI: http://app.test/runs/abc
+    events fired: ['popstate', 'hashchange']
+
+[H  srcdoc + sandbox='allow-scripts' + <base href="about:srcdoc">]
+    replaceState_#/3: #/3
+    pushState_#/4: #/4
+    location.hash=#/5: #/5
+    history.back(): called
+    proto_relative_img.src: //app.test/pixel.png
+    relative_img.src: pixel.png
+    document.baseURI: about:srcdoc
+    events fired: ['popstate', 'hashchange', 'popstate', 'hashchange']
+
+[A  blob: + sandbox='allow-scripts allow-same-origin'  (today's PrototypePreview, for comparison)]
+    replaceState_#/3: #/3
+    pushState_#/4: #/4
+    location.hash=#/5: #/5
+    history.back(): called
+    proto_relative_img.src: //app.test/pixel.png
+    relative_img.src: pixel.png
+    document.baseURI: blob:http://app.test/140cd448-def5-4261-a446-93a75aa7139f#/5
+    events fired: ['popstate', 'hashchange', 'popstate', 'hashchange']
+

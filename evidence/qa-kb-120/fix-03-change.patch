@@ -1,0 +1,45 @@
+diff --git a/backend/agents/execution_engine/engine.py b/backend/agents/execution_engine/engine.py
+index 33dc9d2b1..a65e2f1fe 100644
+--- a/backend/agents/execution_engine/engine.py
++++ b/backend/agents/execution_engine/engine.py
+@@ -378,9 +378,10 @@ class CommitInSandboxResult:
+ class Payload:
+     """Return value of :func:`build_flat_payload`.
+ 
+-    ``allowlist``           — The frozenset of exactly three repository-relative
+-                              paths that were force-staged (Requirement 4 AC 11).
+-                              Matches the output of ``payload_allowlist(output_basename)``.
++    ``allowlist``           — The frozenset of repository-relative paths that were
++                              force-staged (Requirement 4 AC 11):
++                              ``payload_allowlist(output_basename)`` less an output or
++                              text form that was not written (ISS-1159).
+     ``built``               — True iff the payload files were written into the
+                               staging directory (even if the output was not materializable).
+     ``materialized``        — True iff the output file was actually copied into
+@@ -1657,6 +1658,10 @@ def build_flat_payload(run_id: str, ectx: "ExecutionContext") -> "Payload":
+                 run_id,
+                 exc_info=True,
+             )
++    # Not materialized (absent, empty stream, or the copy raised): not written, so not
++    # staged, so stage_exact never names a missing file (ISS-1159).
++    if _output_basename and not _materialized:
++        _allowlist = _allowlist - {f".chain/{_output_basename}"}
+ 
+     # ── Copy the binary deliverable's text form beside it ────────────────────
+     if _text_basename:
+diff --git a/backend/tests/agents/test_finalizer_v2.py b/backend/tests/agents/test_finalizer_v2.py
+index acf8fb319..b198e4a4d 100644
+--- a/backend/tests/agents/test_finalizer_v2.py
++++ b/backend/tests/agents/test_finalizer_v2.py
+@@ -179,8 +179,9 @@ class FakeSandbox:
+             return None
+ 
+     def stage_exact(self, paths: list[str]) -> None:
+-        for p in paths:
+-            _run_git("add", "--force", "--", p, cwd=self.root)
++        # One all-or-nothing git add, as LocalWorkspace.stage_exact (ISS-1179).
++        if paths:
++            _run_git("add", "--force", "--", *paths, cwd=self.root)
+ 
+     def tracked_chain_paths(self) -> list[str]:
+         try:

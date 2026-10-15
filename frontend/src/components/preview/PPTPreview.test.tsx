@@ -23,6 +23,10 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+// QA-KB-125: the deck is framed as srcdoc behind <base href="about:srcdoc"> (lib/agentHtml.ts);
+// the deck document itself is the srcdoc minus that one tag.
+const deckDoc = () => (getDeckFrame().getAttribute("srcdoc") ?? "").replace('<base href="about:srcdoc">', "");
+
 describe("PPTPreview — empty / loading / invalid states", () => {
   it("shows the 'No Slides Yet' placeholder when there is no content and no pptx code", () => {
     render(<PPTPreview />);
@@ -52,26 +56,26 @@ describe("PPTPreview — deck extraction", () => {
   it("renders a valid deck into the preview iframe's srcdoc unchanged", () => {
     render(<PPTPreview content={DECK} />);
 
-    expect(getDeckFrame()).toHaveAttribute("srcdoc", DECK);
+    expect(deckDoc()).toBe(DECK);
   });
 
   it("strips a surrounding markdown html fence", () => {
     render(<PPTPreview content={"```html\n" + DECK + "\n```"} />);
 
-    expect(getDeckFrame()).toHaveAttribute("srcdoc", DECK);
+    expect(deckDoc()).toBe(DECK);
   });
 
   it("unwraps an <artifact> envelope", () => {
     render(<PPTPreview content={`<artifact type="text/html">\n${DECK}\n</artifact>`} />);
 
-    expect(getDeckFrame()).toHaveAttribute("srcdoc", DECK);
+    expect(deckDoc()).toBe(DECK);
   });
 
   it("drops a validator preamble that quotes the doctype mid-sentence", () => {
     const preamble = "✓ Single complete file starting with `<!DOCTYPE html>`\nVERDICT: PASS\n";
     render(<PPTPreview content={preamble + DECK} />);
 
-    const srcdoc = getDeckFrame().getAttribute("srcdoc");
+    const srcdoc = deckDoc();
     expect(srcdoc).toBe(DECK);
     expect(srcdoc).not.toContain("VERDICT");
   });
@@ -80,13 +84,13 @@ describe("PPTPreview — deck extraction", () => {
     const loose = "Report text <html><body>deck</body></html>";
     render(<PPTPreview content={loose} />);
 
-    expect(getDeckFrame()).toHaveAttribute("srcdoc", "<html><body>deck</body></html>");
+    expect(deckDoc()).toBe("<html><body>deck</body></html>");
   });
 
   it("drops text appended after the closing </html>", () => {
     render(<PPTPreview content={DECK + "\n\nVERDICT: all slides verified"} />);
 
-    const srcdoc = getDeckFrame().getAttribute("srcdoc");
+    const srcdoc = deckDoc();
     expect(srcdoc).toBe(DECK);
     expect(srcdoc).not.toContain("VERDICT");
   });

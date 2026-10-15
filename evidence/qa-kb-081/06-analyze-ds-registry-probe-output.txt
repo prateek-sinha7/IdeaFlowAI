@@ -1,0 +1,35 @@
+QA-KB-081 / ISS-909 analyzer probe, run 2026-10-07 (source: 04-analyze-ds-registry-probe.test.tsx.txt, config: 05-analyze-ds-registry-probe-vitest-config.ts.txt).
+Real LaunchWizard.tsx at HEAD cb8edba2c (git diff on the file is empty). WizardStepper + DesignSystemPicker + gates/popup stubbed as in LaunchWizard.test.tsx; network mocked per test.
+Run from frontend/ (scratch config symlinks node_modules; nothing under the repo was written): npx vitest run --config <scratch config> --reporter=verbose
+'EXPECTED:' tests assert what BUGS.md asks for and are meant to fail at HEAD; 'CONTROL:'/'OBSERVE:' pass and bound the failure.
+
+ ✓ probe.test.tsx > QA-KB-081 design-system step: loading vs failed vs empty > CONTROL: a loaded registry renders the picker and no skeleton 40ms
+ ✓ probe.test.tsx > QA-KB-081 design-system step: loading vs failed vs empty > OBSERVE: while the fetch is still pending the skeleton is shown (this must survive any fix) 9ms
+[reject arm] ds-slot html: <div class="h-48 animate-pulse rounded-[var(--radius-card)] bg-surface-white/60"></div>
+[empty arm] ds-slot html: <div class="h-48 animate-pulse rounded-[var(--radius-card)] bg-surface-white/60"></div>
+ × probe.test.tsx > QA-KB-081 design-system step: loading vs failed vs empty > EXPECTED: registry REJECTS -> an error is shown and the skeleton is gone 95ms
+ × probe.test.tsx > QA-KB-081 design-system step: loading vs failed vs empty > EXPECTED: registry resolves [] -> an empty message is shown and the skeleton is gone 91ms
+ ✓ probe.test.tsx > QA-KB-081 design-system step: loading vs failed vs empty > OBSERVE: in the failed arm Continue stays disabled and the pill demands a design system 287ms
+ ✓ probe.test.tsx > QA-KB-081 design-system step: loading vs failed vs empty > OBSERVE: the custom-design-system escape hatch is not reachable in the empty arm (picker is not mounted) 100ms
+ ✓ probe.test.tsx > QA-KB-081 design-system step: loading vs failed vs empty > CONTROL: the REAL DesignSystemPicker given systems=[] DOES offer 'Upload custom' (so the picker could stay mounted) 46ms
+ ✓ probe.test.tsx > QA-KB-081 design-system step: loading vs failed vs empty > OBSERVE (deck, post FIX-695): a DS-requiring deck template mounts the DS step and it is the same skeleton when the registry fails 105ms
+ ✓ probe.test.tsx > QA-KB-081 sibling: template registry failures in the same component > CONTROL: web template fetch failure shows the 'Couldn't load templates' banner 14ms
+[deck template reject] page text mentions banner: false
+[call count] listDesignSystems calls after one mount + settle: 2
+[call count] listPrototypeTemplates calls: 2
+ × probe.test.tsx > QA-KB-081 sibling: template registry failures in the same component > EXPECTED: deck template fetch failure shows the same banner 92ms
+ ✓ probe.test.tsx > QA-KB-081 test-harness facts for the test-writer > OBSERVE: call count of listDesignSystems per mount under the repo's next/navigation mock (fresh router object each render) 93ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+ FAIL  probe.test.tsx > QA-KB-081 design-system step: loading vs failed vs empty > EXPECTED: registry REJECTS -> an error is shown and the skeleton is gone
+AssertionError: expected <div …(1)></div> to be null
+    124|     console.log("[reject arm] ds-slot html:", slot.innerHTML);
+ FAIL  probe.test.tsx > QA-KB-081 design-system step: loading vs failed vs empty > EXPECTED: registry resolves [] -> an empty message is shown and the skeleton is gone
+AssertionError: expected <div …(1)></div> to be null
+    135|     console.log("[empty arm] ds-slot html:", slot.innerHTML);
+ FAIL  probe.test.tsx > QA-KB-081 sibling: template registry failures in the same component > EXPECTED: deck template fetch failure shows the same banner
+TestingLibraryElementError: Unable to find an element with the text: /Couldn.t load templates/. This could be because the text is broken up by multiple elements. In this case, you can provide a function for your text matcher to make your matcher more flexible.
+    193|     console.log("[deck template reject] page text mentions banner:", /…
+ Test Files  1 failed (1)
+      Tests  3 failed | 8 passed (11)
+   Start at  22:38:45
+   Duration  2.60s (transform 293ms, setup 82ms, import 682ms, tests 973ms, environment 723ms)

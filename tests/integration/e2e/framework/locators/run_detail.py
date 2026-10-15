@@ -30,6 +30,10 @@ ATTACHMENTS = '[data-testid="chat-attachments"]'
 
 ANSWER_IN_STEPS = "Answer in Steps"
 
+# The narrator's "answered" card. FIX-517 numbers it ("Clarifications round 2
+# answered"); rows persisted before that fix keep the round-less text. Both match.
+CLARIFY_ANSWERED = re.compile(r"Clarifications( round \d+)? answered", re.I)
+
 # ── the result pane ──────────────────────────────────────────────────────────
 
 HEADER = '[data-testid="run-header"]'

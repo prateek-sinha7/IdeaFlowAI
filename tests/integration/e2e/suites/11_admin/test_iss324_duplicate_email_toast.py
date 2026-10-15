@@ -24,7 +24,7 @@ import uuid
 import pytest
 from playwright.sync_api import expect
 
-from framework import accounts, api
+from framework import api
 from framework.locators import admin as L
 
 
@@ -56,27 +56,25 @@ def test_duplicate_email_create_shows_an_error_toast(page, shot):
         # window starts when showToast("success", ...) actually runs, i.e.
         # once the create response resolves — not when the dialog opens.
         page.click(L.ADD_USER)
-        expect(page.get_by_text("Create New User")).to_be_visible()
+        expect(page.get_by_text(L.CREATE_DIALOG)).to_be_visible()
         page.fill('input[type="email"]', dup_email)
-        page.fill('input[type="password"]', accounts.PASSWORD)
         with page.expect_response(
             lambda r: r.url.endswith("/api/admin/users") and r.request.method == "POST"
         ):
-            page.get_by_role("button", name="Create User").click()
+            page.get_by_role("button", name=L.SEND_INVITATION).click()
         t0 = time.time()
-        expect(page.get_by_text("Create New User")).to_have_count(0)
+        expect(page.get_by_text(L.CREATE_DIALOG)).to_have_count(0)
 
         # Second create with the same email, fired well inside the first
         # toast's 3.5s window — backend rejects with 409.
         page.click(L.ADD_USER)
-        expect(page.get_by_text("Create New User")).to_be_visible()
+        expect(page.get_by_text(L.CREATE_DIALOG)).to_be_visible()
         page.fill('input[type="email"]', dup_email)
-        page.fill('input[type="password"]', accounts.PASSWORD)
 
         with page.expect_response(
             lambda r: r.url.endswith("/api/admin/users") and r.request.method == "POST"
         ) as resp_info:
-            page.get_by_role("button", name="Create User").click()
+            page.get_by_role("button", name=L.SEND_INVITATION).click()
         assert resp_info.value.status == 409, (
             f"expected the duplicate create to 409, got {resp_info.value.status}"
         )

@@ -1,0 +1,40 @@
+diff --git a/frontend/src/app/[...view]/authEffectGuard.iss844.source.test.ts b/frontend/src/app/[...view]/authEffectGuard.iss844.source.test.ts
+index 2d404bd1d..889359d0f 100644
+--- a/frontend/src/app/[...view]/authEffectGuard.iss844.source.test.ts
++++ b/frontend/src/app/[...view]/authEffectGuard.iss844.source.test.ts
+@@ -32,7 +32,9 @@ describe("page.tsx auth-check effect — ISS-844 one-shot guard", () => {
+     const startMarker = "// Auth check on mount";
+     const start = src.indexOf(startMarker);
+     expect(start).toBeGreaterThan(-1);
+-    const endMarker = "}, [router, dispatch]);";
++    // The effect's own close, never its dependency list: "}, [router, dispatch]);"
++    // also closes a second effect further down page.tsx (ISS-1027).
++    const endMarker = "\n  }, [";
+     const end = src.indexOf(endMarker, start);
+     expect(end).toBeGreaterThan(start);
+     const body = src.slice(start, end);
+@@ -40,6 +42,7 @@ describe("page.tsx auth-check effect — ISS-844 one-shot guard", () => {
+     // Sanity: this is genuinely the effect ISS-844 describes — if these
+     // markers move, the slice above is no longer the right effect and this
+     // test would otherwise pass/fail for the wrong reason.
++    expect(body.match(/\buseEffect\(/g)).toHaveLength(1);
+     expect(body).toContain("dispatch(signedIn(");
+     expect(body).toContain("getMe(storedToken)");
+ 
+diff --git a/frontend/src/app/[...view]/runTabShallowNav.test.ts b/frontend/src/app/[...view]/runTabShallowNav.test.ts
+index 8d4fbbea3..f64f51a25 100644
+--- a/frontend/src/app/[...view]/runTabShallowNav.test.ts
++++ b/frontend/src/app/[...view]/runTabShallowNav.test.ts
+@@ -26,8 +26,11 @@ const dashboardSource = readFileSync(
+ function tabSelectBody(): string {
+   const start = dashboardSource.indexOf("const handlePreviewPanelTabSelect = useCallback(");
+   expect(start).toBeGreaterThan(-1);
+-  const end = dashboardSource.indexOf("}, [contentSourceRunId]);", start);
++  // End at this handler's own close, never at a dependency list: the same deps
++  // literal closes other hooks, so it overshoots once the deps change (ISS-942).
++  const end = dashboardSource.indexOf("\n  }, [", start);
+   expect(end).toBeGreaterThan(start);
++  expect(dashboardSource.slice(start, end).match(/\buse(Callback|Effect)\(/g)).toHaveLength(1);
+   // Comments in this handler name `router.push` as the thing it must NOT do,
+   // so strip them before asserting on what it actually calls.
+   return dashboardSource

@@ -1,0 +1,78 @@
+QA-KB-057 analyzer evidence, observed 2026-10-02 (tree: feat/user-stories-v2 @ 024c03ef8 + uncommitted working-tree edits).
+Nothing in the repo was edited by these runs. Probe DB and RUNS_ROOT are pinned to a throwaway directory, never the repo-level runs/.
+
+### 1. The shipped test file, unmodified:  cd backend && .venv/bin/python -m pytest tests/integration/api/test_duplicate_context_guard_api.py -q
+   8 E       AssertionError: {"detail":"Not authenticated"}
+   8 E       assert 401 == 200
+   8 E        +  where 401 = <Response [401 Unauthorized]>.status_code
+   1 FAILED tests/integration/api/test_duplicate_context_guard_api.py::TestSourceRunIdOnlyNoStrip::test_v2_native_launch_content_unchanged
+   1 FAILED tests/integration/api/test_duplicate_context_guard_api.py::TestSourceRunIdOnlyNoStrip::test_no_strip_without_legacy_block
+   1 FAILED tests/integration/api/test_duplicate_context_guard_api.py::TestLegacyBlockPreservedWithoutSourceId::test_run_minted_with_legacy_block_intact
+   1 FAILED tests/integration/api/test_duplicate_context_guard_api.py::TestLegacyBlockPreservedWithoutSourceId::test_legacy_block_not_stripped_without_source_run_id
+   1 FAILED tests/integration/api/test_duplicate_context_guard_api.py::TestDuplicateContextStripped::test_strip_audit_row_references_source_run
+   1 FAILED tests/integration/api/test_duplicate_context_guard_api.py::TestDuplicateContextStripped::test_strip_audit_row_recorded
+   1 FAILED tests/integration/api/test_duplicate_context_guard_api.py::TestDuplicateContextStripped::test_legacy_block_stripped_when_source_run_id_present
+   1 FAILED tests/integration/api/test_duplicate_context_guard_api.py::TestDuplicateContextStripped::test_brief_preserved_after_strip
+   1 8 failed, 3 warnings in 1.39s
+
+### 2. probe_seeds.py: the 8 REAL test bodies replayed against four harness/seed combinations
+###    (also records which chain selector ran: _select_legacy_payload_or_refuse vs _select_v2_payload)
+=== seed=bare principal_override=False RUNS_ROOT=<throwaway>
+  FAIL {"detail":"Not authenticated"} TestDuplicateContextStripped::test_brief_preserved_after_strip   calls=[]
+  FAIL {"detail":"Not authenticated"} TestDuplicateContextStripped::test_legacy_block_stripped_when_source_run_id_present   calls=[]
+  FAIL {"detail":"Not authenticated"} TestDuplicateContextStripped::test_strip_audit_row_recorded   calls=[]
+  FAIL {"detail":"Not authenticated"} TestDuplicateContextStripped::test_strip_audit_row_references_source_run   calls=[]
+  FAIL {"detail":"Not authenticated"} TestLegacyBlockPreservedWithoutSourceId::test_legacy_block_not_stripped_without_source_run_id   calls=[]
+  FAIL {"detail":"Not authenticated"} TestLegacyBlockPreservedWithoutSourceId::test_run_minted_with_legacy_block_intact   calls=[]
+  FAIL {"detail":"Not authenticated"} TestSourceRunIdOnlyNoStrip::test_no_strip_without_legacy_block   calls=[]
+  FAIL {"detail":"Not authenticated"} TestSourceRunIdOnlyNoStrip::test_v2_native_launch_content_unchanged   calls=[]
+  -> passed=0 failed=8
+=== seed=bare principal_override=True RUNS_ROOT=<throwaway>
+  FAIL {"detail":{"code":"source_payload_missing","error":"Chain launch refused","recoverable":false}} TestDuplicateContextStripped::test_brief_preserved_after_strip   calls=['_select_legacy_payload_or_refuse:enter', '_select_legacy_payload_or_refuse:raised:source_payload_missing']
+  FAIL {"detail":{"code":"source_payload_missing","error":"Chain launch refused","recoverable":false}} TestDuplicateContextStripped::test_legacy_block_stripped_when_source_run_id_present   calls=['_select_legacy_payload_or_refuse:enter', '_select_legacy_payload_or_refuse:raised:source_payload_missin
+  FAIL {"detail":{"code":"source_payload_missing","error":"Chain launch refused","recoverable":false}} TestDuplicateContextStripped::test_strip_audit_row_recorded   calls=['_select_legacy_payload_or_refuse:enter', '_select_legacy_payload_or_refuse:raised:source_payload_missing']
+  FAIL {"detail":{"code":"source_payload_missing","error":"Chain launch refused","recoverable":false}} TestDuplicateContextStripped::test_strip_audit_row_references_source_run   calls=['_select_legacy_payload_or_refuse:enter', '_select_legacy_payload_or_refuse:raised:source_payload_missing']
+  PASS      TestLegacyBlockPreservedWithoutSourceId::test_legacy_block_not_stripped_without_source_run_id   calls=[]
+  PASS      TestLegacyBlockPreservedWithoutSourceId::test_run_minted_with_legacy_block_intact   calls=[]
+  FAIL {"detail":{"code":"source_payload_missing","error":"Chain launch refused","recoverable":false}} TestSourceRunIdOnlyNoStrip::test_no_strip_without_legacy_block   calls=['_select_legacy_payload_or_refuse:enter', '_select_legacy_payload_or_refuse:raised:source_payload_missing']
+  FAIL {"detail":{"code":"source_payload_missing","error":"Chain launch refused","recoverable":false}} TestSourceRunIdOnlyNoStrip::test_v2_native_launch_content_unchanged   calls=['_select_legacy_payload_or_refuse:enter', '_select_legacy_payload_or_refuse:raised:source_payload_missing']
+  -> passed=2 failed=6
+=== seed=legacy principal_override=True RUNS_ROOT=<throwaway>
+  PASS      TestDuplicateContextStripped::test_brief_preserved_after_strip   calls=['_select_legacy_payload_or_refuse:enter', '_select_legacy_payload_or_refuse:ok']
+  PASS      TestDuplicateContextStripped::test_legacy_block_stripped_when_source_run_id_present   calls=['_select_legacy_payload_or_refuse:enter', '_select_legacy_payload_or_refuse:ok']
+  PASS      TestDuplicateContextStripped::test_strip_audit_row_recorded   calls=['_select_legacy_payload_or_refuse:enter', '_select_legacy_payload_or_refuse:ok']
+  PASS      TestDuplicateContextStripped::test_strip_audit_row_references_source_run   calls=['_select_legacy_payload_or_refuse:enter', '_select_legacy_payload_or_refuse:ok']
+  PASS      TestLegacyBlockPreservedWithoutSourceId::test_legacy_block_not_stripped_without_source_run_id   calls=[]
+  PASS      TestLegacyBlockPreservedWithoutSourceId::test_run_minted_with_legacy_block_intact   calls=[]
+  PASS      TestSourceRunIdOnlyNoStrip::test_no_strip_without_legacy_block   calls=['_select_legacy_payload_or_refuse:enter', '_select_legacy_payload_or_refuse:ok']
+  PASS      TestSourceRunIdOnlyNoStrip::test_v2_native_launch_content_unchanged   calls=['_select_legacy_payload_or_refuse:enter', '_select_legacy_payload_or_refuse:ok']
+  -> passed=8 failed=0
+=== seed=v2 principal_override=True RUNS_ROOT=<throwaway>
+  PASS      TestDuplicateContextStripped::test_brief_preserved_after_strip   calls=['_select_v2_payload:enter', '_select_v2_payload:ok']
+  PASS      TestDuplicateContextStripped::test_legacy_block_stripped_when_source_run_id_present   calls=['_select_v2_payload:enter', '_select_v2_payload:ok']
+  PASS      TestDuplicateContextStripped::test_strip_audit_row_recorded   calls=['_select_v2_payload:enter', '_select_v2_payload:ok']
+  PASS      TestDuplicateContextStripped::test_strip_audit_row_references_source_run   calls=['_select_v2_payload:enter', '_select_v2_payload:ok']
+  PASS      TestLegacyBlockPreservedWithoutSourceId::test_legacy_block_not_stripped_without_source_run_id   calls=[]
+  PASS      TestLegacyBlockPreservedWithoutSourceId::test_run_minted_with_legacy_block_intact   calls=[]
+  PASS      TestSourceRunIdOnlyNoStrip::test_no_strip_without_legacy_block   calls=['_select_v2_payload:enter', '_select_v2_payload:ok']
+  PASS      TestSourceRunIdOnlyNoStrip::test_v2_native_launch_content_unchanged   calls=['_select_v2_payload:enter', '_select_v2_payload:ok']
+  -> passed=8 failed=0
+
+### 3. probe_guard_edges.py: guard behaviours the 8 tests never cover
+[E1 refused launch leaves what audit rows?] seed=bare -> HTTP 422 {"detail":{"code":"source_payload_missing","error":"Chain launch refused","recoverable":false}}
+   source id        : 3317c49a
+   audit rows       : [('legacy_context_block_stripped', 'pending', '3317c49a', 'stripped'), ('chain_refused', '3317c49a', '3317c49a', 'source_payload_missing')]
+   minted runs (id, input) excluding source:
+   engine invoked   : False
+[E2 admitted brief+block] seed=legacy -> HTTP 200 {"run_id":"db0f5bb2-7c5f-40e9-9c86-acbfc5ef5d14","chain_v2_accepted":true}
+   source id        : 5d06eca6
+   audit rows       : [('legacy_context_block_stripped', 'db0f5bb2', '5d06eca6', 'stripped'), ('chain_source_selected', 'db0f5bb2', '5d06eca6', 'legacy-live-nested')]
+   minted runs (id, input) excluding source:
+      db0f5bb2 'Build me a backlog'
+   engine invoked   : True
+[E3 admitted, message is ONLY the legacy block] seed=legacy -> HTTP 200 {"run_id":"4e6149f4-6496-4463-8f09-f03cbd452d2c","chain_v2_accepted":true}
+   source id        : 269c71ef
+   audit rows       : [('legacy_context_block_stripped', '4e6149f4', '269c71ef', 'stripped'), ('legacy_context_block_stripped', '4e6149f4', '269c71ef', 'stripped'), ('chain_source_selected', '4e6149f4', '269c71ef', 'legacy-live-nested')]
+   minted runs (id, input) excluding source:
+      4e6149f4 '=== CONTEXT FROM PREVIOUS PIPELINE ===\n\nThis is the old context from the source run.\nIt contains some design information.\n'
+   engine invoked   : True

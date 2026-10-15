@@ -89,7 +89,9 @@ def test_every_transcript_path_in_a_prompt_is_an_earlier_step(pipeline):
         for path in _PATH_RE.findall(step.prompt or ""):
             found += 1
             assert path in earlier, (step.agent_id, path)
-    assert found >= 2
+    # Custom-step hand-offs now go through revisions/<run_id>/ files (fix.md,
+    # change.md, tasks.md), so only the analyzer's transcript path remains on FAST.
+    assert found >= 1
 
 
 def test_fast_named_transcripts():
@@ -98,7 +100,7 @@ def test_fast_named_transcripts():
     analyzer = rel["prototype-revision-analyzer"]
     assert analyzer == ".agents/01-prototype-revision-analyzer.md"
     assert analyzer in prompts["custom-agent:v2-fix"]
-    assert rel["custom-agent:v2-fix"] in prompts["custom-agent:v2-validate"]
+    assert "revisions/<run_id>/fix.md" in prompts["custom-agent:v2-validate"]
 
 
 def test_depth_named_transcripts():
@@ -107,8 +109,8 @@ def test_depth_named_transcripts():
     analyzer = rel["prototype-revision-analyzer"]
     assert analyzer == ".agents/01-prototype-revision-analyzer.md"
     assert analyzer in prompts["custom-agent:v2-specify"]
-    assert rel["custom-agent:v2-specify"] in prompts["custom-agent:v2-plan"]
-    plan = rel["custom-agent:v2-plan"]
+    assert "revisions/<run_id>/change.md" in prompts["custom-agent:v2-plan"]
+    plan = "revisions/<run_id>/tasks.md"
     assert plan in prompts["custom-agent:v2-build"]
     assert plan in prompts["custom-agent:v2-validate"]
 
@@ -346,3 +348,59 @@ def test_mint_refuses_pipeline_with_no_roster_and_no_manifest(mint_env):
         )
     assert exc.value.detail["code"] == "revision_unsupported"
     assert mint_env.added == []
+
+
+# ── 8. run-id contract: each revision writes under its own revisions/<run_id>/ ──
+
+BACKLOG = "backlog_revision"
+_RUN_ID = ".context/run-id.txt"
+_BANNED = ("you are done", "<slug>")
+
+
+def _steps_by_id(pipeline: str) -> dict[str, str]:
+    return {s.agent_id: s.prompt or "" for s in compile_for_run(pipeline).steps}
+
+
+@pytest.mark.parametrize("pipeline", [FAST, DEPTH])
+def test_no_step_tells_an_agent_it_is_done_on_an_existing_step_file(pipeline):
+    for aid, prompt in _steps_by_id(pipeline).items():
+        low = prompt.lower()
+        for banned in _BANNED:
+            assert banned not in low, (aid, banned)
+
+
+@pytest.mark.parametrize("pipeline", [FAST, DEPTH])
+def test_custom_steps_read_the_run_id_file(pipeline):
+    for aid, prompt in _steps_by_id(pipeline).items():
+        if aid.startswith("custom-agent:"):
+            assert _RUN_ID in prompt, aid
+
+
+def test_depth_steps_write_under_the_revision_folder():
+    for aid, prompt in _steps_by_id(DEPTH).items():
+        if aid.startswith("custom-agent:"):
+            assert "revisions/<run_id>/" in prompt, aid
+
+
+def test_fast_validator_never_edits_the_original_bugs_file():
+    prompt = _steps_by_id(FAST)["custom-agent:v2-validate"]
+    assert "revisions/<run_id>/bugs.json" in prompt
+    for line in prompt.splitlines():
+        if "build/bugs.json" in line:
+            assert "never" in line.lower(), line
+
+
+BACKLOG_CONTRACT_IDS = [
+    "custom-agent:blr-analyst",
+    "custom-agent:blr-plan",
+    "custom-agent:blr-review",
+]
+
+
+def test_backlog_analyst_plan_and_review_follow_the_run_id_contract():
+    prompts = _steps_by_id(BACKLOG)
+    for aid in BACKLOG_CONTRACT_IDS:
+        assert _RUN_ID in prompts[aid], aid
+        low = prompts[aid].lower()
+        for banned in _BANNED:
+            assert banned not in low, (aid, banned)

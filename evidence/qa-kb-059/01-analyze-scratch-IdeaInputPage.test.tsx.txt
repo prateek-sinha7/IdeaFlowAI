@@ -1,0 +1,173 @@
+/**
+ * QA-KB-059 / ISS-919 — ANALYSIS SCRATCH, lives outside the repo.
+ * Observes what IdeaInputPage does today while GET /api/workflows/{id} is pending or
+ * has failed. The network seam (@/lib/api) is mocked, so nothing here can reach a
+ * backend or write a row. Assertions that EXPECT the fixed behaviour are written
+ * as plain expects: a red result IS the observation.
+ */
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import userEvent from "@testing-library/user-event";
+import { renderWithProviders, screen, waitFor } from "@/test/renderWithProviders";
+
+import { IdeaInputPage } from "@/components/workflow/IdeaInputPage";
+import type { AgentDef } from "@/types/index";
+
+vi.mock("@/hooks/useSpeechRecognition", () => ({
+  useSpeechRecognition: () => ({
+    isListening: false,
+    transcript: "",
+    startListening: vi.fn(),
+    stopListening: vi.fn(),
+    isSupported: false,
+  }),
+}));
+
+const mockGetWorkflowDetail = vi.fn();
+const mockCreateUserWorkflow = vi.fn();
+vi.mock("@/lib/api", () => ({
+  getToken: () => "test-token",
+  isNotFoundError: () => false,
+  getWorkflowDetail: (t: string, id: string) => mockGetWorkflowDetail(t, id),
+  createUserWorkflow: (t: string, b: unknown) => mockCreateUserWorkflow(t, b),
+  setWorkflowOverrideEnabled: vi.fn(),
+  extractFileText: vi.fn(),
+  stageRunFile: vi.fn(),
+  getCapabilities: vi.fn().mockResolvedValue({ capabilities: [], model_catalog: [] }),
+}));
+
+// Popup stub: shows the roster it was handed and lets a test make an in-popup edit
+// through the SAME host callback the real popup uses (onReorder -> handleReorderAgents).
+vi.mock("@/components/workflow/AgentsPopup", () => ({
+  AgentsPopup: (p: { agents: { id: string }[]; onReorder?: (a: { id: string }[]) => void }) => (
+    <div>
+      <span data-testid="popup-agents">{p.agents.map((a) => a.id).join(",")}</span>
+      <button data-testid="popup-drop-last" onClick={() => p.onReorder?.(p.agents.slice(0, -1))}>
+        drop-last
+      </button>
+    </div>
+  ),
+}));
+vi.mock("@/components/workflow/ReviewGatesSection", () => ({ ReviewGatesSection: () => null }));
+
+const IDS = ["domain-analyst", "epic-architect", "story-estimator", "nfr-specialist"];
+const libraryAgents = (): AgentDef[] =>
+  IDS.map((id, i) => ({
+    id,
+    name: id,
+    role: "r",
+    description: "d",
+    pipeline_type: "user_stories",
+    order: i + 1,
+    icon: "zap",
+    estimated_duration: 60,
+    has_skill: false,
+  }));
+const preload = (list: AgentDef[]) => ({
+  agents: { agents: list, totalCount: list.length, pipelines: {}, status: "succeeded" as const, error: null },
+});
+
+function renderPage() {
+  return renderWithProviders(
+    <IdeaInputPage workflowType="user_stories" workflowId="user_stories" onBack={vi.fn()} onRun={vi.fn()} />,
+    { preloadedState: preload(libraryAgents()) },
+  );
+}
+
+const NO_OVERRIDE_DETAIL = {
+  id: "user_stories",
+  name: "User Stories",
+  description: "",
+  planner: "deep_planner",
+  clarify_mode: "auto",
+  clarify_defaults: [],
+  context_providers: [],
+  deliverable: { strategy: "single_file", name: "stories.md" },
+  steps: [],
+  has_override: false,
+  is_overridden: false,
+  override_id: null,
+};
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  mockCreateUserWorkflow.mockResolvedValue({ id: "wf-scratch" });
+});
+
+describe("QA-KB-059 scratch: IdeaInputPage while GET /api/workflows/user_stories is PENDING", () => {
+  it("T1 both Save buttons should be disabled (red today = defect observed)", async () => {
+    mockGetWorkflowDetail.mockReturnValue(new Promise(() => {})); // never settles
+    renderPage();
+    const saveAs = await screen.findByRole("button", { name: /Save as my version/ });
+    const save = screen.getByRole("button", { name: /Save workflow/ });
+    const advanced = screen.getByRole("button", { name: /Advanced/ });
+    console.log(
+      "[T1] pending window: saveAsMyVersion.disabled=%s saveWorkflow.disabled=%s advanced.disabled=%s advancedLabel=%j",
+      (saveAs as HTMLButtonElement).disabled,
+      (save as HTMLButtonElement).disabled,
+      (advanced as HTMLButtonElement).disabled,
+      advanced.textContent,
+    );
+    expect.soft(saveAs).toBeDisabled();
+    expect.soft(save).toBeDisabled();
+    expect.soft(advanced).toBeDisabled();
+  });
+
+  it("T2 clicking Save as my version while pending sends the library roster as an override UPSERT", async () => {
+    const user = userEvent.setup();
+    mockGetWorkflowDetail.mockReturnValue(new Promise(() => {}));
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: /Save as my version/ }));
+    console.log("[T2] createUserWorkflow calls while detail pending:", mockCreateUserWorkflow.mock.calls.length);
+    const body = (mockCreateUserWorkflow.mock.calls[0]?.[1] ?? {}) as Record<string, unknown>;
+    console.log(
+      "[T2] POST body: %s",
+      JSON.stringify({
+        overrides_pipeline_type: body.overrides_pipeline_type,
+        base_pipeline_type: body.base_pipeline_type,
+        agent_ids: body.agent_ids,
+      }),
+    );
+    expect(mockCreateUserWorkflow).not.toHaveBeenCalled(); // red today
+  });
+});
+
+describe("QA-KB-059 scratch: the FAILED-fetch window (adjacent state)", () => {
+  it("T3 a rejected GET leaves Save as my version enabled and shows no error", async () => {
+    mockGetWorkflowDetail.mockRejectedValue(new Error("503 upstream"));
+    renderPage();
+    await waitFor(() => expect(mockGetWorkflowDetail).toHaveBeenCalled());
+    await new Promise((r) => setTimeout(r, 60)); // let .catch run and state flush
+    const saveAs = screen.getByRole("button", { name: /Save as my version/ });
+    const banner = screen.queryByText(/Failed to load this workflow/);
+    console.log(
+      "[T3] after rejected GET: saveAsMyVersion.disabled=%s errorBannerShown=%s",
+      (saveAs as HTMLButtonElement).disabled,
+      Boolean(banner),
+    );
+    expect.soft(saveAs).toBeDisabled(); // red today
+  });
+});
+
+describe("QA-KB-059 scratch: an edit made in the window vs the late overlay (Advanced trigger)", () => {
+  it("T4 the late fetch re-seeds pipelineAgents over an in-window edit", async () => {
+    const user = userEvent.setup();
+    let resolveDetail!: (d: unknown) => void;
+    mockGetWorkflowDetail.mockReturnValue(new Promise((r) => { resolveDetail = r; }));
+    renderPage();
+    await screen.findByRole("button", { name: /Save as my version/ });
+    const before = screen.getByTestId("popup-agents").textContent;
+    await user.click(screen.getByTestId("popup-drop-last")); // edit made while detail pending
+    const edited = screen.getByTestId("popup-agents").textContent;
+    resolveDetail(NO_OVERRIDE_DETAIL); // overlay lands
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /Advanced/ })).toBeInTheDocument(),
+    );
+    await new Promise((r) => setTimeout(r, 60));
+    const after = screen.getByTestId("popup-agents").textContent;
+    console.log("[T4] roster before edit: %s", before);
+    console.log("[T4] roster after in-window edit: %s", edited);
+    console.log("[T4] roster after late detail lands: %s", after);
+    console.log("[T4] edit survived the late overlay: %s", after === edited);
+    expect(after).toBe(edited); // red today = edit replaced
+  });
+});

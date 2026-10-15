@@ -1,0 +1,130 @@
+QA-KB-122 analysis (3-analyzer, 2026-10-09): lines quoted from validate-bugs' own logs, copied here because they live in another session's scratchpad.
+Source directory (not in the repo): /private/tmp/claude-502/-Users-bilala-Developer-Projects-VELOCITY-AI-worktrees-feat-user-stories-v2/5bcc53cb-b19a-476a-8fd1-bfd80715e60a/scratchpad/e2e
+Stack under test: http://localhost:3001 / :8001 (this worktree), full offline e2e run 2026-10-09 09:30-10:44, rerun 12:58-13:10.
+
+== every XPASS(strict) in the full run (summary.txt/failed_ids.txt count 68 failures in total)
+05_saved_workflows.log:100:[XPASS(strict)] ISS-923 unfixed
+05_saved_workflows.log:102:[XPASS(strict)] ISS-1033 unfixed
+04_composer_canvas.log:472:[XPASS(strict)] ISS-1137 unfixed
+04_composer_canvas.log:474:[XPASS(strict)] ISS-796 unfixed
+04_composer_canvas.log:476:[XPASS(strict)] ISS-1137 unfixed
+04_composer_canvas.log:478:[XPASS(strict)] ISS-1137 unfixed
+06_run_history.log:114:[XPASS(strict)] ISS-213 unfixed
+12_shell_nav.log:184:[XPASS(strict)] ISS-190 unfixed
+
+== rerun triage: the 12 admin-create failures, the 4 UI-dialog failures and the reserved-subtree failure (e2e/rerun/triage.txt)
+15:10_analytics | test_a_user_with_no_runs_sees_an_empty_state[chromium] | AssertionError: creating a disposable user answered 422: {"detail":[{"type":"extra_forbidden","loc":["body","password"],"msg":"Extra inputs are not permitted"}]} / assert 422 == 201
+17:11_admin | test_a_permanent_reset_skips_the_challenge_but_is_knowable[chromium] | AssertionError: creating a disposable user answered 422: {"detail":[{"type":"extra_forbidden","loc":["body","password"],"msg":"Extra inputs are not permitted"}]} / assert 422 == 201
+18:11_admin | test_adding_a_user_creates_an_account_at_the_chosen_tier[chromium] | playwright._impl._errors.TimeoutError: Page.fill: Timeout 30000ms exceeded. / - waiting for locator("input[type=\"password\"]")
+20:11_admin | test_changing_another_users_tier_takes_effect[chromium] | AssertionError: creating a disposable user answered 422: {"detail":[{"type":"extra_forbidden","loc":["body","password"],"msg":"Extra inputs are not permitted"}]} / assert 422 == 201
+21:11_admin | test_deleting_a_user_removes_them[chromium] | AssertionError: creating a disposable user answered 422: {"detail":[{"type":"extra_forbidden","loc":["body","password"],"msg":"Extra inputs are not permitted"}]} / assert 422 == 201
+23:11_admin | test_create_user_dialog_rejects_email_with_no_at_or_domain[chromium] | playwright._impl._errors.TimeoutError: Page.fill: Timeout 30000ms exceeded. / - waiting for locator("input[type=\"password\"]")
+24:11_admin | test_duplicate_email_create_shows_an_error_toast[chromium] | playwright._impl._errors.TimeoutError: Page.fill: Timeout 30000ms exceeded. / - waiting for locator("input[type=\"password\"]")
+26:12_shell_nav | test_the_notifications_panel_opens_with_an_empty_state[chromium] | AssertionError: creating a disposable user answered 422: {"detail":[{"type":"extra_forbidden","loc":["body","password"],"msg":"Extra inputs are not permitted"}]} / assert 422 == 201
+29:19_toasts_and_dialogs | test_admin_actions_confirm_themselves_by_toast[chromium-create] | AssertionError: creating a disposable user answered 422: {"detail":[{"type":"extra_forbidden","loc":["body","password"],"msg":"Extra inputs are not permitted"}]} / assert 422 == 201
+30:19_toasts_and_dialogs | test_admin_actions_confirm_themselves_by_toast[chromium-delete] | AssertionError: creating a disposable user answered 422: {"detail":[{"type":"extra_forbidden","loc":["body","password"],"msg":"Extra inputs are not permitted"}]} / assert 422 == 201
+32:19_toasts_and_dialogs | test_confirming_removes_the_user_and_says_so[chromium] | AssertionError: creating a disposable user answered 422: {"detail":[{"type":"extra_forbidden","loc":["body","password"],"msg":"Extra inputs are not permitted"}]} / assert 422 == 201
+33:21_run_families_and_versions | test_tab_switch_keeps_fetching_the_pinned_revisions_run_id[chromium] | AssertionError: tab switch never re-fetched the pinned revision 23bd9c67-e239-4979-b14a-cb78222795e8 — requests seen: ['http://localhost:3001/runs/2708dbf1-50d0-465d-9bed-56b651ea1abf/versions/2/files', 'http://localhost:3001
+34:21_run_families_and_versions | test_audit_tab_fetches_the_pinned_versions_own_run_id[chromium] | AssertionError: Audit tab pinned to v2 never fetched the pinned revision's own gate-events (23bd9c67-e239-4979-b14a-cb78222795e8) — requests seen: ['http://localhost:3001/runs/2708dbf1-50d0-465d-9bed-56b651ea1abf/versions/2/audit'
+37:24_api_contract | test_creating_a_user_answers_201_with_the_created_user[chromium] | AssertionError: 422: {"detail":[{"type":"extra_forbidden","loc":["body","password"],"msg":"Extra inputs are not permitted"}]} / assert 422 == 201
+38:24_api_contract | test_deleting_a_user_answers_204_with_no_body[chromium] | AssertionError: creating a disposable user answered 422: {"detail":[{"type":"extra_forbidden","loc":["body","password"],"msg":"Extra inputs are not permitted"}]} / assert 422 == 201
+39:24_api_contract | test_the_reserved_subtrees_are_never_listed[chromium] | AssertionError: reserved subtrees appear in the listing: ['.logs/92c5be73-17c6-48bb-afc8-2c2b620f494c.jsonl'] / assert not ['.logs/92c5be73-17c6-48bb-afc8-2c2b620f494c.jsonl']
+
+== 07_run_detail.log: test_iss313 against the pinned run edba51b5 renders a 404 page (lines 210-245), and the two vacuous passes ([1/61] iss285, [7/61] iss390)
+__ test_toolbar_download_enabled_when_deliverable_filename_missing[chromium] ___
+
+page = <Page url='http://localhost:3001/runs/edba51b5-eb00-46b1-ba30-87f2f04db120/stream'>
+
+E         - waiting for get_by_role("button", name="Download the deliverable")
+E           3 × locator resolved to <button disabled type="button" aria-label="Download the deliverable" class="inline-flex items-center gap-2 rounded-[10px] border-none 
+E             - unexpected value "disabled"
+E       
+E       Aria snapshot:
+E       - alert
+E       - complementary:
+E         - img "Hexaware"
+E         - text: VelocityAI
+E         - paragraph: It happens
+E         - heading "Page not found." [level=2]
+E         - paragraph: This URL doesn't exist. Let's get you back on track to shipping faster with your agent workforce.
+E         - text: Lost? Typo? Moved.
+E       - text: "404"
+  [1/61]  UNMARKED  Requesting the dedicated Preview route for a failed run with no
+     PASS  0 shots  1.4s
+  [7/61]  UNMARKED  A permanently-terminal diverted run's Preview tab must show a
+     PASS  0 shots  1.9s
+
+== 05_saved_workflows.log:5-9: test_iss228 against the pinned saved workflow 656ca387 -> 404, then 'x' (XFAIL for the wrong reason)
+  [1/24]  UNMARKED  ISS-228 — a cold direct navigation to a saved workflow's own
+      1  When I cold-load "/workflows/656ca387-e69c-474d-b7ff-5f…    5.4s  FAILED
+         console: Failed to load resource: the server responded with a status of 404 (Not Found)
+         console: cold-mount workflow-run fetch failed: 656ca387-e69c-474d-b7ff-5fd9eb017cc0 ApiError: Saved workflow not found
+
+
+== 21_run_families_and_versions: summary line and the first lines of the first failure (dead family ids)
+517:FAILED suites/21_run_families_and_versions/test_iss_230_version_pin_survives_tab_switch.py::test_tab_switch_keeps_the_version_pin_in_the_url[chromium-tab-thinking-/steps]
+518:FAILED suites/21_run_families_and_versions/test_iss_230_version_pin_survives_tab_switch.py::test_tab_switch_keeps_fetching_the_pinned_revisions_run_id[chromium]
+519:FAILED suites/21_run_families_and_versions/test_iss_230_version_pin_survives_tab_switch.py::test_the_files_tab_shows_the_pinned_versions_own_deliverable[chromium]
+520:FAILED suites/21_run_families_and_versions/test_iss_606_609_version_pin_ignored_by_agent_data.py::test_steps_tab_shows_the_pinned_versions_own_agent_count[chromium]
+521:FAILED suites/21_run_families_and_versions/test_iss_606_609_version_pin_ignored_by_agent_data.py::test_audit_tab_fetches_the_pinned_versions_own_run_id[chromium]
+522:FAILED suites/21_run_families_and_versions/test_iss_607_610_611_612_base_route_revision_unreachable.py::test_version_picker_navigates_to_revision_from_base_steps_route[chromium]
+523:FAILED suites/21_run_families_and_versions/test_iss_607_610_611_612_base_route_revision_unreachable.py::test_chat_answer_in_steps_navigates_to_revision_from_base_route[chromium]
+524:FAILED suites/21_run_families_and_versions/test_iss_607_610_611_612_base_route_revision_unreachable.py::test_version_picker_noop_is_not_steps_specific[chromium]
+525:FAILED suites/21_run_families_and_versions/test_iss_607_610_611_612_base_route_revision_unreachable.py::test_chat_deliverable_card_deep_link_carries_the_revisions_run_id[chromium]
+526:9 failed, 10 passed, 10 skipped in 274.26s (0:04:34)
+
+== 15_overlays.log / 20_keyboard_and_navigation.log: the notifications-panel failures (account state, not an app change)
+15_overlays.log:261:E             - Expect "to_be_visible" locator("text=No notifications yet").first with timeout 5000ms
+15_overlays.log:262:E             - waiting for locator("text=No notifications yet").first
+15_overlays.log:277:E               - button "One slide saying hello. Nothing else.":
+20_keyboard_and_navigation.log:158:E             - Expect "to_be_visible" locator("text=No notifications yet").first with timeout 5000ms
+20_keyboard_and_navigation.log:159:E             - waiting for locator("text=No notifications yet").first
+20_keyboard_and_navigation.log:174:E               - button "One slide saying hello. Nothing else.":
+
+== 02_home_catalog.log: the first failure names the (Detailed) card; S-02-07 params 7/17/18 fail at 6.6-7.9 s, params 19-27 pass at 2.2-4.5 s
+31:     FAIL  0 shots  6.6s
+68:     FAIL  0 shots  7.0s
+71:     FAIL  0 shots  7.9s
+120:E             - Expect "to_have_count" locator("[aria-label=\"Inspect Pitch an idea (Detailed) details\"]") with timeout 5000ms
+121:E             - waiting for locator("[aria-label=\"Inspect Pitch an idea (Detailed) details\"]")
+241:_ test_the_lock_badge_names_the_tier_a_card_needs[chromium-basic-Pitch an idea (Detailed)-None] _
+290:FAILED suites/02_home_catalog/test_home_catalog.py::test_the_lock_badge_names_the_tier_a_card_needs[chromium-basic-Pitch an idea (Detailed)-None]
+
+== 04_composer_canvas rerun: the two stale composer wordings
+77:>       expect(page.get_by_text(re.compile(r"Agent · step 1 of \d"))).to_be_visible()
+82:E         - Expect "to_be_visible" get_by_text(re.compile(r"Agent · step 1 of \d")) with timeout 5000ms
+83:E         - waiting for get_by_text(re.compile(r"Agent · step 1 of \d"))
+
+== rerun logs: all 12 tests that POST a password ended on the 422 (the triage.txt above omits S-11-17 and S-17-09; these lines show them)
+rerun/11_admin.log:82:E       AssertionError: creating a disposable user answered 422: {"detail":[{"type":"extra_forbidden","loc":["body","password"],"msg":"Extra inputs are not permitted"}]}
+rerun/11_admin.log:231:E       AssertionError: creating a disposable user answered 422: {"detail":[{"type":"extra_forbidden","loc":["body","password"],"msg":"Extra inputs are not permitted"}]}
+rerun/11_admin.log:280:E       AssertionError: creating a disposable user answered 422: {"detail":[{"type":"extra_forbidden","loc":["body","password"],"msg":"Extra inputs are not permitted"}]}
+rerun/11_admin.log:323:E       AssertionError: creating a disposable user answered 422: {"detail":[{"type":"extra_forbidden","loc":["body","password"],"msg":"Extra inputs are not permitted"}]}
+rerun/24_api_contract.log:48:E       AssertionError: 422: {"detail":[{"type":"extra_forbidden","loc":["body","password"],"msg":"Extra inputs are not permitted"}]}
+rerun/24_api_contract.log:87:E       AssertionError: creating a disposable user answered 422: {"detail":[{"type":"extra_forbidden","loc":["body","password"],"msg":"Extra inputs are not permitted"}]}
+rerun/10_analytics.log:58:E       AssertionError: creating a disposable user answered 422: {"detail":[{"type":"extra_forbidden","loc":["body","password"],"msg":"Extra inputs are not permitted"}]}
+rerun/17_theme_and_tiers.log:68:E       AssertionError: creating a disposable user answered 422: {"detail":[{"type":"extra_forbidden","loc":["body","password"],"msg":"Extra inputs are not permitted"}]}
+rerun/12_shell_nav.log:65:E       AssertionError: creating a disposable user answered 422: {"detail":[{"type":"extra_forbidden","loc":["body","password"],"msg":"Extra inputs are not permitted"}]}
+rerun/19_toasts_and_dialogs.log:73:E       AssertionError: creating a disposable user answered 422: {"detail":[{"type":"extra_forbidden","loc":["body","password"],"msg":"Extra inputs are not permitted"}]}
+rerun/19_toasts_and_dialogs.log:130:E       AssertionError: creating a disposable user answered 422: {"detail":[{"type":"extra_forbidden","loc":["body","password"],"msg":"Extra inputs are not permitted"}]}
+rerun/19_toasts_and_dialogs.log:208:E       AssertionError: creating a disposable user answered 422: {"detail":[{"type":"extra_forbidden","loc":["body","password"],"msg":"Extra inputs are not permitted"}]}
+
+== rerun FAILED lists for 11_admin and 17_theme_and_tiers
+rerun/11_admin.log:605:FAILED suites/11_admin/test_admin.py::test_a_permanent_reset_skips_the_challenge_but_is_knowable[chromium]
+rerun/11_admin.log:606:FAILED suites/11_admin/test_admin.py::test_adding_a_user_creates_an_account_at_the_chosen_tier[chromium]
+rerun/11_admin.log:607:FAILED suites/11_admin/test_admin.py::test_an_admin_cannot_delete_their_own_account[chromium]
+rerun/11_admin.log:608:FAILED suites/11_admin/test_admin.py::test_an_admin_resets_another_users_password_to_a_temporary_one[chromium]
+rerun/11_admin.log:609:FAILED suites/11_admin/test_admin.py::test_changing_another_users_tier_takes_effect[chromium]
+rerun/11_admin.log:610:FAILED suites/11_admin/test_admin.py::test_deleting_a_user_removes_them[chromium]
+rerun/11_admin.log:611:FAILED suites/11_admin/test_admin.py::test_the_create_user_password_field_has_a_show_hide_toggle[chromium]
+rerun/11_admin.log:612:FAILED suites/11_admin/test_create_user_email_validation.py::test_create_user_dialog_rejects_email_with_no_at_or_domain[chromium]
+rerun/11_admin.log:613:FAILED suites/11_admin/test_iss324_duplicate_email_toast.py::test_duplicate_email_create_shows_an_error_toast[chromium]
+rerun/17_theme_and_tiers.log:162:FAILED suites/17_theme_and_tiers/test_theme_and_tiers.py::test_a_hexaware_user_gains_prototype_and_loses_presentations[chromium]
+rerun/17_theme_and_tiers.log:163:FAILED suites/17_theme_and_tiers/test_theme_and_tiers.py::test_deliverable_access_omits_workflows_the_catalog_offers[chromium]
+
+== rerun triage: test_iss802 (ISS-802) saw two /artifacts requests (the second is the kind=clarifications read)
+4:07_run_detail | test_opening_an_agent_in_steps_tab_fetches_artifacts_once[chromium] | AssertionError: opening an agent's Steps detail pane should fetch /api/runs/92c5be73-17c6-48bb-afc8-2c2b620f494c/artifacts once, saw 2: ['http://localhost:8001/api/runs/92c5be73-17c6-48bb-afc8-2c2b620f494c/artifacts?kind=clarifications&include=content', 'http:
+
+== rerun/07_run_detail.log: the two URLs in full
+102:E       AssertionError: opening an agent's Steps detail pane should fetch /api/runs/92c5be73-17c6-48bb-afc8-2c2b620f494c/artifacts once, saw 2: ['http://localhost:8001/api/runs/92c5be73-17c6-48bb-afc8-2c2b620f494c/artifacts?kind=clarifications&include=content', 'http://localhost:8001/api/runs/92c5be73-17c6-48bb-afc8-2c2b620f
+104:E        +  where 2 = len(['http://localhost:8001/api/runs/92c5be73-17c6-48bb-afc8-2c2b620f494c/artifacts?kind=clarifications&include=content', 'http://localhost:8001/api/runs/92c5be73-17c6-48bb-afc8-2c2b620f494c/artifacts'])

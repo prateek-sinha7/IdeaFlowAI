@@ -1,0 +1,34 @@
+# test_cancel_stops_resumed_run_db.py, per-test results, git archive exports in a scratch dir (repo untouched)
+# mutant = analysis-plugins/kb097_mutant_cancel_ignored.py (ExecutionEngine._resolve_resume_cancel_event returns None = the ISS-084 defect)
+
+##### export: 60bbe040d^ (187c18aa8)  plugin: kb097_baseline
+test_resume_funnel_hands_the_cancel_event_to_execute_impl PASSED [ 20%]
+test_resume_funnel_is_dormant_when_the_hook_is_unset PASSED [ 40%]
+test_the_engine_reads_the_same_event_object_the_rest_registry_holds PASSED [ 60%]
+test_cancel_stops_a_resumed_drive_and_writes_the_terminal_row PASSED [ 80%]
+test_a_cancelled_resumed_run_is_not_re_adopted_by_auto_resume PASSED [100%]
+======================== 5 passed, 3 warnings in 3.48s =========================
+
+##### export: 60bbe040d^ (187c18aa8)  plugin: kb097_mutant_cancel_ignored
+test_resume_funnel_hands_the_cancel_event_to_execute_impl FAILED [ 20%]
+test_resume_funnel_is_dormant_when_the_hook_is_unset PASSED [ 40%]
+test_the_engine_reads_the_same_event_object_the_rest_registry_holds FAILED [ 60%]
+test_cancel_stops_a_resumed_drive_and_writes_the_terminal_row FAILED [ 80%]
+test_a_cancelled_resumed_run_is_not_re_adopted_by_auto_resume FAILED [100%]
+=================== 4 failed, 1 passed, 3 warnings in 3.87s ====================
+
+##### export: 60bbe040d  plugin: kb097_baseline
+test_resume_funnel_hands_the_cancel_event_to_execute_impl PASSED [ 20%]
+test_resume_funnel_is_dormant_when_the_hook_is_unset PASSED [ 40%]
+test_the_engine_reads_the_same_event_object_the_rest_registry_holds PASSED [ 60%]
+test_cancel_stops_a_resumed_drive_and_writes_the_terminal_row FAILED [ 80%]
+test_a_cancelled_resumed_run_is_not_re_adopted_by_auto_resume PASSED [100%]
+=================== 1 failed, 4 passed, 3 warnings in 3.29s ====================
+
+##### export: 60bbe040d  plugin: kb097_mutant_cancel_ignored
+test_resume_funnel_hands_the_cancel_event_to_execute_impl FAILED [ 20%]
+test_resume_funnel_is_dormant_when_the_hook_is_unset PASSED [ 40%]
+test_the_engine_reads_the_same_event_object_the_rest_registry_holds FAILED [ 60%]
+test_cancel_stops_a_resumed_drive_and_writes_the_terminal_row FAILED [ 80%]
+test_a_cancelled_resumed_run_is_not_re_adopted_by_auto_resume PASSED [100%]
+=================== 3 failed, 2 passed, 3 warnings in 3.31s ====================

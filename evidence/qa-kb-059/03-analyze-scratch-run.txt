@@ -1,0 +1,261 @@
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - ESM syntax in a file loaded as CommonJS (vitest.scratch.config.ts:1:1). Use a `.mjs` extension or set `"type": "module"` in the closest package.json
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+
+ RUN  v4.1.11 /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/frontend
+
+stdout | IdeaInputPage.qa-kb-059.scratch.test.tsx > QA-KB-059 scratch: IdeaInputPage while GET /api/workflows/user_stories is PENDING > T1 both Save buttons should be disabled (red today = defect observed)
+[wf] 4. roster for user_stories { fromLibrary: 4, fromManifest: 0, using: 'library' }
+
+stdout | IdeaInputPage.qa-kb-059.scratch.test.tsx > QA-KB-059 scratch: IdeaInputPage while GET /api/workflows/user_stories is PENDING > T1 both Save buttons should be disabled (red today = defect observed)
+[T1] pending window: saveAsMyVersion.disabled=false saveWorkflow.disabled=false advanced.disabled=false advancedLabel="Advanced4 agents · ~4m"
+
+stdout | IdeaInputPage.qa-kb-059.scratch.test.tsx > QA-KB-059 scratch: IdeaInputPage while GET /api/workflows/user_stories is PENDING > T2 clicking Save as my version while pending sends the library roster as an override UPSERT
+[wf] 4. roster for user_stories { fromLibrary: 4, fromManifest: 0, using: 'library' }
+
+stdout | IdeaInputPage.qa-kb-059.scratch.test.tsx > QA-KB-059 scratch: IdeaInputPage while GET /api/workflows/user_stories is PENDING > T2 clicking Save as my version while pending sends the library roster as an override UPSERT
+[wf] 4. roster for user_stories { fromLibrary: 4, fromManifest: 0, using: 'library' }
+
+stdout | IdeaInputPage.qa-kb-059.scratch.test.tsx > QA-KB-059 scratch: IdeaInputPage while GET /api/workflows/user_stories is PENDING > T2 clicking Save as my version while pending sends the library roster as an override UPSERT
+[T2] createUserWorkflow calls while detail pending: 1
+[T2] POST body: {"overrides_pipeline_type":"user_stories","base_pipeline_type":"user_stories","agent_ids":["domain-analyst","epic-architect","story-estimator","nfr-specialist"]}
+
+stdout | IdeaInputPage.qa-kb-059.scratch.test.tsx > QA-KB-059 scratch: the FAILED-fetch window (adjacent state) > T3 a rejected GET leaves Save as my version enabled and shows no error
+[wf] 4. roster for user_stories { fromLibrary: 4, fromManifest: 0, using: 'library' }
+
+stdout | IdeaInputPage.qa-kb-059.scratch.test.tsx > QA-KB-059 scratch: the FAILED-fetch window (adjacent state) > T3 a rejected GET leaves Save as my version enabled and shows no error
+[T3] after rejected GET: saveAsMyVersion.disabled=false errorBannerShown=false
+
+stdout | IdeaInputPage.qa-kb-059.scratch.test.tsx > QA-KB-059 scratch: an edit made in the window vs the late overlay (Advanced trigger) > T4 the late fetch re-seeds pipelineAgents over an in-window edit
+[wf] 4. roster for user_stories { fromLibrary: 4, fromManifest: 0, using: 'library' }
+
+stdout | IdeaInputPage.qa-kb-059.scratch.test.tsx > QA-KB-059 scratch: an edit made in the window vs the late overlay (Advanced trigger) > T4 the late fetch re-seeds pipelineAgents over an in-window edit
+[wf] 1. fetched user_stories {
+  compiledSteps: 0,
+  manifestSteps: 0,
+  stepsWithGates: [],
+  stepsWithRoute: []
+}
+
+stderr | IdeaInputPage.qa-kb-059.scratch.test.tsx > QA-KB-059 scratch: an edit made in the window vs the late overlay (Advanced trigger) > T4 the late fetch re-seeds pipelineAgents over an in-window edit
+An update to IdeaInputPage inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to IdeaInputPage inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+stdout | IdeaInputPage.qa-kb-059.scratch.test.tsx > QA-KB-059 scratch: an edit made in the window vs the late overlay (Advanced trigger) > T4 the late fetch re-seeds pipelineAgents over an in-window edit
+[wf] 4. roster for user_stories { fromLibrary: 4, fromManifest: 0, using: 'library' }
+
+stdout | IdeaInputPage.qa-kb-059.scratch.test.tsx > QA-KB-059 scratch: an edit made in the window vs the late overlay (Advanced trigger) > T4 the late fetch re-seeds pipelineAgents over an in-window edit
+[T4] roster before edit: domain-analyst,epic-architect,story-estimator,nfr-specialist
+[T4] roster after in-window edit: domain-analyst,epic-architect,story-estimator
+[T4] roster after late detail lands: domain-analyst,epic-architect,story-estimator,nfr-specialist
+[T4] edit survived the late overlay: false
+
+ ❯ IdeaInputPage.qa-kb-059.scratch.test.tsx (4 tests | 4 failed) 351ms
+     × T1 both Save buttons should be disabled (red today = defect observed) 122ms
+     × T2 clicking Save as my version while pending sends the library roster as an override UPSERT 44ms
+     × T3 a rejected GET leaves Save as my version enabled and shows no error 81ms
+     × T4 the late fetch re-seeds pipelineAgents over an in-window edit 102ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 4 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  IdeaInputPage.qa-kb-059.scratch.test.tsx > QA-KB-059 scratch: IdeaInputPage while GET /api/workflows/user_stories is PENDING > T1 both Save buttons should be disabled (red today = defect observed)
+Error: expect(element).toBeDisabled()
+
+Received element is not disabled:
+  <button
+  class="flex items-center gap-1.5 rounded-xl border border-line-control px-4 py-2.5 text-[12px] font-medium text-ink-600 hover:bg-surface-warm transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+  title="Make this lineup your default for this workflow"
+/>
+ ❯ IdeaInputPage.qa-kb-059.scratch.test.tsx:110:25
+    108|       advanced.textContent,
+    109|     );
+    110|     expect.soft(saveAs).toBeDisabled();
+       |                         ^
+    111|     expect.soft(save).toBeDisabled();
+    112|     expect.soft(advanced).toBeDisabled();
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/6]⎯
+
+ FAIL  IdeaInputPage.qa-kb-059.scratch.test.tsx > QA-KB-059 scratch: IdeaInputPage while GET /api/workflows/user_stories is PENDING > T1 both Save buttons should be disabled (red today = defect observed)
+Error: expect(element).toBeDisabled()
+
+Received element is not disabled:
+  <button
+  class="flex items-center gap-1.5 rounded-xl border border-line-control px-4 py-2.5 text-[12px] font-medium text-ink-600 hover:bg-surface-warm transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+  title="Save this composition as a reusable workflow"
+/>
+ ❯ IdeaInputPage.qa-kb-059.scratch.test.tsx:111:23
+    109|     );
+    110|     expect.soft(saveAs).toBeDisabled();
+    111|     expect.soft(save).toBeDisabled();
+       |                       ^
+    112|     expect.soft(advanced).toBeDisabled();
+    113|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/6]⎯
+
+ FAIL  IdeaInputPage.qa-kb-059.scratch.test.tsx > QA-KB-059 scratch: IdeaInputPage while GET /api/workflows/user_stories is PENDING > T1 both Save buttons should be disabled (red today = defect observed)
+Error: expect(element).toBeDisabled()
+
+Received element is not disabled:
+  <button
+  class="flex items-center gap-2 text-[12px] text-ink-400 hover:text-ink-700 transition-colors"
+/>
+ ❯ IdeaInputPage.qa-kb-059.scratch.test.tsx:112:27
+    110|     expect.soft(saveAs).toBeDisabled();
+    111|     expect.soft(save).toBeDisabled();
+    112|     expect.soft(advanced).toBeDisabled();
+       |                           ^
+    113|   });
+    114|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/6]⎯
+
+ FAIL  IdeaInputPage.qa-kb-059.scratch.test.tsx > QA-KB-059 scratch: IdeaInputPage while GET /api/workflows/user_stories is PENDING > T2 clicking Save as my version while pending sends the library roster as an override UPSERT
+AssertionError: expected "vi.fn()" to not be called at all, but actually been called 1 times
+
+Received:
+
+  1st vi.fn() call:
+
+    Array [
+      "test-token",
+      Object {
+        "agent_ids": Array [
+          "domain-analyst",
+          "epic-architect",
+          "story-estimator",
+          "nfr-specialist",
+        ],
+        "base_pipeline_type": "user_stories",
+        "description": "Your saved version of this workflow.",
+        "manifest": Object {
+          "steps": Array [
+            Object {
+              "agent": "domain-analyst",
+              "depends_on": Array [],
+              "gates": Array [],
+              "strategy": "single_shot",
+              "tools": Object {
+                "exec": false,
+                "read_files": true,
+                "write_files": true,
+              },
+            },
+            Object {
+              "agent": "epic-architect",
+              "depends_on": Array [
+                "domain-analyst",
+              ],
+              "gates": Array [],
+              "strategy": "single_shot",
+              "tools": Object {
+                "exec": false,
+                "read_files": true,
+                "write_files": true,
+              },
+            },
+            Object {
+              "agent": "story-estimator",
+              "depends_on": Array [
+                "epic-architect",
+              ],
+              "gates": Array [],
+              "strategy": "single_shot",
+              "tools": Object {
+                "exec": false,
+                "read_files": true,
+                "write_files": true,
+              },
+            },
+            Object {
+              "agent": "nfr-specialist",
+              "depends_on": Array [
+                "story-estimator",
+              ],
+              "gates": Array [],
+              "strategy": "single_shot",
+              "tools": Object {
+                "exec": false,
+                "read_files": true,
+                "write_files": true,
+              },
+            },
+          ],
+        },
+        "name": "My user_stories",
+        "overrides_pipeline_type": "user_stories",
+      },
+    ]
+
+
+Number of calls: 1
+
+ ❯ IdeaInputPage.qa-kb-059.scratch.test.tsx:130:40
+    128|       }),
+    129|     );
+    130|     expect(mockCreateUserWorkflow).not.toHaveBeenCalled(); // red today
+       |                                        ^
+    131|   });
+    132| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/6]⎯
+
+ FAIL  IdeaInputPage.qa-kb-059.scratch.test.tsx > QA-KB-059 scratch: the FAILED-fetch window (adjacent state) > T3 a rejected GET leaves Save as my version enabled and shows no error
+Error: expect(element).toBeDisabled()
+
+Received element is not disabled:
+  <button
+  class="flex items-center gap-1.5 rounded-xl border border-line-control px-4 py-2.5 text-[12px] font-medium text-ink-600 hover:bg-surface-warm transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+  title="Make this lineup your default for this workflow"
+/>
+ ❯ IdeaInputPage.qa-kb-059.scratch.test.tsx:147:25
+    145|       Boolean(banner),
+    146|     );
+    147|     expect.soft(saveAs).toBeDisabled(); // red today
+       |                         ^
+    148|   });
+    149| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/6]⎯
+
+ FAIL  IdeaInputPage.qa-kb-059.scratch.test.tsx > QA-KB-059 scratch: an edit made in the window vs the late overlay (Advanced trigger) > T4 the late fetch re-seeds pipelineAgents over an in-window edit
+AssertionError: expected 'domain-analyst,epic-architect,story-e…' to be 'domain-analyst,epic-architect,story-e…' // Object.is equality
+
+Expected: "domain-analyst,epic-architect,story-estimator"
+Received: "domain-analyst,epic-architect,story-estimator,nfr-specialist"
+
+ ❯ IdeaInputPage.qa-kb-059.scratch.test.tsx:171:19
+    169|     console.log("[T4] roster after late detail lands: %s", after);
+    170|     console.log("[T4] edit survived the late overlay: %s", after === e…
+    171|     expect(after).toBe(edited); // red today = edit replaced
+       |                   ^
+    172|   });
+    173| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/6]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  4 failed (4)
+   Start at  04:21:38
+   Duration  1.95s (transform 241ms, setup 88ms, import 673ms, tests 351ms, environment 724ms)
+

@@ -21,8 +21,8 @@ deliverable:
   # Unknown-shape output (the original composed workflow could have written
   # one file or many, of any type) — serialized_sandbox bundles whatever is
   # actually on disk after the builder runs, same mechanism app_builder_revision
-  # uses for its own unknown/multi-file app output. plan.md is excluded from
-  # the bundle via _DELIVERABLE_EXCLUDE (app/agents/sandbox.py).
+  # uses for its own unknown/multi-file app output. The plan lives under
+  # revisions/<run_id>/, which the serializer excludes (app/agents/sandbox.py).
   strategy: serialized_sandbox
   name: output
 context_providers:

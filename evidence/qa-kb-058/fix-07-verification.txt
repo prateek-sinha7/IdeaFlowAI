@@ -1,0 +1,43 @@
+QA-KB-058 / ISS-917 + ISS-982 — 5-fixer verification, 2026-10-07 (tree = HEAD 14a675db4 + shared uncommitted work)
+All runs observed by the fixer. Frontend :3000 = this worktree's next dev server (pid 64945, cwd feat-user-stories-v2/frontend).
+
+1. Card test (e2e, offline tier), cwd tests/integration/e2e:
+   .venv/bin/python -m pytest suites/03_launch_panels/test_iss917_wizard_back_discards_unsaved_brief.py -x -q -p no:cacheprovider
+   -> [XPASS(strict)] ISS-917 unfixed ; FAILED ...::test_wizard_back_with_typed_brief_opens_leave_dialog[chromium]
+      run dir tests/integration/test-runs/2026-10-07T17-50-local/ (shot 01-back-with-brief.png shows the dialog)
+   xfail(strict=True) marker left in place for the 6-verifier.
+
+2. S-19-17 native-dialog source scan:
+   .venv/bin/python -m pytest suites/19_toasts_and_dialogs/test_toasts_and_dialogs.py -k native_dialogs_in_the_product
+   -> PASS (run dir 2026-10-07T17-54-local)
+
+3. Vitest, cwd frontend/, one file at a time (npx vitest run <file>):
+                                        before change (HEAD file)      after change
+   LaunchWizard.test.tsx                2 failed | 25 passed (27)      2 failed | 25 passed (27)  (same 2: WR-07 chain, BUG-014 genuine chain)
+   LaunchWizard.chain.test.tsx          3 expected fail (3)            3 expected fail (3)
+   LaunchWizard.iss837.test.tsx         1 passed (1)                   1 passed (1)
+   LaunchWizard.savedRoster.iss943      3 passed (3)                   3 passed (3)
+   LaunchWizard.saveRace.iss284         4 passed (4)                   4 passed (4)
+   LaunchWizard.iss917.test.tsx (new)   n/a                            5 passed (5)
+   new test vs HEAD's LaunchWizard.tsx:              3 failed | 2 passed (5)   (typed brief, DS pick, canvas exit)
+   new test vs an always-prompt variant of the fix:  1 failed | 4 passed (5)   (untouched wizard)
+   (variant files were temporary copies, deleted after the run — see fix-08-variant-proof.txt)
+
+4. ESLint, raw per-rule counts on LaunchWizard.tsx, identical before/after (10 problems):
+   set-state-in-effect 4, exhaustive-deps 4, no-unused-vars 1 (setChainContextBlock), refs 1 (initialSelections={selectionsRef.current})
+   UnsavedChangesDialog.tsx and LaunchWizard.iss917.test.tsx: 0 problems. eslint-suppressions.json unchanged.
+
+5. tsc --noEmit -p tsconfig.json: 12 errors, all in unrelated test files; 0 in LaunchWizard*.tsx or UnsavedChangesDialog.tsx.
+
+6. Browser check (fix-06-browser-check.py, own Chrome via channel="chrome", admin@velocity.ai; never clicks Continue):
+   A untouched Back -> http://localhost:3000/dashboard dialog=0 PASS
+   B typed: dialog=True stay-keeps-text=True leave-anyway-left=True (http://localhost:3000/dashboard) PASS
+   C design-system pick, nothing typed: dialog=1 PASS
+   D canvas exit: dialog=True leave-anyway-> http://localhost:3000/workflows/prototype/canvas PASS
+   E untouched canvas exit -> http://localhost:3000/workflows/prototype/canvas PASS
+   Screenshots: fix-01 .. fix-05 in this folder.
+   Note: a first run of the same script at ~17:52 failed case B (Back with a typed brief landed on /dashboard).
+   That run coincided with LaunchWizard.tsx being rewritten on disk at 17:52:18 by another process (mtime;
+   git diff afterwards still showed only this fix's 17 hunks). A dev-server recompile mid-check is the likely
+   cause, not proven. The re-run above had the file's mtime unchanged before and after (17:52:18) and passed
+   all five cases; the unit test in item 3 covers case B offline.

@@ -1,0 +1,49 @@
+// QA-KB-052 fixer scratch: DashboardLayout hands IdeaInputPage the loaded profile tier, never the "basic" default.
+import { describe, expect, it, vi } from "vitest";
+import React from "react";
+import { renderWithProviders, screen } from "@/test/renderWithProviders";
+
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn(), replace: vi.fn(), prefetch: vi.fn() }) }));
+const STRIP = new Set(["initial", "animate", "exit", "transition", "whileHover", "whileTap", "layout", "layoutId", "variants"]);
+vi.mock("motion/react", () => ({
+  motion: new Proxy({}, { get: (_t, p: string) => ({ children, ...rest }: { children?: React.ReactNode } & Record<string, unknown>) =>
+    React.createElement(p, Object.fromEntries(Object.entries(rest).filter(([k]) => !STRIP.has(k))), children) }),
+  AnimatePresence: ({ children }: { children?: React.ReactNode }) => <>{children}</>,
+}));
+vi.mock("@/components/layout/AppHeader", () => ({ AppHeader: () => <div /> }));
+vi.mock("@/components/catalog/HomeLaunchGrid", () => ({ HomeLaunchGrid: () => <div /> }));
+vi.mock("@/components/workflow/IdeaInputPage", () => ({
+  IdeaInputPage: (p: { userTier?: unknown }) => <div data-testid="idea-tier">{String(p.userTier)}</div>,
+}));
+vi.mock("@/components/preview/PreviewPanel", () => ({ PreviewPanel: () => <div /> }));
+
+import { DashboardLayout, type DashboardLayoutProps } from "@/components/layout/DashboardLayout";
+
+function mount(user: unknown) {
+  const props = {
+    activeChatId: null, messages: [], isStreaming: false, streamingContent: "", userStoryContent: "",
+    pptContent: "", prototypeContent: "", connectionStatus: "connected",
+    onSendMessage: vi.fn(), onSelectChat: vi.fn(), onNewChat: vi.fn(), onDeleteChat: vi.fn(), onLogout: vi.fn(), onReconnect: vi.fn(),
+    pipelineState: { isRunning: false, pipeline_type: "app_builder", agents: [], currentAgentIndex: -1, totalDuration: null, completedCount: 0 },
+    initialMainView: "input", initialWorkflowType: "app_builder",
+    userTier: "basic", // what page.tsx passes while getMe is in flight
+  } as unknown as DashboardLayoutProps;
+  return renderWithProviders(<DashboardLayout {...props} />, {
+    preloadedState: { auth: { token: "t", user: user as never, isAuthenticated: true } },
+  });
+}
+
+describe("QA-KB-052 DashboardLayout tier wiring", () => {
+  it("profile not loaded: IdeaInputPage gets null although userTier reads basic", () => {
+    mount(null);
+    expect(screen.getByTestId("idea-tier").textContent).toBe("null");
+  });
+  it("profile loaded as basic: IdeaInputPage gets basic", () => {
+    mount({ id: "u", email: "b@x", tier: "basic" });
+    expect(screen.getByTestId("idea-tier").textContent).toBe("basic");
+  });
+  it("profile loaded as enterprise: IdeaInputPage gets enterprise, not the basic prop", () => {
+    mount({ id: "u", email: "a@x", tier: "enterprise" });
+    expect(screen.getByTestId("idea-tier").textContent).toBe("enterprise");
+  });
+});

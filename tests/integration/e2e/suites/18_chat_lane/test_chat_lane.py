@@ -31,7 +31,6 @@ CHAIN_CHIP_BETA = '[data-testid="chat-chain-suggestion-chip-beta"]'
 CHAIN_HEADING = "TAKE THIS FURTHER"
 
 CLARIFY_ASK = "Before I build, I need to lock a few things down."
-CLARIFY_ANSWERED = "Clarifications answered"
 
 
 def _open_row(page, index: int) -> str:
@@ -283,6 +282,10 @@ def test_the_clarification_exchange_is_not_duplicated(page, shot):
     Both halves appear TWICE on the affected runs, with different
     `data-message-id`s and identical text and actions. Two clarification rounds
     would explain it; two identical rounds reading as a repeat is the defect.
+
+    Real rounds also show several asks and answers, numbered since FIX-517, so
+    the signal is identical TEXT, never the count. Each agent `ask_user` pass
+    still reads "Round 1" (ISS-993).
     """
     a_run_with(
         page,
@@ -291,11 +294,15 @@ def test_the_clarification_exchange_is_not_duplicated(page, shot):
     )
 
     with shot("clarify-duplicated", "Then the exchange appears twice"):
-        asks = page.get_by_text(CLARIFY_ASK).count()
-        answered = page.get_by_text(CLARIFY_ANSWERED).count()
+        asks = page.get_by_text(CLARIFY_ASK).all_inner_texts()
+        answered = page.get_by_text(L.CLARIFY_ANSWERED).all_inner_texts()
 
-    assert asks > 1 and answered > 1, (
-        f"the exchange no longer repeats ({asks} asks, {answered} answers) — "
+    assert len(asks) > 1 and len(answered) > 1, (
+        f"{len(asks)} asks, {len(answered)} answers — no repeated exchange to "
+        "compare; does L.CLARIFY_ANSWERED still match the narrator?"
+    )
+    assert len(set(asks)) < len(asks) and len(set(answered)) < len(answered), (
+        f"no two rounds read alike any more ({asks}, {answered}) — "
         "D-21 is fixed; rewrite this as the spec's S-18-08"
     )
     # Different ids, identical text — which is what makes it a repeat rather

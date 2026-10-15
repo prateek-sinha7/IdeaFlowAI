@@ -1,0 +1,104 @@
+# QA-KB-100 fix 11: the analyzer's trust matrix probe (analysis-03) re-run AFTER the fix, unchanged (d284eb258 + working tree, 2026-10-08T12:42Z)
+# cmd: cd backend && PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=. DATABASE_URL=sqlite:///:memory: .venv/bin/python ../evidence/qa-kb-100/analysis-plugins/probe_matrix.py
+# Section A calls the REAL merge_override_steps. Its header text still says [trust=db] because the probe file is the analyzer's, unedited; after the fix the merge compiles at trust=user, so Section A should now equal Section B row for row.
+
+====================================================================================================
+A. shipped behaviour = merge_override_steps(ppt, [step], registry)  [trust=db]
+   'applied' means the function returned a NEW plan carrying the override step;
+   'refused' means it returned the file plan unchanged.
+====================================================================================================
+[APPLIED] CONTROL benign step
+          -> exec=False spawn=False git=False net=False tool_sets=[] mcp=[] gates=[] hooks=['audit_logger', 'secret_scan'] post_step=None compaction=None
+[APPLIED] CONTROL gates=[human] (user_allowed)
+          -> exec=False spawn=False git=False net=False tool_sets=[] mcp=[] gates=['human'] hooks=['audit_logger', 'secret_scan'] post_step=None compaction=None
+[refused] gate security (the reported case)
+[refused] gate approval
+[refused] exec grant + gates security,approval
+[refused] exec grant, NO gates (D-01 needs both)
+[refused] spawn_subagents grant
+[APPLIED] tool_sets [spawn_subagents]
+          -> exec=False spawn=False git=False net=False tool_sets=[] mcp=[] gates=[] hooks=['audit_logger', 'secret_scan'] post_step=None compaction=None
+[APPLIED] tool_sets [pptx]
+          -> exec=False spawn=False git=False net=False tool_sets=[] mcp=[] gates=[] hooks=['audit_logger', 'secret_scan'] post_step=None compaction=None
+[APPLIED] tool_sets [ask_user]
+          -> exec=False spawn=False git=False net=False tool_sets=[] mcp=[] gates=[] hooks=['audit_logger', 'secret_scan'] post_step=None compaction=None
+[APPLIED] tool_sets [playwright] (in untrusted cap list)
+          -> exec=False spawn=False git=False net=False tool_sets=['playwright'] mcp=[] gates=[] hooks=['audit_logger', 'secret_scan'] post_step=None compaction=None
+[refused] hooks [provenance_audit]
+[refused] compaction html_skeleton
+[refused] post_step revision_validation
+[APPLIED] validators [code_test] only (user_allowed)
+          -> exec=False spawn=False git=False net=False tool_sets=[] mcp=[] gates=[] hooks=['audit_logger', 'secret_scan'] post_step=None compaction=None
+[refused] exec + validators [code_test,code_lint] + gates security,approval
+[refused] mcp postgres (powerful) + security gate + secrets grant
+[refused] mcp filesystem.read_file no gate
+[refused] network grant
+[refused] secrets grant
+
+====================================================================================================
+B. same step list compiled at trust="user" (what option A would do)
+====================================================================================================
+[accepted] CONTROL benign step
+          -> exec=False spawn=False git=False net=False tool_sets=[] mcp=[] gates=[] hooks=['audit_logger', 'secret_scan'] post_step=None compaction=None
+[accepted] CONTROL gates=[human] (user_allowed)
+          -> exec=False spawn=False git=False net=False tool_sets=[] mcp=[] gates=['human'] hooks=['audit_logger', 'secret_scan'] post_step=None compaction=None
+[refused] gate security (the reported case)
+          -> CompilerError: capability ('gate', 'security') is not user-allowed in step 'custom-agent' — a user/db manifest may not reference it (CAP-03)
+[refused] gate approval
+          -> CompilerError: capability ('gate', 'approval') is not user-allowed in step 'custom-agent' — a user/db manifest may not reference it (CAP-03)
+[refused] exec grant + gates security,approval
+          -> CompilerError: capability ('gate', 'security') is not user-allowed in step 'custom-agent' — a user/db manifest may not reference it (CAP-03)
+[refused] exec grant, NO gates (D-01 needs both)
+          -> CompilerError: step grant of ['exec'] is not permitted for 'user'-trust manifests in step 'custom-agent' — exec/network/secrets/spawn_subagents are engineer-only (file/builtin trust)
+[refused] spawn_subagents grant
+          -> CompilerError: step grant of ['spawn_subagents'] is not permitted for 'user'-trust manifests in step 'custom-agent' — exec/network/secrets/spawn_subagents are engineer-only (file/builtin trust)
+[accepted] tool_sets [spawn_subagents]
+          -> exec=False spawn=False git=False net=False tool_sets=[] mcp=[] gates=[] hooks=['audit_logger', 'secret_scan'] post_step=None compaction=None
+[accepted] tool_sets [pptx]
+          -> exec=False spawn=False git=False net=False tool_sets=[] mcp=[] gates=[] hooks=['audit_logger', 'secret_scan'] post_step=None compaction=None
+[accepted] tool_sets [ask_user]
+          -> exec=False spawn=False git=False net=False tool_sets=[] mcp=[] gates=[] hooks=['audit_logger', 'secret_scan'] post_step=None compaction=None
+[accepted] tool_sets [playwright] (in untrusted cap list)
+          -> exec=False spawn=False git=False net=False tool_sets=['playwright'] mcp=[] gates=[] hooks=['audit_logger', 'secret_scan'] post_step=None compaction=None
+[refused] hooks [provenance_audit]
+          -> CompilerError: capability ('hook', 'provenance_audit') is not user-allowed in step 'custom-agent' — a user/db manifest may not reference it (CAP-03)
+[refused] compaction html_skeleton
+          -> CompilerError: capability ('compaction', 'html_skeleton') is not user-allowed in step 'custom-agent' — a user/db manifest may not reference it (CAP-03)
+[refused] post_step revision_validation
+          -> CompilerError: capability ('post_step', 'revision_validation') is not user-allowed in step 'custom-agent' — a user/db manifest may not reference it (CAP-03)
+[accepted] validators [code_test] only (user_allowed)
+          -> exec=False spawn=False git=False net=False tool_sets=[] mcp=[] gates=[] hooks=['audit_logger', 'secret_scan'] post_step=None compaction=None
+[refused] exec + validators [code_test,code_lint] + gates security,approval
+          -> CompilerError: capability ('gate', 'security') is not user-allowed in step 'custom-agent' — a user/db manifest may not reference it (CAP-03)
+[refused] mcp postgres (powerful) + security gate + secrets grant
+          -> CompilerError: capability ('gate', 'security') is not user-allowed in step 'custom-agent' — a user/db manifest may not reference it (CAP-03)
+[refused] mcp filesystem.read_file no gate
+          -> CompilerError: mcp_server 'filesystem' (referenced as 'filesystem.read_file' in step 'custom-agent') is not user-allowed — a user/db manifest may not reference it (MCP-03 / CAP-03)
+[refused] network grant
+          -> CompilerError: step grant of ['network'] is not permitted for 'user'-trust manifests in step 'custom-agent' — exec/network/secrets/spawn_subagents are engineer-only (file/builtin trust)
+[refused] secrets grant
+          -> CompilerError: step grant of ['secrets'] is not permitted for 'user'-trust manifests in step 'custom-agent' — exec/network/secrets/spawn_subagents are engineer-only (file/builtin trust)
+
+====================================================================================================
+C. trust=db vs trust=user, agree/disagree per case (a DISAGREE row is a case the shipped trust=db lets through)
+====================================================================================================
+same      db=applied  user=accepted  CONTROL benign step
+same      db=applied  user=accepted  CONTROL gates=[human] (user_allowed)
+same      db=refused  user=refused   gate security (the reported case)
+same      db=refused  user=refused   gate approval
+same      db=refused  user=refused   exec grant + gates security,approval
+same      db=refused  user=refused   exec grant, NO gates (D-01 needs both)
+same      db=refused  user=refused   spawn_subagents grant
+same      db=applied  user=accepted  tool_sets [spawn_subagents]
+same      db=applied  user=accepted  tool_sets [pptx]
+same      db=applied  user=accepted  tool_sets [ask_user]
+same      db=applied  user=accepted  tool_sets [playwright] (in untrusted cap list)
+same      db=refused  user=refused   hooks [provenance_audit]
+same      db=refused  user=refused   compaction html_skeleton
+same      db=refused  user=refused   post_step revision_validation
+same      db=applied  user=accepted  validators [code_test] only (user_allowed)
+same      db=refused  user=refused   exec + validators [code_test,code_lint] + gates security,approval
+same      db=refused  user=refused   mcp postgres (powerful) + security gate + secrets grant
+same      db=refused  user=refused   mcp filesystem.read_file no gate
+same      db=refused  user=refused   network grant
+same      db=refused  user=refused   secrets grant

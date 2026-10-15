@@ -16,7 +16,7 @@ gate and branch mechanics, which belong with 22-handoff-and-gates.
 | Workflow | Catalogue card | Deliverable strategy | Delivers |
 |---|---|---|---|
 | `ppt` | Pitch an idea (Fast) | `ppt` | `presentation.pptx` |
-| `ppt_v2` | Pitch an idea (Detailed) | `single_file` | `presentation.html` |
+| `ppt_v2` | Pitch an idea (Depth) | `single_file` | `presentation.html` |
 | `user_stories` | Generate product requirements | `streamed_text` | `user_stories.md` |
 | `prototype` | Build an interactive prototype (Fast) | `single_file` | `prototype.html` |
 | `app_builder` | Build an end-to-end application | `serialized_sandbox` | a sandbox tree |
@@ -87,7 +87,7 @@ fingerprint of one would be noise.
   @destructive
   # live: dispatches a real run, so it cannot run in the offline tier.
   Scenario: Pitch an idea v2 runs end to end and delivers a deck
-    Given the catalogue card "Pitch an idea (Detailed)"
+    Given the catalogue card "Pitch an idea (Depth)"
     When I launch it with a one-sentence brief
     And I answer every gate it stops at
     Then the run reaches a completed state

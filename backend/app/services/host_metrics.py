@@ -53,7 +53,7 @@ def _client(service: str) -> Any:
     """Return a cached boto3 client for ``service`` ("ec2" or "cloudwatch").
 
     Tight timeouts (``HOST_CAPACITY_AWS_{CONNECT,READ}_TIMEOUT`` — deliberately
-    NOT the Bedrock ``read_timeout=600`` config): a metrics call must fail
+    NOT the Bedrock model clients' long ``read_timeout``): a metrics call must fail
     fast, never wedge the background poller. No explicit credentials are ever
     passed — the default credential chain resolves them.
     """

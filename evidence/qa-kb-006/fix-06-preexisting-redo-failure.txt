@@ -1,0 +1,17 @@
+# tests/agents/test_declared_gate_redo.py::test_non_redoable_declared_gate_unaffected_by_redo_action fails WITH and WITHOUT this fix (it only ever passes action="redo", which the fix does not touch)
+## AFTER (fix in place)
+$ ./.venv/bin/python -m pytest tests/agents/test_declared_gate_redo.py -q -p no:cacheprovider
+agents/execution_engine/engine.py:12455: in _run_review_gate
+E           asyncio.exceptions.CancelledError
+/opt/homebrew/Cellar/python@3.13/3.13.14/Frameworks/Python.framework/Versions/3.13/lib/python3.13/asyncio/locks.py:213: CancelledError
+ERROR    agents.execution_engine.engine:engine.py:2591 finalize_terminal_run: create_run_ref FAILED run=no-redo-gate-9e94110c (run_id must be a UUID (hex digits and hyphens only): 'no-redo-gate-9e94110c')
+FAILED tests/agents/test_declared_gate_redo.py::test_non_redoable_declared_gate_unaffected_by_redo_action
+1 failed, 1 passed, 4 warnings in 64.73s (0:01:04)
+## BEFORE (control: pre-fix set_review_response body via plugin kb006_orig_store)
+$ PYTHONPATH=<scratchpad>/kb006_plugin ./.venv/bin/python -m pytest tests/agents/test_declared_gate_redo.py -q -p no:cacheprovider -p kb006_orig_store
+agents/execution_engine/engine.py:12455: in _run_review_gate
+E           asyncio.exceptions.CancelledError
+/opt/homebrew/Cellar/python@3.13/3.13.14/Frameworks/Python.framework/Versions/3.13/lib/python3.13/asyncio/locks.py:213: CancelledError
+ERROR    agents.execution_engine.engine:engine.py:2591 finalize_terminal_run: create_run_ref FAILED run=no-redo-gate-02a6be9f (run_id must be a UUID (hex digits and hyphens only): 'no-redo-gate-02a6be9f')
+FAILED tests/agents/test_declared_gate_redo.py::test_non_redoable_declared_gate_unaffected_by_redo_action
+1 failed, 1 passed, 4 warnings in 64.85s (0:01:04)

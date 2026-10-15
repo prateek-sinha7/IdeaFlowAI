@@ -108,7 +108,7 @@ def test_write_step_reads_exactly_the_revision_task_list(compiled):
     ts = write.task_source
     assert (ts.kind, ts.path, ts.parser, ts.source_step, ts.target) == (
         "custom_path",
-        "revisions/{revision_n}/tasks.json",
+        "revisions/{run_id}/tasks.json",
         "json_tasks",
         "custom-agent:blr-plan",
         None,
@@ -121,7 +121,7 @@ def test_the_plan_produces_the_task_list_the_writers_consume(compiled):
         _step(compiled, "custom-agent:blr-write"),
     )
     path = write.task_source.path
-    assert path == "revisions/{revision_n}/tasks.json"
+    assert path == "revisions/{run_id}/tasks.json"
     assert list(plan.produces) == [path]
     assert list(write.consumes) == [path]
     # The run-entry DAG check (engine: _specs_from_plan + WorkflowResolver.validate)
@@ -184,7 +184,7 @@ def test_analyst_prompt_states_its_reply_contract(compiled):
     for needle in (
         "A message that calls a tool holds the tool call and nothing else",
         "Your last message calls no tool. It is the spec, exactly as you wrote it to its file, starting with its `Spec:` line",
-        "`Spec: revisions/<n>/revision-spec.md`",
+        "`Spec: revisions/<run_id>/revision-spec.md`",
         "## Request",
         "## Findings",
         "## Changes",
@@ -195,11 +195,11 @@ def test_analyst_prompt_states_its_reply_contract(compiled):
         assert needle in prompt, needle
 
 
-def test_analyst_prompt_numbers_the_revision_and_handles_a_redo(compiled):
+def test_analyst_prompt_reads_the_run_id_and_handles_a_redo(compiled):
     prompt = _prompt(compiled, "custom-agent:blr-analyst")
     for needle in (
-        "glob `revisions/*/revision-spec.md`",
-        "n is the highest of those numbers plus 1",
+        "read_file `.context/run-id.txt`: that is <run_id>, this revision's id.",
+        "never read or write any other folder under `revisions/`",
         "=== ADDITIONAL INSTRUCTIONS (REVISE) ===",
         "revision-spec-<k>.md",
         "You change no existing file.",
@@ -266,7 +266,7 @@ def test_plan_prompt_states_the_task_list_contract(compiled):
     for needle in (
         "One task per file",
         "`Targets: <path>`",
-        "`revisions/<n>/tasks.json`",
+        "`revisions/<run_id>/tasks.json`",
         "NEVER write `build/story-tasks.json`",
         "No task targets a document code builds",
         "so an edit to one is lost",
@@ -274,6 +274,27 @@ def test_plan_prompt_states_the_task_list_contract(compiled):
     ):
         assert needle in prompt, needle
     assert "the documents code builds included" not in prompt
+
+
+@pytest.mark.parametrize(
+    "agent_id",
+    [
+        "custom-agent:blr-analyst",
+        "custom-agent:blr-plan",
+        "custom-agent:blr-write",
+        "custom-agent:blr-review",
+    ],
+)
+def test_every_revision_agent_reads_the_run_id_and_never_stops_on_an_existing_step_file(
+    compiled, agent_id
+):
+    prompt = _prompt(compiled, agent_id)
+    assert (
+        "read_file `.context/run-id.txt`: that is <run_id>, this revision's id."
+        in prompt
+    )
+    assert "never read or write any other folder under `revisions/`" in prompt
+    assert "you are done" not in prompt
 
 
 def test_writer_prompt_creates_only_a_file_its_task_says_is_new(compiled):
@@ -286,7 +307,7 @@ def test_review_prompt_limits_changes_and_names_the_statuses(compiled):
     prompt = _prompt(compiled, "custom-agent:blr-review")
     for needle in (
         "Only the files the spec's changes name.",
-        "`revisions/<n>/revision-review.md`",
+        "`revisions/<run_id>/revision-review.md`",
         "`done`",
         "`fixed now`",
         "`not possible`",
@@ -349,6 +370,7 @@ def test_backlog_revision_entitlement_by_tier(tier, allowed):
     assert can_run_pipeline(tier, "backlog_revision")[0] is allowed
 
 
+@pytest.mark.issue("ISS-881")
 def test_backlog_revision_base_is_backlog():
     assert REVISION_BASE_MAP["backlog_revision"] == "backlog"
 
@@ -408,10 +430,10 @@ def test_second_assembly_shows_changed_title_and_new_review_story():
 )
 def test_later_steps_find_the_spec_line_wherever_it_is(compiled, agent_id):
     # The step transcript holds every word the Analyst streamed (engine: all text chunks
-    # joined), so notes can sit above the spec; n comes from the `Spec:` line itself.
+    # joined), so notes can sit above the spec; the revision folder comes from the `Spec:` line itself.
     prompt = _prompt(compiled, agent_id)
     assert (
-        "Its `Spec: revisions/<n>/…` line gives n; any text above that line is not the spec."
+        "Its `Spec: revisions/<run_id>/…` line names the folder; any text above that line is not the spec."
         in prompt
     )
     assert "Its first line" not in prompt

@@ -1492,7 +1492,7 @@ class TestGetRunEvents:
     ):
         store = scoped_store.return_value
         store.get_run.return_value = object()
-        store.read_events.return_value = [
+        store.read_events_page.return_value = [
             SimpleNamespace(seq=6, event_id="e6", type="chat_message", payload_json='{"a":1}', created_at=T0),
             SimpleNamespace(seq=7, event_id="e7", type="done", payload_json="{}", created_at=None),
         ]  # fmt: skip
@@ -1501,12 +1501,16 @@ class TestGetRunEvents:
         assert resp.status_code == 200
         assert resp.json() == {
             "workflow_id": "run-1", "after": 5,
+            # QA-KB-119 / ISS-1155: one page; default limit 1000, one extra row probes has_more.
+            "has_more": False, "next_after": 7,
             "events": [
                 {"seq": 6, "event_id": "e6", "type": "chat_message", "payload_json": '{"a":1}', "created_at": T0_ISO},
                 {"seq": 7, "event_id": "e7", "type": "done", "payload_json": "{}", "created_at": None},
             ],
         }  # fmt: skip
-        store.read_events.assert_awaited_once_with("run-1", after_seq=5)
+        store.read_events_page.assert_awaited_once_with(
+            "run-1", after_seq=5, limit=1001
+        )
         scoped_store.assert_called_once_with(
             owner_id="user-1", workspace_id="ws-2", session=db
         )
@@ -1517,10 +1521,18 @@ class TestGetRunEvents:
     ):
         store = scoped_store.return_value
         store.get_run.return_value = object()
-        store.read_events.return_value = []
+        store.read_events_page.return_value = []
         resp = make_client(_db(_Q(first=_row()))).get("/api/runs/run-1/events")
-        assert resp.json() == {"workflow_id": "run-1", "after": 0, "events": []}
-        store.read_events.assert_awaited_once_with("run-1", after_seq=0)
+        assert resp.json() == {
+            "workflow_id": "run-1",
+            "after": 0,
+            "has_more": False,
+            "next_after": 0,
+            "events": [],
+        }
+        store.read_events_page.assert_awaited_once_with(
+            "run-1", after_seq=0, limit=1001
+        )
 
     # Plan #101 | B77 | kills: accept non-int `after`
     def test_get_run_events_returns_422_when_after_not_integer(
@@ -2202,6 +2214,16 @@ def restore_env():
     """Patch every collaborator of ``restore_version`` where it is looked up."""
     with contextlib.ExitStack() as stack:
         env = SimpleNamespace()
+        # Our restore refuses an expired run dir via run_dir_expired (404 "Sandbox not
+        # found", ISS-1072). Here it follows the mocked root's is_dir(), so a test can
+        # still flip the directory to missing.
+        stack.enter_context(
+            patch(
+                "app.api.runs.run_dir_expired",
+                autospec=True,
+                side_effect=lambda root: not root.is_dir(),
+            )
+        )
         env.lookup = stack.enter_context(
             patch(
                 "app.api.runs.lookup_idempotent_restore",

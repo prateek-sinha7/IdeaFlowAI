@@ -317,7 +317,6 @@ export function AgentPromptSection({
     if (!token) return;
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setLoading(true);
-     
     setError(null);
     getAgentPrompt(token, agent.id)
       .then(d => { setPromptData(d); })
@@ -774,8 +773,8 @@ export function AgentCapabilitiesModal({
           </>
           )}
 
-          {/* Config tab — per-agent configuration levers (Model · Validator · Gate ·
-              Retry) shown FLAT — no expand/collapse chrome. ND-7/LOCK-E: System
+          {/* Config tab — per-agent configuration levers (Model · Effort · Validator ·
+              Gate · Retry · Tool grants) shown FLAT — no expand/collapse chrome. ND-7/LOCK-E: System
               Prompt surfaces READ-ONLY (surfaceOnly) in Config tab; durable override
               persistence is DEFERRED (no PUT/DELETE path reachable). */}
           {drawerTab === "config" && (
@@ -1139,7 +1138,6 @@ export function CapabilityPaletteSection({
     if (!jwt) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setError("Not authenticated.");
-       
       setLoading(false);
       return;
     }
@@ -1541,6 +1539,17 @@ export function effectiveToolGrants(
   };
 }
 
+/** The step's `tools` after switching one grant — the SINGLE grant writer every
+ *  lever surface calls. `applyLeverPatch` replaces `tools` whole, so the step's
+ *  other keys (its `tool_sets` packs) are spread first and survive (ISS-912). */
+export function withToolGrant(
+  sel: StepSelection | undefined,
+  key: (typeof TOOL_GRANT_LEVERS)[number]["key"],
+  on: boolean,
+): AgentToolGrants {
+  return { ...sel?.tools, ...effectiveToolGrants(sel), [key]: on };
+}
+
 /** True when a step carries a RESTRICTED grant (one switched off) — what the
  *  Simple view's Overrides "Tools" chip reflects (ISS-274). */
 export function hasToolOverride(sel: StepSelection | undefined): boolean {
@@ -1613,11 +1622,28 @@ export interface MechanicalOption {
   writes?: string[];
 }
 
+/** The file a task parser reads by default: its registry `config_schema`
+ *  `properties.target.default` (ISS-686). `undefined` for a parser that reads the
+ *  reply (heading_tasks) or declares none, so no target is saved and the parser's
+ *  own fallback applies. Both composer views seed from this, never a literal. */
+export function parserTarget(
+  options: { name: string; config_schema: Record<string, unknown> }[],
+  name: string,
+): string | undefined {
+  const props = options.find((p) => p.name === name)?.config_schema.properties as
+    | { target?: { default?: unknown } }
+    | undefined;
+  const target = props?.target?.default;
+  return typeof target === "string" ? target : undefined;
+}
+
 export function useAgentCapabilities(token?: string | null) {
   const [validatorOptions, setValidatorOptions] = useState<string[]>([]);
   const [gateOptions, setGateOptions] = useState<string[]>([]);
   const [modelOptions, setModelOptions] = useState<CapabilityModelEntry[]>([]);
-  const [taskParserOptions, setTaskParserOptions] = useState<{ name: string; description: string }[]>([]);
+  const [taskParserOptions, setTaskParserOptions] = useState<
+    { name: string; description: string; config_schema: Record<string, unknown> }[]
+  >([]);
   const [mechanicalOptions, setMechanicalOptions] = useState<MechanicalOption[]>([]);
   const [capabilities, setCapabilities] = useState<CapabilityEntry[]>([]);
   const [loading, setLoading] = useState(true);
@@ -1629,7 +1655,6 @@ export function useAgentCapabilities(token?: string | null) {
     if (!jwt) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setError("Not authenticated.");
-       
       setLoading(false);
       return;
     }
@@ -1653,7 +1678,7 @@ export function useAgentCapabilities(token?: string | null) {
         setTaskParserOptions(
           palette.capabilities
             .filter((c) => c.kind === "task_parser" && c.user_allowed)
-            .map((c) => ({ name: c.name, description: c.description })),
+            .map((c) => ({ name: c.name, description: c.description, config_schema: c.config_schema })),
         );
         setMechanicalOptions(
           palette.capabilities
@@ -1881,6 +1906,7 @@ function ConfigLeversFlat({
     updateLever({ gates: [...keepCoupled, ...next] });
   };
   const selectedRetry = sel.retry !== undefined ? String(sel.retry) : "";
+  const grants = effectiveToolGrants(sel);
 
   return (
     <div className="space-y-2">
@@ -1977,6 +2003,39 @@ function ConfigLeversFlat({
           onChange={(v) => updateLever({ retry: v ? Number(v) : undefined })}
         />
       </ConfigLeverRow>
+
+      {/* Tool grants (ISS-378) — the SAME list, default and writer as the Canvas
+          rail's Tools tab and the Simple-view expander, so no surface can disagree
+          about which grants exist or what a step holds. exec stays fixed OFF: the
+          untrusted cap zeroes it for db-trust manifests. */}
+      <div className="py-1">
+        <p className="mb-0.5 text-[10px] font-semibold uppercase tracking-[0.1em] text-ink-400">
+          Tool grants
+        </p>
+        {TOOL_GRANT_LEVERS.map(({ key, label, desc }) => (
+          <label key={key} title={desc} className="flex items-center gap-2 py-0.5 text-[12px] cursor-pointer">
+            <input
+              type="checkbox"
+              aria-label={`${label} for ${agentName}`}
+              checked={grants[key]}
+              onChange={(e) => updateLever({ tools: withToolGrant(sel, key, e.target.checked) })}
+              className="h-3.5 w-3.5 accent-brand"
+            />
+            <span className="text-ink-700">{label}</span>
+          </label>
+        ))}
+        <label title="Not available to custom workflows." className="flex items-center gap-2 py-0.5 text-[12px] opacity-40">
+          <input
+            type="checkbox"
+            aria-label={`Execute commands for ${agentName}`}
+            checked={false}
+            disabled
+            readOnly
+            className="h-3.5 w-3.5 accent-brand"
+          />
+          <span className="text-ink-700">Execute commands</span>
+        </label>
+      </div>
     </div>
   );
 }
@@ -2006,8 +2065,11 @@ export function AdvancedExpander({
 }) {
   // Lever OPTIONS + fetch state come from the SHARED hook (SC-001) — the same
   // source the Canvas inline config rail uses (INV-3, no forked fetch/filter).
-  const { validatorOptions, gateOptions, modelOptions, loading, error } =
+  const { validatorOptions, gateOptions, modelOptions, taskParserOptions, loading, error } =
     useAgentCapabilities(token);
+  // The waves parser's own file, from the registry (ISS-918) — the same seed the
+  // Canvas rail uses, not a per-view literal.
+  const jsonTasksTarget = parserTarget(taskParserOptions, "json_tasks");
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [selections, setSelections] = useState<SelectionsMap>(initialSelections ?? {});
 
@@ -2124,7 +2186,7 @@ export function AdvancedExpander({
                     checked={grants[key]}
                     onChange={(e) =>
                       updateLever(agent.id, {
-                        tools: { ...grants, [key]: e.target.checked },
+                        tools: withToolGrant(sel, key, e.target.checked),
                       })
                     }
                     className="h-3.5 w-3.5 accent-brand"
@@ -2448,7 +2510,7 @@ export function AdvancedExpander({
                                 task_source: {
                                   kind: "parsed",
                                   parser: wave ? "json_tasks" : "heading_tasks",
-                                  ...(wave ? { target: "tasks.json" } : {}),
+                                  ...(wave && jsonTasksTarget ? { target: jsonTasksTarget } : {}),
                                   source_step:
                                     currentSource || defaultSource || "",
                                 },
@@ -2501,7 +2563,7 @@ export function AdvancedExpander({
                                     parser: waveOn
                                       ? "json_tasks"
                                       : "heading_tasks",
-                                    ...(waveOn ? { target: "tasks.json" } : {}),
+                                    ...(waveOn && jsonTasksTarget ? { target: jsonTasksTarget } : {}),
                                     source_step: e.target.value,
                                   },
                                 })

@@ -1,0 +1,21 @@
+== attempt 1
+    class Settings(BaseSettings):
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+1 warning in 0.15s
+registry ['assemble_backlog', 'assemble_prototype', 'extract_prototype_ui', 'publish'] compiler ['assemble_backlog', 'assemble_prototype', 'extract_prototype_ui', 'publish']
+missing engine branch: []
+== attempt 2
+    class Settings(BaseSettings):
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+1 warning in 0.09s
+registry ['assemble_backlog', 'assemble_prototype', 'extract_prototype_ui', 'publish'] compiler ['assemble_backlog', 'assemble_prototype', 'extract_prototype_ui', 'publish']
+missing engine branch: []
+== attempt 3
+    class Settings(BaseSettings):
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+1 warning in 0.09s
+registry ['assemble_backlog', 'assemble_prototype', 'extract_prototype_ui', 'publish'] compiler ['assemble_backlog', 'assemble_prototype', 'extract_prototype_ui', 'publish']
+missing engine branch: []

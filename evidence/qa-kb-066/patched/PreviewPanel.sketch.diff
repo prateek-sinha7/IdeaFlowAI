@@ -1,0 +1,20 @@
+--- patched/PreviewPanel.orig.tsx	2026-10-02 05:14:18
++++ patched/PreviewPanel.sketch.tsx	2026-10-02 05:14:55
+@@ -1919,7 +1919,7 @@
+                   With a pin active these carry the pinned member's own output,
+                   so the Files tab's "Final output" name/size/content match the
+                   Preview tab instead of always showing the live/root run's. */}
+-              <FilesTab workflowType={renderType} userStoryContent={effUserStoryContent} pptContent={effPptContent} prototypeContent={effPrototypeContent} agentOutputs={effAgentOutputs} genericDeliverable={hasGenericDeliverable ? effGenericDeliverable : undefined} runId={activeRunId} parentRunId={activeParentRunId} parentVersionNumber={activeIdx} runInput={effRunInput} clarifications={clarifications ?? pipelineState?.clarifications} onOpenPreview={() => handleTabChange("preview")} runStatus={terminalFailure && !isCancelledTerminal ? "failed" : undefined} isRunning={isStillRunning} buildingTaskIndex={buildStepIndex} buildingTaskTotal={buildStepTotal} buildingFilename={pipelineState?.deliverableFilename} />
++              <FilesTab workflowType={renderType} userStoryContent={effUserStoryContent} pptContent={effPptContent} prototypeContent={effPrototypeContent} agentOutputs={effAgentOutputs} genericDeliverable={hasGenericDeliverable ? effGenericDeliverable : undefined} runId={activeRunId} parentRunId={activeParentRunId} parentVersionNumber={activeIdx} runInput={effRunInput} clarifications={clarifications ?? effPipelineState?.clarifications} onOpenPreview={() => handleTabChange("preview")} runStatus={terminalFailure && !isCancelledTerminal ? "failed" : undefined} isRunning={isStillRunning} buildingTaskIndex={buildStepIndex} buildingTaskTotal={buildStepTotal} buildingFilename={pipelineState?.deliverableFilename} />
+             </motion.div>
+           )}
+           {activeTab === "workspace" && (
+@@ -1963,7 +1963,7 @@
+                 isLoadingRunData={isLoadingRunData}
+                 waves={waves}
+                 runInput={effRunInput}
+-                clarifications={clarifications ?? pipelineState?.clarifications}
++                clarifications={clarifications ?? effPipelineState?.clarifications}
+                 revisionParentVersion={revisionParentVersion}
+                 originalBriefRootRunId={originalBriefRootRunId}
+                 /* ISS-853 (QA-PS-048) — the family this panel already holds, so the

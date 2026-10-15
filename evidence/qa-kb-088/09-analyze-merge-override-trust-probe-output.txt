@@ -1,0 +1,70 @@
+# Probe: does merge_override_steps (agents/execution_engine/overrides.py:100, WorkflowCompiler().compile(parsed, registry, trust="db")) reject a step smuggling the non-user-allowed gate 'security'?
+# cmd: cd backend && PYTHONDONTWRITEBYTECODE=1 DATABASE_URL=sqlite:///:memory: .venv/bin/python -I - <<EOF ... EOF   (read-only; the script is below)
+# --- script ---
+# from agents.execution_engine.engine import compile_for_run, _CAPABILITY_REGISTRY
+# from agents.execution_engine.overrides import merge_override_steps
+# ppt = compile_for_run("ppt")
+# bad = [{"agent": "custom-agent", "instance_id": "mine", "name": "mine", "prompt": "You are mine.",
+#         "gates": ["security"], "tools": {"read_files": False, "write_files": False, "exec": False}}]
+# merged = merge_override_steps(ppt, bad, _CAPABILITY_REGISTRY)
+# print("returned the file plan (rejected)?", merged is ppt)
+# print("merged step agent_id:", merged.steps[0].agent_id, "| gates:", list(merged.steps[0].gates))
+# print("is_user_allowed(gate, security):", _CAPABILITY_REGISTRY.is_user_allowed("gate", "security"))
+# from agents.workflows import compiler as c
+# print("_TRUSTED_SOURCES:", sorted(c._TRUSTED_SOURCES))
+# --- output ---
+returned the file plan (rejected)? False
+merged step agent_id: custom-agent:mine | gates: ['security']
+is_user_allowed(gate, security): False
+_TRUSTED_SOURCES: ['builtin', 'db', 'file']
+
+# --- source lines read ---
+agents/workflows/compiler.py:228   _TRUSTED_SOURCES: frozenset[str] = frozenset({"file", "builtin", "db"})
+agents/execution_engine/overrides.py:100   user_compiled = WorkflowCompiler().compile(parsed, registry, trust="db")
+agents/execution_engine/overrides.py:23-25 (docstring):
+CACHE SAFETY — the single highest-risk property in this module.
+``compile_for_run`` is ``lru_cache(maxsize=None)`` and the ``CompiledWorkflow``
+it returns is SHARED across every user and every run in the process. Mutating it
+tests/unit/test_workflow_override.py:253-260:
+def test_a_not_user_allowed_gate_is_rejected(ppt_compiled, registry):
+    """`security` is registered user_allowed=False. A row smuggling one must be
+    refused by the trust gate and the run must fall back to the file plan."""
+    from agents.execution_engine.overrides import merge_override_steps
+
+    bad = _steps("mine")
+    bad[0]["gates"] = ["security"]
+    assert merge_override_steps(ppt_compiled, bad, registry) is ppt_compiled
+git log -S'frozenset({"file", "builtin", "db"})' -- backend/agents/workflows/compiler.py:
+  ea2db4e02 2026-09-04 feat(compiler): trust db manifests exactly as file manifests
+
+# ===== Part 2: end to end through the HTTP save + read path (scratch test, harness = V3 with principal override) =====
+# cmd: cd backend && PYTHONDONTWRITEBYTECODE=1 DATABASE_URL=sqlite:///:memory: .venv/bin/python -m pytest <scratch>/test_probe_security_gate.py -c pyproject.toml --rootdir=. -p no:cacheprovider -q -s -W ignore
+# probe body: POST /api/user-workflows {base_pipeline_type: ppt, overrides_pipeline_type: ppt, manifest: {steps: [<custom-agent step with gates: ["security"]>]}} then GET /api/workflows/ppt
+POST status: 201
+is_overridden: True
+step gates in the served plan: [['security']]
+1 passed in 2.82s
+
+# probe test text:
+def test_probe_security_gate_is_stored_and_applied(api):
+    """PROBE (not a product test): does the save API + read path accept an override step carrying the
+    non-user-allowed gate `security`?"""
+    client, _ = api
+    step = _step("mine")
+    step["gates"] = ["security"]
+    saved = client.post(
+        "/api/user-workflows",
+        json={
+            "name": "My Deck",
+            "base_pipeline_type": "ppt",
+            "agent_ids": ["ppt-brief-analyst"],
+            "manifest": {"steps": [step]},
+            "overrides_pipeline_type": "ppt",
+        },
+    )
+    print("POST status:", saved.status_code)
+    after = client.get("/api/workflows/ppt").json()
+    print("is_overridden:", after["is_overridden"])
+    print("step gates in the served plan:", [s.get("gates") for s in after["steps"]])
+
+# save-time check is also trust=db: backend/app/api/user_workflows.py:117  _WORKFLOW_COMPILER.compile(parsed, _CAPABILITY_REGISTRY, trust="db")

@@ -302,3 +302,156 @@ class TestPerRunStopEscalation:
         await run_shutdown_mod.stop_run_driver("run-absent")
         run_engine_mod._PIPELINE_TASKS["run-sentinel"] = object()
         await run_shutdown_mod.stop_run_driver("run-sentinel")
+
+
+async def _open_step1_window(monkeypatch):
+    """Park ``shutdown_run_infrastructure`` in step 1 (Concierge drain) so the test can
+    mutate the registries while shutdown is genuinely suspended. Without a pending task in
+    ``_CONCIERGE_STREAM_TASKS`` shutdown never awaits before step 2 and a ``gather`` racing
+    it is vacuous. Returns ``(release_event, concierge_task)``."""
+    from app.api import run_commands as rc_mod
+
+    monkeypatch.setattr(
+        run_shutdown_mod.settings, "SHUTDOWN_CONCIERGE_DRAIN_SECONDS", 5.0
+    )
+    release = asyncio.Event()
+    concierge = asyncio.create_task(release.wait())
+    rc_mod._CONCIERGE_STREAM_TASKS.add(concierge)
+    return release, concierge
+
+
+def _seed_four_runs() -> dict:
+    """Four runs, each with a registered queue and a still-pending driver task."""
+    queues, tasks = {}, {}
+    for rid in ("run-a", "run-b", "run-c", "run-d"):
+        queues[rid] = run_engine_mod._get_or_create_queue(rid)
+        tasks[rid] = asyncio.create_task(asyncio.Event().wait())
+        run_engine_mod._PIPELINE_TASKS[rid] = tasks[rid]
+    return queues, tasks
+
+
+class TestShutdownSnapshotUnderConcurrentTeardown:
+    """ISS-105 / QA-KB-043 — step 2's registry snapshot must tolerate runs finishing
+    (``_cleanup_pipeline``) and subscribers detaching (``_unsubscribe``) while shutdown is
+    suspended in step 1. Regression lock: passes today (the snapshot is await-free and
+    per-item guarded); it fails if someone adds an await between snapshot and use.
+    Mutation-proven against an await-injected copy of step 2."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("detach_after_turns", [0, 1])
+    async def test_snapshot_tolerates_cleanup_and_detach_during_drain(
+        self, monkeypatch, detach_after_turns
+    ):
+        queues, tasks = _seed_four_runs()
+        release, concierge = await _open_step1_window(monkeypatch)
+        try:
+            shutdown = asyncio.create_task(
+                run_shutdown_mod.shutdown_run_infrastructure()
+            )
+            await asyncio.sleep(0)  # shutdown now parked in step 1
+            assert not shutdown.done()
+
+            # Two drivers finish; one new run registers; a subscriber detaches.
+            run_engine_mod._cleanup_pipeline("run-a")
+            run_engine_mod._cleanup_pipeline("run-b")
+            queues["run-e"] = run_engine_mod._get_or_create_queue("run-e")
+            sub_q: asyncio.Queue = asyncio.Queue()
+            run_engine_mod._SUBSCRIBERS["run-c"] = [(sub_q, 1)]
+            for _ in range(detach_after_turns):
+                await asyncio.sleep(0)
+            await run_engine_mod._unsubscribe("run-c", sub_q)
+
+            release.set()
+            summary = await shutdown
+        finally:
+            release.set()
+            for t in tasks.values():
+                t.cancel()
+
+        assert summary["errors"] == []
+        assert summary["checkpointer_closed"] is True
+        assert summary["concierge_persisted"] == 1
+        # Registered at snapshot time: c, d, e. Not live_queues (4, sampled at entry).
+        assert summary["live_queues"] == 4
+        assert summary["queues_sentinelled"] == 3
+        for rid, q in queues.items():
+            assert q.qsize() == 1 and q.get_nowait() is None, rid
+
+    @pytest.mark.asyncio
+    async def test_sentinelled_count_matches_registry_read_under_continuous_churn(
+        self, monkeypatch
+    ):
+        """Churn (one cleanup + one register per loop turn) runs for the whole call. The
+        registry records what step 2 read; every key read must be sentinelled. Today the
+        churn only lands in steps 1/2b; if an await is ever added inside step 2's loop the
+        count falls below the recorded set (silently: ``errors`` stays empty)."""
+        read_by_step2: list[set] = []
+
+        class _RecordingDict(dict):
+            def keys(self):
+                ks = set(super().keys())
+                read_by_step2.append(ks)
+                return super().keys()
+
+        reg = _RecordingDict()
+        monkeypatch.setattr(run_engine_mod, "_PIPELINE_QUEUES", reg)
+        for i in range(8):
+            run_engine_mod._get_or_create_queue(f"run-{i}")
+        release, _concierge = await _open_step1_window(monkeypatch)
+        stop = False
+
+        async def _churn() -> None:
+            n = 0
+            while not stop:
+                n += 1
+                oldest = next(iter(reg), None)
+                if oldest is not None:
+                    run_engine_mod._cleanup_pipeline(oldest)
+                run_engine_mod._get_or_create_queue(f"churn-{n}")
+                await asyncio.sleep(0)
+
+        shutdown = asyncio.create_task(run_shutdown_mod.shutdown_run_infrastructure())
+        await asyncio.sleep(0)
+        churn = asyncio.create_task(_churn())
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+        release.set()
+        try:
+            summary = await shutdown
+        finally:
+            stop = True
+            await churn
+
+        assert summary["errors"] == []
+        assert len(read_by_step2) == 1
+        assert summary["queues_sentinelled"] == len(read_by_step2[0])
+
+
+class TestRunsLeftForBootRestoreIsEndState:
+    """ISS-872 — ``runs_left_for_boot_restore`` is copied from ``runs_in_flight`` sampled at
+    entry, so drivers that finish during the drain are still reported as left."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.issue("ISS-872")
+    async def test_runs_finished_during_drain_are_not_left_for_boot_restore(
+        self, monkeypatch
+    ):
+        """ISS-872 — four drivers at entry, two finish mid-drain: two are left, not four."""
+        queues, tasks = _seed_four_runs()
+        release, _concierge = await _open_step1_window(monkeypatch)
+        try:
+            shutdown = asyncio.create_task(
+                run_shutdown_mod.shutdown_run_infrastructure()
+            )
+            await asyncio.sleep(0)
+            run_engine_mod._cleanup_pipeline("run-a")
+            run_engine_mod._cleanup_pipeline("run-b")
+            release.set()
+            summary = await shutdown
+        finally:
+            release.set()
+            for t in tasks.values():
+                t.cancel()
+
+        assert summary["runs_in_flight"] == 4
+        assert summary["runs_left_for_boot_restore"] == 2

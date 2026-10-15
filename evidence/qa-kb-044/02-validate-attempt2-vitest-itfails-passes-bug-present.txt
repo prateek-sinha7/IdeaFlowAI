@@ -1,0 +1,44 @@
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - ESM syntax in a file loaded as CommonJS (vitest.config.ts:1:1). Use a `.mjs` extension or set `"type": "module"` in the closest package.json
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+
+ RUN  v4.1.11 /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/frontend
+
+⎯⎯⎯⎯⎯⎯ Unhandled Errors ⎯⎯⎯⎯⎯⎯
+
+Vitest caught 1 unhandled error during the test run.
+This might cause false positive tests. Resolve unhandled errors to make sure your tests are not affected.
+
+⎯⎯⎯⎯ Unhandled Rejection ⎯⎯⎯⎯⎯
+Error: [vitest] No "getRunSandboxRefs" export is defined on the "@/lib/api" mock. Did you forget to return it from "vi.mock"?
+If you need to partially mock a module, you can use "importOriginal" helper inside:
+
+vi.mock(import("@/lib/api"), async (importOriginal) => {
+  const actual = await importOriginal()
+  return {
+    ...actual,
+    // your mocked methods
+  }
+})
+
+ ❯ VitestMocker.createError node_modules/vitest/dist/chunks/startVitestModuleRunner.DB-7oCpn.js:62:17
+ ❯ Object.get node_modules/vitest/dist/chunks/startVitestModuleRunner.DB-7oCpn.js:327:16
+ ❯ src/components/preview/RunHeader.tsx:308:43
+    306|     if (!activeRunId) { setTags([]); return; }
+    307|     let cancelled = false;
+    308|     import("@/lib/api").then(({ getToken, getRunSandboxRefs }) => {
+       |                                           ^
+    309|       const token = getToken();
+    310|       if (!token) return;
+ ❯ processTicksAndRejections node:internal/process/task_queues:103:5
+
+This error originated in "src/components/preview/PreviewPanel.olderVersionNullOutput.test.tsx" test file. It doesn't mean the error was thrown inside the file itself, but while it was running.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+
+
+ Test Files  1 passed (1)
+      Tests  1 expected fail (1)
+     Errors  1 error
+   Start at  22:09:46
+   Duration  1.93s (transform 329ms, setup 85ms, import 707ms, tests 66ms, environment 739ms)
+

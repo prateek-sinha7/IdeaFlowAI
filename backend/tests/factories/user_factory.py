@@ -1,8 +1,7 @@
 """Shared helper for creating Cognito-backed users in tests.
 
-``POST /api/auth/register`` is a permanent 403 by design (see
-``app/api/auth.py``) — account creation is administrator-only, the endpoint
-only still exists so legacy clients get a clear error instead of a 404.
+``POST /api/auth/register`` no longer exists (removed by the Cognito-only
+migration, b2a621f84; it answers 404) — account creation is administrator-only.
 Cognito is the sole authentication authority (Cognito-only auth migration,
 ``.kiro/specs/login/prompt.md`` Phase 1): there is no local password to
 hash, so a test user needs BOTH a local ``User`` row (with a ``cognito_sub``)

@@ -1,0 +1,32 @@
+# QA-KB-072 analyzer: git ancestry of the stale test vs the redo refusal (read-only git, 2026-10-07)
+# every command below is read-only: log / merge-base / show / cat-file / grep
+
+$ git log --format="%h %ad %an %s" --date=short -- backend/tests/agents/test_declared_gate_redo.py
+1e329e47b 2026-09-04 Bilal Arshad feat(workflows): pdf_to_prototype wave build + stabilization pass
+
+$ git log --format="%h %ad %s" --date=short -S"Review gate redo REFUSED" -- backend/agents/execution_engine/engine.py
+835793a99 2026-08-31 fix(engine): close gate, resume and roster defects from bug-hunt domain 15
+
+$ git merge-base --is-ancestor 835793a99 1e329e47b ; echo exit=$?   # refusal commit vs test-birth commit
+exit=1  (1 = NOT an ancestor)
+
+$ git log -1 --format="%h %ad %s" --date=short $(git merge-base 835793a99 1e329e47b)   # fork point
+b38dffcc0 2026-08-27 Merge branch 'feat/integration-tests' into feat/conditional-gates
+
+$ git show 1e329e47b:backend/agents/execution_engine/engine.py | grep -c "Review gate redo REFUSED"
+0
+
+$ git show 1e329e47b:backend/agents/execution_engine/engine.py | sed -n 7635,7641p   # the redo branch in the test's birth tree
+            if action == "redo":
+                self._state_machine.transition(pipeline_run_id, "generating")
+                logger.info(
+                    "Review gate redo: pipeline=%s agent=%s has_instructions=%s",
+                    pipeline_run_id, agent_id, bool(instructions),
+                )
+                yield {"type": "_gate_redo", "instructions": instructions or ""}
+
+$ first merge commit on the path 1e329e47b..HEAD that contains the refusal commit
+4ebd98e8f 2026-09-16 Merge branch 'feat/git-versioning' into feat/file-extract-tools  | engine_refusal_count=1 test_file_present=yes
+
+$ HEAD
+e93aa40ed 2026-10-07 chore(bug-line): record stage results for QA-KB-055, 067 (TESTED) and 096 (CONFIRMED)

@@ -1,0 +1,8 @@
+# 08 pre-fix control, 2026-10-02T10:58:03Z: scratch copy of backend/ with ONLY this fix's four run_commands.py hunks reversed (patch -R), test files as fixed; shared tree untouched
+$ AWS_BEARER_TOKEN_BEDROCK= <backend/.venv>/bin/python -m pytest tests/integration/api/test_duplicate_context_guard_audit_api.py -q -p no:cacheprovider --runxfail
+E       AssertionError: assert ['pending'] == []
+E       AssertionError: assert 2 == 0
+2 failed, 5 warnings in 1.49s
+
+$ AWS_BEARER_TOKEN_BEDROCK= ... pytest tests/integration/api/test_duplicate_context_guard_api.py -q -p no:cacheprovider --runxfail
+8 passed, 9 warnings in 1.13s

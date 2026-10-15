@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { getMe, login, setToken, getToken } from "@/lib/api";
+import { getMe, getMfaStatus, getPreferences, login, setToken, getToken } from "@/lib/api";
 
 // ─────────────────────────────────────────────────────────────────
 // Cognito migration Phase 4 — the shared REST client must survive an
@@ -134,6 +134,10 @@ describe("request() 401 → refresh → retry (Cognito Phase 4)", () => {
   });
 
   it("coalesces concurrent 401s into a SINGLE refresh call", async () => {
+    // ISS-824: the burst must be three DIFFERENT requests sharing one stale
+    // bearer. Three identical getMe(STALE(n)) calls collapse into one
+    // shared-GET-cache request, so only ONE 401 reaches the guard and the
+    // refresh count is 1 with or without it.
     fetchMock.mockImplementation((url: string, init?: RequestInit) => {
       if (String(url).includes("/api/auth/refresh")) {
         return Promise.resolve(okJson({ token: "fresh.access.token" }));
@@ -142,21 +146,32 @@ describe("request() 401 → refresh → retry (Cognito Phase 4)", () => {
         "Authorization",
       );
       return Promise.resolve(
-        bearer === "Bearer fresh.access.token" ? okJson(ME) : unauthorized(),
+        bearer === "Bearer fresh.access.token"
+          ? okJson({ path: String(url) })
+          : unauthorized(),
       );
     });
 
-    const [a, b, c] = await Promise.all([
+    const [me, prefs, mfa] = await Promise.all([
       getMe(STALE(5)),
-      getMe(STALE(5)),
-      getMe(STALE(5)),
+      getPreferences(STALE(5)),
+      getMfaStatus(STALE(5)),
     ]);
 
-    expect([a, b, c]).toEqual([ME, ME, ME]);
+    // Each caller got ITS OWN request replayed with the refreshed bearer.
+    expect(me).toEqual({ path: expect.stringContaining("/api/auth/me") });
+    expect(prefs).toEqual({ path: expect.stringContaining("/api/settings/preferences") });
+    expect(mfa).toEqual({ path: expect.stringContaining("/api/auth/mfa") });
 
-    const refreshCalls = fetchMock.mock.calls.filter((call) =>
-      String(call[0]).includes("/api/auth/refresh"),
-    );
+    const calls = fetchMock.mock.calls.map(([url, init]) => ({
+      url: String(url),
+      bearer: new Headers(init?.headers as HeadersInit | undefined).get("Authorization"),
+    }));
+    // Precondition: the burst really materialised. If an upstream cache or
+    // dedup collapses these again, fail here rather than pass vacuously below.
+    expect(calls.filter((c) => c.bearer === `Bearer ${STALE(5)}`)).toHaveLength(3);
+
+    const refreshCalls = calls.filter((c) => c.url.includes("/api/auth/refresh"));
     // Without the single-flight guard this would be 3 — and the losers would
     // install a token a later refresh had already superseded.
     expect(refreshCalls).toHaveLength(1);

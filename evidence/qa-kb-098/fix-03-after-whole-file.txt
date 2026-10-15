@@ -1,0 +1,9 @@
+# QA-KB-098 fix-03: whole file AFTER the fix, HEAD 50f269502 + working tree, 2026-10-08 14:29:32
+$ cd backend && .venv/bin/python -m pytest tests/agents/test_per_run_paths_v3.py -q -p no:cacheprovider -rA
+PASSED tests/agents/test_per_run_paths_v3.py::TestPerRunPathsDistinct::test_two_revisions_write_distinct_log_paths
+PASSED tests/agents/test_per_run_paths_v3.py::TestPerRunPathsDistinct::test_revision_uses_correct_verify_dir_path
+PASSED tests/agents/test_per_run_paths_v3.py::TestPerRunPathsDistinct::test_revision_uses_correct_browser_dir_path
+PASSED tests/agents/test_per_run_paths_v3.py::TestPerRunPathsDistinct::test_revision_browser_dir_writer_driven
+PASSED tests/agents/test_per_run_paths_v3.py::TestPerRunPathsDistinct::test_three_runs_produce_three_distinct_log_paths
+5 passed, 7 warnings in 8.73s
+exit=0

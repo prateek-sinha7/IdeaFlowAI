@@ -1,0 +1,27 @@
+# QA-KB-095 analysis, 2026-10-07 — the on-disk sandbox of run 0f62f7bc (chain root of its own family)
+# path: <RUNS_ROOT>/<user>/<root run id> = runs/2d626ad9-ef1d-4a0c-8cd9-2a33affbc4e8/0f62f7bc-d3a2-4748-8004-0b534e1741ae  (RUNS_ROOT=../runs from backend/.env)
+
+$ ls -la <dir>
+total 0
+drwx------@  2 bilala  staff   64 Oct  7 17:37 .
+drwxr-xr-x@ 16 bilala  staff  512 Oct  7 22:17 ..
+
+$ ls -d <dir>/.git
+ls: runs/2d626ad9-ef1d-4a0c-8cd9-2a33affbc4e8/0f62f7bc-d3a2-4748-8004-0b534e1741ae/.git: No such file or directory
+
+$ stat (birth / mtime / ctime, local time CEST)
+runs/2d626ad9-ef1d-4a0c-8cd9-2a33affbc4e8/0f62f7bc-d3a2-4748-8004-0b534e1741ae birth=2026-10-07 17:37:20 mtime=2026-10-07 17:37:20 ctime=2026-10-07 17:43:34
+
+$ GIT_CEILING_DIRECTORIES=<parent> git -C <dir> tag --list
+fatal: not a git repository (or any of the parent directories): .git
+
+# backend process serving :8000 (has the FIX-727 list_tags guard: sandbox.py mtime 18:29, process start 21:12)
+  PID STARTED                      COMMAND
+ 4327 Wed Oct  7 21:12:25 2026     /opt/homebrew/Cellar/python@3.13/3.13.14/Frameworks/Python.framework/Versions/3.13/Resources/Python.app/Contents/Ma
+backend/app/agents/sandbox.py mtime=2026-10-07 18:29:33
+
+# FIX-727 commit
+b9d2099d9 2026-10-07 18:42:35 +0200 fix(QA-KB-064): sandbox tag listing skips git when the sandbox has no .git
+
+# sweeper rule (backend/app/agents/sandbox.py:1460): a dir is removed when run_dir.stat().st_mtime < now - RUN_DIR_TTL_HOURS(168h)
+# so this husk (mtime 2026-10-07 17:37:20) is not eligible before 2026-10-14 17:37:20

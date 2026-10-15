@@ -1,0 +1,117 @@
+QA-KB-052 analysis proof. Generated 2026-10-02 from the working tree (branch feat/user-stories-v2, HEAD 024c03ef8). Read-only commands only.
+
+### 1. Tier awareness in the two ungated surfaces (expected: IdeaInputPage 1 comment hit, ComposerPage 0 hits)
+$ grep -n -iE "tier|entitle|canRunPipeline|upgrade" frontend/src/components/workflow/IdeaInputPage.tsx
+355: * same priority tier, the order follows INTENT_MAP definition order.
+$ grep -n -iE "tier|entitle|canRunPipeline|upgrade" frontend/src/components/workflow/composer/ComposerPage.tsx   (no output = 0 hits)
+
+### 2. Every non-test consumer of the client-side gate predicates
+$ grep -rn -E 'canRunPipeline|getUpgradeTier' frontend/src --include='*.ts' --include='*.tsx' (non-test, call sites only)
+frontend/src/components/home/CreationHub.tsx:29:    if (!canRunPipeline(userTier, type)) return;
+frontend/src/components/home/CreationHub.tsx:72:            const allowed = canRunPipeline(userTier, workflow.type);
+frontend/src/components/home/CreationHub.tsx:73:            const upgradeTo = getUpgradeTier(userTier, workflow.type);
+frontend/src/components/catalog/HomeLaunchGrid.tsx:246:    if (!canRunPipeline(userTier, type)) return;
+frontend/src/components/catalog/HomeLaunchGrid.tsx:306:            const allowed   = !isBeta && canRunPipeline(userTier, type);
+frontend/src/components/catalog/HomeLaunchGrid.tsx:307:            const upgradeTo = isBeta ? null : getUpgradeTier(userTier, type);
+frontend/src/components/workflow/LaunchWizard.tsx:910:  const locked = tier !== null && !canRunPipeline(tier, launchPipeline);
+frontend/src/components/workflow/LaunchWizard.tsx:911:  const upgradeTo = tier !== null ? getUpgradeTier(tier, launchPipeline) : null;
+
+### 3. Where DashboardLayout uses userTier (type, default, then the only two consumers)
+$ grep -n userTier frontend/src/components/layout/DashboardLayout.tsx
+267:  userTier?: "basic" | "pro" | "enterprise";
+491:  userTier = "basic",
+2792:        userTier={userTier}
+2989:                  userTier={userTier}
+# the two render branches that carry NO tier prop:
+1:              <IdeaInputPage
+(IdeaInputPage props above contain no userTier)
+
+### 4. The tier the page hands down defaults to basic when the profile is unknown
+    getMe(storedToken)
+      .then((u) => {
+        setUser(u);
+        dispatch(userLoaded(u));
+      })
+      .catch(() => {
+        // Non-fatal — tier defaults to "basic" if fetch fails
+      });
+  }, [router, dispatch]);
+      userTier={user?.tier ?? "basic"}
+
+### 5. A rejected launch has no user-visible handler (page.tsx catch) and no frontend code names the 403 code
+        }).catch((err: unknown) => {
+          // specs/014: sendCommand's launch branch (runId=null) now THROWS
+          // ApiError on a non-2xx POST /api/runs (previously silently returned
+          // null and left the UI stuck on "launching..."). A 503
+          // host_capacity_exhausted rejection is the ServiceBusyProvider's own
+          // detection seam (it subscribes independently and shows the busy
+          // modal); this handler's only job is to recover the local UI state
+          // that assumed the launch had already started.
+          launchPendingRef.current = false;
+          resetPipeline();
+          if (process.env.NODE_ENV !== "production") {
+            console.error("Pipeline launch failed:", err);
+          }
+        });
+$ grep -rn -E "tier_not_entitled|pipeline_not_entitled" frontend/src --include="*.ts" --include="*.tsx" | grep -v test   (no output = none)
+
+### 6. Backend: launch gate, save gate, /me authority, manifest read has no tier gate
+    _require_tier_entitlement(current_user, principal, pipeline_type)
+    allowed, reason = can_run_pipeline(
+        effective_tier(current_user, principal), body.base_pipeline_type
+    )
+    if not allowed:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=reason)
+    return UserResponse(
+        id=user.id,
+        email=user.email,
+        tier=effective_tier(user, principal),
+        is_admin=effective_is_admin(user, principal),
+    )
+$ grep -n -E "can_run_pipeline|effective_tier" backend/app/api/workflows.py   (no output = the GET /api/workflows/{id} manifest read is not tier gated)
+
+### 7. Which launchable, non-beta workflows each tier may run (backend TIER_PIPELINES x workflow.yaml user_launchable/is_beta)
+  app_builder                    runs on: ['pro', 'enterprise']
+  backlog                        runs on: ['hexaware', 'pro', 'enterprise']
+  custom                         runs on: ['enterprise']
+  ex_A1_loop                     runs on: ['enterprise']
+  ex_A2_branch                   runs on: ['enterprise']
+  ex_A3_b_spanish                runs on: ['enterprise']
+  ex_A3_c_dutch                  runs on: ['enterprise']
+  ex_A3_divert                   runs on: ['enterprise']
+  ex_A4_human_divert             runs on: ['enterprise']
+  ex_A4_human_gate               runs on: ['enterprise']
+  ex_playwright_smoke_test       runs on: ['enterprise']
+  ppt                            runs on: ['basic', 'pro', 'enterprise']
+  ppt_v2                         runs on: ['basic', 'pro', 'enterprise']
+  prototype                      runs on: ['hexaware', 'pro', 'enterprise']
+  prototype_v2                   runs on: ['hexaware', 'pro', 'enterprise']
+  user_stories                   runs on: ['basic', 'hexaware', 'pro', 'enterprise']
+  -> user_stories runs on EVERY tier, so /create/user-stories can never be locked; app_builder is locked for basic and hexaware.
+
+### 8. Frontend TIER_PIPELINES mirror vs backend (set difference per tier)
+  basic       backend-only=[]  frontend-only=[]
+  hexaware    backend-only=[]  frontend-only=[]
+  pro         backend-only=[]  frontend-only=[]
+  enterprise  backend-only=['sample_subagents_parallel']  frontend-only=[]
+$ grep -n -B1 -A1 "reference fan-out fixture" frontend/src/lib/entitlements.ts   (a comment with no entry after it)
+91-    "backlog", "backlog_revision",
+92:    // reference fan-out fixture — kept in parity with the backend map.
+93-  ]),
+$ grep -n "sample_subagents_parallel" backend/app/core/entitlements.py
+91:        "sample_subagents_parallel",
+
+### 9. The parity test that pins the mirror, run today (one offline file, TestFrontendBackendParity only)
+$ cd backend && .venv/bin/python -m pytest tests/unit/services/test_entitlement_parity.py -q -k TestFrontendBackendParity -p no:cacheprovider
+            f"  UI offers, backend refuses (launch 403s): {sorted(fe - be)}\n"
+            f"  backend allows, UI hides:                 {sorted(be - fe)}"
+E       AssertionError: tier 'enterprise' has drifted.
+E           UI offers, backend refuses (launch 403s): []
+E           backend allows, UI hides:                 ['sample_subagents_parallel']
+tests/unit/services/test_entitlement_parity.py:85: AssertionError
+FAILED tests/unit/services/test_entitlement_parity.py::TestFrontendBackendParity::test_same_pipelines_per_tier[enterprise]
+1 failed, 4 passed, 101 deselected, 1 warning in 1.37s
+
+### 3b. Count of 'userTier' inside the IdeaInputPage render block (:3159-3178) and the ComposerPage render block (:3196-3253)
+IdeaInputPage block: 0
+ComposerPage block:  0

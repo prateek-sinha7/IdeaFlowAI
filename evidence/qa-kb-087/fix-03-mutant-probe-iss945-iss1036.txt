@@ -1,0 +1,102 @@
+# QA-KB-087 5-fixer mutant probe, 2026-10-07 20:21:58 CEST, repo HEAD cec17f2f7
+# fixed_*   = the repo file as this fix leaves it (ISS-945 + ISS-1036)
+# only945_* = HEAD's file with only ISS-945's three edits (empty getConstitution mock, no act flush)
+# _real = the real AccountSettings.tsx; _m1 = load forgets setLoadedValue(loaded) (ISS-1036 mutant); _m2 = Constitution draft dropped from hasUnsavedWork (ISS-921 itself)
+# 'failed' on a mutant = the case CAUGHT it; 'passed' on a mutant = the mutant SURVIVED
+
+### fixed_real
+ ↓ fixed_real.test.tsx > ISS-372 — AccountSettings reports unsaved work to the Back guard > reports dirty after Current password is typed
+ ↓ fixed_real.test.tsx > ISS-372 — AccountSettings reports unsaved work to the Back guard > is not dirty on mount, and clears when the field is emptied
+ ↓ fixed_real.test.tsx > ISS-372 — AccountSettings reports unsaved work to the Back guard > DashboardLayout feeds the AccountSettings mount into the guard
+ ✓ fixed_real.test.tsx > ISS-921 — Constitution draft counts as unsaved work > reports dirty after the Constitution draft is edited (not before it loads) 321ms
+      Tests  1 passed | 3 skipped (4)
+
+### fixed_m1
+ ↓ fixed_m1.test.tsx > ISS-372 — AccountSettings reports unsaved work to the Back guard > reports dirty after Current password is typed
+ ↓ fixed_m1.test.tsx > ISS-372 — AccountSettings reports unsaved work to the Back guard > is not dirty on mount, and clears when the field is emptied
+ ↓ fixed_m1.test.tsx > ISS-372 — AccountSettings reports unsaved work to the Back guard > DashboardLayout feeds the AccountSettings mount into the guard
+ × fixed_m1.test.tsx > ISS-921 — Constitution draft counts as unsaved work > reports dirty after the Constitution draft is edited (not before it loads) 293ms
+   → expected "vi.fn()" to not be called with arguments: [ true ]
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+AssertionError: expected "vi.fn()" to not be called with arguments: [ true ]
+ ❯ fixed_m1.test.tsx:84:33
+      Tests  1 failed | 3 skipped (4)
+
+### fixed_m2
+ ↓ fixed_m2.test.tsx > ISS-372 — AccountSettings reports unsaved work to the Back guard > reports dirty after Current password is typed
+ ↓ fixed_m2.test.tsx > ISS-372 — AccountSettings reports unsaved work to the Back guard > is not dirty on mount, and clears when the field is emptied
+ ↓ fixed_m2.test.tsx > ISS-372 — AccountSettings reports unsaved work to the Back guard > DashboardLayout feeds the AccountSettings mount into the guard
+ × fixed_m2.test.tsx > ISS-921 — Constitution draft counts as unsaved work > reports dirty after the Constitution draft is edited (not before it loads) 316ms
+   → expected last "vi.fn()" call to have been called with [ true ]
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+AssertionError: expected last "vi.fn()" call to have been called with [ true ]
+ ❯ fixed_m2.test.tsx:86:29
+      Tests  1 failed | 3 skipped (4)
+
+### only945_real
+ ↓ only945_real.test.tsx > ISS-372 — AccountSettings reports unsaved work to the Back guard > reports dirty after Current password is typed
+ ↓ only945_real.test.tsx > ISS-372 — AccountSettings reports unsaved work to the Back guard > is not dirty on mount, and clears when the field is emptied
+ ↓ only945_real.test.tsx > ISS-372 — AccountSettings reports unsaved work to the Back guard > DashboardLayout feeds the AccountSettings mount into the guard
+ ✓ only945_real.test.tsx > ISS-921 — Constitution draft counts as unsaved work > reports dirty after the Constitution draft is edited (not before it loads) 310ms
+      Tests  1 passed | 3 skipped (4)
+
+### only945_m1
+ ↓ only945_m1.test.tsx > ISS-372 — AccountSettings reports unsaved work to the Back guard > reports dirty after Current password is typed
+ ↓ only945_m1.test.tsx > ISS-372 — AccountSettings reports unsaved work to the Back guard > is not dirty on mount, and clears when the field is emptied
+ ↓ only945_m1.test.tsx > ISS-372 — AccountSettings reports unsaved work to the Back guard > DashboardLayout feeds the AccountSettings mount into the guard
+ ✓ only945_m1.test.tsx > ISS-921 — Constitution draft counts as unsaved work > reports dirty after the Constitution draft is edited (not before it loads) 328ms
+      Tests  1 passed | 3 skipped (4)
+
+### only945_m2
+ ↓ only945_m2.test.tsx > ISS-372 — AccountSettings reports unsaved work to the Back guard > reports dirty after Current password is typed
+ ↓ only945_m2.test.tsx > ISS-372 — AccountSettings reports unsaved work to the Back guard > is not dirty on mount, and clears when the field is emptied
+ ↓ only945_m2.test.tsx > ISS-372 — AccountSettings reports unsaved work to the Back guard > DashboardLayout feeds the AccountSettings mount into the guard
+ × only945_m2.test.tsx > ISS-921 — Constitution draft counts as unsaved work > reports dirty after the Constitution draft is edited (not before it loads) 323ms
+   → expected last "vi.fn()" call to have been called with [ true ]
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+AssertionError: expected last "vi.fn()" call to have been called with [ true ]
+ ❯ only945_m2.test.tsx:85:29
+      Tests  1 failed | 3 skipped (4)
+
+## Stability, 8 processes at once, twice per variant (20:22:16 CEST)
+### fixed_m1, 8-way, round 1
+proc 1: 1 failed | 3 skipped (4)
+proc 2: 1 failed | 3 skipped (4)
+proc 3: 1 failed | 3 skipped (4)
+proc 4: 1 failed | 3 skipped (4)
+proc 5: 1 failed | 3 skipped (4)
+proc 6: 1 failed | 3 skipped (4)
+proc 7: 1 failed | 3 skipped (4)
+proc 8: 1 failed | 3 skipped (4)
+### fixed_m1, 8-way, round 2
+proc 1: 1 failed | 3 skipped (4)
+proc 2: 1 failed | 3 skipped (4)
+proc 3: 1 failed | 3 skipped (4)
+proc 4: 1 failed | 3 skipped (4)
+proc 5: 1 failed | 3 skipped (4)
+proc 6: 1 failed | 3 skipped (4)
+proc 7: 1 failed | 3 skipped (4)
+proc 8: 1 failed | 3 skipped (4)
+### fixed_real, 8-way, round 1
+proc 1: 1 passed | 3 skipped (4)
+proc 2: 1 passed | 3 skipped (4)
+proc 3: 1 passed | 3 skipped (4)
+proc 4: 1 passed | 3 skipped (4)
+proc 5: 1 passed | 3 skipped (4)
+proc 6: 1 passed | 3 skipped (4)
+proc 7: 1 passed | 3 skipped (4)
+proc 8: 1 passed | 3 skipped (4)
+### fixed_real, 8-way, round 2
+proc 1: 1 passed | 3 skipped (4)
+proc 2: 1 passed | 3 skipped (4)
+proc 3: 1 passed | 3 skipped (4)
+proc 4: 1 passed | 3 skipped (4)
+proc 5: 1 passed | 3 skipped (4)
+proc 6: 1 passed | 3 skipped (4)
+proc 7: 1 passed | 3 skipped (4)
+proc 8: 1 passed | 3 skipped (4)
+
+## Tally of the stability rounds above
+  16 x fixed_m1 => 1 failed | 3 skipped (4)
+  16 x fixed_real => 1 passed | 3 skipped (4)
+  (fixed_m1: 'failed' = mutant caught; fixed_real: 'passed' = no false red)

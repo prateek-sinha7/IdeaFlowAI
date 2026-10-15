@@ -136,6 +136,13 @@ PY_EXCLUDE = {
     "tests",
     "runs",
 }
+
+
+def _is_venv(part: str) -> bool:
+    """Venv dirs are named by their creator (.venv312, .venv-3.13), so match by prefix, not exact name."""
+    return part == "venv" or part.startswith(".venv")
+
+
 FE_EXCLUDE = {
     "node_modules",
     ".next",
@@ -168,7 +175,8 @@ def scan_source_files() -> list[str]:
     backend = REPO_ROOT / "backend"
     if backend.is_dir():
         for p in backend.rglob("*.py"):
-            if PY_EXCLUDE & set(p.relative_to(REPO_ROOT).parts):
+            parts = p.relative_to(REPO_ROOT).parts
+            if PY_EXCLUDE & set(parts) or any(_is_venv(x) for x in parts):
                 continue
             files.append(p.relative_to(REPO_ROOT).as_posix())
 

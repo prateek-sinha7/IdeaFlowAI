@@ -1,0 +1,116 @@
+Q1 select min(created_at), max(created_at), count(*) from workflow_runs
+   (datetime.datetime(2026, 9, 24, 12, 45, 23, 602226), datetime.datetime(2026, 10, 12, 7, 33, 23, 400413), 70)   (oldest run, newest run, total rows, all accounts)
+
+Q2 select count(*) from workflow_runs where type = 'prototype'
+   0   <- runs whose type is EXACTLY 'prototype', all accounts
+
+Q3 select u.email, r.type, r.status, count(*) from workflow_runs r join users u on u.id = r.user_id where r.type like 'prototype%' group by 1, 2, 3 order by 1, 2, 3
+(email, type, status, count) for every prototype-family run, every account
+   ('admin@velocity.ai', 'prototype_large_revision', 'degraded', 1)
+   ('admin@velocity.ai', 'prototype_revision', 'cancelled', 2)
+   ('admin@velocity.ai', 'prototype_revision', 'completed', 2)
+   ('admin@velocity.ai', 'prototype_revision', 'failed', 2)
+   ('admin@velocity.ai', 'prototype_v2', 'cancelled', 5)
+   ('admin@velocity.ai', 'prototype_v2', 'completed', 8)
+   ('admin@velocity.ai', 'prototype_v2', 'failed', 3)
+   ('admin@velocity.ai', 'prototype_v2_feature_revision', 'completed', 3)
+   ('admin@velocity.ai', 'prototype_v2_revision', 'completed', 2)
+
+Q4 select type, count(*) from workflow_runs group by 1 order by 2 desc, 1
+(type, count) over every account
+   ('prototype_v2', 16)
+   ('ex_A1_loop', 14)
+   ('backlog', 9)
+   ('backlog_revision', 7)
+   ('ex_A2_branch', 6)
+   ('prototype_revision', 6)
+   ('prototype_v2_feature_revision', 3)
+   ('prototype_v2_revision', 2)
+   ('user_stories_v2', 2)
+   ('ex_A3_c_dutch', 1)
+   ('ex_A4_human_divert', 1)
+   ('ex_A4_human_gate', 1)
+   ('prototype_large_revision', 1)
+   ('user_stories', 1)
+
+Q4b select left(id,8), type, status, created_at from workflow_runs where type in ('user_stories','user_stories_v2','ppt','ppt_revision','ppt_v2','app_builder','app_builder_revision') order by created_at
+(id8, type, status, created) for the other framework families, all accounts: the only rows there are
+   ('5ab1be23', 'user_stories_v2', 'degraded', datetime.datetime(2026, 9, 25, 13, 50, 24, 624348))
+   ('05832e65', 'user_stories_v2', 'failed', datetime.datetime(2026, 9, 25, 15, 2, 58, 360481))
+   ('0f227da3', 'user_stories', 'cancelled', datetime.datetime(2026, 10, 9, 7, 35, 24, 828129))
+
+Q5 select r.id, r.type, r.status, r.parent_run_id, r.created_at, coalesce(r.deliverable_filename,'') from workflow_runs r join users u on u.id = r.user_id where u.email = 'admin@velocity.ai' order by r.created_at desc, r.id
+   admin@velocity.ai holds 70 runs (the account every chip test signs in as)
+
+== UI window: the first 50 runs (WorkflowHistory.tsx:231 limit=50)
+   runs in window: 50   families: 33
+   chip user_stories  count   1   rendered
+   chip ppt           count   0   NOT rendered (count 0, WorkflowHistory.tsx:1284)
+   chip prototype     count   0   NOT rendered (count 0, WorkflowHistory.tsx:1284)
+   chip app_builder   count   0   NOT rendered (count 0, WorkflowHistory.tsx:1284)
+   chip custom        count  32   rendered
+
+   prototype-family runs in this window: id8  type  status  parent8  root8  family-root-type  -> bucket
+      6014bc97  prototype_v2_feature_revision    completed  dc60f462  463e6c0b  prototype_v2_revision            -> custom
+      dc60f462  prototype_v2_feature_revision    completed  463e6c0b  463e6c0b  prototype_v2_revision            -> custom
+      86e6bcf8  prototype_v2_revision            completed  463e6c0b  463e6c0b  prototype_v2_revision            -> custom
+      659c1a22  prototype_v2_feature_revision    completed  6b5dfccd  e692039a  prototype_v2_revision            -> custom
+      6b5dfccd  prototype_v2_revision            completed  e692039a  e692039a  prototype_v2_revision            -> custom
+      b7bdf6a3  prototype_revision               failed     0f62f7bc  0f62f7bc  prototype_v2                     -> custom
+      0f62f7bc  prototype_v2                     completed  -         0f62f7bc  prototype_v2                     -> custom
+      14327554  prototype_revision               cancelled  9b6f1bfb  9b6f1bfb  prototype_v2                     -> custom
+      9b6f1bfb  prototype_v2                     completed  -         9b6f1bfb  prototype_v2                     -> custom
+      4f3ebe40  prototype_revision               completed  87e02c32  87e02c32  prototype_v2                     -> custom
+      8f36b400  prototype_revision               completed  87e02c32  87e02c32  prototype_v2                     -> custom
+      97b49f98  prototype_revision               failed     87e02c32  87e02c32  prototype_v2                     -> custom
+      4eb1a2ea  prototype_revision               cancelled  87e02c32  87e02c32  prototype_v2                     -> custom
+      c1862b1a  prototype_v2                     failed     -         c1862b1a  prototype_v2                     -> custom
+      36ebfbe1  prototype_large_revision         degraded   87e02c32  87e02c32  prototype_v2                     -> custom
+      87e02c32  prototype_v2                     completed  -         87e02c32  prototype_v2                     -> custom
+      0de3c926  prototype_v2                     cancelled  -         0de3c926  prototype_v2                     -> custom
+
+== every run loaded (what scrolling to the end would give)
+   runs in window: 70   families: 51
+   chip user_stories  count   1   rendered
+   chip ppt           count   0   NOT rendered (count 0, WorkflowHistory.tsx:1284)
+   chip prototype     count   0   NOT rendered (count 0, WorkflowHistory.tsx:1284)
+   chip app_builder   count   0   NOT rendered (count 0, WorkflowHistory.tsx:1284)
+   chip custom        count  50   rendered
+
+   prototype-family runs in this window: id8  type  status  parent8  root8  family-root-type  -> bucket
+      6014bc97  prototype_v2_feature_revision    completed  dc60f462  463e6c0b  prototype_v2                     -> custom
+      dc60f462  prototype_v2_feature_revision    completed  463e6c0b  463e6c0b  prototype_v2                     -> custom
+      86e6bcf8  prototype_v2_revision            completed  463e6c0b  463e6c0b  prototype_v2                     -> custom
+      659c1a22  prototype_v2_feature_revision    completed  6b5dfccd  e692039a  prototype_v2                     -> custom
+      6b5dfccd  prototype_v2_revision            completed  e692039a  e692039a  prototype_v2                     -> custom
+      b7bdf6a3  prototype_revision               failed     0f62f7bc  0f62f7bc  prototype_v2                     -> custom
+      0f62f7bc  prototype_v2                     completed  -         0f62f7bc  prototype_v2                     -> custom
+      14327554  prototype_revision               cancelled  9b6f1bfb  9b6f1bfb  prototype_v2                     -> custom
+      9b6f1bfb  prototype_v2                     completed  -         9b6f1bfb  prototype_v2                     -> custom
+      4f3ebe40  prototype_revision               completed  87e02c32  87e02c32  prototype_v2                     -> custom
+      8f36b400  prototype_revision               completed  87e02c32  87e02c32  prototype_v2                     -> custom
+      97b49f98  prototype_revision               failed     87e02c32  87e02c32  prototype_v2                     -> custom
+      4eb1a2ea  prototype_revision               cancelled  87e02c32  87e02c32  prototype_v2                     -> custom
+      c1862b1a  prototype_v2                     failed     -         c1862b1a  prototype_v2                     -> custom
+      36ebfbe1  prototype_large_revision         degraded   87e02c32  87e02c32  prototype_v2                     -> custom
+      87e02c32  prototype_v2                     completed  -         87e02c32  prototype_v2                     -> custom
+      0de3c926  prototype_v2                     cancelled  -         0de3c926  prototype_v2                     -> custom
+      7f386ce9  prototype_v2                     cancelled  -         7f386ce9  prototype_v2                     -> custom
+      05b11d19  prototype_v2                     completed  -         05b11d19  prototype_v2                     -> custom
+      463e6c0b  prototype_v2                     completed  -         463e6c0b  prototype_v2                     -> custom
+      8b3acea5  prototype_v2                     cancelled  -         8b3acea5  prototype_v2                     -> custom
+      e692039a  prototype_v2                     completed  -         e692039a  prototype_v2                     -> custom
+      a7d349ef  prototype_v2                     cancelled  -         a7d349ef  prototype_v2                     -> custom
+      d5e4e057  prototype_v2                     completed  -         d5e4e057  prototype_v2                     -> custom
+      b09e4ae7  prototype_v2                     cancelled  -         b09e4ae7  prototype_v2                     -> custom
+      a98a7627  prototype_v2                     failed     -         a98a7627  prototype_v2                     -> custom
+      417e3c59  prototype_v2                     completed  -         417e3c59  prototype_v2                     -> custom
+      9ad760a6  prototype_v2                     failed     -         9ad760a6  prototype_v2                     -> custom
+
+== where each prototype_revision run sits in the created_at-desc list (index 0 = newest; window is 0..49)
+      b7bdf6a3 status=failed     index=38  parent=0f62f7bc  root=0f62f7bc  root-type=prototype_v2
+      14327554 status=cancelled  index=40  parent=9b6f1bfb  root=9b6f1bfb  root-type=prototype_v2
+      4f3ebe40 status=completed  index=42  parent=87e02c32  root=87e02c32  root-type=prototype_v2
+      8f36b400 status=completed  index=43  parent=87e02c32  root=87e02c32  root-type=prototype_v2
+      97b49f98 status=failed     index=44  parent=87e02c32  root=87e02c32  root-type=prototype_v2
+      4eb1a2ea status=cancelled  index=45  parent=87e02c32  root=87e02c32  root-type=prototype_v2

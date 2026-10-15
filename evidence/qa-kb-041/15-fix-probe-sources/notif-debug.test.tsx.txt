@@ -1,0 +1,29 @@
+// SCRATCH DEBUG (outside the repo) — which assertion of NotificationPanel.escape.test.tsx stays red after the fix?
+import { describe, expect, it, vi } from "vitest";
+import { renderWithProviders, screen, fireEvent, waitFor } from "@/test/renderWithProviders";
+import userEvent from "@testing-library/user-event";
+
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: vi.fn(), replace: vi.fn(), prefetch: vi.fn() }),
+}));
+
+import { NotificationPanel } from "@/components/ui/NotificationPanel";
+
+const where = () => (document.activeElement === document.body ? "BODY" : document.activeElement?.getAttribute("aria-label") ?? document.activeElement?.tagName);
+
+describe("debug ISS-929", () => {
+  it("unfocused click then Escape: state right after, and after the exit animation", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(
+      <NotificationPanel notifications={[]} unreadCount={0} onMarkAllRead={vi.fn()} onClearAll={vi.fn()}
+        onGoToPipeline={vi.fn()} onViewResults={vi.fn()} />,
+    );
+    const bell = screen.getByRole("button", { name: /notifications/i });
+    fireEvent.click(bell);
+    console.log("[open] activeElement =", where(), "| aria-expanded =", bell.getAttribute("aria-expanded"), "| dialog =", !!screen.queryByRole("dialog"));
+    await user.keyboard("{Escape}");
+    console.log("[right after Escape] aria-expanded =", bell.getAttribute("aria-expanded"), "| dialog present =", !!screen.queryByRole("dialog"), "| activeElement =", where());
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    console.log("[after waitFor] aria-expanded =", bell.getAttribute("aria-expanded"), "| dialog present =", !!screen.queryByRole("dialog"), "| activeElement =", where());
+  });
+});

@@ -1,4 +1,4 @@
-"""tests/unit/test_chain_projection.py — chain-source projection IDOR gate
+"""tests/integration/api/test_chain_projection_api.py — chain-source projection IDOR gate
 (Task 11.9, Requirement 21 AC 4, sandbox-git-versioning-v2).
 
 Validates that GET /api/runs/{id} projects `chain_source` correctly:

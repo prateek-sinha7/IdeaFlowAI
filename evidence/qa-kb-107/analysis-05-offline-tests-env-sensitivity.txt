@@ -1,0 +1,26 @@
+# analysis-05: offline unit files, as-is (reads backend/.env: USE_LOCAL_OLLAMA=1 at line 47) vs USE_LOCAL_OLLAMA=0 in the real env
+# run at: 2026-10-09T00:59Z  HEAD: 6028b75e6  branch: feat/stale-bug-fixes  nothing edited
+
+== tests/unit/app/test_model_factory.py
+as-is:                25 failed, 18 passed, 1 warning in 1.80s
+USE_LOCAL_OLLAMA=0:   43 passed, 1 warning in 0.96s
+
+== tests/unit/agents/test_bedrock_cache_and_thinking.py
+as-is:                4 failed, 18 passed, 1 warning in 1.32s
+USE_LOCAL_OLLAMA=0:   22 passed, 1 warning in 1.00s
+
+== tests/unit/agents/test_model_output_cap.py
+as-is:                1 failed, 13 passed, 1 warning in 1.00s
+USE_LOCAL_OLLAMA=0:   14 passed, 1 warning in 0.81s
+
+== tests/unit/app/test_iss102_live_model_guard.py
+as-is:                1 failed, 5 passed, 1 warning in 1.11s
+USE_LOCAL_OLLAMA=0:   6 passed, 1 warning in 0.88s
+
+== tests/unit/app/test_cached_invoke.py
+as-is:                17 passed, 1 warning in 0.62s
+USE_LOCAL_OLLAMA=0:   17 passed, 1 warning in 0.57s
+
+== first as-is failure in test_model_factory.py
+E           AssertionError: Expected 'ChatAnthropic' to have been called once. Called 0 times.
+FAILED tests/unit/app/test_model_factory.py::test_anthropic_tier_used_when_key_set

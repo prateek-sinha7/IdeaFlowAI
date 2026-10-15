@@ -196,20 +196,14 @@ def test_reordering_a_node_moves_it_in_the_plan(page, shot):
 
 
 @pytest.mark.scenario("S-04-08")
-@pytest.mark.defect
 def test_removing_a_node_drops_it_from_the_summary(page, shot):
     """Scenario: Removing a node drops it from the summary
 
-    Asserts TODAY'S behaviour, which is that a node CANNOT be removed — D-30.
-
-    On a brand-new custom composition, every agent added from the library comes
-    back with its Remove control `disabled` and titled "Core agents can't be
-    removed", while only one of the three renders a Core badge. The lock does
-    not match the badge, and it leaves an author able to add agents to their own
-    workflow and unable to take any of them out again.
+    D-30 / BUG-025: a brand-new custom composition has no core agents, so every
+    agent added from the library is removable and none carries a Core badge.
 
     The built-in canvas is the wrong place to test this — there the lock is
-    correct, since every ppt step really is core.
+    correct, since every ppt step really is core (S-04-03).
     """
     open_composer(page, "/workflows/new", nodes=0)
     for n in range(1, 4):
@@ -223,20 +217,17 @@ def test_removing_a_node_drops_it_from_the_summary(page, shot):
         page.keyboard.press("Escape")
         page.wait_for_timeout(settings.SETTLE_MS // 3)
 
-    with shot("no-node-can-be-removed", "When I try to remove a node I just added"):
-        assert L.agent_count(page) == 3
+    assert L.agent_count(page) == 3
+    removes = page.locator('[aria-label^="Remove "]')
+    expect(removes).to_have_count(3)
+    for i in range(3):
+        expect(removes.nth(i)).to_be_enabled()
+    expect(page.get_by_text("Core", exact=True)).to_have_count(0)
 
-    removes = page.evaluate(
-        """() => [...document.querySelectorAll('[aria-label^="Remove "]')]
-             .map(e => ({ label: e.getAttribute('aria-label'), disabled: e.disabled }))"""
-    )
-    assert len(removes) == 3
-    assert all(r["disabled"] for r in removes), (
-        "a node became removable — D-30 is fixed. Rewrite this test as the "
-        f"spec's S-04-08: remove one and assert the summary drops to 2. {removes}"
-    )
-    # The badge and the lock disagree: one Core badge, three locked controls.
-    assert page.get_by_text("Core", exact=True).count() < len(removes)
+    with shot("node-removed", "When I remove a node I just added"):
+        removes.first.click()
+        expect(removes).to_have_count(2)
+    assert L.agent_count(page) == 2
 
 
 @pytest.mark.scenario("S-04-09")
@@ -275,9 +266,9 @@ def test_the_config_rails_agent_tab_has_five_sub_tabs_of_its_own(page, shot):
         page.click(L.RAIL_AGENT)
         expect(page.locator(L.AGENT_NAME)).to_be_visible()
 
-    # "step 1 of 3", not the display name: the heading uses the agent's ROLE
-    # ("Slide Plan & Content Architecture"), not its canvas label.
-    expect(page.get_by_text(re.compile(r"Agent · step 1 of \d"))).to_be_visible()
+    # The caption names the step's KIND ("AI agent" for a plain agent,
+    # stepKind.ts), then its position: "AI agent · step 1 of 3".
+    expect(page.get_by_text(re.compile(r"AI agent · step 1 of \d"))).to_be_visible()
     for sub in L.AGENT_SUBTABS:
         expect(page.get_by_text(sub, exact=True).first).to_be_visible()
 

@@ -1,0 +1,22 @@
+== tests/integration/api/test_workflow_override_e2e_api.py
+7 passed, 3 warnings in 2.28s
+== tests/integration/api/test_workflow_override_api.py
+17 passed, 1 warning in 1.07s
+== tests/unit/test_user_workflows_agent_count.py
+8 passed, 1 warning in 0.96s
+== tests/integration/api/test_model_tier_gate_workflows_api.py
+21 passed, 3 warnings in 1.56s
+== tests/integration/api/test_user_workflows_api.py
+39 passed, 22 warnings in 2.19s
+== tests/agents/test_b3_saved_workflow_chain_launch.py
+8 passed, 2 warnings in 0.93s
+== tests/agents/test_conditional_trigger_budget_t33.py
+1 passed, 2 warnings in 0.97s
+== tests/agents/test_conditional_trigger_depth_v4_ac06.py
+1 passed, 2 warnings in 0.96s
+== tests/unit/test_workflow_vocabulary_gate.py
+4 skipped, 1 warning in 0.08s
+== tests/integration/api/test_rest_run_launch_api.py
+27 passed, 5 warnings in 1.64s
+== tests/integration/agents/test_roster_seam_log.py
+4 passed, 1 warning in 1.43s

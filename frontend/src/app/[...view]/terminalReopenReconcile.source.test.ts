@@ -22,16 +22,10 @@ import { resolve } from "node:path";
 // ─────────────────────────────────────────────────────────────────
 
 const pageSource = readFileSync(resolve(__dirname, "page.tsx"), "utf8");
-
-// Full call signatures, locked argument-for-argument. The two trailing args are the
-// additive optionals on applyTerminalStatus (useWorkflow.ts:400):
-//   warnings = undefined        — A14; page.tsx deliberately does not forward the run's
-//                                  persisted warnings yet (pending A24), and undefined
-//                                  leaves prev.warnings untouched.
-//   usage = fullRun.tokenUsage  — ISS-304; the run's PERSISTED token_usage.
-// A change to either argument must fail here and be re-reviewed, not slip through a prefix.
-const APPLY_CALL = "applyTerminalStatus(prev, fullRun.status, undefined, fullRun.tokenUsage)";
-const RECONCILE_CALL = "reconcileTerminalStatus(fullRun.status, undefined, fullRun.tokenUsage);";
+// ISS-898: prefix anchors (no closing paren), so the ISS-304 tokenUsage args cannot stale them.
+// Never shorten to a bare `applyTerminalStatus(` — its first hit is the FIX-201 bridge call, ahead of the reopen fetch.
+const APPLY_CALL = "applyTerminalStatus(prev, fullRun.status";
+const RECONCILE_CALL = "reconcileTerminalStatus(fullRun.status";
 
 describe("ISS-126 reopen reconciles a terminal run (source-lock)", () => {
   it("imports the shared terminal reducer rather than re-deriving markers inline", () => {
@@ -68,8 +62,6 @@ describe("ISS-126 reopen reconciles a terminal run (source-lock)", () => {
 
   it("does NOT clear reviewGateData — that would erase the historical gate card", () => {
     const call = pageSource.indexOf(APPLY_CALL);
-    // Guard: without it a missing call gives indexOf -1 and slice(-1, 1599) === "",
-    // so the negative assertion below would pass vacuously.
     expect(call).toBeGreaterThan(-1);
     const windowAfter = pageSource.slice(call, call + 1600);
     expect(windowAfter).not.toContain("reviewGateData: null");
@@ -86,7 +78,10 @@ describe("ISS-126 reopen reconciles a terminal run (source-lock)", () => {
   });
 
   it("runs AFTER the durable replay loop, never before it", () => {
-    const loopStart = pageSource.indexOf("for (const frame of durableFrames)");
+    // ISS-1010: search from the reopen handler's fetch — the first loop in the file is the run-switch handler's.
+    const fetchAt = pageSource.indexOf("const durableFrames = await getRunEvents(currentToken, fullRun.id);");
+    expect(fetchAt).toBeGreaterThan(-1);
+    const loopStart = pageSource.indexOf("for (const frame of durableFrames)", fetchAt);
     const call = pageSource.indexOf(APPLY_CALL);
     expect(loopStart).toBeGreaterThan(-1);
     expect(call).toBeGreaterThan(-1);
@@ -113,5 +108,14 @@ describe("ISS-126 reopen reconciles a terminal run (source-lock)", () => {
     const liveBlockEnd = pageSource.indexOf("\n      return;\n", liveBlockStart);
     const liveBlockBody = pageSource.slice(liveBlockStart, liveBlockEnd);
     expect(liveBlockBody).toContain("runStore.update(frameRunId, { questionnaireData: null })");
+  });
+});
+
+// ISS-870 — page.tsx's live allowlist must route hook_run to the reducer.
+describe("page.tsx pipelineTypes includes hook_run (ISS-870)", () => {
+  it("lists hook_run", () => {
+    const start = pageSource.indexOf("const pipelineTypes = [");
+    const body = pageSource.slice(start, pageSource.indexOf("];", start));
+    expect(body).toContain('"hook_run"');
   });
 });

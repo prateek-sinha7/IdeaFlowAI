@@ -1,0 +1,38 @@
+# QA-KB-104 analysis 02: a basic caller's PLAIN ppt row synced from an unentitled pipeline passes every gate of the real REST launch up to the run mint (HEAD c9c4c630a + working tree, 2026-10-08T19:25Z)
+# cmd: cd backend && PYTHONDONTWRITEBYTECODE=1 DATABASE_URL=sqlite:///:memory: .venv/bin/python -m pytest ../evidence/qa-kb-104/analysis-plugins/test_probe_sync_entitlement.py -c pyproject.toml --rootdir=. -p no:cacheprovider -q -s -W ignore -k 'probe_C'
+# probe, not a product test. app.api.run_commands._launch_run_core is STUBBED (records its kwargs, returns a fake run_id), so NO WorkflowRun is minted and nothing runs or is spent.
+# every gate before the join point (tier gate, Case 3 compile at the row's trust, model gate, chain admission) is the real code.
+# 'DIRECTLY' = POST /api/runs {pipeline_type: <P>} (the control). The synced row is launched as POST /api/runs {pipeline_type: ppt, user_workflow_id: <row>}.
+
+
+[C] basic launches pipeline_type=sample_subagents_parallel DIRECTLY -> 403 tier_not_entitled  (can_run_pipeline=False) reached_mint=False
+    sync-from-file sample_subagents_parallel into basic's plain ppt row -> 200
+    POST /api/runs {pipeline_type: ppt, user_workflow_id} -> 200 None reached_mint_stub=True
+    pipeline_type passed to the run core='ppt'; compiled.id='sample_subagents_parallel'; steps=4
+    compiled at _trust='db'; steps with exec=0, spawn_subagents=1; gates used=[]
+.
+[C] basic launches pipeline_type=app_builder DIRECTLY -> 403 tier_not_entitled  (can_run_pipeline=False) reached_mint=False
+    sync-from-file app_builder into basic's plain ppt row -> 200
+    POST /api/runs {pipeline_type: ppt, user_workflow_id} -> 200 None reached_mint_stub=True
+    pipeline_type passed to the run core='ppt'; compiled.id='app_builder'; steps=15
+    compiled at _trust='db'; steps with exec=0, spawn_subagents=0; gates used=[]
+.
+[C] basic launches pipeline_type=mulesoft_to_springboot DIRECTLY -> 403 tier_not_entitled  (can_run_pipeline=False) reached_mint=False
+    sync-from-file mulesoft_to_springboot into basic's plain ppt row -> 200
+    POST /api/runs {pipeline_type: ppt, user_workflow_id} -> 200 None reached_mint_stub=True
+    pipeline_type passed to the run core='ppt'; compiled.id='mulesoft_to_springboot'; steps=13
+    compiled at _trust='db'; steps with exec=0, spawn_subagents=0; gates used=[]
+.
+[C] basic launches pipeline_type=custom DIRECTLY -> 403 tier_not_entitled  (can_run_pipeline=False) reached_mint=False
+    sync-from-file custom into basic's plain ppt row -> 200
+    POST /api/runs {pipeline_type: ppt, user_workflow_id} -> 200 None reached_mint_stub=True
+    pipeline_type passed to the run core='ppt'; compiled.id='custom'; steps=9
+    compiled at _trust='db'; steps with exec=0, spawn_subagents=0; gates used=[]
+.
+[C] basic launches pipeline_type=ppt DIRECTLY -> 400 missing_template_context  (can_run_pipeline=True) reached_mint=False
+    sync-from-file ppt into basic's plain ppt row -> 200
+    POST /api/runs {pipeline_type: ppt, user_workflow_id} -> 200 None reached_mint_stub=True
+    pipeline_type passed to the run core='ppt'; compiled.id='ppt'; steps=3
+    compiled at _trust='db'; steps with exec=0, spawn_subagents=0; gates used=[]
+.
+5 passed, 2 deselected in 0.79s

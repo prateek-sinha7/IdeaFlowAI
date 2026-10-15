@@ -1,0 +1,173 @@
+# QA-KB-007 analyzer DB probes (READ-ONLY SELECTs; forced default_transaction_read_only=on). Dev DB: postgres velocity-local-db.
+# Run from backend/: .venv/bin/python <probe>.  DATABASE_URL is read from backend/.env and never printed.
+
+################ qa_kb_007_db_probe.py ################
+"""QA-KB-007 analyzer probe: READ-ONLY. Counts run_events rows whose payload_json.seq != seq column."""
+import os, sys
+from sqlalchemy import create_engine, text
+
+# Read DATABASE_URL from backend/.env without echoing it.
+url = None
+for line in open(".env"):
+    if line.startswith("DATABASE_URL="):
+        url = line.split("=", 1)[1].strip().strip('"').strip("'")
+if not url:
+    sys.exit("no DATABASE_URL")
+eng = create_engine(url, connect_args={"options": "-c default_transaction_read_only=on"})
+with eng.connect() as c:
+    c.execute(text("SET TRANSACTION READ ONLY"))
+    print("total run_events rows:", c.execute(text("SELECT count(*) FROM run_events")).scalar())
+    print("rows whose payload has a seq key:", c.execute(text(
+        "SELECT count(*) FROM run_events WHERE (payload_json::jsonb) ? 'seq'")).scalar())
+    q = text("""
+        SELECT run_id, seq, (payload_json::jsonb->>'seq') AS payload_seq, type, created_at
+        FROM run_events
+        WHERE (payload_json::jsonb) ? 'seq'
+          AND (payload_json::jsonb->>'seq') ~ '^[0-9]+$'
+          AND (payload_json::jsonb->>'seq')::int <> seq
+        ORDER BY created_at
+    """)
+    rows = c.execute(q).fetchall()
+    print("DIVERGENT rows (payload.seq <> seq):", len(rows))
+    for r in rows[:40]:
+        print(" ", r.run_id[:8], "row.seq=", r.seq, "payload.seq=", r.payload_seq, r.type, str(r.created_at)[:19])
+    q2 = text("""
+        SELECT count(DISTINCT run_id) FROM run_events
+        WHERE (payload_json::jsonb) ? 'seq'
+          AND (payload_json::jsonb->>'seq') ~ '^[0-9]+$'
+          AND (payload_json::jsonb->>'seq')::int <> seq
+    """)
+    print("distinct runs affected:", c.execute(q2).scalar())
+
+################ qa_kb_007_db_probe2.py ################
+"""QA-KB-007 analyzer probe 2: READ-ONLY. Shape of the divergence in run b09e4ae7."""
+import sys
+from sqlalchemy import create_engine, text
+
+url = None
+for line in open(".env"):
+    if line.startswith("DATABASE_URL="):
+        url = line.split("=", 1)[1].strip().strip('"').strip("'")
+eng = create_engine(url, connect_args={"options": "-c default_transaction_read_only=on"})
+with eng.connect() as c:
+    c.execute(text("SET TRANSACTION READ ONLY"))
+    run = c.execute(text("SELECT DISTINCT run_id FROM run_events WHERE run_id LIKE 'b09e4ae7%'")).scalar()
+    print("run:", run)
+    r = c.execute(text("SELECT status, type, created_at FROM workflow_runs WHERE id=:r"), {"r": run}).fetchone()
+    print("workflow_runs:", r)
+    print("rows in run:", c.execute(text("SELECT count(*), min(seq), max(seq) FROM run_events WHERE run_id=:r"), {"r": run}).fetchone())
+    # span of divergent rows
+    print("divergent span:", c.execute(text("""
+        SELECT min(seq), max(seq), count(*) FROM run_events
+        WHERE run_id=:r AND (payload_json::jsonb ? 'seq') AND (payload_json::jsonb->>'seq') ~ '^[0-9]+$'
+          AND (payload_json::jsonb->>'seq')::int <> seq"""), {"r": run}).fetchone())
+    # delta distribution
+    print("delta (row.seq - payload.seq) histogram:")
+    for d, n in c.execute(text("""
+        SELECT seq - (payload_json::jsonb->>'seq')::int AS d, count(*) FROM run_events
+        WHERE run_id=:r AND (payload_json::jsonb ? 'seq') AND (payload_json::jsonb->>'seq') ~ '^[0-9]+$'
+          AND (payload_json::jsonb->>'seq')::int <> seq GROUP BY 1 ORDER BY 2 DESC LIMIT 12"""), {"r": run}):
+        print("  delta", d, "->", n)
+    print("\nrows around the first divergence (seq 28040..28062):")
+    for row in c.execute(text("""
+        SELECT seq, left(event_id, 14) AS eid, type, payload_json::jsonb->>'seq' AS pseq,
+               (payload_json::jsonb ? 'event_id') AS has_eid, created_at
+        FROM run_events WHERE run_id=:r AND seq BETWEEN 28040 AND 28062 ORDER BY seq"""), {"r": run}):
+        print("  ", row.seq, row.eid, row.type, "payload.seq=", row.pseq, "payload_has_event_id=", row.has_eid, str(row.created_at)[11:23])
+
+################ qa_kb_007_db_probe3.py ################
+"""QA-KB-007 analyzer probe 3: READ-ONLY. Frequency + the 'two concurrent writers' proof."""
+from sqlalchemy import create_engine, text
+
+url = None
+for line in open(".env"):
+    if line.startswith("DATABASE_URL="):
+        url = line.split("=", 1)[1].strip().strip('"').strip("'")
+eng = create_engine(url, connect_args={"options": "-c default_transaction_read_only=on"})
+with eng.connect() as c:
+    c.execute(text("SET TRANSACTION READ ONLY"))
+    print("runs with >=1 run_events row:", c.execute(text("SELECT count(DISTINCT run_id) FROM run_events")).scalar())
+    print("runs created on/after FIX-240 (2026-08-12) with events:", c.execute(text(
+        "SELECT count(DISTINCT e.run_id) FROM run_events e JOIN workflow_runs w ON w.id=e.run_id "
+        "WHERE w.created_at >= '2026-08-12'")).scalar())
+    print("... of those, with a chat_message row:", c.execute(text(
+        "SELECT count(DISTINCT e.run_id) FROM run_events e JOIN workflow_runs w ON w.id=e.run_id "
+        "WHERE w.created_at >= '2026-08-12' AND e.type='chat_message'")).scalar())
+    print("... with a chat_message row AND a divergent engine row:", c.execute(text("""
+        SELECT count(DISTINCT e.run_id) FROM run_events e JOIN workflow_runs w ON w.id=e.run_id
+        WHERE w.created_at >= '2026-08-12'
+          AND (e.payload_json::jsonb ? 'seq') AND (e.payload_json::jsonb->>'seq') ~ '^[0-9]+$'
+          AND (e.payload_json::jsonb->>'seq')::int <> e.seq
+          AND EXISTS (SELECT 1 FROM run_events m WHERE m.run_id = e.run_id AND m.type = 'chat_message')""")).scalar())
+    print("... with ANY divergent engine row (chat_message or not):", c.execute(text("""
+        SELECT count(DISTINCT e.run_id) FROM run_events e JOIN workflow_runs w ON w.id=e.run_id
+        WHERE w.created_at >= '2026-08-12'
+          AND (e.payload_json::jsonb ? 'seq') AND (e.payload_json::jsonb->>'seq') ~ '^[0-9]+$'
+          AND (e.payload_json::jsonb->>'seq')::int <> e.seq""")).scalar())
+    # two-writer proof: within ONE run, a single sequential driver requests strictly increasing seqs,
+    # so payload.seq (the REQUESTED seq) read in landing order (row.seq) must never go backwards.
+    inv = c.execute(text("""
+        WITH r AS (
+          SELECT seq, (payload_json::jsonb->>'seq')::int AS pseq,
+                 lag((payload_json::jsonb->>'seq')::int) OVER (ORDER BY seq) AS prev_pseq
+          FROM run_events
+          WHERE run_id LIKE 'b09e4ae7%' AND (payload_json::jsonb ? 'seq')
+            AND (payload_json::jsonb->>'seq') ~ '^[0-9]+$')
+        SELECT count(*) FILTER (WHERE pseq < prev_pseq) AS inversions, count(*) AS rows FROM r""")).fetchone()
+    print("b09e4ae7: requested-seq inversions in landing order:", inv.inversions, "of", inv.rows, "rows")
+    ex = c.execute(text("""
+        WITH r AS (
+          SELECT seq, (payload_json::jsonb->>'seq')::int AS pseq,
+                 lag((payload_json::jsonb->>'seq')::int) OVER (ORDER BY seq) AS prev_pseq,
+                 lag(seq) OVER (ORDER BY seq) AS prev_seq
+          FROM run_events
+          WHERE run_id LIKE 'b09e4ae7%' AND (payload_json::jsonb ? 'seq')
+            AND (payload_json::jsonb->>'seq') ~ '^[0-9]+$')
+        SELECT prev_seq, prev_pseq, seq, pseq FROM r WHERE pseq < prev_pseq ORDER BY seq LIMIT 3""")).fetchall()
+    for e in ex:
+        print("   e.g. row", e.prev_seq, "requested", e.prev_pseq, "-> next row", e.seq, "requested", e.pseq, "(went backwards)")
+    print("b09e4ae7 run_resuming markers:", c.execute(text(
+        "SELECT seq, to_char(created_at,'HH24:MI:SS.MS'), payload_json::jsonb->>'reason' FROM run_events "
+        "WHERE run_id LIKE 'b09e4ae7%' AND type='run_resuming' ORDER BY seq")).fetchall())
+    print("b09e4ae7 pipeline_start rows:", c.execute(text(
+        "SELECT seq, (payload_json::jsonb->>'seq') FROM run_events WHERE run_id LIKE 'b09e4ae7%' AND type='pipeline_start' ORDER BY seq")).fetchall())
+
+################ qa_kb_007_db_probe4.py ################
+"""QA-KB-007 analyzer probe 4: READ-ONLY. Card's sample run, delta range, and chat-lane rows vs divergence."""
+from sqlalchemy import create_engine, text
+
+url = None
+for line in open(".env"):
+    if line.startswith("DATABASE_URL="):
+        url = line.split("=", 1)[1].strip().strip('"').strip("'")
+eng = create_engine(url, connect_args={"options": "-c default_transaction_read_only=on"})
+DIV = """(payload_json::jsonb ? 'seq') AND (payload_json::jsonb->>'seq') ~ '^[0-9]+$'
+         AND (payload_json::jsonb->>'seq')::int <> seq"""
+with eng.connect() as c:
+    c.execute(text("SET TRANSACTION READ ONLY"))
+    print("F. card's original sample run 1ea6d262: run_events rows =",
+          c.execute(text("SELECT count(*) FROM run_events WHERE run_id LIKE '1ea6d262%'")).scalar(),
+          "| workflow_runs rows =",
+          c.execute(text("SELECT count(*) FROM workflow_runs WHERE id LIKE '1ea6d262%'")).scalar())
+    mn, mx, neg = c.execute(text(f"""SELECT min(seq - (payload_json::jsonb->>'seq')::int),
+        max(seq - (payload_json::jsonb->>'seq')::int),
+        count(*) FILTER (WHERE seq < (payload_json::jsonb->>'seq')::int)
+        FROM run_events WHERE {DIV}""")).fetchone()
+    print(f"G. delta (row.seq - payload.seq) over all divergent rows: min={mn} max={mx} rows-with-negative-delta={neg}")
+    rows = c.execute(text("""
+        SELECT seq, type, to_char(created_at,'HH24:MI:SS.MS') FROM run_events
+        WHERE run_id LIKE 'b09e4ae7%' AND type IN ('chat_message','chat_reply','chat_usage','concierge_proposal')
+        ORDER BY seq""")).fetchall()
+    print("H. app-layer (chat lane) rows in b09e4ae7:", len(rows), [(r[0], r[1], r[2]) for r in rows])
+    n = c.execute(text(f"""
+        SELECT count(*) FROM run_events d
+        WHERE d.run_id LIKE 'b09e4ae7%' AND (d.payload_json::jsonb ? 'seq')
+          AND (d.payload_json::jsonb->>'seq') ~ '^[0-9]+$' AND (d.payload_json::jsonb->>'seq')::int <> d.seq
+          AND EXISTS (SELECT 1 FROM run_events c WHERE c.run_id = d.run_id
+                      AND c.type IN ('chat_message','chat_reply','chat_usage','concierge_proposal')
+                      AND c.seq >= (d.payload_json::jsonb->>'seq')::int AND c.seq < d.seq)""")).scalar()
+    print("   divergent rows whose slots requested .. landed-1 hold a chat-lane row:", n, "of 746")
+    print("I. rows 35522..35536 of b09e4ae7 (the one chat-lane-caused retry): seq, type, payload.seq, time")
+    for r in c.execute(text("""SELECT seq, type, payload_json::jsonb->>'seq', to_char(created_at,'HH24:MI:SS.MS')
+        FROM run_events WHERE run_id LIKE 'b09e4ae7%' AND seq BETWEEN 35522 AND 35536 ORDER BY seq""")):
+        print("  ", r[0], r[1], "payload.seq=", r[2], r[3])

@@ -1,0 +1,37 @@
+// SCRATCH (outside the repo), run with vitest.head.config.ts = PRE-FIX AppHeader from git HEAD.
+// A: focused click (working path) — state right after Escape. B: corrected AppHeader.escape body, must FAIL here.
+import { describe, expect, it, vi } from "vitest";
+import { renderWithProviders, screen, fireEvent, waitFor } from "@/test/renderWithProviders";
+import userEvent from "@testing-library/user-event";
+
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: vi.fn(), replace: vi.fn(), prefetch: vi.fn() }),
+}));
+
+import { AppHeader } from "@/components/layout/AppHeader";
+
+const ui = () => (
+  <AppHeader currentPage="saved-workflows" onNavigate={vi.fn()} onLogout={vi.fn()}
+    userEmail="qa@flowin.test" userTier="basic" />
+);
+
+describe("pre-fix AppHeader", () => {
+  it("A: focused click, state right after Escape", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(ui());
+    const trigger = screen.getByRole("button", { name: /account menu/i });
+    await user.click(trigger);
+    await user.keyboard("{Escape}");
+    console.log("[A header] aria-expanded =", trigger.getAttribute("aria-expanded"), "| menu still in DOM =", !!screen.queryByRole("menu"));
+  });
+  it("B: corrected AppHeader.escape body (unfocused click) — must FAIL", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(ui());
+    const trigger = screen.getByRole("button", { name: /account menu/i });
+    fireEvent.click(trigger);
+    expect(trigger).toHaveAttribute("aria-expanded", "true");
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
+  });
+});

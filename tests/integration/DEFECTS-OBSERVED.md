@@ -13,6 +13,11 @@ overlays, tiers).
 ## D-01 — `/create/app` launches the wrong workflow
 
 **Severity:** high — a user who follows this URL runs a pipeline they did not pick.
+**RESOLVED (BUG-023, uncommitted at writing).** `initialWorkflowTypeFor` now maps
+`create-app` → `app_builder` and `create-user-stories` → `user_stories`. `S-03-09`
+now asserts the app_builder panel rather than the defect. The second fix sketch
+below (delete both special cases) is unsound: the generic branch passes the raw
+slug through, and `app` / `user-stories` are not workflow ids.
 
 `/create/app` and `/create/user-stories` render the **same screen**: `GENERATE
 PRODUCT REQUIREMENTS` / "Provide the brief" / `Advanced 7 agents`. `/create/app`
@@ -457,7 +462,14 @@ pass while the user has no input at all.
 
 ## D-21 — The prototype run's clarification exchange appears twice
 
-**Severity:** low.
+**Severity:** low. **NARROWED by FIX-517.**
+
+Rounds of one clarify pass are now numbered (`Round 2: Before I build, ...`,
+`Clarifications round 2 answered`), so they read differently. Each agent `ask_user`
+pass still numbers itself round 1 (ISS-993), so a run that asks several times shows
+identical pairs: on 2026-10-07 `S-18-08` found four on
+`/runs/b40eabd0-d7e2-4bc2-bc42-99ef6a147bff`, a backlog revision. `S-18-08` stays
+inverted and compares the texts, not the counts. The report below predates FIX-517.
 
 *(D-20 is deliberately unused: `UXFIX-03`/`D-20` are upstream design-doc ticket ids
 referenced in `02-home-catalog`, and reusing the number here would be ambiguous.)*
@@ -704,6 +716,12 @@ spec's stronger version.
 ## D-30 — No node can be removed from a new custom workflow
 
 **Severity:** high. **Found by:** `S-04-08`, phase 2.
+**RESOLVED (BUG-025, uncommitted at writing).** The composer now reads its own
+type (`builtinCanvasType`, else `custom`) instead of DashboardLayout's shared
+`workflowType`, so nothing on `/workflows/new` is core. The Core badge now
+follows the lock (every non-optional role), and the lock is greyed, not
+invisible. `S-04-08` now asserts the spec. The fix sketch below is unsound read
+literally: the lock was right for the type it was given; the type was wrong.
 
 Open `/workflows/new`, add three agents from the library, and every one of them
 comes back with its Remove control like this:

@@ -1,0 +1,9 @@
+QA-KB-030 validate 2026-10-01 (Static/Test, no browser)
+cmd: backend/.venv/bin/python -c "from agents.capabilities.strategies.task_loop import TaskLoopStrategy as T; print(getattr(T,'runs_agent_inline','<undeclared>'))"
+attempt 1: <undeclared>
+attempt 2: <undeclared>
+attempt 3: <undeclared>
+Engine default when undeclared: engine.py:11474 return bool(getattr(strategy, "runs_agent_inline", True)) -> True
+Siblings declare False: fanout_batch.py:70, wave_scheduler.py:245
+task_loop.py:360 passes invocation_gated=False (inline gate never fires) -> declared step gate skipped at engine.py:6309 inline_gated=... and _runs_agent_inline
+Named pytest files (test_fanout.py 31 passed, test_merge_conflict.py 13 passed) are placeholders; they do not cover this.

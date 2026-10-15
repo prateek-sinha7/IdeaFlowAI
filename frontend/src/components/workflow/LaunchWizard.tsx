@@ -11,20 +11,13 @@ import {
   getToken,
   getMe,
   extractFileText,
+  stageRunFile,
   createUserWorkflow,
   handleSessionExpiry,
   getWorkflowDetail,
   setWorkflowOverrideEnabled,
 } from "@/lib/api";
 import { orderedStagedUploadIds } from "@/components/workflow/IdeaInputPage";
-import { UploadChipStatus } from "@/components/workflow/UploadChipStatus";
-import {
-  stagedUploadsOf,
-  uploadGateFor,
-  uploadGateMessage,
-  useStagedDocuments,
-} from "@/hooks/useStagedDocuments";
-import { UPLOAD_TOO_LARGE_MESSAGE, isOverUploadLimit } from "@/lib/uploadErrors";
 import { agentsFromManifest } from "@/lib/manifestAgents";
 import type { ManifestStep } from "@/types";
 import { buildLoginRedirect } from "@/lib/authRedirect";
@@ -53,10 +46,12 @@ import { AgentsPopup, type SelectionsMap } from "@/components/workflow/AgentsPop
 import { useAgentLibrary } from "@/hooks/useAgentLibrary";
 import { useSpeechRecognition } from "@/hooks/useSpeechRecognition";
 import { NameWorkflowModal } from "@/components/catalog/NameWorkflowModal";
+import { UnsavedChangesDialog } from "@/components/ui/UnsavedChangesDialog";
 import {
   buildLaunchDraft,
   buildDiscoveryValue,
   DISCOVERY_KEY,
+  isDiscoveryEmpty,
   type LaunchMode,
 } from "@/lib/launchDraft";
 import type { CustomDesignSystem } from "@/components/workflow/prototype/CustomDesignSystemModal";
@@ -65,10 +60,6 @@ import type { AgentDef } from "@/types/index";
 import { CUSTOM_AGENT_PREFIX } from "@/store/api/userWorkflows";
 import { buildWorkflowManifest, collectAgentIds, instantiateIfTemplate, overrideDescription } from "@/store/api/userWorkflows";
 import { DOCUMENT_AND_IMAGE_ACCEPT, isBinaryUpload, isTextUpload, withoutOne } from "@/lib/uploadTypes";
-
-/** Brief note for a document whose stage AND in-browser preview both failed. */
-const STAGE_FAILED_PLACEHOLDER =
-  "[This document is attached but its text could not be extracted in-browser; do not assume it is empty.]";
 
 /**
  * LaunchWizard (plan 37-07) — the ONE unified deliverable-launch page. It
@@ -90,6 +81,9 @@ const STAGE_FAILED_PLACEHOLDER =
 /** The Web/Deck stepper toggle value ↔ the deliverable mode. `ppt_v2` is a deck
  *  deliverable, so it sits under "deck" alongside `ppt`. */
 const STEPPER_MODE: Record<LaunchMode, "web" | "deck"> = { prototype: "web", prototype_v2: "web", ppt: "deck", ppt_v2: "deck" };
+/** The sessionStorage key a caller stages this mode's draft under. The chain pickup
+ *  and the draft restore both read it, so they cannot disagree (ISS-347). */
+const draftKeyFor = (m: LaunchMode) => (STEPPER_MODE[m] === "web" ? "prototype.draft" : "ppt.draft");
 /** Two deck modes share one stepper slot, so the toggle cannot recover which one
  *  from "deck" alone. `deckMode` is the family this wizard was opened for, which
  *  is what toggling web → deck must restore; without it a ppt_v2 launch would
@@ -226,7 +220,7 @@ export interface LaunchWizardProps {
 
 export function LaunchWizard({ initialMode }: LaunchWizardProps) {
   const router = useRouter();
-  const { libraryAgents } = useAgentLibrary();
+  const { libraryAgents, allAgents } = useAgentLibrary();
 
   const [authChecked, setAuthChecked] = useState(false);
   // ISS-321: the signed-in tier, for the entitlement gate below. `null` until
@@ -254,6 +248,11 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
   const [webTemplates, setWebTemplates] = useState<PrototypeTemplate[]>([]);
   const [deckTemplates, setDeckTemplates] = useState<PPTTemplate[]>([]);
   const [systems, setSystems] = useState<DesignSystemListItem[]>([]);
+  // ISS-909: `systems` alone reads "loading", "failed" and "loaded, none" all as `[]`,
+  // so the DS step pulsed for good. Same idiom as `overrideLoad`; Retry bumps the attempt.
+  const [systemsLoad, setSystemsLoad] = useState<"loading" | "ready" | "failed">("loading");
+  const [systemsError, setSystemsError] = useState<string | null>(null);
+  const [systemsAttempt, setSystemsAttempt] = useState(0);
   const [loadError, setLoadError] = useState<string | null>(null);
 
   // ── Selection state. Template is per-mode (the toggle preserves nothing:
@@ -267,9 +266,7 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
   const [brief, setBrief] = useState("");
   const [discoveryAnswers, setDiscoveryAnswers] = useState<DiscoveryAnswers>(EMPTY_ANSWERS);
 
-  // `stageKey` links a chip to its `useStagedDocuments` entry (absent when the
-  // file is not staged, e.g. no token).
-  const [attachedFiles, setAttachedFiles] = useState<{ name: string; size: string; stageKey?: number }[]>([]);
+  const [attachedFiles, setAttachedFiles] = useState<{ name: string; size: string }[]>([]);
   // KAN-91: file content stored separately so the textarea stays clean.
   const [attachedFileContents, setAttachedFileContents] = useState<{ name: string; content: string }[]>([]);
   // Image-input Wave 2 (D3): images ride OUT-OF-BAND via the draft `images`
@@ -280,22 +277,18 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
   // ONLY inline the capped text extraction, so `.uploads/` was empty at launch and a
   // file-reading workflow (prototype_v2's `fi-planner` opens `.uploads/manifest.json`)
   // had nothing to read — unlaunchable from its own declared `launch_surface: wizard`.
-  // The attach index is stamped synchronously at attach time (the stage key)
-  // because stage responses arrive in any order. Every outcome — staging, staged,
-  // failed with a reason — is tracked, so a failed upload is shown on its chip and
-  // blocks Continue instead of launching a run with no files.
-  const {
-    documents: stagedDocuments,
-    gate: uploadGate,
-    stage: stageDocument,
-    retry: retryStage,
-    remove: removeStage,
-    settle: settleStages,
-    hasPending: hasPendingStages,
-    snapshot: stagedSnapshot,
-  } = useStagedDocuments();
-  // Stage keys whose in-browser text preview failed (informational chip note).
-  const [previewFailedKeys, setPreviewFailedKeys] = useState<number[]>([]);
+  // `attachIndex` is stamped synchronously below because these entries append in
+  // stage-RESPONSE order, not attach order.
+  const [stagedUploads, setStagedUploads] = useState<{ name: string; stageId: string; attachIndex: number }[]>([]);
+  // ISS-917: the wizard mounts outside DashboardLayout, so its exits need their
+  // own unsaved-input guard. A latch set only by USER writers: the draft restore,
+  // library re-seed, plan merge, override overlay and FIX-103's apple auto-select
+  // write the same state with no user action, so a mount snapshot would prompt on
+  // an untouched wizard. Attachments and Discovery count by presence in requestLeave.
+  const userEditedRef = useRef(false);
+  // The exit the "Leave without saving?" dialog is holding, or null.
+  const [pendingLeave, setPendingLeave] = useState<(() => void) | null>(null);
+  const attachIndexRef = useRef(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const preSpeechTextRef = useRef("");
   const { isListening, transcript, startListening, stopListening, isSupported: speechSupported } =
@@ -313,6 +306,17 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
   const [showAgents, setShowAgents] = useState(false);
 
   const [pipelineAgents, setPipelineAgents] = useState<AgentDef[]>(() => defaultAgentsFor(libraryAgents, initialMode));
+  // ISS-284: `pipelineAgents` is not final until the override/plan overlay below
+  // has answered. A FAILED answer leaves the library roster on screen even for a
+  // user who has an override, so "Save as my version" (an UPSERT over that
+  // override) needs `ready`, not merely "not loading".
+  const [overrideLoad, setOverrideLoad] = useState<"loading" | "ready" | "failed">("loading");
+  // ISS-920: a restored draft's agentIds wait for the agent library; until then
+  // the roster is the default one, not the saved one.
+  const [agentRestorePending, setAgentRestorePending] = useState(false);
+  // ISS-943: the roster on screen is a restored SAVED one, so plan completion
+  // must leave it alone even when it is shorter than the plan.
+  const savedRosterRef = useRef(false);
 
   // ── The compiled plan's steps, for roster completion (spec 017) ─────────────
   // `defaultAgentsFor` filters the agent library by each AGENT.md's single
@@ -366,6 +370,12 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
     selectionsRef.current = s;
     setLiveSelections(s);
   }, []);
+  // ISS-917: the two children call this only from user actions, so it latches;
+  // handleSelectionsChange itself also carries every programmatic seed.
+  const handleUserSelectionsChange = useCallback((s: SelectionsMap) => {
+    userEditedRef.current = true;
+    handleSelectionsChange(s);
+  }, [handleSelectionsChange]);
   // `touched: true` from the start is FIX-323: `gate_agent_ids` is ALWAYS sent, so
   // an empty selection reads as an explicit "no gates" rather than an absent field
   // the backend would fill from its own defaults. ISS-247 changed the live map, not
@@ -395,6 +405,14 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
     // page), so it owns the tier lookup rather than taking it as a prop from
     // one of them. Non-fatal: a failure leaves `tier` null and gates nothing.
     getMe(token).then((u) => setTier(u.tier)).catch(() => {});
+    // ISS-347 / ISS-1000: chain.* is ambient session state with no tie to this
+    // navigation, so a draft the caller staged for this mode outranks it. Decided
+    // here, before chain.from can arm chaining mode or the restore effect below
+    // can apply chain.brief, and every chain key goes, so none rides into the run.
+    if (sessionStorage.getItem(draftKeyFor(initialMode)) !== null) {
+      ["chain.from", "chain.brief", CHAIN_SOURCE_RUN_ID_KEY, CHAIN_SOURCE_STATUS_KEY]
+        .forEach((k) => sessionStorage.removeItem(k));
+    }
     const from = sessionStorage.getItem("chain.from");
     if (from) {
       setChainFrom(from);
@@ -409,7 +427,7 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
     }
     // v2: migrate away from the legacy chain.context_block key on first load.
     migrateChainStorageV2();
-  }, [router]);
+  }, [router, initialMode]);
 
   // Restore the draft the dashboard/Saved-workflow hand-off wrote for THIS mode,
   // then clear it (FIX-005: one-shot, so a fresh open never pre-fills stale data).
@@ -421,13 +439,14 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
     if (!authChecked) return;
     try {
       const chainBrief = sessionStorage.getItem("chain.brief");
-      if (chainBrief) {
+      // ISS-347: `!== null`, so an empty chain.brief is consumed too, not left behind.
+      if (chainBrief !== null) {
         setBrief(chainBrief);
         sessionStorage.removeItem("chain.brief");
         sessionStorage.removeItem("chain.from");
         return;
       }
-      const draftKey = STEPPER_MODE[initialMode] === "web" ? "prototype.draft" : "ppt.draft";
+      const draftKey = draftKeyFor(initialMode);
       const raw = sessionStorage.getItem(draftKey);
       if (!raw) return;
       const d = JSON.parse(raw) as {
@@ -443,11 +462,20 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
       if (d.customDsBody) setCustomDsBody(d.customDsBody);
       if (d.customTemplateBody) setCustomTemplateBody(d.customTemplateBody);
       if (d.agentIds && d.agentIds.length > 0 && libraryAgents.length > 0) {
+        // ISS-967: resolve through allAgents — libraryAgents excludes the custom
+        // pool, so a saved custom-pool agent was silently dropped here.
         const restored = d.agentIds
-          .map((id) => libraryAgents.find((a) => a.id === id))
+          .map((id) => allAgents.find((a) => a.id === id))
           .filter(Boolean) as AgentDef[];
-        if (restored.length > 0) setPipelineAgents(restored);
+        if (restored.length > 0) {
+          setPipelineAgents(restored);
+          // An exact copy of the library default IS the partial roster spec 017
+          // completes (e.g. a ppt_v2 row saved while the plan fetch had failed).
+          savedRosterRef.current = restored.map((a) => a.id).join() !==
+            defaultAgentsFor(libraryAgents, initialMode).map((a) => a.id).join();
+        }
       }
+      setAgentRestorePending(Boolean(d.agentIds && d.agentIds.length > 0) && libraryAgents.length === 0);
       if (d.selections) handleSelectionsChange(d.selections);
       if (d.gateAgentIds !== undefined) gateSelectionRef.current = { ids: d.gateAgentIds, touched: true };
       // ISS-167: restored BEFORE the AgentsPopup below (keyed on userWorkflowId)
@@ -463,7 +491,7 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
         sessionStorage.removeItem(draftKey);
       }
     } catch { /* ignore malformed session data */ }
-  }, [authChecked, initialMode, libraryAgents, handleSelectionsChange]);
+  }, [authChecked, initialMode, libraryAgents, allAgents, handleSelectionsChange]);
 
   // `pipelineAgents`'s initial value (below) is computed once at mount from
   // `libraryAgents` — Redux state populated by an async fetch on sign-in. If
@@ -497,6 +525,8 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
   useEffect(() => {
     if (!planAgents) return;
     setPipelineAgents((prev) => {
+      // ISS-943: a restored saved roster is the user's, shorter or not.
+      if (savedRosterRef.current) return prev;
       // The plan also wins when it carries a sub-agent TREE the current lineup
       // does not. A fan-out parent and its children are ONE plan row (the
       // children hang off `.children`), so a nested workflow can have fewer
@@ -527,12 +557,14 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
     setOverrideAgents(null);
     setOverrideSelections(undefined);
     setShowOverride(false);
+    setOverrideLoad("loading");
 
     setDeclaredRunConfig(undefined);
 
     getWorkflowDetail(token, pipeline)
       .then((detail) => {
         if (cancelled) return;
+        setOverrideLoad("ready");
         // Declared config first — it is true whether or not an override exists,
         // and the override branch below returns early when there is none.
         setDeclaredRunConfig({
@@ -587,6 +619,7 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
         // A workflow with no manifest, or a transient failure. The library
         // roster is already rendered — degrade to "no override", never blank
         // the screen over an optional enhancement.
+        if (!cancelled) setOverrideLoad("failed");
       });
     return () => { cancelled = true; };
   }, [authChecked, mode, handleSelectionsChange]);
@@ -664,7 +697,8 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
         .then((t) => { if (!cancelled) setDeckTemplates(t); })
         .catch((err: Error) => {
           if (cancelled) return;
-          if (err.message.startsWith("401")) { handleSessionExpiry(); }
+          if (err.message.startsWith("401")) { handleSessionExpiry(); return; }
+          setLoadError(err.message);
         });
     }
 
@@ -674,6 +708,7 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
   // The design-system registry keeps its own once-per-mount effect: both
   // families read it (ISS-828), and re-running it on a family toggle would
   // re-fire FIX-103's auto-select over a selection the user had cleared.
+  // ISS-909: the DS step's Retry (`systemsAttempt`) is its only other trigger.
   useEffect(() => {
     if (!authChecked) return;
     const token = getToken();
@@ -684,6 +719,7 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
       .then((s) => {
         if (!cancelled) {
           setSystems(s);
+          setSystemsLoad("ready");
           // FIX-103: Auto-select "Design System Inspired by Apple" on a fresh
           // prototype launch. Only fires when no DS has been selected yet (null)
           // so draft-restored selections and user choices are never overwritten.
@@ -695,14 +731,19 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
           });
         }
       })
-      .catch(() => { /* non-fatal — the picker stays empty */ });
+      .catch((err: Error) => {
+        if (cancelled) return;
+        setSystemsError(err.message);
+        setSystemsLoad("failed");
+      });
 
     return () => { cancelled = true; };
-  }, [authChecked, router]);
+  }, [authChecked, router, systemsAttempt]);
 
   // Mirror speech transcript into the brief textarea (same pattern as the pages).
   useEffect(() => {
     if (transcript) {
+      userEditedRef.current = true;
       setBrief(preSpeechTextRef.current + (preSpeechTextRef.current ? " " : "") + transcript);
     }
   }, [transcript]);
@@ -736,17 +777,21 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
 
   const handleModeChange = useCallback((next: "web" | "deck") => {
     const nextMode = modeFromStepper(next, deckMode, webMode);
+    userEditedRef.current = true;
     setMode(nextMode);
     // Switching deliverable family is a fresh choice: reset the family-specific
     // selection + lineup + levers; shared inputs (brief/DS/files/images) persist.
     setSelectedTemplateId(null);
     setCustomTemplateBody(null);
     setPipelineAgents(defaultAgentsFor(libraryAgents, nextMode));
+    // ISS-943: the new family's lineup comes from the library, so its plan may complete it.
+    savedRosterRef.current = false;
     handleSelectionsChange({});
     gateSelectionRef.current = { ids: [], touched: true };
   }, [libraryAgents, deckMode, handleSelectionsChange]);
 
   const handleAddAgent = useCallback((agent: AgentDef, insertBeforeId?: string) => {
+    userEditedRef.current = true;
     setPipelineAgents((prev) => {
       // Reusable blank template — mint a fresh instance id per add (R-03).
       const node = instantiateIfTemplate(agent, collectAgentIds(prev));
@@ -769,10 +814,12 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
   }, [defaultAgentIds]);
 
   const handleRemoveAgent = useCallback((agentId: string) => {
+    userEditedRef.current = true;
     setPipelineAgents((prev) => prev.filter((a) => a.id !== agentId));
   }, []);
 
   const handleReorderAgents = useCallback((reordered: AgentDef[]) => {
+    userEditedRef.current = true;
     setPipelineAgents(reordered);
   }, []);
 
@@ -781,47 +828,36 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
   }, []);
 
   const handleSelectTemplate = useCallback((id: string | null) => {
+    userEditedRef.current = true;
     setSelectedTemplateId(id);
     setCustomTemplateBody(null);
   }, []);
   const handleSelectCustomTemplate = useCallback((ct: CustomTemplate | null) => {
+    userEditedRef.current = true;
     if (ct) { setSelectedTemplateId(ct.id); setCustomTemplateBody(ct.body); }
     else { setSelectedTemplateId(null); setCustomTemplateBody(null); }
   }, []);
   const handleSelectBuiltInDs = useCallback((id: string | null) => {
+    userEditedRef.current = true;
     setSelectedDsId(id);
     setCustomDsBody(null);
   }, []);
   const handleSelectCustomDs = useCallback((ds: CustomDesignSystem | null) => {
+    userEditedRef.current = true;
     if (ds) { setSelectedDsId(ds.id); setCustomDsBody(ds.body); }
     else { setCustomDsBody(null); }
   }, []);
 
   const removeFile = useCallback((idx: number) => {
-    const removed = attachedFiles[idx];
-    if (!removed) return;
-    setAttachedFiles((prev) => prev.filter((_, i) => i !== idx));
-    // Drop ONE block, not every block sharing the name (dev #18): two attached
-    // files with the same name must not both lose their text.
-    setAttachedFileContents((c) => withoutOne(c, removed.name));
-    if (removed.stageKey !== undefined) {
-      const key = removed.stageKey;
-      removeStage(key);
-      setPreviewFailedKeys((k) => k.filter((x) => x !== key));
-    }
-  }, [attachedFiles, removeStage]);
-
-  const retryUpload = useCallback(async (key: number, name: string) => {
-    const jwt = getToken();
-    if (!jwt) return;
-    if (await retryStage(key, jwt)) {
-      // The stage now succeeded, so the "could not be extracted" note written
-      // for a doubly-failed upload is no longer true (FIX-562).
-      setAttachedFileContents((c) =>
-        c.filter((f) => !(f.name === name && f.content === STAGE_FAILED_PLACEHOLDER)),
-      );
-    }
-  }, [retryStage]);
+    setAttachedFiles((prev) => {
+      const removedName = prev[idx]?.name;
+      if (removedName) {
+        setAttachedFileContents((c) => withoutOne(c, removedName));
+        setStagedUploads((s) => withoutOne(s, removedName));
+      }
+      return prev.filter((_, i) => i !== idx);
+    });
+  }, []);
 
   const onFilesPicked = useCallback((files: FileList) => {
     Array.from(files).forEach((f) => {
@@ -838,24 +874,31 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
         reader.readAsDataURL(f);
         return;
       }
+      const meta = {
+        name: f.name,
+        size: f.size < 1024 ? `${f.size}B` : f.size < 1048576 ? `${(f.size / 1024).toFixed(1)}KB` : `${(f.size / 1048576).toFixed(1)}MB`,
+      };
+      setAttachedFiles((p) => [...p, meta]);
       const isTextFile = isTextUpload(f.name);
       const isBinaryFile = isBinaryUpload(f.name);
       const jwt = getToken();
       // UPLD-05: park the raw bytes server-side for EVERY document, text ones
-      // included. `.uploads/` is the only thing a file-reading workflow opens, so
-      // a .csv/.md read client-side below would otherwise reach the run as
-      // inlined brief text and nothing else — the attached file would be missing
-      // from `.uploads/manifest.json` entirely. The stage key is the attach index,
-      // captured HERE, synchronously, before the async call: the client is the
-      // only place true attach order is known. A failed stage is shown on the
-      // chip and blocks Continue (see `uploadGate`).
-      const stageKey = jwt && (isTextFile || isBinaryFile) ? stageDocument(f, jwt) : undefined;
-      const meta = {
-        name: f.name,
-        size: f.size < 1024 ? `${f.size}B` : f.size < 1048576 ? `${(f.size / 1024).toFixed(1)}KB` : `${(f.size / 1048576).toFixed(1)}MB`,
-        ...(stageKey !== undefined ? { stageKey } : {}),
-      };
-      setAttachedFiles((p) => [...p, meta]);
+      // included (fire-and-forget — a staging failure degrades to the
+      // pre-existing text-only behavior). `.uploads/` is the only thing a
+      // file-reading workflow opens, so a .csv/.md read client-side below would
+      // otherwise reach the run as inlined brief text and nothing else — the
+      // attached file would be missing from `.uploads/manifest.json` entirely.
+      // `attachIndex` is captured HERE, synchronously, before the async call:
+      // the client is the only place true attach order is known.
+      const attachIndex = attachIndexRef.current++;
+      const stagedPromise = jwt && (isTextFile || isBinaryFile)
+        ? stageRunFile(jwt, f)
+            .then((res) => {
+              setStagedUploads((p) => [...p, { name: f.name, stageId: res.stage_id, attachIndex }]);
+              return true;
+            })
+            .catch(() => false)
+        : Promise.resolve(false);
       if (isTextFile) {
         const reader = new FileReader();
         reader.onload = (ev) => {
@@ -868,10 +911,7 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
         };
         reader.readAsText(f);
       } else if (isBinaryFile) {
-        if (jwt && stageKey !== undefined) {
-          // Over the per-file cap: the stage already failed without uploading,
-          // and the preview call would be refused the same way.
-          if (isOverUploadLimit(f.size)) return;
+        if (jwt) {
           extractFileText(jwt, f)
             .then((res) => {
               const truncNote = res.truncated ? `\n[Content truncated to ${ATTACH_MAX_CHARS.toLocaleString()} chars]` : "";
@@ -880,19 +920,19 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
             .catch(() => {
               // The in-browser extraction is a best-effort PREVIEW; the server-side
               // stage above is what agents actually read via extract_text. If staging
-              // succeeded, say nothing in the brief — a "[could not extract text]"
-              // block convinces an agent the document is genuinely unreadable when it
-              // isn't (the chip notes the missing preview instead). Only when staging
-              // ALSO failed do we owe the brief a note, and even then never a phrase
-              // readable as "unreadable/empty".
-              setPreviewFailedKeys((k) => [...k, stageKey]);
-              void settleStages(stageKey).then((docs) => {
-                const doc = docs.find((d) => d.key === stageKey);
-                // Removed meanwhile, or staged after all: no note.
-                if (!doc || doc.status === "staged") return;
+              // succeeded, say nothing — a "[could not extract text]" block convinces
+              // an agent the document is genuinely unreadable when it isn't. Only when
+              // staging ALSO failed do we owe the brief a note, and even then never a
+              // phrase readable as "unreadable/empty".
+              stagedPromise.then((staged) => {
+                if (staged) return;
                 setAttachedFileContents((p) => [
                   ...p,
-                  { name: f.name, content: STAGE_FAILED_PLACEHOLDER },
+                  {
+                    name: f.name,
+                    content:
+                      "[This document is attached but its text could not be extracted in-browser; do not assume it is empty.]",
+                  },
                 ]);
               });
             });
@@ -901,7 +941,7 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
         }
       }
     });
-  }, [stageDocument, settleStages]);
+  }, []);
 
   // ISS-155: validate what `handleLaunch` ACTUALLY consumes, not a proxy for it.
   // The previous form was `isChaining || brief.trim()` — chaining WAIVED the brief
@@ -914,16 +954,21 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
   // chaining WORKS) while closing the briefless launch.
   const hasBuildInput = Boolean(brief.trim() || chainContextBlock?.trim());
 
+  // ISS-1002: ONE predicate for the source-status gate and the checkbox that clears
+  // it, so Continue is never blocked with no remedy on screen. A status with no
+  // chain.from is a stranded key, not this open's chain.
+  const showSourceWarning = chainFrom !== null && chainSourceStatus !== null;
+
   const canContinue = useMemo(() => {
     // SGV2 11.7: if the source run is non-success, the warning must be acknowledged.
-    if (chainSourceStatus && !warningAcknowledged) return false;
+    if (showSourceWarning && !warningAcknowledged) return false;
     if (isWeb) {
       // KAN-87: template optional; DS required (color tokens).
       return Boolean(selectedDsId && hasBuildInput);
     }
     // ppt: template required; DS only when the template declares it.
     return Boolean(selectedTemplateId && hasBuildInput && (!dsRequired || selectedDsId));
-  }, [mode, selectedDsId, selectedTemplateId, dsRequired, hasBuildInput, chainSourceStatus, warningAcknowledged]);
+  }, [mode, selectedDsId, selectedTemplateId, dsRequired, hasBuildInput, showSourceWarning, warningAcknowledged]);
 
   // ISS-321: the deliverable this wizard launches, gated on the same
   // `canRunPipeline` the dashboard catalog card uses (HomeLaunchGrid) and the
@@ -933,6 +978,9 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
   const launchPipeline = MODE_CONFIG[mode].savePipeline;
   const locked = tier !== null && !canRunPipeline(tier, launchPipeline);
   const upgradeTo = tier !== null ? getUpgradeTier(tier, launchPipeline) : null;
+  // ISS-284 / ISS-920: the saves and the Advanced popup (it has its own Save)
+  // would persist a roster that is not final yet.
+  const rosterSettling = overrideLoad === "loading" || agentRestorePending;
 
   const handleSaveWorkflow = useCallback(async (name: string, description: string) => {
     setShowSaveModal(false);
@@ -961,6 +1009,9 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
         agent_ids: pipelineAgents.map((a) => a.id),
         selections: { ...sel, _wizard: wizardConfig },
       });
+      // ISS-917: saved, so Back need not prompt for it. Only this save: "Save as
+      // my version" keeps no brief, template or design system.
+      userEditedRef.current = false;
       setSavedConfirm(true);
       setTimeout(() => setSavedConfirm(false), 2500);
     } catch (e) {
@@ -1018,14 +1069,8 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
     }
   }, [mode, cfg.eyebrow, pipelineAgents, brief, selectedTemplateId, selectedDsId, isDeck, dsRequired]);
 
-  const handleLaunch = useCallback(async () => {
+  const handleLaunch = useCallback(() => {
     if (!canContinue || locked) return;
-    // Never launch ahead of an in-flight stage: its id would be missing from
-    // `staged_upload_ids` and the run's `.uploads/` would lack that file. The
-    // button is disabled while staging, so this await is a backstop; with
-    // nothing in flight the launch stays synchronous.
-    const docs = hasPendingStages() ? await settleStages() : stagedSnapshot();
-    if (uploadGateFor(docs).kind !== "ready") return;
     const sourceRunId = isChaining ? (sessionStorage.getItem(CHAIN_SOURCE_RUN_ID_KEY) ?? undefined) : undefined;
     sessionStorage.removeItem(CHAIN_SOURCE_RUN_ID_KEY);
 
@@ -1050,8 +1095,8 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
       gatesTouched,
       selections: selectionsRef.current,
       images: attachedImages,
-      // UPLD-05 — see the staging note above. Sorted back into attach order.
-      stagedUploadIds: orderedStagedUploadIds(stagedUploadsOf(docs)),
+      // UPLD-05 — see the `stagedUploads` note above. Sorted back into attach order.
+      stagedUploadIds: orderedStagedUploadIds(stagedUploads),
       // `agent_ids` is a SUBSET selector over a pipeline's REGISTERED agents:
       // run_commands.launch_run checks each id against registry.allowed_custom_agent_ids(),
       // which is built from AGENT.md `pipeline_type` frontmatter. 14 of the 35 file
@@ -1079,11 +1124,19 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
     sessionStorage.setItem(draft.pendingKey, "true");
     router.push(routes.home());
   }, [
-    canContinue, locked, mode, isChaining, brief, attachedFileContents, attachedImages,
-    hasPendingStages, settleStages, stagedSnapshot,
+    canContinue, locked, mode, isChaining, brief, attachedFileContents, attachedImages, stagedUploads,
     dsRequired, isDeck, selectedDsId, selectedTemplateId, customDsBody, customTemplateBody,
     discoveryAnswers, pipelineAgents, router,
   ]);
+
+  // ISS-917 / ISS-982: every user-initiated exit routes through here; Continue
+  // (handleLaunch) hands its input off and never prompts.
+  const requestLeave = (go: () => void) => {
+    const unsaved = userEditedRef.current || attachedFiles.length > 0 || attachedImages.length > 0 ||
+      !isDiscoveryEmpty(discoveryAnswers);
+    if (unsaved) setPendingLeave(() => go);
+    else go();
+  };
 
   if (!authChecked) {
     return (
@@ -1103,7 +1156,7 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
             // second Home entry left the wizard route (/create/{mode} via the
             // catch-all, or /workflow/create) on the stack, so the browser's
             // own Back walked right back into the wizard.
-            onClick={() => goBackOr(router, () => router.push(routes.home()))}
+            onClick={() => requestLeave(() => goBackOr(router, () => router.push(routes.home())))}
             aria-label="Back to dashboard"
             className="flex items-center justify-center rounded-[var(--radius-button)] p-1.5 text-ink-500 transition-colors hover:bg-surface-white hover:text-ink-900"
           >
@@ -1189,7 +1242,7 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
             Accessibility: role="alert" announces it immediately; AlertTriangle
             icon + text label means the warning is not color-alone; the checkbox
             is the keyboard-reachable acknowledgment gate. */}
-        {chainFrom && chainSourceStatus && (
+        {showSourceWarning && (
           <div
             role="alert"
             aria-live="assertive"
@@ -1238,7 +1291,7 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
             <div className="mt-3 rounded-[var(--radius-card)] border border-line-border bg-surface-white">
               <textarea
                 value={brief}
-                onChange={(e) => setBrief(e.target.value)}
+                onChange={(e) => { userEditedRef.current = true; setBrief(e.target.value); }}
                 name="brief"
                 aria-label="Brief"
                 placeholder={isListening ? "Listening... speak your idea" : cfg.placeholder}
@@ -1246,30 +1299,15 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
                 className="w-full resize-none rounded-[var(--radius-card)] bg-transparent px-5 py-4 text-[14px] leading-relaxed text-ink-900 placeholder:text-ink-400 focus:outline-none"
               />
               {attachedFiles.length > 0 && (
-                <div className="flex flex-wrap gap-1.5 px-5 pb-2" aria-live="polite">
-                  {attachedFiles.map((file, idx) => {
-                    const key = file.stageKey;
-                    const doc = key === undefined ? undefined : stagedDocuments.find((d) => d.key === key);
-                    // A too-large file fails the same way again, so it offers no Retry.
-                    const onRetry =
-                      key !== undefined && doc?.status === "failed" && doc.reason !== UPLOAD_TOO_LARGE_MESSAGE
-                        ? () => void retryUpload(key, file.name)
-                        : undefined;
-                    return (
-                      <span key={`${file.name}-${idx}`} className="inline-flex items-center gap-1 rounded-[var(--radius-button)] bg-surface-warm px-2.5 py-1 text-[10px] text-ink-600">
-                        <File className="h-2.5 w-2.5" /> {file.name}
-                        <UploadChipStatus
-                          name={file.name}
-                          document={doc}
-                          previewFailed={key !== undefined && previewFailedKeys.includes(key)}
-                          onRetry={onRetry}
-                        />
-                        <button onClick={() => removeFile(idx)} aria-label={`Remove ${file.name}`} className="ml-1 text-ink-400 hover:text-status-failed">
-                          <X className="h-2.5 w-2.5" />
-                        </button>
-                      </span>
-                    );
-                  })}
+                <div className="flex flex-wrap gap-1.5 px-5 pb-2">
+                  {attachedFiles.map((file, idx) => (
+                    <span key={`${file.name}-${idx}`} className="inline-flex items-center gap-1 rounded-[var(--radius-button)] bg-surface-warm px-2.5 py-1 text-[10px] text-ink-600">
+                      <File className="h-2.5 w-2.5" /> {file.name}
+                      <button onClick={() => removeFile(idx)} aria-label={`Remove ${file.name}`} className="ml-1 text-ink-400 hover:text-status-failed">
+                        <X className="h-2.5 w-2.5" />
+                      </button>
+                    </span>
+                  ))}
                 </div>
               )}
               {attachedImages.length > 0 && (
@@ -1317,7 +1355,7 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
                 <div className="border-t border-line-divider px-5 py-2.5">
                   <button
                     type="button"
-                    onClick={() => setBrief(examplePrompt ?? "")}
+                    onClick={() => { userEditedRef.current = true; setBrief(examplePrompt ?? ""); }}
                     className="inline-flex items-center gap-1.5 text-[11px] text-ink-500 hover:text-brand"
                   >
                     <Sparkles className="h-3 w-3" />
@@ -1335,7 +1373,8 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
           <button
             type="button"
             onClick={() => setShowAgents(true)}
-            className="flex items-center gap-2 text-[12px] text-ink-400 transition-colors hover:text-ink-700"
+            disabled={rosterSettling}
+            className="flex items-center gap-2 text-[12px] text-ink-400 transition-colors hover:text-ink-700 disabled:cursor-not-allowed disabled:opacity-30"
           >
             <Settings2 className="h-3.5 w-3.5" />
             <span className="font-medium text-ink-600">Advanced</span>
@@ -1353,7 +1392,9 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
           <WizardStepper
             mode={STEPPER_MODE[mode]}
             onModeChange={handleModeChange}
-            steps={isDeck ? ["template"] : ["template", "design-system", "discovery"]}
+            // ISS-189: a deck template that requires a design system gets the DS step,
+            // or the picker never mounts while Continue and the pill still demand one.
+            steps={isDeck ? (dsRequired ? ["template", "design-system"] : ["template"]) : ["template", "design-system", "discovery"]}
             webTemplates={webTemplates}
             webSelectedId={isWeb && !customTemplateBody ? selectedTemplateId : null}
             onWebSelect={handleSelectTemplate}
@@ -1366,15 +1407,40 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
             deckSelectedCustomTemplateId={isDeck && customTemplateBody ? selectedTemplateId : null}
             dsSlot={
               dsVisible ? (
-                systems.length === 0 ? (
+                systemsLoad === "loading" ? (
                   <div className="h-48 animate-pulse rounded-[var(--radius-card)] bg-surface-white/60" />
                 ) : (
-                  <DesignSystemPicker
-                    systems={systems}
-                    selectedId={selectedDsId}
-                    onSelect={handleSelectBuiltInDs}
-                    onSelectCustom={handleSelectCustomDs}
-                  />
+                  <>
+                    {/* ISS-909: a failed or empty registry says so, with a Retry; the picker stays
+                        mounted under it so "Upload custom" can still satisfy the DS gate. */}
+                    {(systemsLoad === "failed" || systems.length === 0) && (
+                      <div
+                        role={systemsLoad === "failed" ? "alert" : undefined}
+                        className={`mb-3 flex items-center justify-between gap-3 rounded-[var(--radius-card)] border px-5 py-4 text-[13px] ${
+                          systemsLoad === "failed"
+                            ? "border-[var(--status-failed-border)] bg-[var(--status-failed-fill)] text-status-failed"
+                            : "border-dashed border-line-control bg-surface-warm text-ink-500"
+                        }`}
+                      >
+                        {systemsLoad === "failed"
+                          ? `Couldn't load design systems: ${systemsError}`
+                          : "No design systems are available."}
+                        <button
+                          type="button"
+                          onClick={() => { setSystemsLoad("loading"); setSystemsAttempt((n) => n + 1); }}
+                          className="flex-shrink-0 rounded-[var(--radius-button)] border border-line-control bg-surface-white px-3 py-1.5 text-[11px] font-medium text-ink-700 transition-all hover:border-brand hover:text-brand"
+                        >
+                          Retry
+                        </button>
+                      </div>
+                    )}
+                    <DesignSystemPicker
+                      systems={systems}
+                      selectedId={selectedDsId}
+                      onSelect={handleSelectBuiltInDs}
+                      onSelectCustom={handleSelectCustomDs}
+                    />
+                  </>
                 )
               ) : (
                 <StepNote>This deck template doesn&apos;t require a design system — the template supplies its own theme.</StepNote>
@@ -1401,7 +1467,7 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
               agents={pipelineAgents}
               onChange={handleGatesChange}
               selections={liveSelections}
-              onSelectionsChange={handleSelectionsChange}
+              onSelectionsChange={handleUserSelectionsChange}
             />
           </div>
         </section>
@@ -1443,22 +1509,13 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
             </div>
           )}
 
-          {/* Why Continue is blocked by the uploads — always mounted so the live
-              region announces changes; empty while ready. */}
-          <p
-            id="launch-upload-gate"
-            role="status"
-            className={`mb-3 text-[11px] empty:mb-0 ${uploadGate.kind === "failed" ? "text-status-failed" : "text-ink-500"}`}
-          >
-            {uploadGateMessage(uploadGate)}
-          </p>
-
           <div className="flex gap-3">
             <button
               type="button"
               onClick={() => { setSaveError(null); setShowSaveModal(true); }}
+              disabled={rosterSettling || pipelineAgents.length === 0}
               title="Save this workflow configuration to reuse later"
-              className="flex flex-shrink-0 items-center gap-2 rounded-[var(--radius-card)] border border-line-border bg-surface-white px-5 py-4 text-[14px] font-semibold text-ink-700 shadow-[var(--elevation-raised)] transition-all hover:border-line-control hover:bg-surface-warm"
+              className="flex flex-shrink-0 items-center gap-2 rounded-[var(--radius-card)] border border-line-border bg-surface-white px-5 py-4 text-[14px] font-semibold text-ink-700 shadow-[var(--elevation-raised)] transition-all hover:border-line-control hover:bg-surface-warm disabled:cursor-not-allowed disabled:opacity-30"
             >
               <Save className="h-4 w-4" />
               Save workflow
@@ -1471,17 +1528,19 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
             <button
               type="button"
               onClick={handleSaveAsOverride}
-              title="Make this lineup your default for this workflow"
-              className="flex flex-shrink-0 items-center gap-2 rounded-[var(--radius-card)] border border-line-border bg-surface-white px-5 py-4 text-[14px] font-semibold text-ink-700 shadow-[var(--elevation-raised)] transition-all hover:border-line-control hover:bg-surface-warm"
+              disabled={overrideLoad !== "ready" || agentRestorePending || pipelineAgents.length === 0}
+              title={overrideLoad === "failed"
+                ? "Couldn't check for your saved version of this workflow. Reload to try again."
+                : "Make this lineup your default for this workflow"}
+              className="flex flex-shrink-0 items-center gap-2 rounded-[var(--radius-card)] border border-line-border bg-surface-white px-5 py-4 text-[14px] font-semibold text-ink-700 shadow-[var(--elevation-raised)] transition-all hover:border-line-control hover:bg-surface-warm disabled:cursor-not-allowed disabled:opacity-30"
             >
               <Save className="h-4 w-4" />
               Save as my version
             </button>
             <button
               type="button"
-              onClick={() => void handleLaunch()}
-              disabled={!canContinue || locked || uploadGate.kind !== "ready"}
-              aria-describedby={uploadGate.kind !== "ready" ? "launch-upload-gate" : undefined}
+              onClick={handleLaunch}
+              disabled={!canContinue || locked || agentRestorePending}
               className="flex flex-1 items-center justify-center gap-2 rounded-[var(--radius-card)] bg-brand px-6 py-4 text-[14px] font-semibold text-white shadow-[var(--elevation-raised)] transition-all hover:bg-brand-pressed disabled:cursor-not-allowed disabled:bg-line-divider disabled:text-ink-400 disabled:shadow-none"
             >
               Continue
@@ -1522,7 +1581,7 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
         // the launch panel on the way back.
         onOpenInCanvas={() => {
           setShowAgents(false);
-          router.push(`/workflows/${encodeURIComponent(MODE_CONFIG[mode].agentPipeline)}/canvas`);
+          requestLeave(() => router.push(`/workflows/${encodeURIComponent(MODE_CONFIG[mode].agentPipeline)}/canvas`));
         }}
         agents={pipelineAgents}
         manifestSteps={planManifestSteps}
@@ -1540,7 +1599,7 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
         canAddMore={canAddMore}
         initialSelections={selectionsRef.current}
         selections={liveSelections}
-        onSelectionsChange={handleSelectionsChange}
+        onSelectionsChange={handleUserSelectionsChange}
         userWorkflowId={userWorkflowId}
         savedName={savedName}
         savedDescription={savedDescription}
@@ -1551,6 +1610,13 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
           title={cfg.saveTitle}
           onSave={handleSaveWorkflow}
           onCancel={() => setShowSaveModal(false)}
+        />
+      )}
+
+      {pendingLeave && (
+        <UnsavedChangesDialog
+          onStay={() => setPendingLeave(null)}
+          onLeave={() => { setPendingLeave(null); pendingLeave(); }}
         />
       )}
     </div>

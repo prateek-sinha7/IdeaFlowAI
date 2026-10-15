@@ -1,0 +1,222 @@
+# 3-analyzer QA-KB-087, 2026-10-02. Scan of every frontend test file that uses it.fails in code (26 files).
+# Method: for each file, (a) run it IN PLACE as shipped, (b) run a COPY in a symlink mirror outside the repo with `it.fails` -> `it`, so each xfail case
+# reports where it really fails. One file at a time, offline vitest. Scripts: scratch/scan_build.py.txt, scan_run.py.txt, scan_sites.py.txt.
+# 'in place rc' is vitest's exit code for the shipped file (0 = every xfail case still fails; 1 = at least one XPASSes: 'Expect test to fail').
+
+file (frontend/src/...)                                                        inplace   mirror: failing xfail cases
+app/[...view]/runVersionBackNav.iss1026.test.ts                                rc=0      1
+app/[...view]/terminalReopenReconcileLock.meta.test.ts                         rc=0      3
+app/preview-fullscreen/page.previewPayloadShape.test.tsx                       rc=0      5
+components/handoff/IntegrationsCard.copyFeedback.test.tsx                      rc=0      1
+components/history/WorkflowHistory.pptV2Files.test.tsx                         rc=0      1
+components/layout/streamRedirect.bug024.source.test.ts                         rc=0      1
+components/library/LibraryPage.copyFeedback.test.tsx                           rc=0      2
+components/preview/AppBuilderPreview.searchFilter.test.tsx                     rc=0      0
+components/preview/PreviewPanel.appBuilderSearch.test.tsx                      rc=1      0
+components/preview/PreviewPanel.clarifyPin.test.tsx                            rc=0      5
+components/preview/PreviewPanel.shellStatusForeignPin.iss952.test.tsx          rc=0      5
+components/preview/PreviewPanel.staleVersionPick.test.tsx                      rc=0      1
+components/preview/SandboxPdfPreview.ref.test.tsx                              rc=0      1
+components/results/ArtifactVersionPicker.iss802.test.tsx                       rc=0      1
+components/results/FilesTab.baseVersionRef.test.tsx                            rc=0      1
+components/settings/AccountSettings.iss372.test.tsx                            rc=0      1
+components/workflow/AgentDrawer.toolGrants.test.tsx                            rc=0      0
+components/workflow/IdeaInputPage.designPicker.test.tsx                        rc=0      1
+components/workflow/IdeaInputPage.iss371.test.tsx                              rc=0      0
+components/workflow/IdeaInputPage.iss472.test.tsx                              rc=0      2
+components/workflow/IdeaInputPage.iss919.test.tsx                              rc=0      4
+components/workflow/LaunchWizard.chain.test.tsx                                rc=0      3
+components/workflow/LaunchWizard.savedRoster.iss943.test.tsx                   rc=0      3
+components/workflow/ReviewGatesSection.test.tsx                                rc=0      2
+components/workflow/WorkflowView.attachmentMarkerNames.test.tsx                rc=0      0
+components/workflow/composer/ComposerPage.bug025.test.tsx                      rc=0      8
+TOTAL                                                                                    52
+
+## Where each case fails (test-file line when the stack has one, else the error text)
+
+### app/[...view]/runVersionBackNav.iss1026.test.ts
+  - ISS-1026 — tracked-run branch re-opens Preview for run-version maps run-version to the pre
+      :19  expect(branch).toMatch(/run-version[\s\S]*"preview"/);
+      AssertionError: expected 'if (runId === trackedRunIdRef.current…' to match /run-version[\s\S]*"preview"/
+
+### app/[...view]/terminalReopenReconcileLock.meta.test.ts
+  - ISS-126 source-lock stays in step with page.tsx (QA-KB-071) ISS-898: every applyTerminalSt
+      :25  for (const a of anchors) expect(pageSource, `stale anchor: ${a}`).toContain(a);
+      AssertionError: stale anchor: applyTerminalStatus(prev, fullRun.status): expected '"use client";\n\nimport { use, useCal…' to contain 'apply
+  - ISS-126 source-lock stays in step with page.tsx (QA-KB-071) ISS-1009: the reviewGateData c
+      :31  expect(body).toMatch(/expect\(call\)\.toBeGreaterThan\(-1\)/);
+      AssertionError: expected 'it("does NOT clear reviewGateData — t…' to match /expect\(call\)\.toBeGreaterThan\(-1\)/
+  - ISS-126 source-lock stays in step with page.tsx (QA-KB-071) ISS-1010: the ordering case se
+      :37  expect(body).toMatch(/indexOf\("for \(const frame of durableFrames\)",\s*\w+\)/);
+      AssertionError: expected 'it("runs AFTER the durable replay loo…' to match /indexOf\("for \(const frame of durabl…/
+
+### app/preview-fullscreen/page.previewPayloadShape.test.tsx
+  - preview-fullscreen payload shape — ISS-915 ISS-915 files string exits via giveUp() instead
+      TypeError: Cannot read properties of undefined (reading 'localeCompare')
+  - preview-fullscreen payload shape — ISS-915 ISS-915 files [null] exits via giveUp() instead
+      TypeError: Cannot read properties of null (reading 'path')
+  - preview-fullscreen payload shape — ISS-915 ISS-915 files [{}] exits via giveUp() instead o
+      TypeError: Cannot read properties of undefined (reading 'split')
+  - preview-fullscreen payload shape — ISS-915 ISS-915 files {length:1} exits via giveUp() ins
+      TypeError: files is not iterable
+  - preview-fullscreen payload shape — ISS-915 ISS-915 files [1] exits via giveUp() instead of
+      TypeError: Cannot read properties of undefined (reading 'split')
+
+### components/handoff/IntegrationsCard.copyFeedback.test.tsx
+  - IntegrationsCard API-key 'copy now' button — ISS-561 shows SOME feedback after clicking th
+      TestingLibraryElementError: Unable to find an accessible element with the role "button"
+
+### components/history/WorkflowHistory.pptV2Files.test.tsx
+  - WorkflowHistory — Files tab dispatch for ppt_v2 (ISS-214) ISS-214: a ppt_v2 run's generic-
+      :159  expect(screen.getByTestId("files-tab-generic-filename").textContent).not.toBe("__UNDEFINED__");
+      AssertionError: expected '__UNDEFINED__' not to be '__UNDEFINED__' // Object.is equality
+
+### components/layout/streamRedirect.bug024.source.test.ts
+  - DashboardLayout isRunning effect — BUG-024 keep requested run tab does not push /stream un
+      :19  expect(before).toMatch(/pathname|parseViewPath|location\.pathname/);
+      AssertionError: expected ' see handleRunPipeline).\n      // Ke…' to match /pathname|parseViewPath|location\.path…/
+
+### components/library/LibraryPage.copyFeedback.test.tsx
+  - HookDetailModal Copy button — ISS-331 shows a failure state when the clipboard write rejec
+      :98  vi.mocked(useParams).mockReturnValue({ view: ["library", "hooks", MOCK_HOOK.id] });
+      TypeError: __vite_ssr_import_0__.vi.mocked(...).mockReturnValue is not a function
+  - SkillDetailModal Copy button — ISS-555 shows a failure state when the clipboard write reje
+      :117  vi.mocked(useParams).mockReturnValue({ view: ["library", "skills", MOCK_SKILL.id] });
+      TypeError: __vite_ssr_import_0__.vi.mocked(...).mockReturnValue is not a function
+
+### components/preview/PreviewPanel.clarifyPin.test.tsx
+  - QA-KB-066 - clarify rounds fed to Steps/Files follow the pinned version ISS-755 - pin v1: 
+      :178  expect(screen.queryByText(/V2-ROUND-Q1/)).toBeNull();
+      AssertionError: expected <p …(1)></p> to be null
+  - QA-KB-066 - clarify rounds fed to Steps/Files follow the pinned version ISS-755 - pin v1: 
+      :186  expect(screen.queryAllByText("clarifications.md").length).toBe(0);
+      AssertionError: expected 1 to be +0 // Object.is equality
+  - QA-KB-066 - clarify rounds fed to Steps/Files follow the pinned version ISS-1006 - pin v1 
+      :197  expect(screen.queryByText(/V1-OWN-Q1/)).not.toBeNull();
+      AssertionError: expected null not to be null
+  - QA-KB-066 - clarify rounds fed to Steps/Files follow the pinned version ISS-1007 - shell r
+      :210  expect(screen.queryByText(/LIVE-V2-PENDING/)).toBeNull();
+      AssertionError: expected <p …(1)></p> to be null
+  - QA-KB-066 - clarify rounds fed to Steps/Files follow the pinned version ISS-1008 - reopene
+      AssertionError: expected null not to be null
+
+### components/preview/PreviewPanel.shellStatusForeignPin.iss952.test.tsx
+  - ISS-952 / QA-KB-091 - shell status must not win over a foreign empty pin ISS-952 pinned co
+      TestingLibraryElementError: Unable to find an element with the text: No deliverable was saved for this version. This could be because the text is broken up by multiple el
+  - ISS-952 / QA-KB-091 - shell status must not win over a foreign empty pin ISS-952 pinned co
+      Error: Unable to find role="tab" and name `/preview/i`
+  - ISS-952 / QA-KB-091 - shell status must not win over a foreign empty pin ISS-952 pinned co
+      Error: Unable to find role="tab" and name `/preview/i`
+  - ISS-952 / QA-KB-091 - shell status must not win over a foreign empty pin ISS-952 pinned co
+      TestingLibraryElementError: Unable to find an element with the text: No deliverable was saved for this version. This could be because the text is broken up by multiple el
+  - ISS-952 / QA-KB-091 - shell status must not win over a foreign empty pin ISS-952 pinned fa
+      TestingLibraryElementError: Unable to find an element with the text: /did not complete successfully/. This could be because the text is broken up by multiple elements. In
+
+### components/preview/PreviewPanel.staleVersionPick.test.tsx
+  - ISS-939 — pending window ISS-939: while a pick is loading, Steps does not show the previou
+      :177  expect(screen.getByTestId("thinking-tab").textContent).not.toBe("brief-m3");
+      AssertionError: expected 'brief-m3' not to be 'brief-m3' // Object.is equality
+
+### components/preview/SandboxPdfPreview.ref.test.tsx
+  - SandboxPdfPreview — ref threading (ISS-973) ISS-973: forwards a supplied ref to getRunSand
+      :26  expect(mockBlob.mock.calls[0][3]).toBe("v2");
+      AssertionError: expected undefined to be 'v2' // Object.is equality
+
+### components/results/ArtifactVersionPicker.iss802.test.tsx
+  - ArtifactVersionPicker list-fetch effect under StrictMode (QA-PS-049 / ISS-802) fires getRu
+      AssertionError: expected "vi.fn()" to be called at least once
+
+### components/results/FilesTab.baseVersionRef.test.tsx
+  - Base-version Files section — parent ref (ISS-972) ISS-972: resolves the parent's deliverab
+      :48  expect(mockResolve.mock.calls[0][3]).toBe("v1");
+      AssertionError: expected undefined to be 'v1' // Object.is equality
+
+### components/settings/AccountSettings.iss372.test.tsx
+  - ISS-921 — Constitution draft counts as unsaved work reports dirty after the Constitution d
+      AssertionError: expected "vi.fn()" to be called at least once
+
+### components/workflow/IdeaInputPage.designPicker.test.tsx
+  - IdeaInputPage — opendesign design-picker wiring does not offer the picker for a workflow t
+      :161  expect(extraParams).toBeUndefined();
+      AssertionError: expected { gate_agent_ids: [] } to be undefined
+
+### components/workflow/IdeaInputPage.iss472.test.tsx
+  - ISS-472 — IdeaInputPage tier lock for an unentitled pipeline shows the upgrade lock and di
+      Error: Unable to find an element with the text: /requires .* plan|does not include/i. This could be because the text is broken up by multiple elements. In this case, you 
+  - ISS-472 — IdeaInputPage tier lock for an unentitled pipeline does not launch on Cmd+Enter 
+      AssertionError: expected "vi.fn()" to not be called at all, but actually been called 1 times
+
+### components/workflow/IdeaInputPage.iss919.test.tsx
+  - QA-KB-059 scratch: IdeaInputPage while GET /api/workflows/user_stories is PENDING ISS-919 
+      Error: expect(element).toBeDisabled()
+  - QA-KB-059 scratch: IdeaInputPage while GET /api/workflows/user_stories is PENDING ISS-919 
+      AssertionError: expected "vi.fn()" to not be called at all, but actually been called 1 times
+  - QA-KB-059 scratch: the FAILED-fetch window (adjacent state) ISS-984 T3 a rejected GET leav
+      Error: expect(element).toBeDisabled()
+  - QA-KB-059 scratch: an edit made in the window vs the late overlay (Advanced trigger) ISS-9
+      :171  expect(after).toBe(edited); // red today = edit replaced
+      AssertionError: expected 'domain-analyst,epic-architect,story-e…' to be 'domain-analyst,epic-architect,story-e…' // Object.is equality
+
+### components/workflow/LaunchWizard.chain.test.tsx
+  - QA-KB-062 LaunchWizard ambient chain.* state ISS-347: stale chain trio + staged draft -> t
+      :151  expect(o.briefEditorValue).toBe("EDITED brief (caller staged)");
+      AssertionError: expected null to be 'EDITED brief (caller staged)' // Object.is equality
+  - QA-KB-062 LaunchWizard ambient chain.* state ISS-1000: stale chain.from + source_run_id + 
+      :165  expect(observe().briefEditorVisible).toBe(true);
+      AssertionError: expected false to be true // Object.is equality
+  - QA-KB-062 LaunchWizard ambient chain.* state ISS-1002: stale chain.v2.source_status alone 
+      :179  expect(o.continueDisabled && !o.ackCheckbox).toBe(false);
+      AssertionError: expected true to be false // Object.is equality
+
+### components/workflow/LaunchWizard.savedRoster.iss943.test.tsx
+  - QA-KB-048 saved roster survives plan completion / restore ISS-943 cold: library lands afte
+      :171  expect(draftOf().agentIds).toEqual([PROTO_AGENTS[1]]);
+      AssertionError: expected [ 'prototype-specify', …(4) ] to deeply equal [ 'prototype-plan' ]
+  - QA-KB-048 saved roster survives plan completion / restore ISS-943 warm: library preloaded,
+      :184  expect(draftOf().agentIds).toEqual([PROTO_AGENTS[1]]);
+      AssertionError: expected [ 'prototype-specify', …(4) ] to deeply equal [ 'prototype-plan' ]
+  - QA-KB-048 saved roster survives plan completion / restore ISS-967 a saved custom-pool agen
+      :201  expect(draftOf().agentIds).toEqual([PROTO_AGENTS[0], PROTO_AGENTS[1], "custom-util-x"]);
+      AssertionError: expected [ 'prototype-specify', …(1) ] to deeply equal [ 'prototype-specify', …(2) ]
+
+### components/workflow/ReviewGatesSection.test.tsx
+  - ReviewGatesSection — ISS-419 non-human-review manifest gates ISS-419 — a step with a manif
+      Error: expect(element).toBeChecked()
+  - ReviewGatesSection — ISS-419 non-human-review manifest gates ISS-419 — a step with a manif
+      Error: expect(element).toBeChecked()
+
+### components/workflow/composer/ComposerPage.bug025.test.tsx
+  - BUG-025 — composer on a custom route (stale user_stories workflowType) BUG-025: library-ad
+      Error: expect(element).toBeEnabled()
+  - BUG-025 — composer on a custom route (stale user_stories workflowType) ISS-961: a saved cu
+      Error: expect(element).toBeEnabled()
+  - BUG-025 — composer on a custom route (stale user_stories workflowType) ISS-962: the Add-ag
+      Error: expect(element).not.toBeInTheDocument()
+  - BUG-025 — composer on a custom route (stale user_stories workflowType) ISS-964: Simple vie
+      Error: Unable to find an element with the text: /Suggested agents for your brief/i. This could be because the text is broken up by multiple elements. In this case, you ca
+  - BUG-025 — composer on a custom route (stale user_stories workflowType) ISS-965: the root-a
+      Error: expect(element).toBeDisabled()
+  - ISS-963 — Core badge and Remove lock must agree, and a lock must be visible ISS-963: Canva
+      :101  expect(!!screen.queryByText(/^Core$/)).toBe(disabled);
+      AssertionError: expected false to be true // Object.is equality
+  - ISS-963 — Core badge and Remove lock must agree, and a lock must be visible ISS-963: a dis
+      :108  expect(btn.className).not.toContain("disabled:opacity-0");
+      AssertionError: expected 'grid h-5 w-5 place-items-center round…' not to contain 'disabled:opacity-0'
+  - ISS-963 — Core badge and Remove lock must agree, and a lock must be visible ISS-963: Agent
+      :118  expect(!!within(row).queryByText(/^Core$/)).toBe(disabled);
+      AssertionError: expected false to be true // Object.is equality
+
+## Classification (3-analyzer, by reading each failure site)
+RED FOR THE WRONG REASON (never reaches the behavioural assertion, cannot XPASS when the app is right) - 4 files / 5 cases:
+  settings/AccountSettings.iss372.test.tsx           ISS-921 case: waitFor(fetch) at :83, the mock never calls fetch            [root: ISS-945]
+  library/LibraryPage.copyFeedback.test.tsx          2 cases: TypeError at :98 and :117, vi.mocked(useParams).mockReturnValue on a plain arrow in the factory
+  handoff/IntegrationsCard.copyFeedback.test.tsx     'copy now' case: .closest("div") on the title div returns the title div, within() finds no button
+  results/ArtifactVersionPicker.iss802.test.tsx      waitFor(spy called) never holds: under StrictMode the second dynamic import of the mocked module resolves to the REAL module
+RED FOR THE RIGHT REASON (failing line is the behavioural assertion, or an app-code TypeError the case is about): the other 17 files / 47 cases (52 failing cases in all, minus the 5 above),
+  incl. page.previewPayloadShape (TypeErrors at AppBuilderPreview.tsx:93 etc. = the app crash ISS-915 is about) and the lookup-style
+  PreviewPanel.shellStatusForeignPin cases (the page renders, the 2 non-xfail controls in that file pass, only the expected UI is missing).
+  Not read to the last line: the lookup/matcher-style failures with no test-file frame (clarifyPin ISS-1008, iss472 #1, iss919 T1/T3, ReviewGatesSection x2,
+  ComposerPage.bug025 x5). Each names an element or state that is the claim of its case; none is a setup call.
+NO FAILING XFAIL CASE (5 files): AppBuilderPreview.searchFilter, AgentDrawer.toolGrants, IdeaInputPage.iss371, WorkflowView.attachmentMarkerNames only mention `it.fails` in comments (markers already removed); the fifth is the XPASS below.
+XPASS TODAY (marker stale, bug fixed): preview/PreviewPanel.appBuilderSearch.test.tsx ISS-500, in place rc=1 'Expect test to fail'. Already listed in
+  UNIT-TESTS.md row 347, so not carded here.

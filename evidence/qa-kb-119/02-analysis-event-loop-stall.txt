@@ -1,0 +1,17 @@
+# QA-KB-119 analysis probe, 2026-10-09, backend :8000 (uvicorn --reload, ONE process, pid 53537/53553)
+# Script: evidence/qa-kb-119/02-analysis-event-loop-probe.py (read-only: POST /api/auth/login, GET /health, GET /api/runs/{id}/events)
+# Gauge: GET /health is 'async def health_check()' (backend/app/main.py:629-636), no I/O: its latency == event-loop availability.
+
+##### bare GET /api/runs/78e185fb-c032-4154-8552-774781b6e5df/events (no params)
+baseline /health (idle, n=8): max=3ms median=2ms
+big call: status=200 bytes=52909786 ttfb=4.38s total=4.40s
+/health probes during the big call: n=1
+  t+ 0.16s  latency=   4227ms  200
+WORST /health latency while /events in flight: 4227ms (idle baseline max 3ms)
+
+##### same run, cursor windows (the existing ?after= param) - cost scales with rows/bytes returned
+after=100000 : status=200 bytes=4889892  ttfb=0.34s total=0.34s  (/health during call 186ms vs idle 2ms)
+after=107000 : status=200 bytes=1417347  ttfb=0.11s total=0.11s
+
+# Reading: ttfb == total (4.38s vs 4.40s) -> the server builds the WHOLE body before sending byte one; the 53 MB transfer itself is ~20 ms on loopback.
+# A /health request sent 0.16s into the call was not answered for 4227 ms (idle max 3 ms): the single event loop was frozen for the whole call.

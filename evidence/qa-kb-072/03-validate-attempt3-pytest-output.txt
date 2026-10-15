@@ -1,0 +1,27 @@
+(Background on this error at: https://sqlalche.me/e/20/gkpj)
+WARNING  agents.execution_engine.engine:engine.py:3355 run_events persist failed for run no-redo-gate-a6ccee4d seq 8 ((sqlite3.IntegrityError) FOREIGN KEY constraint failed
+[SQL: INSERT INTO run_events (id, run_id, owner_id, workspace_id, seq, event_id, type, payload_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)]
+[parameters: ('cda1a28b-9eaf-48f2-ad20-bbe023745b8c', 'no-redo-gate-a6ccee4d', 'harness-user', '9b24dea3-aa97-42ca-86b0-5d3a8c890265', 8, '72b7711b-6ee9-4407-b69d-a0a2d2e3d44c', 'review_gate_ready', '{"pipeline_run_id": "no-redo-gate-a6ccee4d", "agent_id": "domain-analyst", "agent_name": "Domain Discovery Agent", "gate_key": "no-redo-gate-a6ccee4d ... (135 characters truncated) ... ycle": 0, "revision_in_flight": false, "timestamp": "2026-10-07T19:27:16.062885+00:00", "seq": 8, "event_id": "72b7711b-6ee9-4407-b69d-a0a2d2e3d44c"}', '2026-10-07 19:27:16.063446')]
+(Background on this error at: https://sqlalche.me/e/20/gkpj)) — DB write degraded (offline harness / schema unavailable); stream unaffected (PERSIST-03 best-effort)
+WARNING  agents.execution_engine.engine:engine.py:12531 Review gate redo REFUSED: pipeline=no-redo-gate-a6ccee4d agent=domain-analyst — this firing published redoable=False; gate stays open (ISS-090)
+ERROR    agents.execution_engine.engine:engine.py:2603 finalize_terminal_run: create_run_ref FAILED run=no-redo-gate-a6ccee4d (run_id must be a UUID (hex digits and hyphens only): 'no-redo-gate-a6ccee4d')
+=============================== warnings summary ===============================
+app/core/config.py:94
+  /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/app/core/config.py:94: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+    class Settings(BaseSettings):
+
+tests/conftest.py:484
+  /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/tests/conftest.py:484: PytestUnknownMarkWarning: Unknown pytest.mark.agents - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    item.add_marker(getattr(pytest.mark, suite))
+
+tests/agents/test_declared_gate_redo.py::test_non_redoable_declared_gate_unaffected_by_redo_action
+  /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/agents/execution_engine/engine.py:1324: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    _ts = _dt.datetime.utcnow().isoformat(timespec="seconds") + "Z"
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/agents/test_declared_gate_redo.py::test_non_redoable_declared_gate_unaffected_by_redo_action
+!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+1 failed, 1 deselected, 3 warnings in 62.52s (0:01:02)
+./.venv/bin/python -m pytest tests/agents/test_declared_gate_redo.py -q -k  -  2.69s user 1.00s system 5% cpu 1:04.25 total
+tail -25  0.00s user 0.00s system 0% cpu 1:04.25 total

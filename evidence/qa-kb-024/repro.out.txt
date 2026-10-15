@@ -1,0 +1,42 @@
+====================================================================================================
+S-B1  engine.py:14971  wave_scheduler + json_tasks, shipped planner style (one-line reply)
+====================================================================================================
+strategy (wave_scheduler.py:273 parse_preferring_target) tasks: ['a', 'b', 'c']
+reconciler parse(reply) RAISES ValueError: json_tasks: could not parse task list as JSON — Expecting value: line 
+real _compute_wave_orphan_allowsets -> {} (empty => orphan gate silently DORMANT for this step)
+====================================================================================================
+S-B2  engine.py:14971  reply carries a fence that differs from the file the strategy reads
+====================================================================================================
+strategy tasks (file): ['a', 'b', 'c'] | reconciler allow-set size: 2
+worker 'c' key in reconciler allow-set? False
+allow-set the STRATEGY would compute: restored files -> ['out/a.txt', 'out/b.txt', 'out/c.txt']
+allow-set the RECONCILER computed (parse(reply)): restored files -> ['out/a.txt', 'out/b.txt']
+====================================================================================================
+S-B3  engine.py:14971  wave_scheduler + screen_plan, reply happens to be the inventory
+====================================================================================================
+strategy keys == reconciler keys ? False | disjoint: True
+body differs (spec inlined vs empty): True
+real reconciler allow-set disjoint from strategy keys -> True
+ScreenPlanParser.parse(one-line reply) raises -> ValueError: screen_plan: build/screens.json is not valid JSON: Expecting
+====================================================================================================
+S-A  engine.py:14889  task_loop + json_tasks: boundary computed from the reply, strategy skips from the file
+====================================================================================================
+strategy common-prefix skip p = 3 (skips all 3 tasks)
+real _compute_cumulative_boundaries -> {'build-step': {'restore_nothing': False, 'boundary_task_id': '2ffdc288'}}
+boundary_task_id is key of task b (index 1)? True
+no boundary (what the file-derived keys imply): app.py restored = 'ABC'
+boundary from reply-derived keys: app.py restored = 'AB'
+=> strategy then skips tasks 1-3 (p=3) but disk holds only the as-of-task-2 deliverable: task c's edits are lost
+narrating reply -> boundaries = {} (swallowed ValueError => boundary silently lost)
+====================================================================================================
+S-C  engine.py:15202  _first_incomplete_step on a COMPLETED task_loop + json_tasks build step
+====================================================================================================
+3/3 tasks persisted, planner reply = one-line narration, json_tasks  -> resume offset 1 (2 == nothing left; 1 == RE-ENTER the finished step)
+same, planner reply = fence with the 3 tasks                          -> resume offset 2
+control: heading_tasks (no parse_preferring_target), 3 headings       -> resume offset 2
+temp ExecutionContext used by _compute_resume_offset has runner = None => the agreed fix's getattr(ectx.runner,'sandbox') is None at this site (fix is a silent no-op here)
+====================================================================================================
+S-D  fanout_batch.py:92  the strategy itself (not a reconciler), normal run, narrating planner reply
+====================================================================================================
+FanoutBatchStrategy.run RAISES ValueError although build/tasks.json is on disk with 3 tasks:
+    json_tasks: could not parse task list as JSON — Expecting value: line 1 column 1 (char 0)

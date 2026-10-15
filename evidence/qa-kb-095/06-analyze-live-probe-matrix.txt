@@ -1,0 +1,20 @@
+# QA-KB-095 analysis, 2026-10-07 — live probe of the four sandbox read routes, husk vs properly-swept sandbox
+# server: :8000 pid 4327 (started 21:12, after FIX-727). All GETs; none of them creates or touches a directory.
+# HUSK   = run 0f62f7bc (dir exists, empty, no .git)         ABSENT = run 87e02c32 (family dir swept and never re-created)
+
+=== HUSK   run=0f62f7bc
+  GET /api/runs/0f62f7bc/sandbox                                      -> 200  {"run_id":"0f62f7bc-d3a2-4748-8004-0b534e1741ae","expired":false,"truncated":false,"files":[]}
+  GET /api/runs/0f62f7bc/sandbox?ref=v1                               -> 400  {"detail":"invalid ref"}
+  GET /api/runs/0f62f7bc/sandbox/zip?ref=v1                           -> 400  {"detail":"invalid ref"}
+  GET /api/runs/0f62f7bc/sandbox/file?path=prototype.html&ref=v1      -> 400  {"detail":"invalid ref"}
+  GET /api/runs/0f62f7bc/sandbox/file?path=prototype.html             -> 404  {"detail":"File not found"}
+
+=== ABSENT run=87e02c32
+  GET /api/runs/87e02c32/sandbox                                      -> 200  {"run_id":"87e02c32-96a9-4e50-8ed0-79023d83540f","expired":true,"truncated":false,"files":[]}
+  GET /api/runs/87e02c32/sandbox?ref=v1                               -> 200  {"run_id":"87e02c32-96a9-4e50-8ed0-79023d83540f","expired":true,"truncated":false,"files":[]}
+  GET /api/runs/87e02c32/sandbox/zip?ref=v1                           -> 404  {"detail":"Workspace expired"}
+  GET /api/runs/87e02c32/sandbox/file?path=prototype.html&ref=v1      -> 404  {"detail":"Workspace expired"}
+  GET /api/runs/87e02c32/sandbox/file?path=prototype.html             -> 404  {"detail":"Workspace expired"}
+
+# Reading: the same ?ref=v1 request is harmless when the directory is absent (run_files.py:948 'not expired' guard, FIX-691;
+# zip/file route check is_dir() first -> 404 Workspace expired) and 400 when the directory exists but holds nothing.

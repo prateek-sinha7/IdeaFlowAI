@@ -1,0 +1,62 @@
+#!/usr/bin/env python3
+"""QA-KB-096 analysis probe (READ-ONLY, GET only; the token is never printed).
+
+For the backlog family rooted at 78e185fb-..., record per member: version, git_tag, status, the run row's
+deliverable_filename; then, per tag, whether the DECLARED path (`Backlog.pdf`) and the `.chain/` path
+(`.chain/Backlog.pdf`) can be read AT that ref, and what the ref's listing holds for Backlog.*.
+
+Usage: VELOCITY_EMAIL=... VELOCITY_PASSWORD=... python3 probe-family-refs.py <root_run_id>
+"""
+import json, os, sys, urllib.error, urllib.parse, urllib.request
+
+BASE = os.environ.get("VELOCITY_API", "http://localhost:8000")
+
+
+def call(method, path, token=None, body=None, peek=None):
+    req = urllib.request.Request(BASE + path, method=method)
+    if body is not None:
+        req.add_header("Content-Type", "application/json")
+    if token:
+        req.add_header("Authorization", "Bearer " + token)
+    data = json.dumps(body).encode() if body is not None else None
+    try:
+        with urllib.request.urlopen(req, data=data, timeout=120) as r:
+            return r.status, (r.read(peek) if peek else r.read()), r.headers.get("Content-Length")
+    except urllib.error.HTTPError as e:
+        return e.code, e.read(), None
+
+
+st, out, _ = call("POST", "/api/auth/login", body={"email": os.environ["VELOCITY_EMAIL"], "password": os.environ["VELOCITY_PASSWORD"]})
+tok = json.loads(out.decode())["token"]
+root = sys.argv[1]
+
+st, out, _ = call("GET", f"/api/runs/{root}/family", tok)
+fam = json.loads(out.decode())
+members = sorted(fam["members"], key=lambda m: m["revision_index"])
+print(f"family root_id={fam['root_id']}  members={len(members)}  (HTTP {st})")
+for m in members:
+    s2, o2, _ = call("GET", f"/api/runs/{m['id']}", tok)
+    row = json.loads(o2.decode()) if s2 == 200 else {}
+    print(
+        f"  idx={m['revision_index']} id={m['id'][:8]} git_tag={m.get('git_tag')!r:6} status={m.get('status'):10} "
+        f"pipeline_type={row.get('pipeline_type')!r} deliverable_filename={row.get('deliverable_filename')!r} "
+        f"deliverable_mimetype={row.get('deliverable_mimetype')!r}"
+    )
+
+st, out, _ = call("GET", f"/api/runs/{root}/sandbox/refs", tok)
+print(f"\nGET /sandbox/refs -> HTTP {st} {out.decode()}")
+
+for tag in [m.get("git_tag") for m in members if m.get("git_tag")]:
+    member = next(m for m in members if m.get("git_tag") == tag)
+    st, out, _ = call("GET", f"/api/runs/{member['id']}/sandbox?ref={tag}", tok)
+    files = json.loads(out.decode()).get("files", []) if st == 200 else []
+    holds = [f["path"] for f in files if f["path"].lower().rsplit("/", 1)[-1] in ("backlog.pdf", "backlog.zip", "backlog.md")]
+    print(f"\n[{tag}] member={member['id'][:8]}  listing HTTP {st}; Backlog.* in listing at ref: {holds}")
+    for p in ("Backlog.pdf", ".chain/Backlog.pdf"):
+        s, o, cl = call("GET", f"/api/runs/{member['id']}/sandbox/file?path={urllib.parse.quote(p)}&ref={tag}", tok, peek=16)
+        print(f"    GET sandbox/file?path={p}&ref={tag} -> HTTP {s} " + (o[:40].decode(errors='replace') if s != 200 else f"(content-length {cl}, starts {o[:8]!r})"))
+
+# the un-pinned read the page falls back to (live tree = newest member's)
+newest = members[-1]
+s, o, cl = call("GET", f"/api/runs/{root}/sandbox/file?path=Backlog.pdf", tok, peek=16)
+print(f"\nlive (no ref) GET /api/runs/{root[:8]}/sandbox/file?path=Backlog.pdf -> HTTP {s} (content-length {cl}, starts {o[:8]!r})")

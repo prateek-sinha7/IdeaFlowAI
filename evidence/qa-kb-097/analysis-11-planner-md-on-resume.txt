@@ -1,0 +1,20 @@
+# EXPERIMENT: kb097_plannermd plugin = spy RunSandbox.write for PLANNER.md during test 4 (resumed run)
+=== PLANNER.md written @ /private/var/folders/fv/36z8hwhx79zbmd06_pbk4bvm0000gp/T/harness-runs-q9bmsa3z/rh-user/rh-1a0d4f94
+    on disk after the test: True | contains SPINNAKER-SENTINEL: True
+    | # PLANNER.md — Deep Planner Analysis
+    | 
+    | **Inferred Intent**: PLANNER-INTENT-SENTINEL: a governed claims-intake workbench
+    | 
+    | **Topic**: claims intake
+    | 
+    | **Gate Verdict**: PROCEED
+    | 
+    | 
+    | **Explicit Constraints**:
+    | - Which deployment target? → SPINNAKER-SENTINEL
+    | 
+    | **Implicit Constraints**:
+    | - IMPLICIT-SENTINEL: must stay auditable
+=========================== short test summary info ============================
+FAILED tests/integration/agents/test_restart_resume_db.py::test_resume_dispatch_carries_rehydrated_planning_context
+1 failed, 2 warnings in 2.18s

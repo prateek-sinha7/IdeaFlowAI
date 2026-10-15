@@ -1,0 +1,4 @@
+=========================== short test summary info ============================
+XFAIL tests/integration/api/test_run_sandbox_has_git_derived_api.py::test_refs_endpoint_spawns_no_git_without_dot_git - ISS-678 unfixed
+XFAIL tests/integration/api/test_run_sandbox_has_git_derived_api.py::test_restore_tag_gate_spawns_no_git_without_dot_git - ISS-678 unfixed
+2 xfailed in 1.30s

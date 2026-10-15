@@ -27,6 +27,7 @@
 import { describe, expect, it } from "vitest";
 import {
   isForeignRunFrame,
+  isSameRunFamily,
   isAgentScopedFrame,
   AGENT_SCOPED_FRAME_TYPES,
 } from "@/lib/wsReplayState";
@@ -108,6 +109,37 @@ describe("isForeignRunFrame — conservative run attribution", () => {
   it("never drops while the tab has claimed no run yet (launch window)", () => {
     expect(isForeignRunFrame(OTHER_RUN, null)).toBe(false);
     expect(isForeignRunFrame(OTHER_RUN, undefined)).toBe(false);
+  });
+});
+
+// QA-KB-055 (ISS-745): a foreign `*_revision` completion may take the screen only
+// when the viewed run is in the completing run's family (GET /api/runs/{id}/family).
+describe("isSameRunFamily — a foreign revision completion vs the viewed run", () => {
+  // Family A: a1 <- a2 <- a3 (a3 is a child of a2, not of a1). Family B: b1.
+  const familyA = { root_id: "a1", members: [{ id: "a1" }, { id: "a2" }, { id: "a3" }] };
+
+  it("same family: the viewed run is the completing revision's parent", () => {
+    expect(isSameRunFamily(familyA, "a2")).toBe(true);
+  });
+
+  it("same family: viewing an OLDER member while a deeper-chain revision completes", () => {
+    // a3's parent is a2, so a parent == viewed check would say no; the family says yes.
+    expect(isSameRunFamily(familyA, "a1")).toBe(true);
+  });
+
+  it("different family: the viewed run is not a member, so it stays on screen", () => {
+    expect(isSameRunFamily(familyA, "b1")).toBe(false);
+  });
+
+  it("unresolved lineage (fetch failed, nothing viewed) is never the same family", () => {
+    expect(isSameRunFamily(null, "a1")).toBe(false);
+    expect(isSameRunFamily(undefined, "a1")).toBe(false);
+    expect(isSameRunFamily(familyA, null)).toBe(false);
+    expect(isSameRunFamily(familyA, undefined)).toBe(false);
+  });
+
+  it("own completion stays decided by isForeignRunFrame, unchanged", () => {
+    expect(isForeignRunFrame("a3", "a3")).toBe(false);
   });
 });
 

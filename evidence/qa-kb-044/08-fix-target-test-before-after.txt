@@ -1,0 +1,38 @@
+# QA-KB-044 fix evidence 08 - the card's test file, before vs after, 2026-10-02 (5-fixer, FIX-709)
+# AFTER  = real tree: cd frontend && npx vitest --run --coverage=false --reporter=verbose src/components/preview/PreviewPanel.olderVersionNullOutput.test.tsx
+# BEFORE = scratch copy of frontend/src/components/preview with PreviewPanel.tsx replaced by 'git show HEAD:...' (HEAD 024c03ef8) and the same test copied in as *.scratch.test.tsx; vitest --config <scratch config> (jsdom, real vitest.setup.ts, @ -> real frontend/src). The real tree was not reverted.
+
+## AFTER (exit 0)
+ ✓ src/components/preview/PreviewPanel.olderVersionNullOutput.test.tsx > ISS-154 / ISS-933 - pinned older version with null output > ISS-154 pinned completed + output=null -> distinct copy, not the neutral 87ms
+ ✓ src/components/preview/PreviewPanel.olderVersionNullOutput.test.tsx > ISS-154 / ISS-933 - pinned older version with null output > ISS-154 pinned still RUNNING + output=null -> neutral stays (no false 'saved' claim) 9ms
+ ✓ src/components/preview/PreviewPanel.olderVersionNullOutput.test.tsx > ISS-154 / ISS-933 - pinned older version with null output > ISS-933 pinned failed + output=null -> terminal affordance copy, no retry, no neutral 14ms
+ ✓ src/components/preview/PreviewPanel.olderVersionNullOutput.test.tsx > ISS-154 / ISS-933 - pinned older version with null output > ISS-933 pinned degraded + output=null -> terminal affordance copy, no retry, no neutral 12ms
+ ✓ src/components/preview/PreviewPanel.olderVersionNullOutput.test.tsx > ISS-154 / ISS-933 - pinned older version with null output > ISS-933 pinned cancelled + output=null -> terminal affordance copy, no retry, no neutral 10ms
+ ✓ src/components/preview/PreviewPanel.olderVersionNullOutput.test.tsx > ISS-154 / ISS-933 - pinned older version with null output > ISS-933 pinned diverted + output=null -> terminal affordance copy, no retry, no neutral 10ms
+ ✓ src/components/preview/PreviewPanel.olderVersionNullOutput.test.tsx > ISS-154 / ISS-933 - pinned older version with null output > ISS-154 pinned completed + output='' (empty string) -> distinct copy 7ms
+ ✓ src/components/preview/PreviewPanel.olderVersionNullOutput.test.tsx > ISS-154 / ISS-933 - pinned older version with null output > ISS-154 CONTROL pinned completed WITH output -> deliverable renders, neither copy 8ms
+ ✓ src/components/preview/PreviewPanel.olderVersionNullOutput.test.tsx > ISS-154 / ISS-933 - pinned older version with null output > ISS-154 CONTROL no pin, terminal, no content -> neutral stays (degraded.test:177/259, TS-Q-05, TS-R-03) 4ms
+ ✓ src/components/preview/PreviewPanel.olderVersionNullOutput.test.tsx > ISS-154 / ISS-933 - pinned older version with null output > ISS-154 pinned run record without a status field (partial API mock) -> neutral fallback, no crash 7ms
+ ✓ src/components/preview/PreviewPanel.olderVersionNullOutput.test.tsx > ISS-154 / ISS-933 - pinned older version with null output > ISS-154 version-menu path with git tags -> RefVersionPreview, neither copy 47ms
+ Test Files  1 passed (1)
+      Tests  11 passed (11)
+
+## BEFORE (exit 1)
+ × preview/PreviewPanel.olderVersionNullOutput.scratch.test.tsx > ISS-154 / ISS-933 - pinned older version with null output > ISS-154 pinned completed + output=null -> distinct copy, not the neutral 96ms
+ ✓ preview/PreviewPanel.olderVersionNullOutput.scratch.test.tsx > ISS-154 / ISS-933 - pinned older version with null output > ISS-154 pinned still RUNNING + output=null -> neutral stays (no false 'saved' claim) 13ms
+ × preview/PreviewPanel.olderVersionNullOutput.scratch.test.tsx > ISS-154 / ISS-933 - pinned older version with null output > ISS-933 pinned failed + output=null -> terminal affordance copy, no retry, no neutral 11ms
+ × preview/PreviewPanel.olderVersionNullOutput.scratch.test.tsx > ISS-154 / ISS-933 - pinned older version with null output > ISS-933 pinned degraded + output=null -> terminal affordance copy, no retry, no neutral 9ms
+ × preview/PreviewPanel.olderVersionNullOutput.scratch.test.tsx > ISS-154 / ISS-933 - pinned older version with null output > ISS-933 pinned cancelled + output=null -> terminal affordance copy, no retry, no neutral 11ms
+ × preview/PreviewPanel.olderVersionNullOutput.scratch.test.tsx > ISS-154 / ISS-933 - pinned older version with null output > ISS-933 pinned diverted + output=null -> terminal affordance copy, no retry, no neutral 9ms
+ × preview/PreviewPanel.olderVersionNullOutput.scratch.test.tsx > ISS-154 / ISS-933 - pinned older version with null output > ISS-154 pinned completed + output='' (empty string) -> distinct copy 9ms
+ ✓ preview/PreviewPanel.olderVersionNullOutput.scratch.test.tsx > ISS-154 / ISS-933 - pinned older version with null output > ISS-154 CONTROL pinned completed WITH output -> deliverable renders, neither copy 10ms
+ ✓ preview/PreviewPanel.olderVersionNullOutput.scratch.test.tsx > ISS-154 / ISS-933 - pinned older version with null output > ISS-154 CONTROL no pin, terminal, no content -> neutral stays (degraded.test:177/259, TS-Q-05, TS-R-03) 5ms
+ ✓ preview/PreviewPanel.olderVersionNullOutput.scratch.test.tsx > ISS-154 / ISS-933 - pinned older version with null output > ISS-154 pinned run record without a status field (partial API mock) -> neutral fallback, no crash 9ms
+ ✓ preview/PreviewPanel.olderVersionNullOutput.scratch.test.tsx > ISS-154 / ISS-933 - pinned older version with null output > ISS-154 version-menu path with git tags -> RefVersionPreview, neither copy 58ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 6 ⎯⎯⎯⎯⎯⎯⎯
+TestingLibraryElementError: Unable to find an element with the text: No deliverable was saved for this version. This could be because the text is broken up by multiple elements. In this case, you can provide a function for your text matcher to make your matcher more flexible.
+TestingLibraryElementError: Unable to find an element with the text: /did not complete successfully/. This could be because the text is broken up by multiple elements. In this case, you can provide a function for your text matcher to make your matcher more flexible.
+TestingLibraryElementError: Unable to find an element with the text: /This run was cancelled/. This could be because the text is broken up by multiple elements. In this case, you can provide a function for your text matcher to make your matcher more flexible.
+TestingLibraryElementError: Unable to find an element with the text: No deliverable was saved for this version. This could be because the text is broken up by multiple elements. In this case, you can provide a function for your text matcher to make your matcher more flexible.
+ Test Files  1 failed (1)
+      Tests  6 failed | 5 passed (11)

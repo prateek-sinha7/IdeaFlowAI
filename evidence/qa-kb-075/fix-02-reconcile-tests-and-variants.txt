@@ -1,0 +1,94 @@
+# QA-KB-075 fix phase, 2026-10-07: ISS-902 comment hunks + ISS-1016 tails T8/T9 in tests/integration/agents/test_restart_resume_db.py
+# before the fix (observed earlier this session): -k reconcile -> 22 passed, 61 deselected
+$ .venv/bin/python -m pytest tests/integration/agents/test_restart_resume_db.py -k reconcile -q -p no:cacheprovider
+24 passed, 61 deselected, 1 warning in 1.41s
+
+# non-vacuity of T8/T9: _reconcile_terminal_status swapped IN MEMORY from scratch copies built by analyze/make_variants.py
+# (opt4 = only the completed rung un-scoped; opt2 = the dead last-by-seq rule). backend/ is not edited by this.
+$ .venv/bin/python ../evidence/qa-kb-075/analyze/run_variant.py none tests/integration/agents/test_restart_resume_db.py -k "fix484_boundary_scoping or reconcile_degraded_tracks_latest_completion_only" -q -p no:cacheprovider
+9 passed, 76 deselected, 1 warning in 1.03s
+
+$ .venv/bin/python ../evidence/qa-kb-075/analyze/run_variant.py opt4.py tests/integration/agents/test_restart_resume_db.py -k "fix484_boundary_scoping or reconcile_degraded_tracks_latest_completion_only" -q -p no:cacheprovider
+tail = [('pipeline_start', 1, {}), ('pipeline_complete', 2, {'agents_failed': ['x'], 'degraded_reason': 'x failed', 'status': 'degraded'}), ('run_resuming', 3, {}), ('pipeline_start', 4, {}), ('agent_start', 5, {'agent_id': 'w'})]
+expected = 'failed'
+                    ("pipeline_failed", 6, {}),
+                "failed",
+            # ISS-437: failed scoped to the last attempt — the resume completed cleanly.
+                    ("pipeline_failed", 2, {}),
+                "failed",
+                "failed",
+            "T5-iss436-degraded-then-failed",
+            "T6-iss437-failed-then-clean",
+E       assert 'completed' == 'failed'
+E         - failed
+expected = 'failed'
+                    ("pipeline_failed", 6, {}),
+                "failed",
+            # ISS-437: failed scoped to the last attempt — the resume completed cleanly.
+                    ("pipeline_failed", 2, {}),
+                "failed",
+                "failed",
+            "T5-iss436-degraded-then-failed",
+            "T6-iss437-failed-then-clean",
+E       assert 'completed' == 'failed'
+E         - failed
+FAILED tests/integration/agents/test_restart_resume_db.py::test_reconcile_fix484_boundary_scoping[T8-iss1016-degraded-then-cut-off]
+FAILED tests/integration/agents/test_restart_resume_db.py::test_reconcile_fix484_boundary_scoping[T9-iss1016-clean-then-cut-off]
+2 failed, 7 passed, 76 deselected, 1 warning in 1.33s
+
+$ .venv/bin/python ../evidence/qa-kb-075/analyze/run_variant.py opt2.py tests/integration/agents/test_restart_resume_db.py -k "fix484_boundary_scoping or reconcile_degraded_tracks_latest_completion_only" -q -p no:cacheprovider
+____ test_reconcile_fix484_boundary_scoping[T5-iss436-degraded-then-failed] ____
+tail = [('pipeline_start', 1, {}), ('pipeline_complete', 2, {'agents_failed': ['x'], 'degraded_reason': 'x failed', 'status':... ('run_resuming', 3, {}), ('pipeline_start', 4, {}), ('agent_error', 5, {'error': 'boom'}), ('pipeline_failed', 6, {})]
+expected = 'failed'
+                    ("pipeline_failed", 6, {}),
+                "failed",
+            # ISS-437: failed scoped to the last attempt — the resume completed cleanly.
+                    ("pipeline_failed", 2, {}),
+                "failed",
+                "failed",
+            "T5-iss436-degraded-then-failed",
+            "T6-iss437-failed-then-clean",
+E       assert 'degraded' == 'failed'
+E         - failed
+_____ test_reconcile_fix484_boundary_scoping[T6-iss437-failed-then-clean] ______
+tail = [('pipeline_start', 1, {}), ('pipeline_failed', 2, {}), ('run_resuming', 3, {}), ('pipeline_start', 4, {}), ('pipeline_complete', 5, {})]
+                    ("pipeline_failed", 6, {}),
+                "failed",
+            # ISS-437: failed scoped to the last attempt — the resume completed cleanly.
+                    ("pipeline_failed", 2, {}),
+                "failed",
+                "failed",
+            "T5-iss436-degraded-then-failed",
+            "T6-iss437-failed-then-clean",
+E       AssertionError: got 'failed'
+E       assert 'failed' == 'completed'
+E         + failed
+tail = [('pipeline_start', 1, {}), ('pipeline_complete', 2, {'agents_failed': ['x'], 'degraded_reason': 'x failed', 'status': 'degraded'}), ('run_resuming', 3, {}), ('pipeline_start', 4, {}), ('agent_start', 5, {'agent_id': 'w'})]
+expected = 'failed'
+                    ("pipeline_failed", 6, {}),
+                "failed",
+            # ISS-437: failed scoped to the last attempt — the resume completed cleanly.
+                    ("pipeline_failed", 2, {}),
+                "failed",
+                "failed",
+            "T5-iss436-degraded-then-failed",
+            "T6-iss437-failed-then-clean",
+E       assert 'degraded' == 'failed'
+E         - failed
+expected = 'failed'
+                    ("pipeline_failed", 6, {}),
+                "failed",
+            # ISS-437: failed scoped to the last attempt — the resume completed cleanly.
+                    ("pipeline_failed", 2, {}),
+                "failed",
+                "failed",
+            "T5-iss436-degraded-then-failed",
+            "T6-iss437-failed-then-clean",
+E       assert 'completed' == 'failed'
+E         - failed
+FAILED tests/integration/agents/test_restart_resume_db.py::test_reconcile_fix484_boundary_scoping[T5-iss436-degraded-then-failed]
+FAILED tests/integration/agents/test_restart_resume_db.py::test_reconcile_fix484_boundary_scoping[T6-iss437-failed-then-clean]
+FAILED tests/integration/agents/test_restart_resume_db.py::test_reconcile_fix484_boundary_scoping[T8-iss1016-degraded-then-cut-off]
+FAILED tests/integration/agents/test_restart_resume_db.py::test_reconcile_fix484_boundary_scoping[T9-iss1016-clean-then-cut-off]
+4 failed, 5 passed, 76 deselected, 1 warning in 1.31s
+

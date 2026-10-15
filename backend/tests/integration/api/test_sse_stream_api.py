@@ -899,8 +899,8 @@ async def test_endpoint_frames_satisfy_wire_parity(db_session):
 # the run. Nine of its twelve invocation paths (every resume / gate-re-arm path
 # reaching it through engine._fire_resume_cleanup) pop the registry entry with
 # NO prior None sentinel, so a client parked at `await live_queue.get()`
-# (run_stream.py:197) hangs until its socket drops. The dict pop cannot reach it:
-# the endpoint bound the queue OBJECT at run_stream.py:281 before the generator ran.
+# (in _iter_sse_frames) hangs until its socket drops. The dict pop cannot reach it:
+# stream_run_events bound the queue OBJECT before the generator body ran.
 # ════════════════════════════════════════════════════════════════════════════
 _CLEANUP_TIMEOUT_S = 2.0
 

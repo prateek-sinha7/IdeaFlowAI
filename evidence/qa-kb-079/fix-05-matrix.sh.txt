@@ -1,0 +1,23 @@
+#!/bin/zsh
+# QA-KB-079 fix phase: mutant x file matrix. One pytest invocation per cell, one file at a time.
+# Application source is never edited; each mutant is swapped in at runtime by kb079_mutant.py
+# (verbatim copy of evidence/qa-kb-079/04-analyze-mutant-plugin.py.txt).
+SCRATCH=${0:A:h}
+FILE=$1; shift
+OUT=$SCRATCH/matrix-${FILE:t:r}.txt
+cd /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend || exit 1
+: > "$OUT"
+echo "# QA-KB-079 fix-phase mutant matrix for $FILE, $(date '+%Y-%m-%d %H:%M')" >> "$OUT"
+echo "# baseline (no plugin):" >> "$OUT"
+RAW=$(.venv/bin/python -m pytest "$FILE" -q -p no:cacheprovider -rf 2>&1)
+echo "baseline summary=[$(echo "$RAW" | grep -E "passed|failed|error" | tail -1)] failed=[$(echo "$RAW" | grep -E '^FAILED' | sed 's/ - .*//;s/^FAILED //' | tr '\n' ' ')] psycopg_mentions=$(echo "$RAW" | grep -c -i psycopg)" >> "$OUT"
+for M in "$@"; do
+  RAW=$(KB079_MUTANT=$M KB079_OUT=$OUT PYTHONPATH=$SCRATCH:. .venv/bin/python -m pytest "$FILE" \
+        -q -p no:cacheprovider -p kb079_mutant -rf 2>&1)
+  SUMMARY=$(echo "$RAW" | grep -E "passed|failed|error" | tail -1)
+  FAILS=$(echo "$RAW" | grep -E "^FAILED" | sed 's/ - .*//' | sed 's/^FAILED //' | sed 's/.*:://' | tr '\n' ' ')
+  PSYCO=$(echo "$RAW" | grep -c -i psycopg)
+  echo "mutant=$M summary=[$SUMMARY] failed=[$FAILS] psycopg_mentions=$PSYCO" >> "$OUT"
+done
+echo "# done" >> "$OUT"
+cat "$OUT"

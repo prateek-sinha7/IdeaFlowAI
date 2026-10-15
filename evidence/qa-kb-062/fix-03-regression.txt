@@ -1,0 +1,41 @@
+# QA-KB-062 fix — regression runs after FIX-723 (2026-10-07 18:11), one file at a time
+# Baseline = the same files on HEAD 0b5223f4c (LaunchWizard.tsx blob 3353604b7), measured before the edit in this session:
+#   LaunchWizard.test.tsx 2 failed | 25 passed (27) [WR-07, BUG-014 genuine chain]; iss917 5/5; iss837 1/1; savedRoster.iss943 3/3; saveRace.iss284 4/4
+#   tsc --noEmit: 13 errors, all in unrelated test files, none in LaunchWizard*; eslint LaunchWizard.tsx: 10 problems
+
+=== npx vitest --run src/components/workflow/LaunchWizard.test.tsx
+     × WR-07: chaining launch threads sourceRunId and clears the key (v2: context block no longer injected into brief) 38ms
+     × a genuine chain (chain.from + chain.source_run_id → isChaining=true) still threads the source id and clears the key 34ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+TypeError: Cannot read properties of null (reading 'brief')
+TypeError: Cannot read properties of null (reading 'sourceRunId')
+ Test Files  1 failed (1)
+      Tests  2 failed | 25 passed (27)
+
+=== npx vitest --run src/components/workflow/LaunchWizard.iss917.test.tsx
+ Test Files  1 passed (1)
+      Tests  5 passed (5)
+
+=== npx vitest --run src/components/workflow/LaunchWizard.iss837.test.tsx
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+
+=== npx vitest --run src/components/workflow/LaunchWizard.savedRoster.iss943.test.tsx
+ Test Files  1 passed (1)
+      Tests  3 passed (3)
+
+=== npx vitest --run src/components/workflow/LaunchWizard.saveRace.iss284.test.tsx
+ Test Files  1 passed (1)
+      Tests  4 passed (4)
+
+=== npx tsc --noEmit -p . (error count, then LaunchWizard hits)
+13
+0
+
+=== npx eslint src/components/workflow/LaunchWizard.tsx (rule tally)
+   1 @typescript-eslint/no-unused-vars
+   4 react-hooks/exhaustive-deps
+   1 react-hooks/refs
+   4 react-hooks/set-state-in-effect
+✖ 10 problems (10 errors, 0 warnings)
+

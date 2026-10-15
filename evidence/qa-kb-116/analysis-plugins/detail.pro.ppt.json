@@ -1,0 +1,98 @@
+{
+ "id": "ppt",
+ "name": "PPT",
+ "description": "3-step workflow: Presentation Strategist Agent -> Deck Engineer Agent -> Deck QA Agent",
+ "planner": "run",
+ "clarify_mode": "auto",
+ "clarify_defaults": [
+  "target_audience",
+  "tone_and_style",
+  "key_objectives",
+  "slide_count",
+  "content_depth",
+  "data_availability",
+  "visual_style",
+  "key_sections"
+ ],
+ "context_providers": [
+  "opendesign"
+ ],
+ "deliverable": {
+  "strategy": "ppt",
+  "name": "presentation.pptx"
+ },
+ "steps": [
+  {
+   "agent_id": "ppt-brief-analyst",
+   "name": "Presentation Strategist Agent",
+   "role": "Slide Plan & Content Architecture",
+   "order": 1,
+   "strategy": "single_shot",
+   "gates": [],
+   "validators": [],
+   "compaction": null,
+   "task_source": null,
+   "declared_gate": null,
+   "skills": []
+  },
+  {
+   "agent_id": "ppt-composer",
+   "name": "Deck Engineer Agent",
+   "role": "HTML Deck Construction",
+   "order": 2,
+   "strategy": "single_shot",
+   "gates": [],
+   "validators": [],
+   "compaction": null,
+   "task_source": null,
+   "declared_gate": null,
+   "skills": []
+  },
+  {
+   "agent_id": "ppt-validator",
+   "name": "Deck QA Agent",
+   "role": "Structural Validation & Delivery",
+   "order": 3,
+   "strategy": "single_shot",
+   "gates": [],
+   "validators": [],
+   "compaction": null,
+   "task_source": null,
+   "declared_gate": null,
+   "skills": []
+  }
+ ],
+ "manifest_steps": [
+  {
+   "agent": "ppt-brief-analyst",
+   "tools": {
+    "read_files": true,
+    "write_files": true
+   },
+   "strategy": "single_shot",
+   "gates": []
+  },
+  {
+   "agent": "ppt-composer",
+   "tools": {
+    "read_files": true,
+    "write_files": true
+   },
+   "strategy": "single_shot",
+   "gates": []
+  },
+  {
+   "agent": "ppt-validator",
+   "tools": {
+    "read_files": true,
+    "write_files": true
+   },
+   "strategy": "single_shot",
+   "gates": []
+  }
+ ],
+ "is_overridden": false,
+ "has_override": false,
+ "override_id": null,
+ "showing_original": false
+}

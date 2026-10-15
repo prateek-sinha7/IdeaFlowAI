@@ -1,0 +1,36 @@
+== 1. proposed anchor vs the three candidates, at each revision ==
+d027f16bd^ (before pin deps)
+   today's anchor     : L471->L498 (27 lines) pushState=true router.push=false
+   literal deps anchor: anchor NOT FOUND
+   '\n  }, [' anchor  : L471->L497 (26 lines) pushState=true router.push=false
+d027f16bd      (deps change) 
+   today's anchor     : L479->L683 (204 lines) pushState=true router.push=false
+   literal deps anchor: L479->L515 (36 lines) pushState=true router.push=false
+   '\n  }, [' anchor  : L479->L514 (35 lines) pushState=true router.push=false
+8cf967b0f^     (before live) 
+   today's anchor     : L516->L720 (204 lines) pushState=true router.push=false
+   literal deps anchor: L516->L552 (36 lines) pushState=true router.push=false
+   '\n  }, [' anchor  : L516->L551 (35 lines) pushState=true router.push=false
+8cf967b0f      (handleOpenLiveRun)
+   today's anchor     : L516->L730 (214 lines) pushState=true router.push=true
+   literal deps anchor: L516->L552 (36 lines) pushState=true router.push=false
+   '\n  }, [' anchor  : L516->L551 (35 lines) pushState=true router.push=false
+HEAD 024c03ef8              
+   today's anchor     : L516->L737 (221 lines) pushState=true router.push=true
+   literal deps anchor: L516->L552 (36 lines) pushState=true router.push=false
+   '\n  }, [' anchor  : L516->L551 (35 lines) pushState=true router.push=false
+working tree                  
+   today's anchor     : L516->L737 (221 lines) pushState=true router.push=true
+   literal deps anchor: L516->L552 (36 lines) pushState=true router.push=false
+   '\n  }, [' anchor  : L516->L551 (35 lines) pushState=true router.push=false
+
+== 2. negative control: re-introduce router.push INSIDE the handler (synthetic copy, repo untouched) ==
+   injected: true
+   '\n  }, [' anchor  : L516->L552 (36 lines) pushState=true router.push=true  <- must be router.push=true (guard still bites)
+
+== 3. drift test: the NEXT deps change (synthetic copy) ==
+   drifted : true
+   literal deps anchor: anchor NOT FOUND
+   '\n  }, [' anchor  : L516->L551 (35 lines) pushState=true router.push=false  <- must stay L516->L552, router.push=false
+
+== 4. lines matching /^  }, \[/ strictly inside the handler body (must be 0): 0

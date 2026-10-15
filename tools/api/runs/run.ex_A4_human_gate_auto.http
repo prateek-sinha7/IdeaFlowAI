@@ -4,6 +4,10 @@
 # the gate itself via POST /api/runs/{id}/gate with action=approve + edited_content, so
 # A4 stays a regression test rather than something only a human can run.
 #
+# edited_content is a JSON decision object sent as a string, {"decision": "spanish"},
+# the same payload the UI chips send. The gate routes on it (condition_agent: ask,
+# ADR-0026) and parses it strictly, so a bare word blocks the gate and fails the run.
+#
 # The interactive runner is the one to use when YOU want to choose — this one always
 # says "spanish".
 #
@@ -91,13 +95,13 @@ Content-Type: application/json
 {
 	"gate_key": "{{gateKey}}",
 	"action": "approve",
-	"edited_content": "spanish"
+	"edited_content": "{\"decision\": \"spanish\"}"
 }
 
 {{
 	const apiLine = require('./lib/api-line.js');
 	if (response.statusCode >= 400) apiLine('✗ gate POST failed: ' + JSON.stringify(response.parsedBody), 'error');
-	else apiLine('✓ gate answered with edited_content="spanish"');
+	else apiLine('✓ gate answered with edited_content={"decision": "spanish"}');
 }}
 
 ### 5. Re-attach and stream to completion (durable replay — nothing is missed)
@@ -171,19 +175,7 @@ Authorization: Bearer {{jwt}}
 		apiLine('✓ exactly one branch ran: ' + taken[0][0] + ' (' + taken[0][1].id + ')');
 	}
 
-	// 3. It must match what pick-language actually decided — the whole point of A4.
-	//    Read the decision from the step's own output rather than trusting the branch.
-	const decisionText = textOf('pick-language') || '';
-	let decided = null;
-	try { decided = JSON.parse(decisionText.trim()).decision; } catch { /* left null */ }
-	apiLine('pick-language decided: ' + JSON.stringify(decided) + '  (from "' + decisionText.slice(0, 60) + '")');
-	if (taken.length === 1 && decided && decided === taken[0][0]) {
-		apiLine('✓ branch matches the recorded decision');
-	} else if (taken.length === 1) {
-		apiLine('✗ branch ' + taken[0][0] + ' does not match decision ' + JSON.stringify(decided), 'error');
-	}
-
-	// 4. ask ran once; the two untaken branches are reported skipped.
+	// 3. ask ran once; the two untaken branches are reported skipped.
 	if (dispatches('ask') === 1 && dispatches('pick-language') === 1) apiLine('✓ ask and pick-language each ran once');
 	else apiLine('✗ ask/pick-language dispatch counts wrong', 'error');
 
@@ -196,18 +188,15 @@ Authorization: Bearer {{jwt}}
 		else apiLine('✗ untaken branch(es) NOT reported skipped: ' + missing.map(b => b.id).join(', '), 'error');
 	}
 
-	// A blocked conditional gate does NOT halt the run (§8b: the terminate-on-block
-	// fix covered only the PRE-step loop), so the cursor just advances to the next
-	// step in sequence — which looks exactly like a correct forward branch and still
-	// reports pipeline_complete. Without this check a run where the gate never matched
-	// scored green: seen live when a model emitted
-	// '{"decision":"english"}Hello! How can I help you today?' and strict JSON parsing
-	// discarded it. If this fires, the branch below did NOT route — it fell through.
+	// A blocked conditional gate ends the run as pipeline_failed (ISS-170), so the
+	// pipeline_complete check below fails too; this line names WHERE it blocked. The
+	// gate reads ask's artifact (condition_agent: ask), i.e. the answer POSTed above,
+	// and blocks unless that answer is a {"decision": ...} object naming an outcome.
 	const blocked = events.filter(e => e.type === 'gate_blocked').map(e => payloadOf(e).step || '?');
 	if (blocked.length === 0) apiLine('✓ no gate_blocked — the conditional gate actually routed');
-	else apiLine('✗ conditional gate BLOCKED at ' + blocked.join(', ') + ' — the run fell through instead of routing', 'error');
+	else apiLine('✗ conditional gate BLOCKED at ' + blocked.join(', ') + ' — the run FAILED at the gate instead of routing', 'error');
 
-	// 5. Terminal + the chosen branch's exact line reached the output.
+	// 4. Terminal + the chosen branch's exact line reached the output.
 	if (events.some(e => e.type === 'pipeline_complete')) apiLine('✓ pipeline_complete');
 	else apiLine('✗ pipeline_complete not found', 'error');
 

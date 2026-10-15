@@ -1,4 +1,4 @@
-"""tests/unit/test_iss182_stale_override_agent_ids.py — ISS-182.
+"""tests/integration/api/test_iss182_stale_override_agent_ids_api.py — ISS-182.
 
 FIX-306 stopped the composer from OFFERING the blank ``custom-agent`` template
 to a built-in override going forward, but did nothing for rows that already
@@ -10,10 +10,8 @@ override rather than a malformed direct request.
 ISS-182's disposition: "a launch-time message that names the offending step
 and points at the fix, instead of a bare 400." This asserts that.
 
-Reuses the REST launch harness from
-``tests/integration/api/test_rest_run_launch_api.py`` verbatim rather than
-re-deriving it. That module used to live at ``tests/unit/api/test_rest_run_launch.py``;
-the import here was not updated when it moved, which broke collection.
+Reuses the REST launch harness from ``test_rest_run_launch_api.py`` verbatim
+rather than re-deriving it.
 """
 
 from __future__ import annotations

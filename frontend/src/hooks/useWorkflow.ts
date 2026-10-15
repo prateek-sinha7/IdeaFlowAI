@@ -915,6 +915,16 @@ export function handlePipelineMessage(
         if (agentIdx === -1) return prev;
 
         const updated = [...prev.agents];
+        // QA-KB-093: the per-pass token fields are reset below, so bank what the
+        // pass that is ending spent; otherwise a loop-back drops it from the run
+        // total. A wave step is skipped: its members bank their own re-runs.
+        const before = updated[agentIdx];
+        const bankPass = !before.waveWorkers?.length;
+        const priorPass = bankPass ? {
+          priorPassInputTokens: ((before.priorPassInputTokens ?? 0) + (before.inputTokens ?? 0)) || undefined,
+          priorPassOutputTokens: ((before.priorPassOutputTokens ?? 0) + (before.outputTokens ?? 0)) || undefined,
+          priorPassTotalTokens: ((before.priorPassTotalTokens ?? 0) + (before.totalTokens ?? 0)) || undefined,
+        } : {};
         // FIX-039: on (re)start, reset THIS agent's run-scoped accumulators to
         // their fresh-agent values BEFORE the next run's chunks accumulate.
         // Without this, a regenerate (2nd agent_start) leaves the prior run's
@@ -941,6 +951,7 @@ export function handlePipelineMessage(
           inputTokens: undefined,
           outputTokens: undefined,
           totalTokens: undefined,
+          ...priorPass,
           estimatedCostUsd: undefined,
           // RFN-001 — write the resolved model id from agent_start immediately so
           // the chip shows while the agent is running (the backend now emits model_id
@@ -1506,8 +1517,9 @@ export function handlePipelineMessage(
         return true;
       }
 
-      const TERMINAL_STATUSES = ["completed", "failed", "cancelled", "error", "diverted"];
-      if (status && TERMINAL_STATUSES.includes(status)) {
+      // ISS-136 / ISS-864: "terminal" and its state patch come from the shared
+      // TERMINAL_MARKER_BY_STATUS / applyTerminalStatus (INV-12), never a private list.
+      if (status && Object.prototype.hasOwnProperty.call(TERMINAL_MARKER_BY_STATUS, status)) {
         // No live task and the run already finished — the durable tail was
         // replayed by the WS layer before this event, so resolve the run out
         // of the running state (this is what stops the hang).
@@ -1516,23 +1528,7 @@ export function handlePipelineMessage(
           sessionStorage.removeItem("active_pipeline_type");
         } catch { /* non-fatal */ }
 
-        setPipelineState((prev) => {
-          // Mirror pipeline_complete's agent finalization on success; for
-          // failed/cancelled/error leave agents as-is but still resolve.
-          const updated = status === "completed"
-            ? prev.agents.map((a) =>
-                (a.status === "running" || a.status === "thinking" || a.status === "idle")
-                  ? { ...a, status: "done" as const, thinking: "" }
-                  : a
-              )
-            : prev.agents;
-          return {
-            ...prev,
-            isRunning: false,
-            agents: updated,
-            completedCount: updated.filter((a) => a.status === "done").length,
-          };
-        });
+        setPipelineState((prev) => applyTerminalStatus(prev, status));
         return true;
       }
 
@@ -1704,7 +1700,8 @@ export function handlePipelineMessage(
 
     // KAN-73 — real-time audit entry from the audit_logger hook
     case "hook_run": {
-      const hookData = (msg.data as Record<string, unknown>) || {};
+      // ISS-107: page.tsx dispatches the frame flat (no `data` key) — fall back to msg like the sibling cases.
+      const hookData = (msg.data as Record<string, unknown>) || msg;
       const entry: import("@/types/index").HookRunEntry = {
         hook: (hookData.hook as string) || "audit_logger",
         event: (hookData.event as string) || "",

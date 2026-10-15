@@ -87,26 +87,6 @@ def _offline_engine_env(tmp_path, monkeypatch):
 
     monkeypatch.setattr(db_mod, "SessionLocal", _offline_session_local)
 
-    from agents.execution_engine.finalization import FinalizationRecord
-
-    async def _clean_finalizer(run_id, ectx, *, candidate_status):
-        return FinalizationRecord(
-            run_id=run_id,
-            owner_id=ectx.owner_id,
-            workspace_id=ectx.workspace_id,
-            published_status=candidate_status,
-            candidate_status=candidate_status,
-            payload_chainable=candidate_status == "completed",
-            commit_sha="unit-test-clean-finalizer",
-        )
-
-    monkeypatch.setattr(engine_mod, "finalize_terminal_run", _clean_finalizer)
-
-    async def _clean_commit(*_args, **_kwargs):
-        return engine_mod.CommitInSandboxResult(no_change=True)
-
-    monkeypatch.setattr(engine_mod, "commit_in_sandbox", _clean_commit)
-
 
 def _make_stub_run_agent(fail_ids: set[str]):
     """A stubbed ``ExecutionEngine._run_agent``: agents in ``fail_ids`` yield an

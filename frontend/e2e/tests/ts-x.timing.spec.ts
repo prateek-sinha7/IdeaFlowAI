@@ -146,7 +146,7 @@ test.describe("TS-X — timing budgets", () => {
 
 // ── TS-X-04 — prototype tweaks 400ms debounce → iframe rebuild ────────────────
 // The TweaksPanel is reachable in mocked mode the same way TS-O-05 reaches the
-// prototype iframe: complete an od_prototype run with HTML final_output → the
+// prototype iframe: complete a prototype run with HTML final_output → the
 // PrototypePreview renders iframe[title="Prototype Preview"] off a Blob URL,
 // keyed on that URL. A tweak re-renders the HTML (injects a flowin-tweaks <style>
 // block) → a fresh Blob URL → the iframe's src/key change. We assert that change.
@@ -165,11 +165,10 @@ test.describe("TS-X-04 — prototype tweaks debounce → iframe rebuild", () => 
     // Served by the mock's lazy attach (no user_stories launch): since
     // 015-frontend-routing a launch persists its run TYPE across the
     // /runs/{id}/stream remount, so launching user_stories and announcing a
-    // prototype run is a state the real backend never produces. od_prototype was
-    // folded into `prototype` (no od_* manifest remains) — announce the real type.
+    // prototype run is a state the real backend never produces.
     await dashboard.goto();
 
-    const agents = AGENTS.od_prototype;
+    const agents = AGENTS.prototype;
     mockSse.start(agents, { pipelineType: "prototype" });
     await mockSse.ready();
     for (const a of agents) await runAgent(mockSse, a.id);
@@ -181,8 +180,8 @@ test.describe("TS-X-04 — prototype tweaks debounce → iframe rebuild", () => 
 
     // Capture the pristine (no-tweaks) Blob URL the iframe currently points at.
     // It must be a blob: URL so a later inequality is meaningful, not "" → "".
-    const beforeSrc = await iframe.getAttribute("src");
-    expect(beforeSrc).toMatch(/^blob:/);
+    const beforeSrc = await iframe.getAttribute("srcdoc");
+    expect(beforeSrc).toContain("about:srcdoc");
 
     // ── Open the Tweaks panel ─────────────────────────────────────────────────
     // NOTE: the toggle button ALSO has the accessible name "Tweaks" (its label
@@ -205,14 +204,14 @@ test.describe("TS-X-04 — prototype tweaks debounce → iframe rebuild", () => 
     // The rebuild fires once: a NEW Blob URL replaces beforeSrc. expect.poll (never a
     // hard sleep) waits up to 1.5s for the debounced rebuild to land.
     await expect
-      .poll(async () => iframe.getAttribute("src"), {
-        message: "iframe src should change after the 400ms-debounced token tweak",
+      .poll(async () => iframe.getAttribute("srcdoc"), {
+        message: "iframe srcdoc should change after the 400ms-debounced token tweak",
         timeout: 1500,
       })
       .not.toBe(beforeSrc);
 
-    const afterTokenSrc = await iframe.getAttribute("src");
-    expect(afterTokenSrc).toMatch(/^blob:/);
+    const afterTokenSrc = await iframe.getAttribute("srcdoc");
+    expect(afterTokenSrc).toContain("about:srcdoc");
 
     // ── IMMEDIATE path: apply the Dark preset → another rebuild ───────────────
     // onApplyPreset rebuilds via setTimeout(0), so this src change should be quick.
@@ -220,8 +219,8 @@ test.describe("TS-X-04 — prototype tweaks debounce → iframe rebuild", () => 
     // (not a one-shot), and exercises the immediate (non-debounced) branch too.
     await dashboard.page.getByRole("button", { name: "Dark", exact: true }).click();
     await expect
-      .poll(async () => iframe.getAttribute("src"), {
-        message: "iframe src should change again after the immediate Dark preset",
+      .poll(async () => iframe.getAttribute("srcdoc"), {
+        message: "iframe srcdoc should change again after the immediate Dark preset",
         timeout: 1500,
       })
       .not.toBe(afterTokenSrc);

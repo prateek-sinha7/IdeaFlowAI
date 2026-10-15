@@ -1,4 +1,4 @@
-"""tests/unit/test_duplicate_context_guard.py — duplicate-context guard
+"""tests/integration/api/test_duplicate_context_guard_api.py — duplicate-context guard
 (Task 11.9, Requirement 21 AC 10, sandbox-git-versioning-v2).
 
 Validates the server-side guard in _launch_run_core (run_commands.py task 9.3):
@@ -45,6 +45,10 @@ import agents.execution_engine.engine as engine_mod
 from app.models.run_provenance_audit import RunProvenanceAudit
 from app.models.workflow import WorkflowRun
 
+pytestmark = [
+    pytest.mark.issue("ISS-905"),
+]
+
 _LEGACY_MARKER = "=== CONTEXT FROM PREVIOUS PIPELINE"
 _LEGACY_BLOCK = (
     f"\n{_LEGACY_MARKER} ===\n\nThis is the old context from the source run.\n"
@@ -73,9 +77,13 @@ class _RecordingEngine:
 
 
 @pytest.fixture
-def env(monkeypatch):
+def env(monkeypatch, tmp_path):
     from app.api import run_engine as ws_module
+    from app.core.config import settings
     from app.models.database import Base
+
+    # ISS-905: chain admission opens the source's sandbox; keep it out of the real runs/.
+    monkeypatch.setattr(settings, "RUNS_ROOT", str(tmp_path / "runs"))
 
     db_engine = create_engine(
         "sqlite://",
@@ -90,44 +98,6 @@ def env(monkeypatch):
 
     monkeypatch.setattr(rc_module, "_get_db", lambda: TestingSession())
 
-    # user_stories now declares deliverable.chains_from, so a source id runs the
-    # full pre-mint admission gate (sandbox + finalization record + payload
-    # selection) and a bare seeded row is refused 422 source_payload_missing (B5).
-    # That gate is covered by its own suites; this file is about the strip guard,
-    # which keys off the REQUEST source id regardless of admission. Stub the gate
-    # to "admitted" (keeping its real IDOR 404 for unowned/unknown ids) so these
-    # tests exercise the guard, not the payload plumbing.
-    _real_admit = rc_module.admit_chain_launch
-
-    def _admit_owned_source(
-        db, compiled, source_run_id, current_user, *, pipeline_type
-    ):
-        if not source_run_id:
-            return _real_admit(
-                db, compiled, source_run_id, current_user, pipeline_type=pipeline_type
-            )
-        owned = (
-            db.query(WorkflowRun)
-            .filter(
-                WorkflowRun.id == source_run_id,
-                WorkflowRun.user_id == current_user.id,
-            )
-            .first()
-        )
-        if owned is None:
-            from fastapi import HTTPException
-
-            raise HTTPException(status_code=404, detail="Workflow run not found")
-        return rc_module.ChainAdmission(
-            active=True,
-            source_id=source_run_id,
-            record=None,
-            selection=None,
-            refusal_reason=None,
-        )
-
-    monkeypatch.setattr(rc_module, "admit_chain_launch", _admit_owned_source)
-
     _RecordingEngine.invoked = False
     _RecordingEngine.last_kwargs = None
     monkeypatch.setattr(engine_mod, "get_execution_engine", lambda: _RecordingEngine())
@@ -141,9 +111,8 @@ def env(monkeypatch):
     app.include_router(router)
     state: dict = {"user": None}
     app.dependency_overrides[get_current_user] = lambda: state["user"]
-    # launch_run depends on get_current_principal (its tier gate reads the token's
-    # cognito:groups — Cognito-only auth migration, Decision 3). Same override as
-    # tests/integration/api/test_rest_run_launch_api.py.
+    # ISS-905: launch_run depends on get_current_principal (Cognito-only auth), as
+    # test_rest_run_launch_api.py's fixture already overrides.
     app.dependency_overrides[get_current_principal] = lambda: (
         state["user"],
         principal_for(state["user"]),
@@ -169,9 +138,7 @@ def _seed_user(env) -> _FakeUser:
         u = User(
             id=str(uuid.uuid4()),
             email=f"test-{uuid.uuid4().hex[:8]}@example.com",
-            # users.cognito_sub is NOT NULL since the Cognito-only auth migration
-            # (b2a621f8), which also dropped password_hash.
-            cognito_sub=f"sub-{uuid.uuid4()}",
+            cognito_sub=str(uuid.uuid4()),
         )
         db.add(u)
         db.commit()
@@ -182,7 +149,8 @@ def _seed_user(env) -> _FakeUser:
 
 
 def _seed_source_run(env, user_id: str) -> WorkflowRun:
-    """Seed a source run owned by user_id so source_workflow_run_id validation passes."""
+    """Seed a bare source run row owned by user_id. It has no chain payload, so the
+    chain admission gate refuses it (422 source_payload_missing); see _seed_chain_source."""
     db = env["ws"]._get_db()
     try:
         run = WorkflowRun(
@@ -201,6 +169,18 @@ def _seed_source_run(env, user_id: str) -> WorkflowRun:
         return run
     finally:
         db.close()
+
+
+def _seed_chain_source(env, user_id: str) -> WorkflowRun:
+    """ISS-905: a source the admission gate accepts — the bare row plus a legacy
+    .chain/<id>/ payload (user_stories declares chains_from, so a bare row is refused)."""
+    from app.agents.sandbox import RunSandbox
+
+    run = _seed_source_run(env, user_id)
+    RunSandbox(user_id, run.id).write(
+        f".chain/{run.id}/summary.md", f"run_id: {run.id}\n"
+    )
+    return run
 
 
 def _count_strip_audits(env, user_id: str) -> int:
@@ -242,7 +222,7 @@ class TestDuplicateContextStripped:
         """An older frontend that sends both must have the block stripped."""
         user = _seed_user(env)
         env["state"]["user"] = user
-        source_run = _seed_source_run(env, user.id)
+        source_run = _seed_chain_source(env, user.id)
 
         brief = "Build me a user-stories backlog"
         # Older frontend appends the legacy context block after the brief
@@ -268,7 +248,7 @@ class TestDuplicateContextStripped:
         """The user's brief (before the context block) is preserved after stripping."""
         user = _seed_user(env)
         env["state"]["user"] = user
-        source_run = _seed_source_run(env, user.id)
+        source_run = _seed_chain_source(env, user.id)
 
         brief = "Generate a sprint backlog for the login feature"
         message = brief + _LEGACY_BLOCK
@@ -290,7 +270,7 @@ class TestDuplicateContextStripped:
         """A legacy_context_block_stripped audit row is created for the strip event."""
         user = _seed_user(env)
         env["state"]["user"] = user
-        source_run = _seed_source_run(env, user.id)
+        source_run = _seed_chain_source(env, user.id)
 
         resp = _post_launch(
             env,
@@ -301,15 +281,16 @@ class TestDuplicateContextStripped:
         assert resp.status_code == 200, resp.text
 
         count = _count_strip_audits(env, user.id)
+        # ISS-981: exactly one — the strip is recorded once, not once per guard copy.
         assert (
-            count >= 1
-        ), "Expected a legacy_context_block_stripped audit row, found none"
+            count == 1
+        ), f"Expected one legacy_context_block_stripped audit row, found {count}"
 
     def test_strip_audit_row_references_source_run(self, env):
         """The audit row's source_ref is the source_workflow_run_id."""
         user = _seed_user(env)
         env["state"]["user"] = user
-        source_run = _seed_source_run(env, user.id)
+        source_run = _seed_chain_source(env, user.id)
 
         resp = _post_launch(
             env,
@@ -361,6 +342,8 @@ class TestLegacyBlockPreservedWithoutSourceId:
         # Guard fires ONLY when source_workflow_run_id is set — verify no audit row
         count = _count_strip_audits(env, user.id)
         assert count == 0, "No strip audit should be created for a plain legacy launch"
+        # ISS-905: and the block itself was not stripped.
+        assert _LEGACY_MARKER in (_latest_run_content(env) or "")
 
     def test_run_minted_with_legacy_block_intact(self, env):
         """Legacy block content survives when no source_workflow_run_id is set."""
@@ -376,6 +359,8 @@ class TestLegacyBlockPreservedWithoutSourceId:
         assert resp.status_code == 200, resp.text
         # Run was minted
         assert _RecordingEngine.invoked is True
+        # ISS-905: the name promises the block is intact — check the persisted input.
+        assert _LEGACY_MARKER in (_latest_run_content(env) or "")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -388,7 +373,7 @@ class TestSourceRunIdOnlyNoStrip:
         """A v2-native launch (source_run_id only, no legacy block) creates no strip row."""
         user = _seed_user(env)
         env["state"]["user"] = user
-        source_run = _seed_source_run(env, user.id)
+        source_run = _seed_chain_source(env, user.id)
 
         resp = _post_launch(
             env,
@@ -407,7 +392,7 @@ class TestSourceRunIdOnlyNoStrip:
         """Message content is unchanged for a v2-native launch."""
         user = _seed_user(env)
         env["state"]["user"] = user
-        source_run = _seed_source_run(env, user.id)
+        source_run = _seed_chain_source(env, user.id)
 
         brief = "Generate a user story for checkout flow"
         resp = _post_launch(

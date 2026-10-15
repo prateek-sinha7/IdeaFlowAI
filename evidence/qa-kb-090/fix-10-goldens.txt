@@ -1,0 +1,12 @@
+##### working tree: tests/contract/agents/test_characterization_app_builder.py
+2 passed, 3 warnings in 6.96s
+##### working tree: tests/contract/agents/test_characterization_ppt.py
+2 passed, 3 warnings in 3.10s
+##### working tree: tests/contract/agents/test_characterization_prototype.py
+2 passed, 3 warnings in 21.53s
+##### working tree: tests/contract/agents/test_characterization_prototype_revision.py
+2 passed, 3 warnings in 7.56s
+##### working tree: tests/contract/agents/test_characterization_prototype_feature_revision.py
+4 passed, 5 warnings in 53.05s
+##### working tree: tests/contract/agents/test_characterization_prototype_large_revision.py
+2 passed, 3 warnings in 27.58s

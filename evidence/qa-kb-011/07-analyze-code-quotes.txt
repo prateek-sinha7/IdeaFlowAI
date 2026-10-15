@@ -1,0 +1,330 @@
+# QA-KB-011 analyzer code quotes. Generated 2026-10-01 22:18 from the working tree at HEAD 024c03ef8.
+# Format: file:line: content. run_commands.py is quoted from 'git show HEAD:' (another lane has uncommitted edits earlier in the working copy; HEAD numbering is the stable one).
+
+## frontend/src/components/workflow/LaunchWizard.tsx lines 290-290
+frontend/src/components/workflow/LaunchWizard.tsx:290:   const [pipelineAgents, setPipelineAgents] = useState<AgentDef[]>(() => defaultAgentsFor(libraryAgents, initialMode));
+
+## frontend/src/components/workflow/LaunchWizard.tsx lines 395-396
+frontend/src/components/workflow/LaunchWizard.tsx:395:   useEffect(() => {
+frontend/src/components/workflow/LaunchWizard.tsx:396:     if (!authChecked) return;
+
+## frontend/src/components/workflow/LaunchWizard.tsx lines 420-425
+frontend/src/components/workflow/LaunchWizard.tsx:420:       if (d.agentIds && d.agentIds.length > 0 && libraryAgents.length > 0) {
+frontend/src/components/workflow/LaunchWizard.tsx:421:         const restored = d.agentIds
+frontend/src/components/workflow/LaunchWizard.tsx:422:           .map((id) => libraryAgents.find((a) => a.id === id))
+frontend/src/components/workflow/LaunchWizard.tsx:423:           .filter(Boolean) as AgentDef[];
+frontend/src/components/workflow/LaunchWizard.tsx:424:         if (restored.length > 0) setPipelineAgents(restored);
+frontend/src/components/workflow/LaunchWizard.tsx:425:       }
+
+## frontend/src/components/workflow/LaunchWizard.tsx lines 491-496
+frontend/src/components/workflow/LaunchWizard.tsx:491:   useEffect(() => {
+frontend/src/components/workflow/LaunchWizard.tsx:492:     if (!authChecked) return;
+frontend/src/components/workflow/LaunchWizard.tsx:493:     const token = getToken();
+frontend/src/components/workflow/LaunchWizard.tsx:494:     if (!token) return;
+frontend/src/components/workflow/LaunchWizard.tsx:495:     const pipeline = MODE_CONFIG[mode].agentPipeline;
+frontend/src/components/workflow/LaunchWizard.tsx:496:     let cancelled = false;
+
+## frontend/src/components/workflow/LaunchWizard.tsx lines 508-510
+frontend/src/components/workflow/LaunchWizard.tsx:508:     getWorkflowDetail(token, pipeline)
+frontend/src/components/workflow/LaunchWizard.tsx:509:       .then((detail) => {
+frontend/src/components/workflow/LaunchWizard.tsx:510:         if (cancelled) return;
+
+## frontend/src/components/workflow/LaunchWizard.tsx lines 552-558
+frontend/src/components/workflow/LaunchWizard.tsx:552:         if (detail.is_overridden) {
+frontend/src/components/workflow/LaunchWizard.tsx:553:           const proj = agentsFromManifest(detail, pipeline);
+frontend/src/components/workflow/LaunchWizard.tsx:554:           setOverrideAgents(proj.agents);
+frontend/src/components/workflow/LaunchWizard.tsx:555:           setOverrideSelections(proj.selections);
+frontend/src/components/workflow/LaunchWizard.tsx:556:           setShowOverride(true);
+frontend/src/components/workflow/LaunchWizard.tsx:557:           if (proj.agents.length > 0) setPipelineAgents(proj.agents);
+frontend/src/components/workflow/LaunchWizard.tsx:558:           if (proj.selections) handleSelectionsChange(proj.selections);
+
+## frontend/src/components/workflow/LaunchWizard.tsx lines 561-566
+frontend/src/components/workflow/LaunchWizard.tsx:561:       .catch(() => {
+frontend/src/components/workflow/LaunchWizard.tsx:562:         // A workflow with no manifest, or a transient failure. The library
+frontend/src/components/workflow/LaunchWizard.tsx:563:         // roster is already rendered — degrade to "no override", never blank
+frontend/src/components/workflow/LaunchWizard.tsx:564:         // the screen over an optional enhancement.
+frontend/src/components/workflow/LaunchWizard.tsx:565:       });
+frontend/src/components/workflow/LaunchWizard.tsx:566:     return () => { cancelled = true; };
+
+## frontend/src/components/workflow/LaunchWizard.tsx lines 925-925
+frontend/src/components/workflow/LaunchWizard.tsx:925:         agent_ids: pipelineAgents.map((a) => a.id),
+
+## frontend/src/components/workflow/LaunchWizard.tsx lines 955-956
+frontend/src/components/workflow/LaunchWizard.tsx:955:       const saved = await createUserWorkflow(jwt, {
+frontend/src/components/workflow/LaunchWizard.tsx:956:         name: `My ${cfg.eyebrow.replace(/^New /, "")}`,
+
+## frontend/src/components/workflow/LaunchWizard.tsx lines 966-972
+frontend/src/components/workflow/LaunchWizard.tsx:966:         agent_ids: pipelineAgents.map((a) => a.id),
+frontend/src/components/workflow/LaunchWizard.tsx:967:         manifest: buildWorkflowManifest(
+frontend/src/components/workflow/LaunchWizard.tsx:968:           pipelineAgents,
+frontend/src/components/workflow/LaunchWizard.tsx:969:           undefined,
+frontend/src/components/workflow/LaunchWizard.tsx:970:           selectionsRef.current,
+frontend/src/components/workflow/LaunchWizard.tsx:971:         ) as unknown as Record<string, unknown>,
+frontend/src/components/workflow/LaunchWizard.tsx:972:         overrides_pipeline_type: pipeline,
+
+## frontend/src/components/workflow/LaunchWizard.tsx lines 1276-1285
+frontend/src/components/workflow/LaunchWizard.tsx:1276:         {!isChaining && (
+frontend/src/components/workflow/LaunchWizard.tsx:1277:           <button
+frontend/src/components/workflow/LaunchWizard.tsx:1278:             type="button"
+frontend/src/components/workflow/LaunchWizard.tsx:1279:             onClick={() => setShowAgents(true)}
+frontend/src/components/workflow/LaunchWizard.tsx:1280:             className="flex items-center gap-2 text-[12px] text-ink-400 transition-colors hover:text-ink-700"
+frontend/src/components/workflow/LaunchWizard.tsx:1281:           >
+frontend/src/components/workflow/LaunchWizard.tsx:1282:             <Settings2 className="h-3.5 w-3.5" />
+frontend/src/components/workflow/LaunchWizard.tsx:1283:             <span className="font-medium text-ink-600">Advanced</span>
+frontend/src/components/workflow/LaunchWizard.tsx:1284:             <span className="text-ink-400">{pipelineAgents.length} agent{pipelineAgents.length !== 1 ? "s" : ""}</span>
+frontend/src/components/workflow/LaunchWizard.tsx:1285:           </button>
+
+## frontend/src/components/workflow/LaunchWizard.tsx lines 1389-1397
+frontend/src/components/workflow/LaunchWizard.tsx:1389:             <button
+frontend/src/components/workflow/LaunchWizard.tsx:1390:               type="button"
+frontend/src/components/workflow/LaunchWizard.tsx:1391:               onClick={() => { setSaveError(null); setShowSaveModal(true); }}
+frontend/src/components/workflow/LaunchWizard.tsx:1392:               title="Save this workflow configuration to reuse later"
+frontend/src/components/workflow/LaunchWizard.tsx:1393:               className="flex flex-shrink-0 items-center gap-2 rounded-[var(--radius-card)] border border-line-border bg-surface-white px-5 py-4 text-[14px] font-semibold text-ink-700 shadow-[var(--elevation-raised)] transition-all hover:border-line-control hover:bg-surface-warm"
+frontend/src/components/workflow/LaunchWizard.tsx:1394:             >
+frontend/src/components/workflow/LaunchWizard.tsx:1395:               <Save className="h-4 w-4" />
+frontend/src/components/workflow/LaunchWizard.tsx:1396:               Save workflow
+frontend/src/components/workflow/LaunchWizard.tsx:1397:             </button>
+
+## frontend/src/components/workflow/LaunchWizard.tsx lines 1403-1411
+frontend/src/components/workflow/LaunchWizard.tsx:1403:             <button
+frontend/src/components/workflow/LaunchWizard.tsx:1404:               type="button"
+frontend/src/components/workflow/LaunchWizard.tsx:1405:               onClick={handleSaveAsOverride}
+frontend/src/components/workflow/LaunchWizard.tsx:1406:               title="Make this lineup your default for this workflow"
+frontend/src/components/workflow/LaunchWizard.tsx:1407:               className="flex flex-shrink-0 items-center gap-2 rounded-[var(--radius-card)] border border-line-border bg-surface-white px-5 py-4 text-[14px] font-semibold text-ink-700 shadow-[var(--elevation-raised)] transition-all hover:border-line-control hover:bg-surface-warm"
+frontend/src/components/workflow/LaunchWizard.tsx:1408:             >
+frontend/src/components/workflow/LaunchWizard.tsx:1409:               <Save className="h-4 w-4" />
+frontend/src/components/workflow/LaunchWizard.tsx:1410:               Save as my version
+frontend/src/components/workflow/LaunchWizard.tsx:1411:             </button>
+
+## frontend/src/components/workflow/LaunchWizard.tsx lines 1412-1416
+frontend/src/components/workflow/LaunchWizard.tsx:1412:             <button
+frontend/src/components/workflow/LaunchWizard.tsx:1413:               type="button"
+frontend/src/components/workflow/LaunchWizard.tsx:1414:               onClick={handleLaunch}
+frontend/src/components/workflow/LaunchWizard.tsx:1415:               disabled={!canContinue || locked}
+frontend/src/components/workflow/LaunchWizard.tsx:1416:               className="flex flex-1 items-center justify-center gap-2 rounded-[var(--radius-card)] bg-brand px-6 py-4 text-[14px] font-semibold text-white shadow-[var(--elevation-raised)] transition-all hover:bg-brand-pressed disabled:cursor-not-allowed disabled:bg-line-divider disabled:text-ink-400 disabled:shadow-none"
+
+## frontend/src/components/workflow/LaunchWizard.tsx lines 1472-1475
+frontend/src/components/workflow/LaunchWizard.tsx:1472:         initialSelections={selectionsRef.current}
+frontend/src/components/workflow/LaunchWizard.tsx:1473:         selections={liveSelections}
+frontend/src/components/workflow/LaunchWizard.tsx:1474:         onSelectionsChange={handleSelectionsChange}
+frontend/src/components/workflow/LaunchWizard.tsx:1475:         userWorkflowId={userWorkflowId}
+
+## frontend/src/components/workflow/IdeaInputPage.tsx lines 1135-1135
+frontend/src/components/workflow/IdeaInputPage.tsx:1135:     getWorkflowDetail(jwt, workflowId)
+
+## frontend/src/components/workflow/IdeaInputPage.tsx lines 1165-1173
+frontend/src/components/workflow/IdeaInputPage.tsx:1165:         if (detail.has_override && detail.override_id) {
+frontend/src/components/workflow/IdeaInputPage.tsx:1166:           setOverrideInfo({ id: detail.override_id, enabled: !!detail.is_overridden });
+frontend/src/components/workflow/IdeaInputPage.tsx:1167:           if (detail.is_overridden) {
+frontend/src/components/workflow/IdeaInputPage.tsx:1168:             const proj = agentsFromManifest(detail, workflowId);
+frontend/src/components/workflow/IdeaInputPage.tsx:1169:             setOverrideAgents(proj.agents);
+frontend/src/components/workflow/IdeaInputPage.tsx:1170:             setOverrideSelections(proj.selections);
+frontend/src/components/workflow/IdeaInputPage.tsx:1171:             setShowOverride(true);
+frontend/src/components/workflow/IdeaInputPage.tsx:1172:             if (proj.selections) selectionsRef.current = proj.selections;
+frontend/src/components/workflow/IdeaInputPage.tsx:1173:           }
+
+## frontend/src/components/workflow/IdeaInputPage.tsx lines 1305-1316
+frontend/src/components/workflow/IdeaInputPage.tsx:1305:       .catch((e) => {
+frontend/src/components/workflow/IdeaInputPage.tsx:1306:         // Unknown id (404) or transient error ⇒ treat as "nothing declared":
+frontend/src/components/workflow/IdeaInputPage.tsx:1307:         // leave it undefined so the strip simply does not render (no noisy UI).
+frontend/src/components/workflow/IdeaInputPage.tsx:1308:         if (!cancelled) {
+frontend/src/components/workflow/IdeaInputPage.tsx:1309:           setDeclaredCapabilities(undefined);
+frontend/src/components/workflow/IdeaInputPage.tsx:1310:           setManifestAgents(undefined);
+frontend/src/components/workflow/IdeaInputPage.tsx:1311:           setManifestSelections(undefined);
+frontend/src/components/workflow/IdeaInputPage.tsx:1312:           setManifestRawSteps(undefined);
+frontend/src/components/workflow/IdeaInputPage.tsx:1313:           // ISS-374/ISS-375 — still no strip, but the failure is no longer
+frontend/src/components/workflow/IdeaInputPage.tsx:1314:           // invisible: this same swallow is what leaves the roster empty.
+frontend/src/components/workflow/IdeaInputPage.tsx:1315:           setLoadError(isNotFoundError(e) ? "not-found" : "failed");
+frontend/src/components/workflow/IdeaInputPage.tsx:1316:         }
+
+## frontend/src/components/workflow/IdeaInputPage.tsx lines 1743-1746
+frontend/src/components/workflow/IdeaInputPage.tsx:1743:   const handleSaveAsOverride = useCallback(async () => {
+frontend/src/components/workflow/IdeaInputPage.tsx:1744:     setSaveError(null);
+frontend/src/components/workflow/IdeaInputPage.tsx:1745:     const jwt = getToken();
+frontend/src/components/workflow/IdeaInputPage.tsx:1746:     if (!jwt || !workflowId) { setSaveError("Not authenticated."); return; }
+
+## frontend/src/components/workflow/IdeaInputPage.tsx lines 1759-1774
+frontend/src/components/workflow/IdeaInputPage.tsx:1759:       const saved = await createUserWorkflow(jwt, {
+frontend/src/components/workflow/IdeaInputPage.tsx:1760:         name: `My ${workflowId}`,
+frontend/src/components/workflow/IdeaInputPage.tsx:1761:         // ISS-280 — was a hardcoded literal, so the saved row carried no trace
+frontend/src/components/workflow/IdeaInputPage.tsx:1762:         // of the brief, even though the sibling `handleSaveWorkflow` above
+frontend/src/components/workflow/IdeaInputPage.tsx:1763:         // already persists `ideaInput` for its own save.
+frontend/src/components/workflow/IdeaInputPage.tsx:1764:         description: overrideDescription({ brief: ideaInput }),
+frontend/src/components/workflow/IdeaInputPage.tsx:1765:         base_pipeline_type: workflowId,
+frontend/src/components/workflow/IdeaInputPage.tsx:1766:         agent_ids: pipelineAgents.map((a) => a.id),
+frontend/src/components/workflow/IdeaInputPage.tsx:1767:         // `manifest`, never `selections`: the override resolve reads
+frontend/src/components/workflow/IdeaInputPage.tsx:1768:         // manifest_json["steps"], and a selections map has no steps in it.
+frontend/src/components/workflow/IdeaInputPage.tsx:1769:         manifest: buildWorkflowManifest(
+frontend/src/components/workflow/IdeaInputPage.tsx:1770:           pipelineAgents,
+frontend/src/components/workflow/IdeaInputPage.tsx:1771:           undefined,
+frontend/src/components/workflow/IdeaInputPage.tsx:1772:           saveSelections,
+frontend/src/components/workflow/IdeaInputPage.tsx:1773:         ) as unknown as Record<string, unknown>,
+frontend/src/components/workflow/IdeaInputPage.tsx:1774:         overrides_pipeline_type: workflowId,
+
+## frontend/src/components/workflow/IdeaInputPage.tsx lines 1948-1951
+frontend/src/components/workflow/IdeaInputPage.tsx:1948:                     <button
+frontend/src/components/workflow/IdeaInputPage.tsx:1949:                       onClick={() => { setSaveError(null); setShowSaveModal(true); }}
+frontend/src/components/workflow/IdeaInputPage.tsx:1950:                       disabled={pipelineAgents.length === 0 || (isMigrationMeta && !migrationChoice)}
+frontend/src/components/workflow/IdeaInputPage.tsx:1951:                       className="flex items-center gap-1.5 rounded-xl border border-line-control px-4 py-2.5 text-[12px] font-medium text-ink-600 hover:bg-surface-warm transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+
+## frontend/src/components/workflow/IdeaInputPage.tsx lines 1962-1966
+frontend/src/components/workflow/IdeaInputPage.tsx:1962:                   {effectiveType !== "custom" && workflowId && !savedConfirm && (
+frontend/src/components/workflow/IdeaInputPage.tsx:1963:                     <button
+frontend/src/components/workflow/IdeaInputPage.tsx:1964:                       onClick={handleSaveAsOverride}
+frontend/src/components/workflow/IdeaInputPage.tsx:1965:                       disabled={pipelineAgents.length === 0 || (isMigrationMeta && !migrationChoice)}
+frontend/src/components/workflow/IdeaInputPage.tsx:1966:                       className="flex items-center gap-1.5 rounded-xl border border-line-control px-4 py-2.5 text-[12px] font-medium text-ink-600 hover:bg-surface-warm transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+
+## frontend/src/components/workflow/AgentsPopup.tsx lines 2673-2680
+frontend/src/components/workflow/AgentsPopup.tsx:2673:   const openSnapshot = useRef<{ agents: AgentDef[]; selections: SelectionsMap } | null>(null);
+frontend/src/components/workflow/AgentsPopup.tsx:2674:   const stageEdit = useCallback(() => {
+frontend/src/components/workflow/AgentsPopup.tsx:2675:     if (!openSnapshot.current) openSnapshot.current = { agents, selections: liveSelections };
+frontend/src/components/workflow/AgentsPopup.tsx:2676:   }, [agents, liveSelections]);
+frontend/src/components/workflow/AgentsPopup.tsx:2677:   useEffect(() => {
+frontend/src/components/workflow/AgentsPopup.tsx:2678:     // A closed modal starts a fresh session — including after "Save workflow"
+frontend/src/components/workflow/AgentsPopup.tsx:2679:     // and "Open in full canvas", both of which keep what they were handed.
+frontend/src/components/workflow/AgentsPopup.tsx:2680:     if (!isOpen) openSnapshot.current = null;
+
+## frontend/src/components/workflow/AgentsPopup.tsx lines 2705-2716
+frontend/src/components/workflow/AgentsPopup.tsx:2705:   const handleCancel = useCallback(() => {
+frontend/src/components/workflow/AgentsPopup.tsx:2706:     const snapshot = openSnapshot.current;
+frontend/src/components/workflow/AgentsPopup.tsx:2707:     if (snapshot) {
+frontend/src/components/workflow/AgentsPopup.tsx:2708:       onReorder?.(snapshot.agents);
+frontend/src/components/workflow/AgentsPopup.tsx:2709:       handleSelectionsChange(snapshot.selections);
+frontend/src/components/workflow/AgentsPopup.tsx:2710:     }
+frontend/src/components/workflow/AgentsPopup.tsx:2711:     // Last, not first: the restore above goes through `handleSelectionsChange`,
+frontend/src/components/workflow/AgentsPopup.tsx:2712:     // which would otherwise re-arm the snapshot with the edit being undone.
+frontend/src/components/workflow/AgentsPopup.tsx:2713:     openSnapshot.current = null;
+frontend/src/components/workflow/AgentsPopup.tsx:2714:     setTreeEdited(false);
+frontend/src/components/workflow/AgentsPopup.tsx:2715:     onClose();
+frontend/src/components/workflow/AgentsPopup.tsx:2716:   }, [onReorder, handleSelectionsChange, onClose]);
+
+## frontend/src/components/workflow/AgentsPopup.tsx lines 2732-2736
+frontend/src/components/workflow/AgentsPopup.tsx:2732:         await saveUserWorkflow(token, userWorkflowId, {
+frontend/src/components/workflow/AgentsPopup.tsx:2733:           name,
+frontend/src/components/workflow/AgentsPopup.tsx:2734:           ...(description ? { description } : {}),
+frontend/src/components/workflow/AgentsPopup.tsx:2735:           base_pipeline_type: pipelineType,
+frontend/src/components/workflow/AgentsPopup.tsx:2736:           agent_ids: agents.map((a) => a.id),
+
+## frontend/src/components/workflow/AgentsPopup.tsx lines 2964-2979
+frontend/src/components/workflow/AgentsPopup.tsx:2964:               <button
+frontend/src/components/workflow/AgentsPopup.tsx:2965:                 onClick={() => {
+frontend/src/components/workflow/AgentsPopup.tsx:2966:                   setSaveError(null);
+frontend/src/components/workflow/AgentsPopup.tsx:2967:                   // ISS-167 (follow-up): editing an already-saved workflow updates
+frontend/src/components/workflow/AgentsPopup.tsx:2968:                   // it in place under its existing name — only a brand-new save
+frontend/src/components/workflow/AgentsPopup.tsx:2969:                   // needs one asked.
+frontend/src/components/workflow/AgentsPopup.tsx:2970:                   if (userWorkflowId && savedName) {
+frontend/src/components/workflow/AgentsPopup.tsx:2971:                     handleSaveWorkflow(savedName, savedDescription ?? "");
+frontend/src/components/workflow/AgentsPopup.tsx:2972:                   } else {
+frontend/src/components/workflow/AgentsPopup.tsx:2973:                     setSaveModalOpen(true);
+frontend/src/components/workflow/AgentsPopup.tsx:2974:                   }
+frontend/src/components/workflow/AgentsPopup.tsx:2975:                 }}
+frontend/src/components/workflow/AgentsPopup.tsx:2976:                 className="px-5 py-2.5 rounded-xl bg-brand text-[12px] font-semibold text-surface-white hover:bg-brand-pressed transition-colors"
+frontend/src/components/workflow/AgentsPopup.tsx:2977:               >
+frontend/src/components/workflow/AgentsPopup.tsx:2978:                 Save workflow
+frontend/src/components/workflow/AgentsPopup.tsx:2979:               </button>
+
+## backend/app/api/user_workflows.py lines 213-213
+backend/app/api/user_workflows.py:213:     agent_ids: list[str] = Field(min_length=1)
+
+## backend/app/api/user_workflows.py lines 719-720
+backend/app/api/user_workflows.py:719:     if body.manifest is None:
+backend/app/api/user_workflows.py:720:         allowed_ids = allowed_custom_agent_ids(body.base_pipeline_type)
+
+## backend/app/api/user_workflows.py lines 794-834
+backend/app/api/user_workflows.py:794:     _ov_target = body.overrides_pipeline_type
+backend/app/api/user_workflows.py:795:     if _ov_target:
+backend/app/api/user_workflows.py:796:         if _ov_target not in SUPPORTED_PIPELINE_TYPES:
+backend/app/api/user_workflows.py:797:             raise HTTPException(
+backend/app/api/user_workflows.py:798:                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+backend/app/api/user_workflows.py:799:                 detail=f"Unknown workflow to override: {_ov_target!r}",
+backend/app/api/user_workflows.py:800:             )
+backend/app/api/user_workflows.py:801:         prior = (
+backend/app/api/user_workflows.py:802:             db.query(WorkflowDefinition)
+backend/app/api/user_workflows.py:803:             .filter(
+backend/app/api/user_workflows.py:804:                 WorkflowDefinition.user_id == current_user.id,
+backend/app/api/user_workflows.py:805:                 WorkflowDefinition.source == "user",
+backend/app/api/user_workflows.py:806:                 WorkflowDefinition.overrides_pipeline_type == _ov_target,
+backend/app/api/user_workflows.py:807:             )
+backend/app/api/user_workflows.py:808:             .first()
+backend/app/api/user_workflows.py:809:         )
+backend/app/api/user_workflows.py:810:         if prior is not None:
+backend/app/api/user_workflows.py:811:             prior.name = body.name
+backend/app/api/user_workflows.py:812:             prior.description = body.description
+backend/app/api/user_workflows.py:813:             prior.agents = json.dumps(sorted_ids)
+backend/app/api/user_workflows.py:814:             prior.base_pipeline_type = body.base_pipeline_type
+backend/app/api/user_workflows.py:815:             prior.model_overrides = body.model_overrides
+backend/app/api/user_workflows.py:816:             prior.manifest_json = (
+backend/app/api/user_workflows.py:817:                 _validated_manifest(body.manifest, f"workflow:{body.name}")
+backend/app/api/user_workflows.py:818:                 or body.selections
+backend/app/api/user_workflows.py:819:                 or None
+backend/app/api/user_workflows.py:820:             )
+backend/app/api/user_workflows.py:821:             prior.attached_skills = body.attached_skills or None
+backend/app/api/user_workflows.py:822:             prior.attached_hooks = body.attached_hooks or None
+backend/app/api/user_workflows.py:823:             prior.base_version = body.base_version
+backend/app/api/user_workflows.py:824:             # Re-saving an override turns it back ON: the user just chose to
+backend/app/api/user_workflows.py:825:             # keep these steps, so leaving it switched off would silently
+backend/app/api/user_workflows.py:826:             # discard the save they were looking at.
+backend/app/api/user_workflows.py:827:             prior.override_enabled = True
+backend/app/api/user_workflows.py:828:             db.commit()
+backend/app/api/user_workflows.py:829:             db.refresh(prior)
+backend/app/api/user_workflows.py:830:             logger.info(
+backend/app/api/user_workflows.py:831:                 "override: user %s updated their %s override (row %s)",
+backend/app/api/user_workflows.py:832:                 current_user.id, _ov_target, prior.id,
+backend/app/api/user_workflows.py:833:             )
+backend/app/api/user_workflows.py:834:             return _project(prior)
+
+## frontend/src/store/listenerMiddleware.ts lines 25-26
+frontend/src/store/listenerMiddleware.ts:25: listenerMiddleware.startListening({
+frontend/src/store/listenerMiddleware.ts:26:   actionCreator: signedIn,
+
+## frontend/src/store/listenerMiddleware.ts lines 59-61
+frontend/src/store/listenerMiddleware.ts:59:     if (state.agents.status !== "loading" && state.agents.status !== "succeeded") {
+frontend/src/store/listenerMiddleware.ts:60:       preloadLibrary.push(dispatch(fetchAgentLibrary()));
+frontend/src/store/listenerMiddleware.ts:61:     }
+
+## backend/app/api/run_commands.py (git show HEAD) lines 3626-3661
+backend/app/api/run_commands.py@HEAD:3626:         )
+backend/app/api/run_commands.py@HEAD:3627: 
+backend/app/api/run_commands.py@HEAD:3628:         _ov_db = _get_db()
+backend/app/api/run_commands.py@HEAD:3629:         try:
+backend/app/api/run_commands.py@HEAD:3630:             _ov_row = _resolve_override(_ov_db, current_user, base_pipeline_type)
+backend/app/api/run_commands.py@HEAD:3631:             _ov_steps = _override_steps(_ov_row)
+backend/app/api/run_commands.py@HEAD:3632:             _ov_id = _ov_row.id if _ov_row is not None else None
+backend/app/api/run_commands.py@HEAD:3633:         finally:
+backend/app/api/run_commands.py@HEAD:3634:             _ov_db.close()
+backend/app/api/run_commands.py@HEAD:3635: 
+backend/app/api/run_commands.py@HEAD:3636:         if _ov_steps:
+backend/app/api/run_commands.py@HEAD:3637:             from agents.execution_engine.engine import (
+backend/app/api/run_commands.py@HEAD:3638:                 _CAPABILITY_REGISTRY,
+backend/app/api/run_commands.py@HEAD:3639:                 compile_for_run,
+backend/app/api/run_commands.py@HEAD:3640:                 get_execution_engine,
+backend/app/api/run_commands.py@HEAD:3641:             )
+backend/app/api/run_commands.py@HEAD:3642:             from agents.execution_engine.overrides import merge_override_steps
+backend/app/api/run_commands.py@HEAD:3643: 
+backend/app/api/run_commands.py@HEAD:3644:             try:
+backend/app/api/run_commands.py@HEAD:3645:                 _base_plan = compile_for_run(base_pipeline_type)
+backend/app/api/run_commands.py@HEAD:3646:             except Exception:
+backend/app/api/run_commands.py@HEAD:3647:                 _base_plan = None
+backend/app/api/run_commands.py@HEAD:3648:             if _base_plan is not None:
+backend/app/api/run_commands.py@HEAD:3649:                 _merged = merge_override_steps(
+backend/app/api/run_commands.py@HEAD:3650:                     _base_plan, _ov_steps, _CAPABILITY_REGISTRY
+backend/app/api/run_commands.py@HEAD:3651:                 )
+backend/app/api/run_commands.py@HEAD:3652:                 # merge_override_steps returns the SAME object when it refused the
+backend/app/api/run_commands.py@HEAD:3653:                 # override (malformed row, a not-user-allowed capability). Only
+backend/app/api/run_commands.py@HEAD:3654:                 # switch the run over when it actually applied.
+backend/app/api/run_commands.py@HEAD:3655:                 if _merged is not _base_plan and _merged.steps:
+backend/app/api/run_commands.py@HEAD:3656:                     compiled = _merged
+backend/app/api/run_commands.py@HEAD:3657:                     agents = get_execution_engine()._specs_from_plan(_merged.steps)
+backend/app/api/run_commands.py@HEAD:3658:                     logger.info(
+backend/app/api/run_commands.py@HEAD:3659:                         "override: run launching %s from user %s's saved override %s",
+backend/app/api/run_commands.py@HEAD:3660:                         base_pipeline_type,
+backend/app/api/run_commands.py@HEAD:3661:                         current_user.id,
+
+## page.tsx draft agentIds pass-through (launch consumer)
+frontend/src/app/[...view]/page.tsx:2509:           stagedUploadIds: draft.stagedUploadIds,
+frontend/src/app/[...view]/page.tsx:2510:           agentIds: draft.agentIds,
+frontend/src/app/[...view]/page.tsx:2511:           pipelineType: draft.pipelineType,
+
+## All frontend senders of overrides_pipeline_type (grep, non-test)
+frontend/src/components/workflow/IdeaInputPage.tsx:1774:        overrides_pipeline_type: workflowId,
+frontend/src/components/workflow/LaunchWizard.tsx:972:        overrides_pipeline_type: pipeline,

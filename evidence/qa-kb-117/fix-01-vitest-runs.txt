@@ -1,0 +1,83 @@
+# QA-KB-117 fix stage (5-fixer, FIX-785) — vitest runs, one file at a time
+# date: 2026-10-12 10:12 CEST  HEAD: cd70d2979  branch: feat/stale-bug-fixes
+# changed (uncommitted): frontend/src/lib/entitlements.ts, components/settings/AccountSettings.tsx, components/settings/UpgradePlanModal.tsx, components/catalog/HomeLaunchGrid.tsx
+# baseline before the change (observed 10:05): AccountSettings.iss1195.test.tsx -> Test Files 1 passed (1), Tests 4 expected fail (4)
+
+== npx vitest run src/components/settings/AccountSettings.iss1195.test.tsx
+     × ISS-1195: lists the entitled Engine example 'Branch on a decision' (enterprise) 3116ms
+     × ISS-1196: lists the catalog's v2 product workflows (enterprise) 3026ms
+     × ISS-1197: does not list Coming Soon (is_beta) workflows as plan access (enterprise) 3023ms
+     × ISS-1198: plan modal's 'unlocks N more' counts catalog-enabled rows (pro to enterprise) 6ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 4 ⎯⎯⎯⎯⎯⎯⎯
+ FAIL  src/components/settings/AccountSettings.iss1195.test.tsx > QA-KB-117 — Deliverable access agrees with the catalog > ISS-1195: lists the entitled Engine example 'Branch on a decision' (enterprise)
+ FAIL  src/components/settings/AccountSettings.iss1195.test.tsx > QA-KB-117 — Deliverable access agrees with the catalog > ISS-1196: lists the catalog's v2 product workflows (enterprise)
+ FAIL  src/components/settings/AccountSettings.iss1195.test.tsx > QA-KB-117 — Deliverable access agrees with the catalog > ISS-1197: does not list Coming Soon (is_beta) workflows as plan access (enterprise)
+ FAIL  src/components/settings/AccountSettings.iss1195.test.tsx > QA-KB-117 — Deliverable access agrees with the catalog > ISS-1198: plan modal's 'unlocks N more' counts catalog-enabled rows (pro to enterprise)
+Error: Expect test to fail
+ Test Files  1 failed (1)
+      Tests  4 failed (4)
+
+== npx vitest run src/components/catalog/HomeLaunchGrid.categories.test.ts
+ Test Files  1 passed (1)
+      Tests  2 passed (2)
+
+== npx vitest run src/components/catalog/HomeLaunchGrid.test.tsx
+ Test Files  1 passed (1)
+      Tests  10 passed (10)
+
+== npx vitest run src/components/catalog/HomeLaunchGrid.inspect.test.tsx
+ Test Files  1 passed (1)
+      Tests  2 passed (2)
+
+== npx vitest run src/components/catalog/HomeLaunchGrid.crossAccountLeak.test.tsx
+ Test Files  1 passed (1)
+      Tests  2 passed (2)
+
+== npx vitest run src/components/settings/AccountSettings.test.tsx
+ Test Files  1 passed (1)
+      Tests  4 passed (4)
+
+== npx vitest run src/components/settings/AccountSettings.render.test.tsx
+ Test Files  1 passed (1)
+      Tests  8 passed (8)
+
+== npx vitest run src/components/settings/AccountSettings.iss372.test.tsx
+ Test Files  1 passed (1)
+      Tests  4 passed (4)
+
+== npx vitest run src/components/settings/AccountSettings.iss372.sources.test.tsx
+ Test Files  1 passed (1)
+      Tests  3 passed (3)
+
+== npx vitest run src/components/settings/AccountSettings.password-mismatch.test.tsx
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+
+== npx vitest run src/components/settings/AccountSettings.iss372.meta.test.ts
+ Test Files  1 passed (1)
+      Tests  2 passed (2)
+
+== npx vitest run src/components/layout/AppHeader.a11y.test.tsx
+ Test Files  1 passed (1)
+      Tests  9 passed (9)
+
+== npx vitest run src/components/layout/AppHeader.escape.test.tsx
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+
+== npx vitest run src/components/layout/AppHeader.iss647.test.tsx
+ Test Files  1 passed (1)
+      Tests  2 passed (2)
+
+== npx vitest run src/components/layout/AppHeader.iss757.test.tsx
+ Test Files  1 passed (1)
+      Tests  2 passed (2)
+
+== npx vitest run src/components/layout/AppHeader.runningDropdownSnapshot.test.tsx
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+
+== npx vitest run src/components/layout/DashboardLayout.catalogHome.test.tsx
+ Test Files  1 passed (1)
+      Tests  2 passed (2)
+

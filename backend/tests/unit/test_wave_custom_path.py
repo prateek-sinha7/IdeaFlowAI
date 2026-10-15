@@ -1,7 +1,6 @@
 """Spec 022 revision 7: a wave step's ``custom_path`` task source reads exactly one file.
 
-``kind: custom_path`` + ``path`` (``{revision_n}`` = the highest numbered revisions/
-folder) — no fallback to build/tasks.json or to the producer step's reply. Every other
+``kind: custom_path`` + ``path`` (``{run_id}`` = the run's id from ``.context/run-id.txt``) — no fallback to build/tasks.json or to the producer step's reply. Every other
 task source keeps today's target → build/tasks.json → reply order.
 """
 
@@ -14,14 +13,13 @@ import pytest
 
 from agents.capabilities.strategies.wave_scheduler import (
     WaveSchedulerStrategy,
-    latest_revision_number,
     read_custom_path,
     resolve_revision_path,
 )
 from agents.workflows.compiler import CompilerError, WorkflowCompiler
 from agents.workflows.plan import TaskSource
 
-PATH = "revisions/{revision_n}/tasks.json"
+PATH = "revisions/{run_id}/tasks.json"
 # blr-plan replies with one line of prose; the task list is the file it wrote.
 PLAN_REPLY = "Wrote 2 tasks: T1 and T2."
 
@@ -143,36 +141,29 @@ def _dispatched(runner):
     return [(r["task_author_id"], r["input"]) for r in runner.dispatched]
 
 
-# ── 1. the revision number ───────────────────────────────────────────────────────────
+# ── 1. the run id ────────────────────────────────────────────────────────────────────
 
 
-def test_no_revisions_folder_has_no_latest_revision(tmp_path):
-    assert latest_revision_number(DiskSandbox(tmp_path)) is None
+def test_the_run_token_resolves_to_the_run_id_in_context_run_id_txt(tmp_path):
+    disk = DiskSandbox(tmp_path)
+    disk.write(".context/run-id.txt", "3f2a9c1e-0000\n")
+    assert resolve_revision_path(PATH, disk) == "revisions/3f2a9c1e-0000/tasks.json"
 
 
-def test_the_latest_revision_is_the_highest_number_and_non_digit_names_are_ignored(
-    tmp_path,
-):
-    _mkdirs(tmp_path, "1", "2", "10", "fix-all-diagrams")
-    assert latest_revision_number(DiskSandbox(tmp_path)) == 10
-
-
-def test_a_file_named_like_a_revision_is_not_a_revision(tmp_path):
-    _mkdirs(tmp_path, "1")
-    (tmp_path / "revisions" / "99").write_text("x")
-    assert latest_revision_number(DiskSandbox(tmp_path)) == 1
-
-
-def test_the_revision_token_resolves_to_the_latest_revision(tmp_path):
+def test_the_run_id_is_not_derived_from_the_revisions_folders(tmp_path):
     _mkdirs(tmp_path, "1", "2", "10")
-    assert (
-        resolve_revision_path(PATH, DiskSandbox(tmp_path)) == "revisions/10/tasks.json"
-    )
+    disk = DiskSandbox(tmp_path)
+    disk.write(".context/run-id.txt", "fresh-run\n")
+    assert resolve_revision_path(PATH, disk) == "revisions/fresh-run/tasks.json"
 
 
-def test_the_revision_token_needs_a_revisions_folder(tmp_path):
-    with pytest.raises(ValueError, match="no revisions/<n>/ folder"):
-        resolve_revision_path(PATH, DiskSandbox(tmp_path))
+@pytest.mark.parametrize("text", [None, "", "  \n"])
+def test_the_run_token_fails_loudly_without_a_run_id(tmp_path, text):
+    disk = DiskSandbox(tmp_path)
+    if text is not None:
+        disk.write(".context/run-id.txt", text)
+    with pytest.raises(ValueError, match=r"\.context/run-id\.txt"):
+        resolve_revision_path(PATH, disk)
 
 
 # ── 2. read_custom_path ──────────────────────────────────────────────────────────────
@@ -197,13 +188,12 @@ def test_a_missing_or_empty_custom_path_stops_the_step(tmp_path, text):
 
 
 @pytest.mark.asyncio
-async def test_custom_path_dispatches_the_latest_revisions_tasks_not_build_tasks(
-    tmp_path,
-):
+async def test_custom_path_dispatches_this_runs_tasks_not_build_tasks(tmp_path):
     disk = DiskSandbox(tmp_path)
     _write_task_list(disk, "build/tasks.json", "PARENT")
-    _write_task_list(disk, "revisions/1/tasks.json", "OLD")
-    _write_task_list(disk, "revisions/2/tasks.json", "T1", "T2")
+    _write_task_list(disk, "revisions/run-1/tasks.json", "OLD")
+    disk.write(".context/run-id.txt", "run-2\n")
+    _write_task_list(disk, "revisions/run-2/tasks.json", "T1", "T2")
     runner = _Runner(disk)
 
     await _run(runner)
@@ -215,6 +205,7 @@ async def test_custom_path_dispatches_the_latest_revisions_tasks_not_build_tasks
 async def test_custom_path_never_falls_back_to_build_tasks_or_the_reply(tmp_path):
     disk = DiskSandbox(tmp_path)
     _write_task_list(disk, "build/tasks.json", "PARENT")
+    disk.write(".context/run-id.txt", "2\n")
     _mkdirs(tmp_path, "2")  # revisions/2/ exists, tasks.json does not
     # Even a reply that IS a valid task list is never read for a custom_path source.
     runner = _Runner(disk, reply=_task_list("REPLY"))
@@ -223,6 +214,18 @@ async def test_custom_path_never_falls_back_to_build_tasks_or_the_reply(tmp_path
         await _run(runner)
 
     assert "revisions/2/tasks.json" in str(raised.value)
+    assert runner.dispatched == []
+
+
+@pytest.mark.asyncio
+async def test_custom_path_stops_when_the_run_id_file_is_missing(tmp_path):
+    disk = DiskSandbox(tmp_path)
+    _write_task_list(disk, "revisions/2/tasks.json", "T1")
+    runner = _Runner(disk)
+
+    with pytest.raises(ValueError, match=r"\.context/run-id\.txt"):
+        await _run(runner)
+
     assert runner.dispatched == []
 
 

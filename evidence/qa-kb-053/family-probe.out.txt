@@ -1,0 +1,82 @@
+=== family root 463e6c0b-32de-4781-a113-6630627bd395
+  v1 463e6c0b-32de-4781-a113-6630627bd395 prototype_v2                 completed  tag=v1 declared=prototype.html
+      NO ref  (FilesTab today)   : prototype.html (93131 B)
+      ref=v1   (member's own)  : prototype.html (86799 B)
+      bytes sha256[:12]: no-ref=787e532059c3 ref=7a3a85e2af98   <-- DIFFERENT
+  v2 86e6bcf8-0d88-45ad-a049-d385a8bb0eeb prototype_v2_revision        completed  tag=v2 declared=prototype.html
+      NO ref  (FilesTab today)   : prototype.html (93131 B)
+      ref=v2   (member's own)  : prototype.html (86812 B)
+      bytes sha256[:12]: no-ref=787e532059c3 ref=6a9ab9c074f3   <-- DIFFERENT
+  v3 dc60f462-a4ca-45c1-9683-72f2ab523c6e prototype_v2_feature_revision completed  tag=v3 declared=prototype.html
+      NO ref  (FilesTab today)   : prototype.html (93131 B)
+      ref=v3   (member's own)  : prototype.html (91733 B)
+      bytes sha256[:12]: no-ref=787e532059c3 ref=ce9458abac31   <-- DIFFERENT
+  v4 6014bc97-e4cf-4676-b0a0-21a4da98925f prototype_v2_feature_revision completed  tag=v4 declared=prototype.html
+      NO ref  (FilesTab today)   : prototype.html (93131 B)
+      ref=v4   (member's own)  : prototype.html (93131 B)
+      bytes sha256[:12]: no-ref=787e532059c3 ref=787e532059c3
+=== family root e692039a-6cd4-490a-bf6e-29ea3c62cb94
+  v1 e692039a-6cd4-490a-bf6e-29ea3c62cb94 prototype_v2                 completed  tag=v1 declared=prototype.html
+      NO ref  (FilesTab today)   : prototype.html (111826 B)
+      ref=v1   (member's own)  : prototype.html (104707 B)
+      bytes sha256[:12]: no-ref=1f645f11207f ref=ec4b423920a2   <-- DIFFERENT
+  v2 6b5dfccd-eaa5-4d57-a07a-9ba8daf03674 prototype_v2_revision        completed  tag=v2 declared=prototype.html
+      NO ref  (FilesTab today)   : prototype.html (111826 B)
+      ref=v2   (member's own)  : prototype.html (104705 B)
+      bytes sha256[:12]: no-ref=1f645f11207f ref=afa8c5237c1a   <-- DIFFERENT
+  v3 659c1a22-f538-4249-b0b3-e7d88129df3a prototype_v2_feature_revision completed  tag=v3 declared=prototype.html
+      NO ref  (FilesTab today)   : prototype.html (111826 B)
+      ref=v3   (member's own)  : prototype.html (111826 B)
+      bytes sha256[:12]: no-ref=1f645f11207f ref=1f645f11207f
+=== family root 87e02c32-96a9-4e50-8ed0-79023d83540f
+  v1 87e02c32-96a9-4e50-8ed0-79023d83540f prototype_v2                 completed  tag=v1 declared=prototype.html
+      NO ref  (FilesTab today)   : prototype.html (145552 B)
+      ref=v1   (member's own)  : prototype.html (122004 B)
+      bytes sha256[:12]: no-ref=7fcb87f275a6 ref=5d5df7a6c7c5   <-- DIFFERENT
+  v2 36ebfbe1-fdff-41bf-9a79-416daa5623ac prototype_large_revision     degraded   tag=v2 declared=prototype.html
+      NO ref  (FilesTab today)   : prototype.html (145552 B)
+      ref=v2   (member's own)  : prototype.html (145011 B)
+      bytes sha256[:12]: no-ref=7fcb87f275a6 ref=846bf918d550   <-- DIFFERENT
+  v3 4eb1a2ea-b4be-400a-b53c-b63597cc52a0 prototype_revision           cancelled  tag=None declared=None
+      (no declared deliverable -> FilesTab keeps the derived row; nothing to reconcile)
+  v4 97b49f98-83bd-4ed6-8631-600bf9653905 prototype_revision           failed     tag=None declared=None
+      (no declared deliverable -> FilesTab keeps the derived row; nothing to reconcile)
+  v5 8f36b400-19e4-4291-944c-09e30b37fc6f prototype_revision           completed  tag=v5 declared=prototype.html
+      NO ref  (FilesTab today)   : prototype.html (145552 B)
+      ref=v5   (member's own)  : prototype.html (148350 B)
+      bytes sha256[:12]: no-ref=7fcb87f275a6 ref=2db5b988b2c9   <-- DIFFERENT
+  v6 4f3ebe40-8384-467c-9255-322eaf0fc183 prototype_revision           completed  tag=v6 declared=prototype.html
+      NO ref  (FilesTab today)   : prototype.html (145552 B)
+      ref=v6   (member's own)  : prototype.html (145552 B)
+      bytes sha256[:12]: no-ref=7fcb87f275a6 ref=7fcb87f275a6
+=== family root 78e185fb-c032-4154-8552-774781b6e5df
+  v1 78e185fb-c032-4154-8552-774781b6e5df backlog                      completed  tag=v1 declared=Backlog.pdf
+      NO ref  (FilesTab today)   : Backlog.pdf (23626760 B)
+      ref=v1   (member's own)  : none
+      bytes sha256[:12]: no-ref=887bd75cee6b ref=-
+  v2 80054fbc-71cc-42de-adeb-ae2db82eb2f2 backlog_revision             completed  tag=v2 declared=Backlog.pdf
+      NO ref  (FilesTab today)   : Backlog.pdf (23626760 B)
+      ref=v2   (member's own)  : .chain/Backlog.pdf (23010668 B)
+      bytes sha256[:12]: no-ref=887bd75cee6b ref=e8317cebb373   <-- DIFFERENT
+  v3 fa7bcb5f-cc6b-44eb-bbb3-0dfa38724aca backlog_revision             completed  tag=v3 declared=Backlog.pdf
+      NO ref  (FilesTab today)   : Backlog.pdf (23626760 B)
+      ref=v3   (member's own)  : .chain/Backlog.pdf (23553059 B)
+      bytes sha256[:12]: no-ref=887bd75cee6b ref=7668d3daeeb5   <-- DIFFERENT
+  v4 8d4d2d70-9357-4780-a43f-405a25712807 backlog_revision             completed  tag=v4 declared=Backlog.pdf
+      NO ref  (FilesTab today)   : Backlog.pdf (23626760 B)
+      ref=v4   (member's own)  : .chain/Backlog.pdf (23558186 B)
+      bytes sha256[:12]: no-ref=887bd75cee6b ref=cf5a6716e23f   <-- DIFFERENT
+  v5 48b0811e-cd10-473d-aac3-b9f1aac44ce7 backlog_revision             completed  tag=v5 declared=Backlog.pdf
+      NO ref  (FilesTab today)   : Backlog.pdf (23626760 B)
+      ref=v5   (member's own)  : .chain/Backlog.pdf (23558181 B)
+      bytes sha256[:12]: no-ref=887bd75cee6b ref=29fc8482a048   <-- DIFFERENT
+  v6 0924fe8a-f332-460d-b304-e306fed25ae7 backlog_revision             cancelled  tag=None declared=None
+      (no declared deliverable -> FilesTab keeps the derived row; nothing to reconcile)
+  v7 10dde796-01f0-4a5e-b615-4e69f9f19c83 backlog_revision             completed  tag=v7 declared=Backlog.pdf
+      NO ref  (FilesTab today)   : Backlog.pdf (23626760 B)
+      ref=v7   (member's own)  : .chain/Backlog.pdf (23593271 B)
+      bytes sha256[:12]: no-ref=887bd75cee6b ref=bfb2ce5a252a   <-- DIFFERENT
+  v8 b40eabd0-d7e2-4bc2-bc42-99ef6a147bff backlog_revision             completed  tag=v8 declared=Backlog.pdf
+      NO ref  (FilesTab today)   : Backlog.pdf (23626760 B)
+      ref=v8   (member's own)  : .chain/Backlog.pdf (23626760 B)
+      bytes sha256[:12]: no-ref=887bd75cee6b ref=887bd75cee6b

@@ -1,0 +1,27 @@
+QA-KB-039 analyzer re-run commands (offline, scripted model, zero Bedrock cost; ONE test file; no repo file is edited).
+Run from <repo>/backend. The plugin patches the fixture IN MEMORY only (monkeypatch), so the REAL test file runs under the
+REAL conftest chain.
+
+  EV=../evidence/qa-kb-039
+  T='tests/agents/test_qa_ps_027_placeholder_completion.py::test_native_prototype_pipeline_placeholder_output_not_marked_completed'
+  PY='.venv/bin/python -m pytest "$T" -p analyze_qakb039_plugin --timeout=300 -q -p no:cacheprovider --tb=short'
+  # the plugin file is named analyze-qakb039_plugin.py; copy/rename it to analyze_qakb039_plugin.py on a scratch dir and put that dir on PYTHONPATH
+
+  # UNFIXED, as committed (passes, ~35-96 s, 833 replays of report_task_complete, agent_error for prototype-build)
+  QAKB039_VARIANT= QAKB039_PROBE=/tmp/p0.json PYTHONPATH=<scratch> $PY
+
+  # FIXED (agreed second text-only turn appended to the prototype-build script, in memory)  -> passes in ~5-12 s, no agent_error
+  QAKB039_VARIANT=fixed QAKB039_PROBE=/tmp/p1.json PYTHONPATH=<scratch> $PY
+
+  # MUTATION CHECK: fixed + FIX-612's gate neutralised -> must FAIL at the published_status assertion
+  QAKB039_VARIANT=fixed_nogate PYTHONPATH=<scratch> $PY
+
+  # FAST pre-fix failure for a regression test: unfixed fixture + AGENT_RECURSION_LIMIT lowered in-process (~7 s)
+  QAKB039_VARIANT=limit60 QAKB039_PROBE=/tmp/p3.json PYTHONPATH=<scratch> $PY
+
+  # Static scans (backend/tests): which scripted-turn lists END on a tool-calling turn
+  backend/.venv/bin/python evidence/qa-kb-039/analyze-scan_last_turn.py backend/tests
+  backend/.venv/bin/python evidence/qa-kb-039/analyze-scan_toolturns.py backend/tests
+
+Observed 2026-10-01 (this tree, branch feat/user-stories-v2): see analyze-probe-*.json, analyze-E0/E1/E2-*.txt, analyze-scan-output.txt.
+Timings vary with machine load: other analyzers were running concurrently (validator's quiet-machine runs: 35-42 s unfixed).

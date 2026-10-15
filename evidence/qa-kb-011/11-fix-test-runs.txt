@@ -1,0 +1,47 @@
+# QA-KB-011 fixer test runs, 2026-10-02, frontend/, ./node_modules/.bin/vitest --run <file>, one file at a time, offline
+# BEFORE = working tree with LaunchWizard.tsx minus this fix's hunks (keeps ISS-189's hunk), original WR-05 test
+== BEFORE iss284
+      Tests  4 expected fail (4)
+== BEFORE LaunchWizard.test (original WR-05)
+     × WR-07: chaining launch threads sourceRunId and clears the key (v2: context block no longer injected into brief) 38ms
+     × a genuine chain (chain.from + chain.source_run_id → isChaining=true) still threads the source id and clears the key 36ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  2 failed | 25 passed (27)
+
+# AFTER = working tree with this fix
+== AFTER src/components/workflow/LaunchWizard.saveRace.iss284.test.tsx
+     × ISS-284: 'Save as my version' is disabled and fires no UPSERT while getWorkflowDetail is pending 196ms
+     × ISS-284: 'Save workflow' is disabled while getWorkflowDetail is pending 35ms
+     × ISS-284: the Advanced trigger is gated while getWorkflowDetail is pending 38ms
+     × ISS-920: Continue stays disabled while the agent library is empty and a draft carries agentIds 51ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 4 ⎯⎯⎯⎯⎯⎯⎯
+Error: Expect test to fail
+      Tests  4 failed (4)
+== AFTER src/components/workflow/LaunchWizard.test.tsx
+     × WR-07: chaining launch threads sourceRunId and clears the key (v2: context block no longer injected into brief) 37ms
+     × a genuine chain (chain.from + chain.source_run_id → isChaining=true) still threads the source id and clears the key 35ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  2 failed | 25 passed (27)
+== AFTER src/components/workflow/LaunchWizard.iss837.test.tsx
+      Tests  1 passed (1)
+== AFTER src/components/workflow/overrideAgentPool.source.test.ts
+      Tests  10 passed (10)
+== AFTER src/components/workflow/mergePlanWithLibrary.test.ts
+      Tests  3 passed (3)
+== AFTER src/lib/launchDraft.parity.test.ts
+      Tests  16 passed (16)
+
+# tsc --noEmit -p frontend: 13 errors, none in LaunchWizard* (baseline 13 recorded by ISS-189 verification 2026-10-01)
+# eslint LaunchWizard.tsx: HEAD 11 findings, after 11 findings, same rules (no new finding)
+
+# Fixer scratch checks (not repo tests; copy into frontend/src/components/workflow/ as *.test.tsx to re-run)
+# 09-fix-scratch-check.test.tsx.txt, AFTER: "Tests  4 passed (4)"
+#   A detail REJECTED -> Save as my version disabled, title "Couldn't check ...", Save workflow + Advanced enabled
+#   B detail RESOLVED -> all three enabled
+#   C library EMPTY + detail steps [] -> both save buttons disabled (amendment 2)
+#   D ISS-920 release: library lands -> Continue enables, launch draft agentIds == ["prototype-plan"] (the saved roster)
+# 10-fix-scratch-plan-completion.test.tsx.txt, AFTER (console output suppressed by the harness, so values written to a file):
+#   E cold, full 5-step plan, saved roster ["prototype-plan"]: launch agentIds = ["prototype-specify","prototype-plan","prototype-analyze","prototype-build","prototype-validate"]
+#   F warm (library preloaded, no load window at all), same inputs: launch agentIds = ["prototype-specify","prototype-plan","prototype-analyze","prototype-build","prototype-validate"]
+#   => the spec-017 plan-completion effect (LaunchWizard.tsx:481-495) replaces a restored saved roster that is
+#      SHORTER than the manifest plan, independent of this fix (F has no load window). Carded separately.

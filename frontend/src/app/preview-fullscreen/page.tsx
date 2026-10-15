@@ -8,7 +8,7 @@ import { Code2, AlertCircle } from "lucide-react";
 
 interface PreviewPayload {
   files: ParsedFile[];
-  projectName: string;
+  projectName?: string;
 }
 
 type PageState = "checking" | "loading" | "ready" | "quota";
@@ -67,13 +67,28 @@ export default function PreviewFullscreenPage() {
           giveUp();
           return;
         }
-        const data = JSON.parse(raw) as PreviewPayload;
-        if (!data.files?.length) {
+        // A cast checks nothing at runtime (ISS-915, ISS-1020): a wrong-shape
+        // payload would crash AppBuilderPreview during render, past this
+        // try/catch. Admit only files it can render; giveUp() stays the exit.
+        const data = JSON.parse(raw);
+        const files: unknown = data?.files;
+        if (
+          !Array.isArray(files) ||
+          !files.length ||
+          !files.every(
+            f => typeof f?.path === "string" && typeof f.content === "string" && (!f.ext || typeof f.ext === "string"),
+          )
+        ) {
           giveUp();
           return;
         }
-        setPayload(data);
-        document.title = `${data.projectName || "Project"} — IDE Preview`;
+        const projectName = typeof data.projectName === "string" ? data.projectName : undefined;
+        setPayload({
+          // name feeds the file search; derive it from path when it is missing
+          files: files.map(f => (typeof f.name === "string" ? f : { ...f, name: f.path.split("/").pop() })),
+          projectName,
+        });
+        document.title = `${projectName || "Project"} — IDE Preview`;
         setState("ready");
       } catch {
         giveUp();

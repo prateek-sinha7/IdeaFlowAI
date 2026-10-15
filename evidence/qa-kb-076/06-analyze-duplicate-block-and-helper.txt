@@ -1,0 +1,60 @@
+# QA-KB-076 analyze: the duplicated '1. Reachability' banner in test_shutdown_reachability.py and the helper the BUGS.md range would delete
+# tree: /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2   HEAD: 175069256   date: 2026-10-07 22:07 CEST
+
+$ cat -n backend/tests/unit/services/test_shutdown_reachability.py | sed -n '60,90p'
+    60	    return float(match.group(1))
+    61	
+    62	
+    63	# ════════════════════════════════════════════════════════════════════════════
+    64	# 1. Reachability — a real subprocess, a live stream, a real SIGTERM
+    65	# ════════════════════════════════════════════════════════════════════════════
+    66	# Deliberately NOT an import of app.main: booting the real application runs
+    67	# restore_non_terminal_runs() (main.py:238), which auto-resumes in-flight runs. This
+    68	# app mirrors only the shape under test — a lifespan whose shutdown half records that
+    69	# it ran, and the same sse_starlette.EventSourceResponse stream_run_events uses.
+    70	def _stop_grace_period_seconds() -> float:
+    71	    """docker's hard SIGKILL ceiling for the backend service."""
+    72	    text = DOCKER_COMPOSE.read_text(encoding="utf-8")
+    73	    match = re.search(r"stop_grace_period:\s*(\d+(?:\.\d+)?)s", text)
+    74	    assert (
+    75	        match
+    76	    ), "docker-compose.yml no longer declares stop_grace_period for the backend."
+    77	    return float(match.group(1))
+    78	
+    79	
+    80	# ════════════════════════════════════════════════════════════════════════════
+    81	# 1. Reachability — a real subprocess, a live stream, a real SIGTERM
+    82	# ════════════════════════════════════════════════════════════════════════════
+    83	# Deliberately NOT an import of app.main: booting the real application runs
+    84	# restore_non_terminal_runs() (main.py:238), which auto-resumes in-flight runs. This
+    85	# app mirrors only the shape under test — a lifespan whose shutdown half records that
+    86	# it ran, and the same sse_starlette.EventSourceResponse stream_run_events uses.
+    87	_PROBE_APP_SOURCE = """
+    88	import asyncio, json, os, time
+    89	from contextlib import asynccontextmanager
+    90	from fastapi import FastAPI
+
+$ grep -n '_stop_grace_period_seconds' backend/tests/unit/services/test_shutdown_reachability.py   (def at 70; used by two tests - BUGS.md says delete 'lines 64-~79')
+70:def _stop_grace_period_seconds() -> float:
+299:    grace = _stop_grace_period_seconds()
+332:    grace = _stop_grace_period_seconds()
+
+$ sed -n '1,4p' backend/tests/unit/services/test_shutdown_reachability.py   (self-path on line 1, sibling path on line 3)
+"""tests/unit/test_shutdown_reachability.py — ISS-088.
+
+``tests/unit/test_run_shutdown.py`` covers the *body* of
+``shutdown_run_infrastructure()``. Nothing covered whether that body is ever REACHED,
+
+$ the targets of the stale cites on lines 23, 67, 84 (what the cited lines hold at HEAD)
+backend/app/main.py:191:         await engine_instance.restore_non_terminal_runs()
+backend/app/main.py:236:                 from app.api.runs import (
+backend/app/main.py:237:                     resolve_revision_root,
+backend/app/main.py:238:                     RevisionRootResolved,
+backend/tests/unit/app/test_run_stream_pool_leak.py:196: 
+backend/tests/unit/app/test_run_stream_pool_leak.py:197: 
+backend/tests/unit/app/test_run_stream_pool_leak.py:198: # ════════════════════════════════════════════════════════════════════════════
+backend/tests/unit/app/test_run_stream_pool_leak.py:199: # 3. Regression guard — the SSE endpoint returns its connection (fail-before/pass-after)
+backend/tests/unit/app/test_run_stream_pool_leak.py:200: # ════════════════════════════════════════════════════════════════════════════
+backend/tests/unit/app/test_run_stream_pool_leak.py:238:         db = SessionLocal()
+backend/tests/unit/app/test_run_stream_pool_leak.py:258:         server = uvicorn.Server(
+backend/tests/unit/app/test_run_stream_pool_leak.py:209:def test_stream_endpoint_returns_connections(monkeypatch):

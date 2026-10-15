@@ -1,0 +1,26 @@
+# QA-KB-100 analysis 08: the SAME HTTP probe with trust=user forced at the merge call site only, i.e. what a read-side-only fix leaves behind (HEAD f06129262, 2026-10-08T12:07Z)
+# cmd: cd backend && PYTHONPATH=../evidence/qa-kb-100/analysis-plugins PYTHONDONTWRITEBYTECODE=1 DATABASE_URL=sqlite:///:memory: .venv/bin/python -m pytest ../evidence/qa-kb-100/analysis-plugins/test_probe_http_override_trust.py -p qakb100_trust_user_at_merge -c pyproject.toml --rootdir=. -p no:cacheprovider -q -s -W ignore
+# read it as: every write path still answers 201/200 (the writers were not touched), but the stored row no longer applies; GET still says is_overridden=True and
+# manifest_steps still serves the raw smuggled steps while steps shows the file plan (ADR-0033 'saved and displayed but not applied'). W5 (a plain manifest row, base ppt) is untouched by an override-only fix.
+
+caller tier: basic
+[W0] POST Composer row (base_pipeline_type=custom, no override) as BASIC -> 403
+[W1] POST override insert, exec grant + gates security,approval + validators code_test -> 201
+     served/launched plan steps: ['ppt-brief-analyst: exec=False spawn=False gates=[] validators=[]', 'ppt-composer: exec=False spawn=False gates=[] validators=[]', 'ppt-validator: exec=False spawn=False gates=[] validators=[]']
+     GET /api/workflows/ppt -> is_overridden=True steps.gates=[[], [], []] manifest_steps.gates=[['security', 'approval']]
+[W2] POST override UPSERT (same built-in), spawn_subagents grant -> 201
+     plan: ['ppt-brief-analyst: exec=False spawn=False gates=[] validators=[]', 'ppt-composer: exec=False spawn=False gates=[] validators=[]', 'ppt-validator: exec=False spawn=False gates=[] validators=[]']
+[W3a] POST benign override -> 201
+[W3b] PATCH that row's manifest to the exec step -> 200
+     plan: ['ppt-brief-analyst: exec=False spawn=False gates=[] validators=[]', 'ppt-composer: exec=False spawn=False gates=[] validators=[]', 'ppt-validator: exec=False spawn=False gates=[] validators=[]']
+[W4] POST sync-from-file(pipeline_type=sample_subagents_parallel) on the ppt override row -> 200 {'diff': ['capabilities: <absent> != <dict len=1>', 'clarify: <absent> != <dict len=2>', 'context_providers: <absent> !=
+     plan: ['ppt-brief-analyst: exec=False spawn=False gates=[] validators=[]', 'ppt-composer: exec=False spawn=False gates=[] validators=[]', 'ppt-validator: exec=False spawn=False gates=[] validators=[]']
+     GET /api/workflows/ppt -> is_overridden=True n_steps=3 n_manifest_steps=1
+.
+caller tier: basic
+[W5] POST manifest-backed row, base_pipeline_type=ppt, NO overrides_pipeline_type, exec step -> 201
+     stored: base_pipeline_type=ppt overrides_pipeline_type=None manifest.steps[0].tools.exec=True gates=['security', 'approval']
+     launch Case 3 compile (trust=db): ["custom-agent:mine: exec=True spawn=False gates=['security', 'approval'] validators=['code_test']"]
+     launch tier gate keys on pipeline_type='ppt' -> can_run_pipeline(basic, ppt)=True ; (basic, custom)=False
+.
+2 passed in 1.63s

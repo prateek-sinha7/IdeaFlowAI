@@ -44,7 +44,7 @@ sibling `button[aria-label="Inspect <title> details"]`.
 | Let a reviewer choose the handoff | A person at a review gate picks which separate workflow the run hands off to. | ~3 agents |
 | Let a reviewer choose the path | The run pauses at a review gate and a person picks which branch comes next. | ~5 agents · ~1m |
 | Pitch an idea (Fast) | Executive-grade deck with charts, data, and a clear narrative. | ~3 agents · ~8m |
-| Pitch an idea (Detailed) | Executive-grade deck, delivered as a rendered HTML deck and a real editable PowerPoint file. | ~4 agents · ~8m |
+| Pitch an idea (Depth) | Executive-grade deck, delivered as a rendered HTML deck and a real editable PowerPoint file. | ~4 agents · ~8m |
 | Build an interactive prototype (Fast) | Navigable, high-fidelity HTML prototype from a brief or story set. | ~2 agents · ~21m |
 | Generate product requirements | Epics, user stories, and Gherkin acceptance criteria — ready for Jira. | ~7 agents · ~5m |
 | Compose a custom workflow | Assemble specialist agents for tasks outside the standard pipelines. | ~9 agents · ~3m |

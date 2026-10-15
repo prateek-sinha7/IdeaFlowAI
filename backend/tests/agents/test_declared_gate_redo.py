@@ -133,6 +133,16 @@ async def _drive(engine, compiled, run_id: str, on_ready):
     return events
 
 
+async def _wait_until(pred, timeout: float = 5.0) -> bool:
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + timeout
+    while loop.time() < deadline:
+        if pred():
+            return True
+        await asyncio.sleep(0.01)
+    return False
+
+
 @pytest.mark.asyncio
 async def test_redoable_step_re_runs_with_instructions_and_rearms_gate() -> None:
     """A redo at an opted-in (``redoable: true``) declared gate:
@@ -194,47 +204,58 @@ async def test_redoable_step_re_runs_with_instructions_and_rearms_gate() -> None
     assert "pipeline_cancelled" not in types
 
 
+@pytest.mark.issue("ISS-899")
 @pytest.mark.asyncio
 async def test_non_redoable_declared_gate_unaffected_by_redo_action() -> None:
     """A step that does NOT opt in (``redoable`` absent/false, the manifest
-    default) keeps the pre-existing behaviour: a redo action does not re-run the
-    step or open a second gate (INV-3 — dormant unless a workflow opts in)."""
+    default) never honours a redo: the shared ``_run_review_gate`` refuses it and
+    keeps the gate open (ISS-090), so the step does not re-run and no second gate
+    opens (INV-3 — dormant unless a workflow opts in). Approving the still-open
+    gate then completes the run."""
     compiled = _build_compiled(redoable=False)
     assert compiled.steps[0].redoable is False
 
     run_id = f"no-redo-gate-{uuid.uuid4().hex[:8]}"
     readies: list[dict] = []
-
-    followups: list[asyncio.Task] = []
+    rearmed = False
+    approver: list[asyncio.Task] = []
 
     async def _on_ready(ev):
         readies.append(ev)
-        engine = harness.engine
+        store = harness.engine._store
         gate_key = ev["data"]["gate_key"]
         assert ev["data"]["redoable"] is False
-        await engine._store.set_review_response(
+        await store.set_review_response(
             gate_key, approved=False, action="redo", instructions="ignored"
         )
 
-        # ISS-090: _run_review_gate REFUSES a redo this firing never advertised
-        # and keeps the SAME gate open. A real user then approves; the scripted
-        # client does the same once the refusal has been processed.
-        async def _approve_after_refusal():
-            await asyncio.sleep(0.5)
-            await engine._store.set_review_response(gate_key, approved=True)
+        # The engine stays suspended at its yield while this callback runs, so the
+        # approve must come from a concurrent task: polling here never sees the
+        # re-arm, and approving here overwrites the redo before the engine reads it.
+        async def _approve_once_rearmed():
+            nonlocal rearmed
+            # The refusal clears the event: armed and unset == the engine consumed
+            # the redo and kept waiting.
+            rearmed = await _wait_until(lambda: store.review_event_pending(gate_key))
+            if rearmed:
+                await store.set_review_response(gate_key, approved=True)
 
-        followups.append(asyncio.create_task(_approve_after_refusal()))
+        approver.append(asyncio.create_task(_approve_once_rearmed()))
 
     with _Harness(["only pass output. "]) as harness:
-        events = await _drive(harness.engine, compiled, run_id, _on_ready)
-    for task in followups:
-        await task
+        try:
+            events = await _drive(harness.engine, compiled, run_id, _on_ready)
+        finally:
+            for task in approver:
+                await task
 
     types = [e.get("type") for e in events]
 
-    # Exactly one dispatch, one gate — the redo action was refused, not honoured.
+    # The redo reached the engine and was refused while the gate stayed open.
+    assert rearmed
+    # Exactly one dispatch, one gate — the redo was refused, not honoured.
     assert types.count("agent_start") == 1, types
     assert len(readies) == 1
-    # The refused redo neither re-ran the step nor ended the run: the follow-up
-    # approve on the still-open gate completes it.
+    # The approve posted after the refusal is what ended the gate.
+    assert "review_gate_approved" in types, types
     assert "pipeline_complete" in types, types

@@ -1,0 +1,29 @@
+# QA-KB-104 fix 04: characterization goldens + SC-001 + cutover, one file per run, HEAD 511d71c28 (git archive copy of backend+tools in scratch) vs HEAD + working tree; the same 10 files FIX-768 and FIX-770 used
+# cmd per file: PYTHONDONTWRITEBYTECODE=1 DATABASE_URL=sqlite:///:memory: backend/.venv/bin/python -m pytest <file> -q -p no:cacheprovider, 2026-10-08T23:25Z
+## head
+tests/contract/agents/test_characterization_ppt.py: 2 passed, 3 warnings in 3.52s 
+tests/contract/agents/test_characterization_app_builder.py: 2 passed, 3 warnings in 6.93s 
+tests/contract/agents/test_characterization_prototype.py: 2 passed, 3 warnings in 22.80s 
+tests/contract/agents/test_characterization_prototype_revision.py: 2 passed, 3 warnings in 7.74s 
+tests/contract/agents/test_characterization_prototype_large_revision.py: 2 passed, 3 warnings in 27.73s 
+tests/contract/agents/test_characterization_prototype_feature_revision.py: 4 passed, 5 warnings in 54.17s 
+tests/agents/test_characterization_sample_subagents_parallel.py: 2 passed, 4 warnings in 3.49s 
+tests/agents/test_defect_characterization_v2.py: FAILED tests/agents/test_defect_characterization_v2.py::TestD1FindChainRootWalksSourceRunId::test_d1_canonical_resolver_walks_parent_run_id_FIXME 1 failed, 12 passed, 2 warnings in 2.54s 
+tests/unit/agents/test_phase3_cutover_verify.py: tests/unit/agents/test_phase3_cutover_verify.py::TestV2EventTypesAreEmittedByTheirProducers::test_run_finalization_failed_is_emitted_on_a_degraded_finalization 4 passed, 2 warnings in 2.17s 
+tests/unit/agents/test_sc001_gate_flag.py: 9 passed, 1 warning in 1.22s 
+## work
+tests/contract/agents/test_characterization_ppt.py: 2 passed, 3 warnings in 3.03s 
+tests/contract/agents/test_characterization_app_builder.py: 2 passed, 3 warnings in 6.95s 
+tests/contract/agents/test_characterization_prototype.py: 2 passed, 3 warnings in 22.66s 
+tests/contract/agents/test_characterization_prototype_revision.py: 2 passed, 3 warnings in 8.28s 
+tests/contract/agents/test_characterization_prototype_large_revision.py: 2 passed, 3 warnings in 27.85s 
+tests/contract/agents/test_characterization_prototype_feature_revision.py: 4 passed, 5 warnings in 61.38s (0:01:01) 
+tests/agents/test_characterization_sample_subagents_parallel.py: 2 passed, 4 warnings in 3.58s 
+tests/agents/test_defect_characterization_v2.py: FAILED tests/agents/test_defect_characterization_v2.py::TestD1FindChainRootWalksSourceRunId::test_d1_canonical_resolver_walks_parent_run_id_FIXME 1 failed, 12 passed, 2 warnings in 2.37s 
+tests/unit/agents/test_phase3_cutover_verify.py: tests/unit/agents/test_phase3_cutover_verify.py::TestV2EventTypesAreEmittedByTheirProducers::test_run_finalization_failed_is_emitted_on_a_degraded_finalization 4 passed, 2 warnings in 1.99s 
+tests/unit/agents/test_sc001_gate_flag.py: 9 passed, 1 warning in 1.15s 
+# counts, both sides: 1 failed / 41 passed; failing id, both sides:
+FAILED tests/agents/test_defect_characterization_v2.py::TestD1FindChainRootWalksSourceRunId::test_d1_canonical_resolver_walks_parent_run_id_FIXME
+FAILED tests/agents/test_defect_characterization_v2.py::TestD1FindChainRootWalksSourceRunId::test_d1_canonical_resolver_walks_parent_run_id_FIXME
+# pass/fail per file identical (durations excluded):
+IDENTICAL

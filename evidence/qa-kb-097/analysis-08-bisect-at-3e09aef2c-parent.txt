@@ -1,0 +1,19 @@
+============================= test session starts ==============================
+collected 4 items
+
+tests/agents/test_restart_resume.py ....                                 [100%]
+
+=============================== warnings summary ===============================
+app/core/config.py:93
+  /private/tmp/claude-502/-Users-bilala-Developer-Projects-VELOCITY-AI-worktrees-feat-user-stories-v2/2d1a1575-310a-48fd-8155-2763a084604d/scratchpad/qa-kb-097/at-pre-phasez/backend/app/core/config.py:93: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+    class Settings(BaseSettings):
+
+tests/agents/test_restart_resume.py::test_midwave_resume_does_not_reinvoke_completed_workers
+tests/agents/test_restart_resume.py::test_failed_run_resumes_skips_completed_tasks
+tests/agents/test_restart_resume.py::test_user_resume_persists_output_columns
+tests/agents/test_restart_resume.py::test_resume_dispatch_carries_rehydrated_planning_context
+  /private/tmp/claude-502/-Users-bilala-Developer-Projects-VELOCITY-AI-worktrees-feat-user-stories-v2/2d1a1575-310a-48fd-8155-2763a084604d/scratchpad/qa-kb-097/at-pre-phasez/backend/agents/execution_engine/engine.py:957: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    _ts = _dt.datetime.utcnow().isoformat(timespec="seconds") + "Z"
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+======================== 4 passed, 5 warnings in 6.49s =========================

@@ -20,7 +20,6 @@ from framework.locators import composer as L
 
 
 @pytest.mark.issue("ISS-796")
-@pytest.mark.xfail(reason="ISS-796 unfixed", strict=True)
 def test_opening_the_agent_config_tab_reuses_the_capabilities_fetch(page, shot):
     """ISS-796 — opening an agent's config tab on the canvas must not fire a
     second /api/capabilities request; CanvasView already fetched it once on

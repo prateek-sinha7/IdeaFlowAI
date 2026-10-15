@@ -1,0 +1,55 @@
+# QA-KB-099 fix 06: lint and invariants on the three touched files. 2026-10-08T12:34:53Z
+$ .venv/bin/ruff check app/main.py tests/unit/services/test_shutdown_reachability.py tests/unit/agents/test_phase3_cutover_verify.py
+All checks passed!
+exit=0
+$ .venv/bin/python -m py_compile <the three files>
+compiled OK
+$ git diff --stat -- app/main.py tests/unit/services/test_shutdown_reachability.py tests/unit/agents/test_phase3_cutover_verify.py
+ backend/app/main.py                                       | 2 +-
+ backend/tests/unit/agents/test_phase3_cutover_verify.py   | 8 ++++++++
+ backend/tests/unit/services/test_shutdown_reachability.py | 8 ++++++++
+ 3 files changed, 17 insertions(+), 1 deletion(-)
+$ git diff -- app/main.py
+diff --git a/backend/app/main.py b/backend/app/main.py
+index 48940c6d5..767880ddb 100644
+--- a/backend/app/main.py
++++ b/backend/app/main.py
+@@ -409,7 +409,7 @@ async def lifespan(app: FastAPI):
+     # see README.txt). With uvicorn's unbounded default a live SSE stream makes this
+     # code unreachable: measured, the process stayed alive past 30s on SIGTERM and only
+     # `startup_complete` was ever recorded (ISS-088, pinned by
+-    # tests/unit/test_shutdown_reachability.py).
++    # tests/unit/services/test_shutdown_reachability.py).
+     # The body itself lives in app.api.run_shutdown so main.py never reaches into
+     # the private per-run registries; it never raises, so a teardown failure cannot
+     # turn a clean exit into uvicorn's "Application shutdown failed".
+$ git diff --name-only -- agents/execution_engine alembic   (SC-001/INV-1 scope, migrations)
+(end of list)
+$ git diff -U0 -- app/main.py tests/unit/services/test_shutdown_reachability.py tests/unit/agents/test_phase3_cutover_verify.py | grep -E "^\+.*(import|from)"
+(no import line added)
+
+# lint-imports on the shared working tree (2026-10-08T12:36:53Z); root_packages = agents, app, tools (pyproject.toml [tool.importlinter]).
+# This fix's only change inside those packages is one comment line in app/main.py, and no import line was added (above).
+$ .venv/bin/lint-imports | grep -E "KEPT|BROKEN|Contracts:|->"
+kernel imports only capability ports (scaffold) BROKEN
+agents.workflows must not import the execution kernel or the web layer KEPT
+agents.capabilities must not import the execution kernel or the web layer BROKEN
+agents.runtime must not import the execution kernel or the web layer KEPT
+shipped code must not import the build-time tooling package KEPT
+Contracts: 3 kept, 2 broken.
+-   agents.execution_engine.engine -> agents.execution_engine.kernel_services (l.5818)
+    agents.execution_engine.kernel_services -> app.api.user_workflows (l.1605)
+-   agents.execution_engine.engine -> app.api.launch_context (l.4577, l.4590, l.4987, l.15666)
+-   agents.execution_engine.engine -> app.api.runs (l.3577)
+-   agents.capabilities.prototype_ui_extract -> app.agents.tools.html_extract (l.333)
+# Neither broken contract names a file this fix touched. Not re-measured at a baseline SHA: the shared tree also carries the concurrent QA-KB-100 fix (engine.py / kernel_services.py are in its card globs).
+
+# Blast radius re-check (ISS-1109; run after the edit, which added no caller): who reaches the real-git helper from the unit tier? 2026-10-08T12:38:23Z
+$ grep -rn "_setup_sandbox\|test_finalizer_v2 import" backend/tests/unit
+backend/tests/unit/agents/test_phase3_cutover_verify.py:519:        from tests.agents.test_finalizer_v2 import (
+backend/tests/unit/agents/test_phase3_cutover_verify.py:523:            _setup_sandbox,
+backend/tests/unit/agents/test_phase3_cutover_verify.py:527:        sandbox, run_id = _setup_sandbox(tmp_path)
+# allow_io markers under tests/unit after the fix (conftest excluded):
+$ cd backend && grep -rn 'pytest.mark.allow_io' tests/unit --include='*.py' | grep -v '^tests/unit/conftest.py' | wc -l   (and distinct files)
+      28
+      16

@@ -1,0 +1,2 @@
+tests/agents/test_wave_scheduler_cancel_row.py: 1 passed, 2 warnings in 1.00s
+tests/unit/agents/test_fanout_cancel.py: 9 passed, 1 warning in 1.57s

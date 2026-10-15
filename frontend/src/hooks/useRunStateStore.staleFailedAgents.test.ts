@@ -35,3 +35,19 @@ describe("a resumed run that completes drops its earlier failed-agent list", () 
     expect(s.failedAgents).toBeUndefined();
   });
 });
+
+// ISS-870 — hook_run is missing from handleFrame's pipelineFrameTypes allowlist, so the
+// frame is dropped before it reaches the reducer.
+describe("hook_run frames reach the run's pipelineState (ISS-870)", () => {
+  it("a hook_run frame appends a hookRuns row", () => {
+    const { result } = renderHook(() => useRunStateStore());
+    act(() => result.current.switchViewTo("run-1"));
+    act(() =>
+      result.current.handleFrame("run-1", {
+        type: "hook_run",
+        data: { hook: "secret_scan", event: "before_write", outcome: "block" },
+      }),
+    );
+    expect(result.current.viewed.pipelineState.hookRuns).toHaveLength(1);
+  });
+});

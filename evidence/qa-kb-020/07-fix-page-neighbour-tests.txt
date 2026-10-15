@@ -1,0 +1,32 @@
+src/app/[...view]/attachRunOnOpen.source.test.ts ::       Tests  3 passed (3)
+src/app/[...view]/authEffectGuard.iss844.source.test.ts ::       Tests  1 passed (1)
+src/app/[...view]/bgTerminalClarify.qaKb035.source.test.ts ::       Tests  1 passed | 3 expected fail (4)
+src/app/[...view]/bridgeTerminality.source.test.ts ::       Tests  11 passed (11)
+src/app/[...view]/contentSourceRunScope.source.test.ts ::       Tests  3 passed (3)
+src/app/[...view]/contentSourceRunType.source.test.ts ::       Tests  8 passed (8)
+src/app/[...view]/deadRevisionRefs.source.test.ts ::       Tests  6 passed (6)
+src/app/[...view]/freshLaunchTranscriptReset.source.test.ts ::       Tests  6 passed (6)
+src/app/[...view]/initialWorkflowType.bug023.source.test.ts ::       Tests  3 failed | 2 passed (5)
+src/app/[...view]/launchImageAndRecents.source.test.ts ::       Tests  3 passed (3)
+src/app/[...view]/liveRunSwitch.fix201.test.ts ::       Tests  26 passed (26)
+src/app/[...view]/reviseGuard.source.test.ts ::       Tests  3 passed (3)
+src/app/[...view]/revisionFamilyLinkage.source.test.ts ::       Tests  4 passed (4)
+src/app/[...view]/runTabShallowNav.test.ts ::       Tests  1 failed | 2 passed (3)
+src/app/[...view]/runViewEffects.qaSg004.source.test.ts ::       Tests  3 passed (3)
+src/app/[...view]/savedCompositionManifest.source.test.ts ::       Tests  2 passed (2)
+src/app/[...view]/terminalReopenReconcile.source.test.ts ::       Tests  5 failed | 5 passed (10)
+src/app/[...view]/workflowDetailCatch.source.test.ts ::       Tests  5 passed (5)
+src/app/[...view]/page.iss657.test.tsx ::       Tests  1 passed (1)
+src/app/[...view]/page.iss856.test.tsx ::       Tests  2 passed (2)
+src/app/[...view]/page.qaSg004.test.tsx ::       Tests  5 passed (5)
+
+# Pre-existing / not-mine proof for the 3 non-green neighbour files (QA-KB-020 fixer, 2026-10-01)
+# My page.tsx hunks: @@ -1658 +1672,2 @@ (FIX-172 getLastSeq call) and @@ -2456 +2471 @@ (ref type) only.
+# terminalReopenReconcile (5 failed): asserted literals absent at HEAD as well as the tree:
+#   [applyTerminalStatus(prev, fullRun.status)] HEAD=0 tree=0 ; [reconcileTerminalStatus(fullRun.status);] HEAD=0 tree=0
+#   live call sites carry extra args: page.tsx:3120 reconcileTerminalStatus(fullRun.status, undefined, fullRun.tokenUsage);
+#   -> stale source-lock at HEAD, unrelated to QA-KB-020.
+# runTabShallowNav (1 failed): asserts on components/layout/DashboardLayout.tsx (handlePreviewPanelTabSelect);
+#   that file has no uncommitted diff and was not touched by this fix -> pre-existing.
+# initialWorkflowType.bug023 (3 failed, "Expect test to fail"): it.fails markers flipped by ANOTHER bug's
+#   uncommitted hunks at page.tsx:379-396 (wizardModeFor/initialWorkflowTypeFor) -> that bug's pass signal, not mine.

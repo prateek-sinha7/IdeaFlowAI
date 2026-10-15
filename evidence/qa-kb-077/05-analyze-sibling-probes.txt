@@ -1,0 +1,212 @@
+# QA-KB-077 analyzer evidence 05 — sibling probes (2026-10-02). Offline, no repo file edited, no DB opened (no lifespan, DATABASE_URL=sqlite:///:memory:).
+
+## 1. POST /api/auth/register on the real app object is 404; /api/auth/login (control) is mounted
+POST /api/auth/register -> 404 {"detail":"Not Found"}
+POST /api/auth/login    -> 422 (control: route exists; body has no 'input' key: True )
+routes whose path contains 'register': []
+
+## 2. When the route was removed (git, read-only): the commit that removed the string "/register" from backend/app/api/auth.py
+b2a621f84 2026-09-17 Fix/cognito login (#8)
+84ef80106 2026-05-01 Initial commit: AI SaaS Platform with FastAPI backend and Next.js frontend
+   present in b2a621f84:backend/app/api/auth.py? -> 0 occurrences
+
+## 3. Is the 422 redaction handler (main.py:539-556) the only thing keeping a rejected credential out of the body on a SURVIVING route?
+##    PUT /api/settings/github-pat {"pat": "short7!"} (GithubPATRequest.pat min_length=10, settings.py:71); auth+db dependencies stubbed, body validation fails first
+##    script (run twice; second run with --no-handler swaps FastAPI stock handler in for the custom one):
+    | """Scratch probe (outside the repo, no source edit): is app.main's 422 redaction handler the only
+    | thing keeping a rejected credential out of the response body on a SURVIVING route?
+    | Run twice: default (handler present) and with --no-handler (handler popped before the first request)."""
+    | import sys
+    | from types import SimpleNamespace
+    | from fastapi.exceptions import RequestValidationError
+    | from fastapi.testclient import TestClient
+    | from app.main import app
+    | from app.api import settings as settings_mod
+    | from app.core.dependencies import get_current_user
+    | from app.models.database import get_db
+    | 
+    | if "--no-handler" in sys.argv:
+    |     from fastapi.exception_handlers import request_validation_exception_handler as _default
+    |     app.exception_handlers[RequestValidationError] = _default   # FastAPI's stock handler = "no custom redaction"
+    |     print("custom handler replaced by FastAPI default: True")
+    | 
+    | app.dependency_overrides[get_current_user] = lambda: SimpleNamespace(id="u1", email="u@example.com")
+    | app.dependency_overrides[get_db] = lambda: None   # never reached: body validation fails first
+    | 
+    | c = TestClient(app)  # not entered as a context manager: no lifespan, no DB
+    | secret = "short7!"   # 7 chars < GithubPATRequest.pat min_length=10
+    | r = c.put("/api/settings/github-pat", json={"pat": secret})
+    | print("status:", r.status_code)
+    | print("secret echoed in body:", secret in r.text)
+    | print("body:", r.text[:260])
+
+--- run 1: as shipped (custom handler on app.main.app)
+status: 422
+secret echoed in body: False
+body: {"detail":[{"type":"string_too_short","loc":["body","pat"],"msg":"String should have at least 10 characters","ctx":{"min_length":10}}]}
+--- run 2: --no-handler (FastAPI default handler instead of main.py:539)
+custom handler replaced by FastAPI default: True
+status: 422
+secret echoed in body: True
+body: {"detail":[{"type":"string_too_short","loc":["body","pat"],"msg":"String should have at least 10 characters","input":"short7!","ctx":{"min_length":10}}]}
+
+## 4. Offline tests that assert the 422 redaction anywhere in backend/tests (grep for the input key / echo wording): only the two stale register files
+backend/tests/unit/test_register_password_echo_fixture_mounts_real_app.py
+backend/tests/unit/test_register_password_echo.py
+   live-tier pin that survives (needs a running app + login, not run here): tests/integration/e2e/suites/16_pages_outside_routes/test_pages_outside_routes.py:514
+514:def test_an_oversize_github_pat_is_not_echoed_in_the_422_or_rendered_raw(page, shot):
+
+## 5. Stale live-tier / snapshot consumers of the removed register route and of supported=false (read, NOT run: live tier)
+$ sed -n 184,207p tests/integration/e2e/suites/24_api_contract/test_api_contract.py   (S-24-05 expects 403)
+
+@pytest.mark.scenario("S-24-05")
+def test_registration_is_permanently_closed(page, shot):
+    """Scenario: Registration is permanently closed
+
+    Declared as `status_code=HTTP_403_FORBIDDEN` on the route itself, not as a
+    runtime check — it cannot succeed by configuration.
+    """
+    with shot("register-closed", "When I POST /api/auth/register"):
+        page.goto("/dashboard")
+        # With a well-formed body: FastAPI validates the payload BEFORE the
+        # route's declared status is reached, so an empty POST answers 422 and
+        # never proves the route is closed.
+        result = api.full(
+            page,
+            "POST",
+            "/api/auth/register",
+            {"email": "nobody@example.com", "password": "not-a-real-password"},
+        )
+
+    assert result["status"] == 403, (
+        f"registration answered {result['status']}: {result['body'][:200]}"
+    )
+
+
+$ grep -n "auth/register" -B2 -A6 tests/integration/capture/API-CONTRACT.json
+263-  {
+264-    "method": "POST",
+265:    "path": "/api/auth/register",
+266-    "handler": "register",
+267-    "file": "backend/app/api/auth.py",
+268-    "auth": "public",
+269-    "status_code": "HTTP_403_FORBIDDEN",
+270-    "response_model": null
+271-  },
+
+$ sed -n 47,54p tests/integration/e2e/suites/09_settings/test_iss404_security_copy.py   (needs supported == False)
+    res = api.request(page, "GET", "/api/auth/mfa")
+    assert res["status"] == 200, f"/api/auth/mfa returned {res['status']}: {res['body']}"
+    status = json.loads(res["body"])
+    assert status.get("supported") is False, (
+        "admin@velocity.ai is expected to be break-glass/local (supported=false); "
+        f"got {status} — this test needs that account shape"
+    )
+
+
+$ sed -n 905,914p backend/app/api/auth.py   (the ONLY constructor of MfaStatusResponse; supported is hard-coded True)
+        factors = []
+
+    return MfaStatusResponse(
+        enabled=bool(factors),
+        factors=factors,
+        email_available=settings.AUTH_EMAIL_MFA_ENABLED,
+        totp_available=True,
+        required=settings.ADMIN_MFA_REQUIRED and effective_is_admin(user, principal),
+        supported=True,
+    )
+$ grep -rn "MfaStatusResponse(" backend/app
+backend/app/models/schemas.py:78:class MfaStatusResponse(BaseModel):
+backend/app/api/auth.py:907:    return MfaStatusResponse(
+
+$ sed -n 241,254p frontend/src/components/settings/SecuritySection.tsx   (the only consumer of supported; branch is unreachable)
+  // A break-glass/local account has no Cognito factors to manage. Say so
+  // plainly instead of rendering controls that would 501.
+  if (!status.supported) {
+    return (
+      <Card className="p-[22px] shadow-[var(--elevation-raised)]">
+        <p className="text-[14px] font-semibold text-ink-900">Not available for this account</p>
+        <p className="mt-1 text-[13px] leading-relaxed text-ink-500">
+          This is a local account, so there are no second-factor methods to
+          manage here. Its password is stored by this application and can be
+          changed from the Profile tab.
+        </p>
+      </Card>
+    );
+  }
+$ grep -rn "supported" frontend/src (non-test, relevant hits)
+frontend/src/components/settings/SecuritySection.tsx:243:  if (!status.supported) {
+frontend/src/lib/api.ts:743:  supported: boolean;
+
+## 6. A real-app 422-redaction test is feasible in the unit tier and is sensitive to main.py:539 (scratch test + a verbatim copy of tests/unit/conftest.py, so the I/O guard is active)
+##    run: cd backend && PYTHONPATH=. DATABASE_URL=sqlite:///:memory: .venv/bin/python -m pytest <scratch dir> -c /dev/null --rootdir=<scratch dir> -q
+    | """Scratch (outside the repo): can a real-app 422-redaction test live in the unit tier? Runs under a verbatim
+    | copy of tests/unit/conftest.py, so _unit_io_guard + _forbid_real_database_access are active."""
+    | from types import SimpleNamespace
+    | 
+    | import pytest
+    | from fastapi.exception_handlers import request_validation_exception_handler
+    | from fastapi.exceptions import RequestValidationError
+    | from fastapi.testclient import TestClient
+    | 
+    | from app.core.dependencies import get_current_user
+    | from app.main import app
+    | from app.models.database import get_db
+    | 
+    | SECRET = "short7!"  # 7 chars < GithubPATRequest.pat min_length=10
+    | 
+    | 
+    | @pytest.fixture
+    | def client():
+    |     app.dependency_overrides[get_current_user] = lambda: SimpleNamespace(id="u1", email="u@example.com")
+    |     app.dependency_overrides[get_db] = lambda: None  # body validation fails before the route body runs
+    |     yield TestClient(app)  # not entered as a context manager: no lifespan
+    |     app.dependency_overrides.clear()
+    | 
+    | 
+    | def test_secret_not_echoed_in_422(client):
+    |     r = client.put("/api/settings/github-pat", json={"pat": SECRET})
+    |     assert r.status_code == 422, r.text
+    |     assert SECRET not in r.text, r.text
+    | 
+    | 
+    | def test_mutant_stock_handler_would_echo(client, monkeypatch):
+    |     """Red under the mutant: proves the test above is sensitive to main.py:539 and not vacuous."""
+    |     monkeypatch.setitem(app.exception_handlers, RequestValidationError, request_validation_exception_handler)
+    |     app.middleware_stack = None  # force the stack (and its handler table) to rebuild
+    |     r = client.put("/api/settings/github-pat", json={"pat": SECRET})
+    |     assert r.status_code == 422
+    |     assert SECRET in r.text  # the mutant leaks: this is the failure the real test must catch
+
+2 passed, 3 warnings in 1.11s
+
+## 7. Seed drift family (adjacent, ISS-891 mechanism): User(...) without the NOT NULL cognito_sub. Guard-absent runs of four unit files, then shipped runs of three agents files
+##    unit files, copies outside tests/unit, --runxfail where the file is strict-xfail:
+test_settings_api_key_whitespace_name       sqlite3.IntegrityError: NOT NULL constraint failed: users.cognito_sub
+test_settings_preferences_race              sqlite3.IntegrityError: NOT NULL constraint failed: users.cognito_sub
+test_settings_github_pat_race               sqlite3.IntegrityError: NOT NULL constraint failed: users.cognito_sub
+test_admin_privilege_race                   sqlite3.IntegrityError: NOT NULL constraint failed: users.cognito_sub
+##    agents tier, shipped (cd backend && pytest <file> -q):
+tests/agents/test_per_run_paths_v3.py       3 failed, 2 passed, 4 warnings in 5.36s
+tests/agents/test_version_family_v5.py      2 failed, 4 warnings in 1.56s
+tests/agents/test_revision_ordinal_v3.py    2 failed, 6 passed, 6 warnings in 3.15s
+##    omit cognito_sub but fine: tests/integration/agents/test_revision_analyzer_integration.py (20 passed), tests/unit/services/test_group_role_resolution.py (17 passed)
+##    repo snapshot rows for the agents files: UNIT-TESTS.md lines 48, 50, 80, 81, 107, 108 (NOT NULL constraint failed: users.cognito_sub); no ledger row and no card names these files
+
+## 8. Full AST scan output (script: evidence 04 section 6): the nine files that build User(...) without cognito_sub and without **kwargs
+User(...) calls scanned: 73
+
+== with removed kwargs ==
+backend/tests/unit/test_iss401_reset_password_message.py:53 removed=['auth_provider', 'password_hash']
+backend/tests/unit/test_iss401_reset_password_message.py:69 removed=['auth_provider']
+
+== omitting cognito_sub (no **kwargs) ==
+backend/tests/agents/test_per_run_paths_v3.py: lines [118]
+backend/tests/agents/test_revision_ordinal_v3.py: lines [335, 422]
+backend/tests/agents/test_version_family_v5.py: lines [101]
+backend/tests/integration/agents/test_revision_analyzer_integration.py: lines [581]
+backend/tests/unit/services/test_group_role_resolution.py: lines [97]
+backend/tests/unit/test_admin_privilege_race.py: lines [56, 57]
+backend/tests/unit/test_settings_api_key_whitespace_name.py: lines [51]
+backend/tests/unit/test_settings_github_pat_race.py: lines [95]
+backend/tests/unit/test_settings_preferences_race.py: lines [56]

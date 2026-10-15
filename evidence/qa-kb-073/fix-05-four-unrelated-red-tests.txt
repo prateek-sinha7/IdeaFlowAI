@@ -1,0 +1,35 @@
+# Four red tests in test_restart_resume_db.py that are NOT QA-KB-073's cause (observed 2026-10-07, after FIX-732; cd backend && .venv/bin/python -m pytest <4 node ids> -q -rf)
+E       AssertionError: wave-1 workers did not run on resume: {'a': 2, 'b': 2}
+E       assert (0 >= 1)
+E        +  where 0 = <built-in method get of dict object at 0x…>('c', 0)
+E        +    where <built-in method get of dict object at 0x…> = {'a': 2, 'b': 2}.get
+tests/integration/agents/test_restart_resume_db.py:590: AssertionError
+E       AssertionError: wave-1 workers did not run on resume: {'b': 2, 'a': 2}
+E       assert (0 >= 1)
+E        +  where 0 = <built-in method get of dict object at 0x…>('c', 0)
+E        +    where <built-in method get of dict object at 0x…> = {'a': 2, 'b': 2}.get
+tests/integration/agents/test_restart_resume_db.py:3654: AssertionError
+E       AssertionError: status must reconcile to completed: 'failed'
+E       assert 'failed' == 'completed'
+E         
+E         - completed
+E         + failed
+tests/integration/agents/test_restart_resume_db.py:4595: AssertionError
+E       AssertionError: D2: a resumed dispatch must carry the user's clarification answers; got:
+E         === ORIGINAL USER REQUEST ===
+E         Run the wave workflow.
+E         === END REQUEST ===
+E       assert 'SPINNAKER-SENTINEL' in '=== ORIGINAL USER REQUEST ===\nRun the wave workflow.\n=== END REQUEST ==='
+tests/integration/agents/test_restart_resume_db.py:5027: AssertionError
+FAILED tests/integration/agents/test_restart_resume_db.py::test_midwave_resume_does_not_reinvoke_completed_workers
+FAILED tests/integration/agents/test_restart_resume_db.py::test_failed_run_resumes_skips_completed_tasks
+FAILED tests/integration/agents/test_restart_resume_db.py::test_user_resume_persists_output_columns
+FAILED tests/integration/agents/test_restart_resume_db.py::test_resume_dispatch_carries_rehydrated_planning_context
+4 failed, 5 warnings in 6.50s
+## log lines seen in the same run (not analyzed)
+        from agents.authz import ScopedStore
+        pre_store = ScopedStore(owner_id=owner, workspace_id=ws, session=session)
+ERROR    agents.execution_engine.engine:engine.py:14366 step sample-wave-worker raised: scripted instance-A crash on run_fanout call #2
+WARNING  agents.execution_engine.engine:engine.py:16023 resumed-stream drive(<run>) failed mid-drive: Cannot transition run '<run>' from terminal state 'failed' to 'generating'.
+WARNING  agents.execution_engine.engine:engine.py:16023 resumed-stream drive(<uuid>) failed mid-drive: Cannot transition run '<uuid>' from terminal state 'failed' to 'generating'.
+WARNING  agents.execution_engine.kernel_services:kernel_services.py:754 update_wave_run_merge_state(step=sample-wave-worker) failed: 'ScopedStore' object has no attribute '_acquire'

@@ -1,0 +1,26 @@
+# QA-KB-082 fix-03 shape matrix — BEFORE: page.tsx as committed at HEAD 283089ec7 (git show HEAD:frontend/src/app/preview-fullscreen/page.tsx)
+# matrix source: evidence/qa-kb-082/fix-03-shape-matrix.test.tsx.txt (import pointed at a copy of the HEAD page)
+# cmd: npx vitest --run --reporter=verbose src/app/preview-fullscreen/zz_fixer_matrix_orig_qakb082.test.tsx
+ × src/app/preview-fullscreen/zz_fixer_matrix_orig_qakb082.test.tsx > QA-KB-082 shape matrix > exit files 'a' 1025ms
+ × src/app/preview-fullscreen/zz_fixer_matrix_orig_qakb082.test.tsx > QA-KB-082 shape matrix > exit files ['a.ts'] 1006ms
+ × src/app/preview-fullscreen/zz_fixer_matrix_orig_qakb082.test.tsx > QA-KB-082 shape matrix > exit path number 1004ms
+ × src/app/preview-fullscreen/zz_fixer_matrix_orig_qakb082.test.tsx > QA-KB-082 shape matrix > exit ISS-1020 no content 1005ms
+ × src/app/preview-fullscreen/zz_fixer_matrix_orig_qakb082.test.tsx > QA-KB-082 shape matrix > exit ISS-1020 content number 1004ms
+ × src/app/preview-fullscreen/zz_fixer_matrix_orig_qakb082.test.tsx > QA-KB-082 shape matrix > exit ext number 1003ms
+ × src/app/preview-fullscreen/zz_fixer_matrix_orig_qakb082.test.tsx > QA-KB-082 shape matrix > exit ext object 1003ms
+ ✓ src/app/preview-fullscreen/zz_fixer_matrix_orig_qakb082.test.tsx > QA-KB-082 shape matrix > exit null 104ms
+ ✓ src/app/preview-fullscreen/zz_fixer_matrix_orig_qakb082.test.tsx > QA-KB-082 shape matrix > exit [] 106ms
+ ✓ src/app/preview-fullscreen/zz_fixer_matrix_orig_qakb082.test.tsx > QA-KB-082 shape matrix > exit files [] 105ms
+ ✓ src/app/preview-fullscreen/zz_fixer_matrix_orig_qakb082.test.tsx > QA-KB-082 shape matrix > exit files {} 104ms
+ ✓ src/app/preview-fullscreen/zz_fixer_matrix_orig_qakb082.test.tsx > QA-KB-082 shape matrix > exit {} 143ms
+ ✓ src/app/preview-fullscreen/zz_fixer_matrix_orig_qakb082.test.tsx > QA-KB-082 shape matrix > exit invalid JSON 116ms
+ ✓ src/app/preview-fullscreen/zz_fixer_matrix_orig_qakb082.test.tsx > QA-KB-082 shape matrix > exit missing key 105ms
+ × src/app/preview-fullscreen/zz_fixer_matrix_orig_qakb082.test.tsx > QA-KB-082 shape matrix > quota + wrong shape shows the quota message, no redirect 1504ms
+ ✓ src/app/preview-fullscreen/zz_fixer_matrix_orig_qakb082.test.tsx > QA-KB-082 shape matrix > complete ParsedFile payload renders 114ms
+ × src/app/preview-fullscreen/zz_fixer_matrix_orig_qakb082.test.tsx > QA-KB-082 shape matrix > ISS-298 fixture {path, content} renders and search does not throw 113ms
+ × src/app/preview-fullscreen/zz_fixer_matrix_orig_qakb082.test.tsx > QA-KB-082 shape matrix > ISS-1020 projectName {} renders with the default name 1502ms
+ × src/app/preview-fullscreen/zz_fixer_matrix_orig_qakb082.test.tsx > QA-KB-082 shape matrix > non-string name is derived from path, search does not throw 111ms
+⎯⎯⎯⎯⎯⎯ Failed Tests 11 ⎯⎯⎯⎯⎯⎯⎯
+ Test Files  1 failed (1)
+      Tests  11 failed | 8 passed (19)
+   Start at  19:56:06

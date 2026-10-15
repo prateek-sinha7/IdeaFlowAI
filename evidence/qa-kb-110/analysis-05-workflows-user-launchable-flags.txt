@@ -1,0 +1,25 @@
+QA-KB-110 / ISS-1171 read-only: GET /api/workflows on http://localhost:8000 as admin@velocity.ai, observed 2026-10-09T14:26Z. GET only; the bearer token is never printed.
+Every *_revision workflow is user_launchable=False and is_beta=True: the catalog does not offer /create/<x>_revision as a launch panel.
+launch_surface is presentation only (backend/agents/workflows/manifest.py:113-115) and no frontend code routes on it (grep: types and comments only).
+----
+workflows: 39
+fields: ['chained_from', 'context_providers', 'description', 'design_mode', 'display_name', 'has_override', 'icon', 'id', 'is_beta', 'is_overridden', 'launch_surface', 'name', 'override_id', 'short_name', 'step_count', 'steps', 'user_launchable']
+  app_builder                    user_launchable=True is_beta=False launch_surface=None
+  app_builder_revision           user_launchable=False is_beta=True launch_surface=None
+  backlog                        user_launchable=True is_beta=False launch_surface=wizard
+  backlog_revision               user_launchable=False is_beta=True launch_surface=None
+  custom                         user_launchable=True is_beta=False launch_surface=None
+  custom_revision                user_launchable=False is_beta=True launch_surface=None
+  ex_A1_loop                     user_launchable=True is_beta=False launch_surface=None
+  ppt                            user_launchable=True is_beta=False launch_surface=wizard
+  ppt_revision                   user_launchable=False is_beta=True launch_surface=None
+  ppt_v2                         user_launchable=True is_beta=False launch_surface=wizard
+  prototype                      user_launchable=True is_beta=False launch_surface=wizard
+  prototype_feature_revision     user_launchable=False is_beta=True launch_surface=None
+  prototype_large_revision       user_launchable=False is_beta=True launch_surface=None
+  prototype_revision             user_launchable=False is_beta=True launch_surface=None
+  prototype_v2                   user_launchable=True is_beta=False launch_surface=wizard
+  prototype_v2_feature_revision  user_launchable=False is_beta=True launch_surface=None
+  prototype_v2_revision          user_launchable=False is_beta=True launch_surface=None
+  user_stories                   user_launchable=True is_beta=False launch_surface=None
+  user_stories_revision          user_launchable=False is_beta=True launch_surface=None

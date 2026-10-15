@@ -1,0 +1,145 @@
+// QA-KB-091 analyzer probe. RECORDS, does not assert. __TARGET__ is replaced per variant.
+import { describe, it, vi, beforeEach, afterEach } from "vitest";
+import { render, screen, waitFor, cleanup, fireEvent } from "@testing-library/react";
+import React from "react";
+import * as fs from "fs";
+
+const OUT = "__OUT__";
+const mockGetToken = vi.fn(() => "test-token");
+const mockGetWorkflow = vi.fn<(token: string, id: string) => Promise<any>>();
+const mockGetRunSandboxRefs = vi.fn();
+vi.mock("@/lib/api", () => ({
+  getToken: () => mockGetToken(),
+  getWorkflow: (token: string, id: string) => mockGetWorkflow(token, id),
+  getRunFamily: vi.fn(),
+  postShareRun: vi.fn(),
+  deleteShareRun: vi.fn(),
+  getRunSandboxRefs: (...a: unknown[]) => mockGetRunSandboxRefs(...a),
+  getRunSandbox: vi.fn().mockResolvedValue({ run_id: "x", expired: false, truncated: false, files: [] }),
+  getRunSandboxFile: vi.fn().mockResolvedValue(""),
+  getRunSandboxFileBlob: vi.fn(),
+  getRunSandboxZip: vi.fn(),
+  resolveRunDeliverable: vi.fn().mockResolvedValue(null),
+}));
+const STRIPPED_MOTION_PROPS = new Set(["initial","animate","exit","transition","whileHover","whileTap","whileFocus","whileInView","viewport","layout","layoutId","drag","dragConstraints","variants","custom"]);
+vi.mock("motion/react", () => ({
+  motion: new Proxy({}, { get: (_t, prop: string) => ({ children, ...rest }: any) => React.createElement(prop, Object.fromEntries(Object.entries(rest).filter(([k]) => !STRIPPED_MOTION_PROPS.has(k))), children) }),
+  AnimatePresence: ({ children }: any) => <>{children}</>,
+}));
+vi.mock("@/components/preview/UserStoryPreview", () => ({ UserStoryPreview: () => <div data-testid="user-story-preview" /> }));
+vi.mock("@/components/preview/PPTPreview", () => ({ PPTPreview: () => <div data-testid="ppt-preview" /> }));
+vi.mock("@/components/preview/PrototypePreview", () => ({ PrototypePreview: () => <div data-testid="proto-preview" /> }));
+vi.mock("@/components/preview/MarkdownPreview", () => ({ MarkdownPreview: () => <div data-testid="markdown-preview" /> }));
+vi.mock("@/components/preview/AppBuilderPreview", () => ({ AppBuilderPreview: () => <div data-testid="appbuilder-preview" /> }));
+vi.mock("@/components/results/FilesTab", () => ({ FilesTab: (p: any) => <div data-testid="files-tab" data-run-status={p.runStatus ?? ""} />, downloadBlob: vi.fn(), deriveDeliverableFilename: () => "prototype.html" }));
+vi.mock("@/components/results/AgentThinkingTab", () => ({ AgentThinkingTab: () => <div data-testid="thinking-tab" /> }));
+vi.mock("@/components/results/AuditTab", () => ({ AuditTab: () => <div data-testid="audit-tab" /> }));
+
+import { PreviewPanel } from "__TARGET__";
+
+const t0 = new Date("2026-08-13T10:00:00Z").toISOString();
+const t1 = new Date("2026-08-13T11:00:00Z").toISOString();
+const tagless: any = {
+  root_id: "root",
+  members: [
+    { id: "root", type: "prototype", title: "v1", status: "completed", revision_index: 0, parent_run_id: null, created_at: t0, completed_at: t0 },
+    { id: "r1", type: "prototype_revision", title: "v2", status: "completed", revision_index: 1, parent_run_id: "root", created_at: t1, completed_at: t1 },
+  ],
+};
+
+const DISTINCT = "No deliverable was saved for this version";
+const flags = (txt: string) => ({
+  distinct: txt.includes(DISTINCT),
+  cancelledCopy: txt.includes("This run was cancelled"),
+  failedCopy: txt.includes("did not complete successfully"),
+  building: txt.includes("Building your deliverable"),
+  neutral: txt.includes("Output will appear here"),
+});
+
+type Scn = { label: string; props: Record<string, unknown>; pin?: Record<string, unknown> };
+
+async function runScenario(s: Scn) {
+  mockGetWorkflow.mockReset();
+  mockGetWorkflow.mockImplementation((_t, id) => Promise.resolve({ id, ...(s.pin ?? { status: "completed", output: null }) } as any));
+  render(<PreviewPanel workflowType="prototype" runFamily={tagless} {...(s.props as any)} />);
+  if (s.pin) {
+    await waitFor(() => { if (mockGetWorkflow.mock.calls.length === 0) throw new Error("pin fetch not issued"); });
+    await screen.findAllByText(/read-only/i);
+  } else {
+    await new Promise((r) => setTimeout(r, 30));
+  }
+  await new Promise((r) => setTimeout(r, 30));
+  const tabEls = screen.queryAllByRole("tab");
+  const tabs = tabEls.map((t) => t.textContent?.trim());
+  const landed = tabEls.find((t) => t.getAttribute("aria-selected") === "true")?.textContent?.trim() ?? "(none)";
+  const txt0 = document.body.textContent || "";
+  const f0 = flags(txt0);
+  const share = !!screen.queryByLabelText("Share this run");
+  const download = !!screen.queryByLabelText("Download the deliverable");
+  const hdrFailed = txt0.includes("Run failed");
+  const partial = txt0.includes("· partial");
+  const proto = !!screen.queryByTestId("proto-preview");
+  // Now force the Preview tab (if it is in the strip) and re-read what it renders.
+  let afterPreview = "n/a (no Preview tab in strip)";
+  const prev = tabEls.find((t) => t.textContent?.trim() === "Preview");
+  if (prev) {
+    fireEvent.click(prev);
+    await new Promise((r) => setTimeout(r, 30));
+    const f1 = flags(document.body.textContent || "");
+    afterPreview = JSON.stringify({ ...f1, proto: !!screen.queryByTestId("proto-preview") });
+  }
+  const line = [
+    "ROW " + s.label,
+    "| tabs=" + JSON.stringify(tabs),
+    "| landed=" + landed,
+    "| landedCopy=" + JSON.stringify({ ...f0, proto }),
+    "| PreviewTabClicked=" + afterPreview,
+    "| header=" + JSON.stringify({ runFailed: hdrFailed, partialChip: partial, shareBtn: share, downloadBtn: download }),
+  ].join(" ");
+  fs.appendFileSync(OUT, line + "\n");
+}
+
+beforeEach(() => { mockGetToken.mockReset().mockReturnValue("test-token"); mockGetRunSandboxRefs.mockReset().mockResolvedValue([]); });
+afterEach(() => cleanup());
+
+const NOPIN_OUT = { status: "completed", output: null };
+const WITH_OUT = { status: "completed", output: "<html>v1</html>" };
+
+const scenarios: Scn[] = [];
+// G1 - ISS-952 core: pin != shell. Shell = r1 (v2), pin = root (v1).
+for (const sh of [undefined, "completed", "cancelled", "failed", "degraded", "diverted"]) {
+  scenarios.push({ label: `G1 shell=${sh} pin=completed/null (pin!=shell)`, props: { liveRunId: "r1", pinnedVersion: "1", reopenedRunStatus: sh }, pin: NOPIN_OUT });
+}
+for (const sh of [undefined, "cancelled", "failed", "diverted"]) {
+  scenarios.push({ label: `G1b shell=${sh} pin=failed/null (pin!=shell)`, props: { liveRunId: "r1", pinnedVersion: "1", reopenedRunStatus: sh }, pin: { status: "failed", output: null } });
+}
+// G2 - sibling A: header leak, pin WITH content.
+for (const sh of [undefined, "cancelled", "failed", "degraded", "diverted"]) {
+  scenarios.push({ label: `G2 shell=${sh} pin=completed/WITH-content (pin!=shell)`, props: { liveRunId: "r1", pinnedVersion: "1", reopenedRunStatus: sh }, pin: WITH_OUT });
+}
+// G3 - sibling B: shell is streaming while an older terminal version is pinned.
+scenarios.push({ label: "G3 shell=RUNNING pin=failed/null (pin!=shell)", props: { liveRunId: "r1", pinnedVersion: "1", isStreaming: true }, pin: { status: "failed", output: null } });
+scenarios.push({ label: "G3 shell=RUNNING pin=completed/null (pin!=shell)", props: { liveRunId: "r1", pinnedVersion: "1", isStreaming: true }, pin: NOPIN_OUT });
+scenarios.push({ label: "G3 shell=RUNNING pin=completed/WITH-content (pin!=shell)", props: { liveRunId: "r1", pinnedVersion: "1", isStreaming: true }, pin: WITH_OUT });
+// G4 - self pin: the pinned member IS the shell (liveRunId === pinned member id), statuses consistent.
+for (const st of ["failed", "degraded", "cancelled", "diverted"]) {
+  scenarios.push({ label: `G4 SELF-PIN shell=pin=${st}/null`, props: { liveRunId: "root", pinnedVersion: "1", reopenedRunStatus: st }, pin: { status: st, output: null } });
+}
+// G5 - unpinned controls: the shell on its own.
+for (const st of ["failed", "degraded", "cancelled", "diverted"]) {
+  scenarios.push({ label: `G5 CONTROL unpinned shell=${st}`, props: { liveRunId: "r1", reopenedRunStatus: st } });
+}
+scenarios.push({ label: "G5 CONTROL unpinned shell=RUNNING no content", props: { liveRunId: "r1", isStreaming: true } });
+// G6 - the validator's harness shape: pin id == shell id ("root") but contradictory statuses.
+for (const sh of ["cancelled", "failed", "diverted"]) {
+  scenarios.push({ label: `G6 VALIDATOR-HARNESS shell(root)=${sh} pin(root)=completed/null`, props: { liveRunId: "root", pinnedVersion: "1", reopenedRunStatus: sh, prototypeContent: "" }, pin: NOPIN_OUT });
+}
+
+describe("probe __TARGET_NAME__", () => {
+  fs.writeFileSync(OUT, "# QA-KB-091 analyzer probe, target=__TARGET_NAME__\n");
+  for (const s of scenarios) {
+    it(s.label, async () => {
+      try { await runScenario(s); } catch (e: any) { fs.appendFileSync(OUT, "ROW " + s.label + " | ERROR " + String(e?.message ?? e).split("\n")[0] + "\n"); }
+    });
+  }
+});

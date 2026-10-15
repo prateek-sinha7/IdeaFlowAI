@@ -1,0 +1,61 @@
+# QA-KB-076 analyze: line cites INTO the guarded modules from files the citation guard does not scan, and what the cited lines hold
+# tree: /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2   HEAD: 8a0128685   date: 2026-10-07 22:07 CEST
+
+$ grep -rnE '(run_shutdown|run_engine|run_stream|docker-entrypoint|test_shutdown_reachability|checkpointer)\.(py|sh) ?:[0-9]+' backend ...   (minus the six scanned files)
+backend/tests/unit/test_checkpointer_shutdown_budget.py:55:            "(checkpointer.py:140-144)."
+backend/tests/integration/api/test_sse_stream_api.py:902:# (run_stream.py:197) hangs until its socket drops. The dict pop cannot reach it:
+backend/tests/integration/api/test_sse_stream_api.py:903:# the endpoint bound the queue OBJECT at run_stream.py:281 before the generator ran.
+backend/agents/authz.py:445:        SESSION-LESS ``ScopedStore`` (``run_stream.py:251-265``, BUG-004), so each
+
+$ grep config.py inbound (path-qualified)
+backend/tests/conftest.py:197:# ``AWS_REGION`` (app/core/config.py:130), ``BEDROCK_INFERENCE_PROFILE_ID`` (:123)
+backend/tests/unit/app/test_iss102_live_model_guard.py:5:(``app/core/config.py:118/:123/:130``) and there is no ``backend/.env``, so no amount of env
+
+############ what the cited lines hold at HEAD 8a0128685 (file:line: content)
+-- cited: checkpointer.py:140-144 (test_checkpointer_shutdown_budget.py:55); the wait_for wrapper is at :152
+backend/app/agents/checkpointer.py:140:     """
+backend/app/agents/checkpointer.py:141:     global _checkpointer, _pool, _closed
+backend/app/agents/checkpointer.py:142:     if _closed:
+backend/app/agents/checkpointer.py:143:         return
+backend/app/agents/checkpointer.py:144:     _closed = True
+backend/app/agents/checkpointer.py:152:             await asyncio.wait_for(
+-- cited: run_stream.py:197 and :281 (test_sse_stream_api.py:902-903), :251-265 (agents/authz.py:445)
+backend/app/api/run_stream.py:197: #
+backend/app/api/run_stream.py:251:     FAIL CLOSED: a timeout or any exception from the check is treated as an
+backend/app/api/run_stream.py:265:             timeout=_REVOCATION_CHECK_TIMEOUT_SECONDS,
+backend/app/api/run_stream.py:281:             run_id,
+backend/app/api/run_stream.py:443:         # then parks in `await live_queue.get()` for the run's ENTIRE duration, so anything
+backend/app/api/run_stream.py:542:                 event = await live_queue.get()
+backend/app/api/run_stream.py:663:     # Build a SEPARATE session-less store for the generator so each read_events opens+closes
+backend/app/api/run_stream.py:667:     stream_store = ScopedStore(
+-- cited: config.py:118/:123/:130 (tests/conftest.py:197-198, test_iss102_live_model_guard.py:5); the settings live at :124, :142, :149
+backend/app/core/config.py:118: 
+backend/app/core/config.py:123:     # out to.
+backend/app/core/config.py:124:     BEDROCK_MODEL_ID: str = "anthropic.claude-haiku-4-5-20251001-v1:0"
+backend/app/core/config.py:130:     # so an unset env var lands here and nowhere else.
+backend/app/core/config.py:142:     BEDROCK_INFERENCE_PROFILE_ID: str = "global.openai.gpt-5.6-luna"
+backend/app/core/config.py:149:     AWS_REGION: str = "eu-central-1"
+
+-- enclosing functions of the anchors to cite instead
+run_stream.py:667 stream_store = ScopedStore( is inside -> 593: async def stream_run_events(
+run_stream.py:542 await live_queue.get() is inside -> 349: async def _iter_sse_frames(
+
+-- scale of the unscanned world (broad pattern, backend/app + backend/agents, NOT claimed stale): see 01 for the pattern
+files outside _SCANNED with >=1 broad-pattern line under backend/app + backend/agents: 56  lines: 191
+    48  backend/agents/execution_engine/engine.py
+    24  backend/app/api/runs.py
+    19  backend/app/api/run_commands.py
+    10  backend/app/services/handoff_pipeline.py
+     5  backend/app/agents/handoff/compliance_agent.py
+     5  backend/app/agents/runtime/local.py
+     5  backend/agents/capabilities/strategies/task_loop.py
+     4  backend/app/services/handoff_github.py
+     4  backend/app/agents/handoff/test_agent.py
+     3  backend/app/agents/deep_agent_runner.py
+     3  backend/app/agents/handoff/coder.py
+     3  backend/agents/authz.py
+  shutdown-path neighbour backend/app/main.py: 1
+  shutdown-path neighbour backend/app/agents/checkpointer.py: 0
+  shutdown-path neighbour backend/app/api/run_commands.py: 19
+  shutdown-path neighbour backend/app/services/host_metrics.py: 0
+  shutdown-path neighbour backend/agents/execution_engine/engine.py: 48

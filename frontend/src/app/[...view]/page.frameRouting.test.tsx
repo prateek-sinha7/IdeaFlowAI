@@ -399,6 +399,9 @@ describe("DashboardPage pipeline lifecycle frames", () => {
 
     it("advances the content source to a revision run completing from the tracked run", async () => {
       await mountTrackingR1();
+      // QA-KB-055: a revision completion re-points the screen only when its family
+      // holds the tracked run, so the completing run's family is r1 + rev9.
+      h.api.getRunFamily.mockResolvedValue({ members: [{ id: "r1" }, { id: "rev9" }] });
 
       await emit({
         type: "pipeline_complete",

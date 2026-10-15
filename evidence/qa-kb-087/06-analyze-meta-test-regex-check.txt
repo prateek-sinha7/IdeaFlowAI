@@ -1,0 +1,5 @@
+# 3-analyzer QA-KB-087, 2026-10-02 11:18 CEST. The two suggested meta-lock predicates (ISS-945 'For the 4-test-writer') checked against the official file and both fix variants.
+# $ node scratch/regex_check.mjs   (paths inside point at the scratch variants; copy them from scratch/make_variants.py.txt output)
+official                   | mock-in-memory: true | waits-on-fetch: true | meta#1 predicate (stale): true | it.fails marker present: true
+b1_fixed (proposed fix)    | mock-in-memory: true | waits-on-fetch: false | meta#1 predicate (stale): false | it.fails marker present: false
+c1_delegated (alt fix)     | mock-in-memory: false | waits-on-fetch: true | meta#1 predicate (stale): false | it.fails marker present: false

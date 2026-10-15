@@ -1,0 +1,61 @@
+# QA-KB-126 fix 01: every door of analysis-01 re-driven after the ISS-1114/1163/1164/1165 change (base HEAD 01777a107 + working-tree change, 2026-10-09T14:25Z)
+# cmd: cd backend && PYTHONDONTWRITEBYTECODE=1 DATABASE_URL=sqlite:///:memory: .venv/bin/python -m pytest ../evidence/qa-kb-126/fix-plugins/test_probe_doors_after_fix.py -c pyproject.toml --rootdir=. -p no:cacheprovider -q -s -W ignore
+# in-memory SQLite, real routers, principal override. ONLY rc._launch_run_core (and, for [R], the engine singleton) is stubbed: nothing is minted, driven or paid for.
+# compare analysis-01 (same harness, before the change): [S] basic/hexaware/pro 201, [L] exec=True _trust=db, [P2] 200, [T] mint reached exec=True, [M] every item 201+200.
+
+
+[S] tier=basic      POST custom exec -> 403  POST ppt exec -> 422  POST ppt spawn -> 422  POST ppt benign -> 201
+.
+[S] tier=hexaware   POST custom exec -> 403  POST prototype exec -> 422  POST prototype spawn -> 422  POST prototype benign -> 201
+.
+[S] tier=pro        POST custom exec -> 403  POST ppt exec -> 422  POST ppt spawn -> 422  POST ppt benign -> 201
+.
+[S] tier=enterprise POST custom exec -> 201  POST ppt exec -> 201  POST ppt spawn -> 201  POST ppt benign -> 201
+.
+[M] item                                                           basic: save -> launch by id
+[M] CONTROL benign step                                            201+200 (nothing privileged) _trust=user
+[M] CONTROL gates=[human] (user_allowed)                           201+200 gates=['human'] _trust=user
+[M] gate security                                                  SAVE 422
+[M] gate approval                                                  SAVE 422
+[M] exec + gates security,approval                                 SAVE 422
+[M] spawn_subagents grant                                          SAVE 422
+[M] network grant                                                  SAVE 422
+[M] secrets grant (list field)                                     SAVE 422
+[M] git grant                                                      201+200 (nothing privileged) _trust=user
+[M] engineer-only hook provenance_audit                            SAVE 422
+[M] compaction html_skeleton                                       SAVE 422
+[M] post_step revision_validation                                  SAVE 422
+[M] tool_sets [internet,pptx,spawn_subagents,ask_user]             201+200 (nothing privileged) _trust=user
+[M] limits raised (max_subagents 64, max_depth 6, wall_clock 7200) SAVE 422
+.
+[L] basic launches a stored exec row (base ppt, saved before the fix) -> 422 code=invalid_workflow_manifest mint reached=False
+.
+[L] enterprise launches a stored exec row (base ppt, saved before the fix) -> 200 code=None mint reached=True plan=["custom-agent:mine: exec=True spawn=False git=False tool_sets=[] gates=['security', 'approval'] validators=['code_test']"] _trust=db
+.
+[P1] basic PATCH exec manifest onto a ppt row -> 422; stored manifest_json=None
+[P2] basic PATCH benign manifest (control) -> 200
+[P3] enterprise PATCH exec manifest onto a custom row (control) -> 200
+.
+[T] parent run _trust=None: trigger of a stored exec row -> CompilerError before the mint: capability ('gate', 'security') is not user-allowed in step 'custom-agent' — a user/db man; mint reached=False
+.
+[T] parent run _trust='user': trigger of a stored exec row -> CompilerError before the mint: capability ('gate', 'security') is not user-allowed in step 'custom-agent' — a user/db man; mint reached=False
+.
+[T] parent run _trust='db': trigger of a stored exec row -> mint reached, plan=["custom-agent:mine: exec=True spawn=False git=False tool_sets=[] gates=['security', 'approval'] validators=['code_test']"]; mint reached=True
+.
+[R] basic resumes a failed run persisted at _trust='db' -> 403 {'detail': {'error': 'This run was launched with privileges your plan does not include.', 'code': 'tier_not_entitled', 'recoverable': False}}
+.
+[R] basic resumes a failed run persisted at _trust='user' -> 200 {'run_id': 'ee638109-8c8d-44f7-8819-53c6baac0931'}
+.
+[R] basic resumes a failed run persisted at _trust=None -> 200 {'run_id': 'af486ca7-958a-4445-ab4b-cf011723145f'}
+.
+[R] enterprise resumes a failed run persisted at _trust='db' -> 200 {'run_id': '554c0ec8-4196-4f66-9134-4b5a7c630267'}
+.
+[O1] basic saves a benign override of ppt -> 201
+[O2] basic launches it by id -> 200; _trust='user'
+[O3] basic saves an exec override -> 422
+.
+[E] enterprise Composer row (base custom) save+launch -> 200; plan=["custom-agent:mine: exec=True spawn=False git=False tool_sets=[] gates=['security', 'approval'] validators=['code_test']"]; _trust='db'
+.
+[I] basic inline exec manifest -> 422 mint reached=False
+.
+18 passed in 2.02s

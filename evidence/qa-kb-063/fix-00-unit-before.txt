@@ -1,0 +1,7 @@
+xxx                                                                      [100%]
+
+=========================== short test summary info ============================
+XFAIL tests/unit/test_e2e_clarify_probes_numbered.py::test_probe_does_not_quote_roundless_clarify_text[test_controls_inventory.py] - ISS-662 unfixed
+XFAIL tests/unit/test_e2e_clarify_probes_numbered.py::test_probe_does_not_quote_roundless_clarify_text[test_chat_lane.py] - ISS-662 unfixed
+XFAIL tests/unit/test_e2e_clarify_probes_numbered.py::test_probe_does_not_quote_roundless_clarify_text[18-chat-lane.feature.md] - ISS-662 unfixed
+3 xfailed, 1 warning in 1.28s

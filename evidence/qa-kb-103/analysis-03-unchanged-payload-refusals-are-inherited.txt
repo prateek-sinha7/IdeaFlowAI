@@ -1,0 +1,28 @@
+# QA-KB-103 analysis 03: every refusal of the unchanged plan-seeded payload is a capability reference the built-in's OWN file step declares (2026-10-08T19:32Z, HEAD c9c4c630a)
+# cmd: cd backend && PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=. DATABASE_URL=sqlite:///:memory: .venv/bin/python ../evidence/qa-kb-103/analysis-plugins/peel_payloads.py ../evidence/qa-kb-103/analysis-06-serializer-payloads.json
+app_builder: unchanged canvas payload is refused for 1 capability reference(s):
+    post_step:api_prefix_audit @ step 'app-infra-generator'  -> INHERITED (== file step)
+    after removing exactly those references the payload passes the user-trust compile
+prototype: unchanged canvas payload is refused for 1 capability reference(s):
+    compaction:html_skeleton @ step 'prototype-build'  -> INHERITED (== file step)
+    after removing exactly those references the payload passes the user-trust compile
+prototype_feature_revision: unchanged canvas payload is refused for 2 capability reference(s):
+    compaction:html_skeleton @ step 'prototype-build'  -> INHERITED (== file step)
+    post_step:revision_validation @ step 'prototype-build'  -> INHERITED (== file step)
+    after removing exactly those references the payload passes the user-trust compile
+prototype_large_revision: unchanged canvas payload is refused for 2 capability reference(s):
+    compaction:html_skeleton @ step 'prototype-build'  -> INHERITED (== file step)
+    post_step:revision_validation @ step 'prototype-build'  -> INHERITED (== file step)
+    after removing exactly those references the payload passes the user-trust compile
+prototype_revision: unchanged canvas payload is refused for 1 capability reference(s):
+    post_step:revision_validation @ step 'prototype-revision-agent'  -> INHERITED (== file step)
+    after removing exactly those references the payload passes the user-trust compile
+sample_fanout: unchanged canvas payload is refused for 1 capability reference(s):
+    tool-grant:spawn_subagents @ step 'sample-fanout-worker'  -> INHERITED (== file step)
+    after removing exactly those references the payload passes the user-trust compile
+sample_subagents_parallel: unchanged canvas payload is refused for 1 capability reference(s):
+    tool-grant:spawn_subagents @ step 'custom-agent'  -> INHERITED (== file step)
+    after removing exactly those references the payload passes the user-trust compile
+sample_wave: unchanged canvas payload is refused for 1 capability reference(s):
+    tool-grant:spawn_subagents @ step 'sample-wave-worker'  -> INHERITED (== file step)
+    after removing exactly those references the payload passes the user-trust compile

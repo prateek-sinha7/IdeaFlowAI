@@ -1,0 +1,91 @@
+# QA-KB-059 fix: ORIGINAL iss919 test file, FIXED IdeaInputPage.tsx. T1-T3 flip ('Expect test to fail'); original T4 does not: its stub popup ignores isOpen and edits around the gated Advanced trigger
+# cmd (frontend/): ./node_modules/.bin/vitest --run --reporter=verbose src/components/workflow/IdeaInputPage.iss919.test.tsx
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - ESM syntax in a file loaded as CommonJS (vitest.config.ts:1:1). Use a `.mjs` extension or set `"type": "module"` in the closest package.json
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+
+ RUN  v4.1.11 /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/frontend
+
+stdout | src/components/workflow/IdeaInputPage.iss919.test.tsx > QA-KB-059 scratch: IdeaInputPage while GET /api/workflows/user_stories is PENDING > ISS-919 T1 both Save buttons should be disabled (red today = defect observed)
+[wf] 4. roster for user_stories { fromLibrary: 4, fromManifest: 0, using: 'library' }
+
+stdout | src/components/workflow/IdeaInputPage.iss919.test.tsx > QA-KB-059 scratch: IdeaInputPage while GET /api/workflows/user_stories is PENDING > ISS-919 T1 both Save buttons should be disabled (red today = defect observed)
+[T1] pending window: saveAsMyVersion.disabled=true saveWorkflow.disabled=true advanced.disabled=true advancedLabel="Advanced4 agents · ~4m"
+
+stdout | src/components/workflow/IdeaInputPage.iss919.test.tsx > QA-KB-059 scratch: IdeaInputPage while GET /api/workflows/user_stories is PENDING > ISS-919 T2 clicking Save as my version while pending sends the library roster as an override UPSERT
+[wf] 4. roster for user_stories { fromLibrary: 4, fromManifest: 0, using: 'library' }
+
+stdout | src/components/workflow/IdeaInputPage.iss919.test.tsx > QA-KB-059 scratch: IdeaInputPage while GET /api/workflows/user_stories is PENDING > ISS-919 T2 clicking Save as my version while pending sends the library roster as an override UPSERT
+[T2] createUserWorkflow calls while detail pending: 0
+[T2] POST body: {}
+
+stdout | src/components/workflow/IdeaInputPage.iss919.test.tsx > QA-KB-059 scratch: the FAILED-fetch window (adjacent state) > ISS-984 T3 a rejected GET leaves Save as my version enabled and shows no error
+[wf] 4. roster for user_stories { fromLibrary: 4, fromManifest: 0, using: 'library' }
+
+ × src/components/workflow/IdeaInputPage.iss919.test.tsx > QA-KB-059 scratch: IdeaInputPage while GET /api/workflows/user_stories is PENDING > ISS-919 T1 both Save buttons should be disabled (red today = defect observed) 112ms
+   → Expect test to fail
+ × src/components/workflow/IdeaInputPage.iss919.test.tsx > QA-KB-059 scratch: IdeaInputPage while GET /api/workflows/user_stories is PENDING > ISS-919 T2 clicking Save as my version while pending sends the library roster as an override UPSERT 38ms
+   → Expect test to fail
+stdout | src/components/workflow/IdeaInputPage.iss919.test.tsx > QA-KB-059 scratch: the FAILED-fetch window (adjacent state) > ISS-984 T3 a rejected GET leaves Save as my version enabled and shows no error
+[T3] after rejected GET: saveAsMyVersion.disabled=true errorBannerShown=false
+
+stdout | src/components/workflow/IdeaInputPage.iss919.test.tsx > QA-KB-059 scratch: an edit made in the window vs the late overlay (Advanced trigger) > ISS-983 T4 the late fetch re-seeds pipelineAgents over an in-window edit
+[wf] 4. roster for user_stories { fromLibrary: 4, fromManifest: 0, using: 'library' }
+
+stdout | src/components/workflow/IdeaInputPage.iss919.test.tsx > QA-KB-059 scratch: an edit made in the window vs the late overlay (Advanced trigger) > ISS-983 T4 the late fetch re-seeds pipelineAgents over an in-window edit
+[wf] 1. fetched user_stories {
+  compiledSteps: 0,
+  manifestSteps: 0,
+  stepsWithGates: [],
+  stepsWithRoute: []
+}
+
+stderr | src/components/workflow/IdeaInputPage.iss919.test.tsx > QA-KB-059 scratch: an edit made in the window vs the late overlay (Advanced trigger) > ISS-983 T4 the late fetch re-seeds pipelineAgents over an in-window edit
+An update to IdeaInputPage inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to IdeaInputPage inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+stdout | src/components/workflow/IdeaInputPage.iss919.test.tsx > QA-KB-059 scratch: an edit made in the window vs the late overlay (Advanced trigger) > ISS-983 T4 the late fetch re-seeds pipelineAgents over an in-window edit
+[wf] 4. roster for user_stories { fromLibrary: 4, fromManifest: 0, using: 'library' }
+
+stdout | src/components/workflow/IdeaInputPage.iss919.test.tsx > QA-KB-059 scratch: an edit made in the window vs the late overlay (Advanced trigger) > ISS-983 T4 the late fetch re-seeds pipelineAgents over an in-window edit
+[T4] roster before edit: domain-analyst,epic-architect,story-estimator,nfr-specialist
+[T4] roster after in-window edit: domain-analyst,epic-architect,story-estimator
+[T4] roster after late detail lands: domain-analyst,epic-architect,story-estimator,nfr-specialist
+[T4] edit survived the late overlay: false
+
+ × src/components/workflow/IdeaInputPage.iss919.test.tsx > QA-KB-059 scratch: the FAILED-fetch window (adjacent state) > ISS-984 T3 a rejected GET leaves Save as my version enabled and shows no error 80ms
+   → Expect test to fail
+ ✓ src/components/workflow/IdeaInputPage.iss919.test.tsx > QA-KB-059 scratch: an edit made in the window vs the late overlay (Advanced trigger) > ISS-983 T4 the late fetch re-seeds pipelineAgents over an in-window edit 102ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/components/workflow/IdeaInputPage.iss919.test.tsx > QA-KB-059 scratch: IdeaInputPage while GET /api/workflows/user_stories is PENDING > ISS-919 T1 both Save buttons should be disabled (red today = defect observed)
+ FAIL  src/components/workflow/IdeaInputPage.iss919.test.tsx > QA-KB-059 scratch: IdeaInputPage while GET /api/workflows/user_stories is PENDING > ISS-919 T2 clicking Save as my version while pending sends the library roster as an override UPSERT
+ FAIL  src/components/workflow/IdeaInputPage.iss919.test.tsx > QA-KB-059 scratch: the FAILED-fetch window (adjacent state) > ISS-984 T3 a rejected GET leaves Save as my version enabled and shows no error
+Error: Expect test to fail
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/3]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  3 failed | 1 expected fail (4)
+   Start at  18:06:33
+   Duration  1.86s (transform 233ms, setup 78ms, import 642ms, tests 334ms, environment 692ms)
+

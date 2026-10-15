@@ -1,0 +1,28 @@
+# FIX-696: cd frontend && npx vitest --run src/lib/routes.test.ts (2026-10-01 22:35); baseline before the fix was '62 passed | 4 expected fail (66)'
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - ESM syntax in a file loaded as CommonJS (vitest.config.ts:1:1). Use a `.mjs` extension or set `"type": "module"` in the closest package.json
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+
+ RUN  v4.1.11 /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/frontend
+
+ ❯ src/lib/routes.test.ts (66 tests | 4 failed) 9ms
+       × ISS-348: /login/<sub-path> is unknown 1ms
+       × ISS-349: /admin/<sub-path> is unknown 0ms
+       × ISS-910: /dashboard/<sub-path> is unknown 0ms
+       × ISS-911: /settings/profile/<extra> is unknown 0ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 4 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/lib/routes.test.ts > routes - round-trip tests > extra segments after single-segment screens > ISS-348: /login/<sub-path> is unknown
+ FAIL  src/lib/routes.test.ts > routes - round-trip tests > extra segments after single-segment screens > ISS-349: /admin/<sub-path> is unknown
+ FAIL  src/lib/routes.test.ts > routes - round-trip tests > extra segments after single-segment screens > ISS-910: /dashboard/<sub-path> is unknown
+ FAIL  src/lib/routes.test.ts > routes - round-trip tests > extra segments after single-segment screens > ISS-911: /settings/profile/<extra> is unknown
+Error: Expect test to fail
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/4]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  4 failed | 62 passed (66)
+   Start at  22:35:36
+   Duration  948ms (transform 71ms, setup 82ms, import 57ms, tests 9ms, environment 570ms)
+

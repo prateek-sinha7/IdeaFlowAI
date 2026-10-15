@@ -1,0 +1,17 @@
+# QA-KB-095 analysis, 2026-10-07 — scratch render of the REAL PreviewPanel + RunHeader + SandboxTab (everything fetched is mocked)
+# 5 passed. Family fixture = what GET /api/runs/0f62f7bc.../family returns (evidence 04): v1 completed git_tag=v1, v2 FAILED no tag.
+# GET /sandbox/refs is mocked to return [] (what the live API returns for this run, evidence 06); probe D mocks the live 400 on ?ref=v1 as a rejection.
+# resolveRunDeliverable args = (token, runId, declared, ref). JSON.stringify prints an undefined ref as null.
+
+PROBE A resolveRunDeliverable calls (token, runId, declared, ref): [["test-token","0f62f7bc-d3a2-4748-8004-0b534e1741ae","prototype.html","v1"]]
+PROBE A getRunSandboxRefs calls: 1 -> returns []
+PROBE B resolveRunDeliverable calls: [["test-token","0f62f7bc-d3a2-4748-8004-0b534e1741ae","prototype.html",null]]
+PROBE C resolveRunDeliverable calls: [["test-token","b7bdf6a3-2ae9-48f6-867e-dbfb61b9f570","prototype.html",null]]
+PROBE D getRunSandbox calls (token, runId, ref): [["test-token","0f62f7bc-d3a2-4748-8004-0b534e1741ae","v1"]]
+PROBE D Workspace tab list-error text rendered: "invalid ref" class: px-1 py-2 text-[11px] text-status-failed
+PROBE E control: refs=['v1'] -> ref v1 requested, no error text
+
+# A: the page asks for ref v1 although the sandbox lists no refs. B, C: controls (the run is the family's newest member) ask for no ref.
+# The ref in A comes from PreviewPanel.tsx:889-891 (displayRef), not from a pin: no /versions/{n} segment is mounted.
+# D: the URL-pin path (pinnedMemberTag, PreviewPanel.tsx:1040,1052-1054) asks the Workspace tab for ref v1 and renders the list error in red (SandboxTab.tsx:1184-1186, :1460).
+# E: control, refs=['v1']: the same request, no error.

@@ -189,8 +189,8 @@ test.describe("TS-T — WorkflowHistory", () => {
     await expect(iframe).toHaveAttribute("srcdoc", /<h1>Hi<\/h1>/);
   });
 
-  test("TS-T-04c od_ppt (and od_prototype) reopen renders its TYPED deliverable in the shared run screen (BUG-012)", async ({ dashboard, mockApi, page }) => {
-    // BUG-012: reopening a completed od_ppt run whose output is valid deck HTML
+  test("TS-T-04c ppt (and prototype) reopen renders its TYPED deliverable in the shared run screen (BUG-012)", async ({ dashboard, mockApi, page }) => {
+    // BUG-012: reopening a completed ppt run whose output is valid deck HTML
     // rendered the neutral "Output will appear here" BLANK state instead of the
     // deck. Root cause: the PreviewPanel render dispatch keyed on a stale
     // `workflowType` default ("user_stories"), so detectedType/renderType never
@@ -200,15 +200,13 @@ test.describe("TS-T — WorkflowHistory", () => {
     // PreviewPanel), so the typed renderer fires for runs even OUTSIDE the recents
     // window (History-tapped runs are not in recents — the exact failing case).
     //
-    // FAIL-BEFORE (unmodified tree): the reopened od_ppt shows the blank state and
+    // FAIL-BEFORE (unmodified tree): the reopened ppt run shows the blank state and
     // the "Slide Deck Preview" iframe is absent. PASS-AFTER (Task 2 thread): the
     // deck renders.
     mockApi.setRuns([
       makeRun({
         id: "r-ppt",
         title: "Pitch deck reopen",
-        // od_ppt was folded into `ppt`, the single HTML-deck pipeline (no od_*
-        // manifest remains in backend/agents/workflows) — the real persisted type.
         type: "ppt",
         status: "completed",
         output: "<!DOCTYPE html><html><body><h1>DECK-SLIDE-1</h1></body></html>",
@@ -229,13 +227,13 @@ test.describe("TS-T — WorkflowHistory", () => {
     await expect(page.locator('iframe[title="Slide Deck Preview"]')).toBeVisible();
     await expect(page.getByText("Output will appear here")).toHaveCount(0);
 
-    // Sibling: an od_prototype reopen fires its typed prototype renderer once fed
+    // Sibling: a prototype reopen fires its typed prototype renderer once fed
     // the right type (the same thread) — mirror, do not block on it.
     mockApi.setRuns([
       makeRun({
         id: "r-proto",
         title: "Prototype reopen",
-        type: "prototype", // od_prototype folded into `prototype` (see above)
+        type: "prototype",
         status: "completed",
         output: "<!DOCTYPE html><html><body><h1>PROTO-VIEW</h1></body></html>",
         deliverable_mimetype: "text/html",

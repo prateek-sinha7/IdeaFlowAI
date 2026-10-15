@@ -1,0 +1,20 @@
+# QA-KB-087 5-fixer probe for ISS-1041: can the legacy spy case, or the network case, tell the ISS-802 double fetch from a single one?
+# Builds scratch copies next to this script from git HEAD; never writes the repo.
+import pathlib, subprocess
+REPO = "/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2"
+def head(rel): return subprocess.run(["git", "-C", REPO, "show", "HEAD:" + rel], capture_output=True, text=True, check=True).stdout
+def sub(s, a, b, n=1):
+    assert s.count(a) == n, (a, s.count(a)); return s.replace(a, b)
+D = "frontend/src/components/results/"
+legacy = sub(head(D + "ArtifactVersionPicker.iss802.test.tsx"), "it.fails(", "it(")
+network = head(D + "ArtifactVersionPicker.iss802.network.test.tsx")
+comp = pathlib.Path(REPO + "/" + D + "ArtifactVersionPicker.tsx").read_text()
+# pre-FIX-636 shape: drop the post-import bail (ArtifactVersionPicker.tsx:126), keep the two `if (!cancelled)` guards
+pathlib.Path("MutantPreFix636.tsx").write_text(sub(comp, "        if (cancelled) return;\n", ""))
+IMP = 'import { ArtifactVersionPicker } from "./ArtifactVersionPicker";'
+for name, src, c in [("legacy_marker_off_real", legacy, "@/components/results/ArtifactVersionPicker"),
+                     ("legacy_marker_off_prefix", legacy, "./MutantPreFix636"),
+                     ("network_real", network, "@/components/results/ArtifactVersionPicker"),
+                     ("network_prefix", network, "./MutantPreFix636")]:
+    pathlib.Path(f"{name}.test.tsx").write_text(sub(src, IMP, f'import {{ ArtifactVersionPicker }} from "{c}";'))
+print("ok")

@@ -1,0 +1,61 @@
+# QA-KB-098 analysis 10: second-pass re-verification at HEAD 3af414bc6 (2026-10-08T11:55Z)
+# read-only: git reads, greps, one pytest node. No application or test source changed.
+
+## 1. backend/ and frontend/ unchanged since the first analysis pass (165c40316)
+$ git diff --stat 165c40316 HEAD -- backend frontend
+(end of diff output; empty above = no change)
+$ git status --porcelain -- backend frontend
+(end of status output; empty above = clean)
+
+## 2. the two histories never met until the merge 4ebd98e8f
+A = 5af898322 2026-09-10 fix(engine): harden prototype runs — JSON-validating writes, fail-closed fan-out, per-worker browser, loop exhaustion, gate r
+B = acd36b798 2026-09-12 test(sandbox): behavioural coverage for versioning, chaining and file-based context
+M = 4ebd98e8f 2026-09-16 Merge branch 'feat/git-versioning' into feat/file-extract-tools
+A is NOT an ancestor of B
+B is NOT an ancestor of A
+A is an ancestor of M
+B is an ancestor of M
+M parents: 66bf725bab826d6f414f1975287bc9885c64df63 (1st, feat/file-extract-tools side) and 36617b82441ce634b4803b97fbdcdca45f247737 (2nd, feat/git-versioning side)
+66bf725ba: playwright.py lines with bare _SANDBOX = 0 ; tests/agents/test_per_run_paths_v3.py = ABSENT
+36617b824: playwright.py lines with bare _SANDBOX = 18 ; tests/agents/test_per_run_paths_v3.py = present
+4ebd98e8f: playwright.py lines with bare _SANDBOX = 0 ; tests/agents/test_per_run_paths_v3.py = present
+merge result vs 1st parent, playwright.py (the merge auto-combined the 2nd parent's browser_dir change with the 1st parent's ContextVar binding):
+ backend/app/agents/tools/playwright.py | 15 ++++++++++++---
+ 1 file changed, 12 insertions(+), 3 deletions(-)
+merge result vs 2nd parent, tests/agents/test_per_run_paths_v3.py (empty = byte-identical, i.e. taken verbatim):
+(end)
+
+## 3. what 5af898322 did to the module's names (playwright.py only)
+-_SANDBOX: Any = None
+-_AGENT_ID: str = "unknown"  # Bound by bind_sandbox, used for per-agent browser context isolation.
+-def bind_sandbox(sandbox: Any, agent_id: str = "unknown") -> None:
++_SANDBOX_VAR: contextvars.ContextVar[Any | None] = contextvars.ContextVar(
++_AGENT_KEY_VAR: contextvars.ContextVar[str] = contextvars.ContextVar(
++def bind_sandbox(
+-    global _SANDBOX, _AGENT_ID
+
+## 4. every bare-_SANDBOX reference in backend python outside the two tool modules that still own the global
+backend/tests/agents/test_per_run_paths_v3.py:313:        _orig_sandbox = pptx_tools._SANDBOX
+backend/tests/agents/test_per_run_paths_v3.py:323:            pptx_tools._SANDBOX = _orig_sandbox
+backend/tests/agents/test_per_run_paths_v3.py:427:        _orig_sandbox = playwright_tools._SANDBOX
+backend/tests/agents/test_per_run_paths_v3.py:444:            playwright_tools._SANDBOX = _orig_sandbox
+backend/tests/agents/test_pptx_tools.py:54:    monkeypatch.setattr(pptx_tools, "_SANDBOX", _Sandbox(tmp_path))
+backend/tests/agents/test_pptx_tools.py:101:    monkeypatch.setattr(pptx_tools, "_SANDBOX", None)
+backend/tests/agents/test_pptx_tools.py:140:    assert pptx_tools._SANDBOX is sb
+backend/tests/agents/test_pptx_tools.py:282:        pptx_tools._SANDBOX = None
+backend/tests/agents/test_html_extract.py:74:    monkeypatch.setattr(file_extract_tools, "_SANDBOX", _Sandbox(tmp_path))
+backend/tests/agents/test_verify_layout.py:339:        monkeypatch.setattr(pptx_tools, "_SANDBOX", _Sandbox())
+backend/tests/agents/test_verify_layout.py:362:        monkeypatch.setattr(pptx_tools, "_SANDBOX", _Sandbox())
+backend/tests/agents/test_file_extract_tools.py:71:    monkeypatch.setattr(file_extract_tools, "_SANDBOX", mock_sandbox)
+backend/tests/agents/test_file_extract_tools.py:444:        monkeypatch.setattr(file_extract_tools, "_SANDBOX", None)
+
+## 5. playwright.py: bare _SANDBOX / _AGENT_ID lines (exit 1 = none)
+grep exit: 1
+
+## 6. the failing node, alone, at this HEAD
+$ cd backend && .venv/bin/python -m pytest "tests/agents/test_per_run_paths_v3.py::TestPerRunPathsDistinct::test_revision_browser_dir_writer_driven" -q -p no:cacheprovider
+>       _orig_sandbox = playwright_tools._SANDBOX
+E       AttributeError: module 'app.agents.tools.playwright' has no attribute '_SANDBOX'
+tests/agents/test_per_run_paths_v3.py:427: AttributeError
+FAILED tests/agents/test_per_run_paths_v3.py::TestPerRunPathsDistinct::test_revision_browser_dir_writer_driven
+1 failed, 2 warnings in 1.22s

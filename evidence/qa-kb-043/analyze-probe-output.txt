@@ -1,0 +1,40 @@
+# Output of: cd backend && .venv/bin/python ../evidence/qa-kb-043/analyze-probe.py   (analyzer, 2026-10-01, offline, DATABASE_URL pinned to throwaway sqlite)
+=== 0. loop turns granted to other tasks while shutdown_run_infrastructure() runs ===
+A queues only          : turns=0  queues_sentinelled=3 errors=[]
+B + one pump (step 2b) : turns=3  pump_drained=1 errors=[]
+C + concierge (step 1) : turns>0 is True  concierge_persisted=1 errors=[]
+
+=== 1. naive gather(shutdown, mutator), only queues seeded ===
+order: ['shutdown_done', "mutator_start(queues_seen=['run-a', 'run-b', 'run-c'])", 'mutator_done']
+queues_sentinelled: 3 errors: []
+
+=== 2. mutation inside the only pre-snapshot window (step 1 Concierge await) ===
+summary: runs_in_flight=4 live_queues=4 queues_sentinelled=3 runs_left_for_boot_restore=4 concierge_persisted=1 errors=[]
+drivers actually still registered after shutdown: ['run-a', 'run-c']
+  queue run-a: contents=[None]
+  queue run-b: contents=[None]
+  queue run-c: contents=[None]
+  queue run-e: contents=[None]
+  queue run-late: contents=[None]
+
+=== 3. detach sweep: gather(shutdown, _unsubscribe(q1) after N loop turns) ===
+N=0: pump in_flight=1 drained=1 cancelled=0 queues_sentinelled=1 errors=[] q1(detached)=[] q2(kept)=[None] _PUMP_TASKS_left=[]
+N=1: pump in_flight=1 drained=1 cancelled=0 queues_sentinelled=1 errors=[] q1(detached)=[None] q2(kept)=[None] _PUMP_TASKS_left=[]
+N=2: pump in_flight=1 drained=1 cancelled=0 queues_sentinelled=1 errors=[] q1(detached)=[None] q2(kept)=[None] _PUMP_TASKS_left=[]
+N=3: pump in_flight=1 drained=1 cancelled=0 queues_sentinelled=1 errors=[] q1(detached)=[None] q2(kept)=[None] _PUMP_TASKS_left=[]
+N=4: pump in_flight=1 drained=1 cancelled=0 queues_sentinelled=1 errors=[] q1(detached)=[None] q2(kept)=[None] _PUMP_TASKS_left=[]
+N=5: pump in_flight=1 drained=1 cancelled=0 queues_sentinelled=1 errors=[] q1(detached)=[None] q2(kept)=[None] _PUMP_TASKS_left=[]
+
+=== 4. what a plain subscriber detach mutates ===
+before detach: {'_PIPELINE_QUEUES': ['run-1'], '_PUMP_TASKS': ['run-1'], '_SUBSCRIBERS': {'run-1': 1}}
+after  detach: {'_PIPELINE_QUEUES': ['run-1'], '_PUMP_TASKS': ['run-1'], '_SUBSCRIBERS': {}}
+
+=== 5. step-2 guards ===
+per-item guard : queues_sentinelled=1 errors=[] run-ok queue=[None] checkpointer_closed=True
+outer guard    : queues_sentinelled=0 errors=['queue_sentinel: dictionary changed size during iteration'] checkpointer_closed=True
+
+=== 6. per-turn churn + recording registry, real function vs an in-memory copy with an await injected into the step-2 loop ===
+real           : queues_sentinelled=6 registry_at_step2=6 match=True errors=[]
+await-injected : queues_sentinelled=5 registry_at_step2=6 match=False errors=[]
+
+psycopg2 imported: False

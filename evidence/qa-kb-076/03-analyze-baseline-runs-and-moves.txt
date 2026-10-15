@@ -1,0 +1,41 @@
+# QA-KB-076 analyze: baseline runs, git moves and the guard rewrite
+# tree: /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2   HEAD: 8a0128685   date: 2026-10-07 22:06 CEST
+
+$ cd backend && .venv/bin/python -m pytest tests/unit/test_run_shutdown_stale_citations.py -q -p no:cacheprovider
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+2 passed, 1 warning in 1.08s
+
+$ cd backend && .venv/bin/python -m pytest tests/unit/services/test_shutdown_reachability.py -q -p no:cacheprovider
+=========================== short test summary info ============================
+FAILED tests/unit/services/test_shutdown_reachability.py::test_sigterm_reaches_the_lifespan_shutdown_half_while_a_stream_is_live
+1 failed, 7 passed, 1 warning in 1.17s
+
+$ grep -nE 'main.py:238|pool_leak.py:196' backend/tests/unit/services/test_shutdown_reachability.py
+23:``test_run_stream_pool_leak.py:196-238``: ``Server.capture_signals()`` installs its
+67:# restore_non_terminal_runs() (main.py:238), which auto-resumes in-flight runs. This
+84:# restore_non_terminal_runs() (main.py:238), which auto-resumes in-flight runs. This
+
+$ git log --follow --name-status -M (the two test files whose old paths the reachability docstring still names)
+14a675db4 2026-10-06 not_stable changes for stale fix cards
+09270703b 2026-09-22 Fix/testcases (#9)
+R099	backend/tests/unit/test_shutdown_reachability.py	backend/tests/unit/services/test_shutdown_reachability.py
+b2a621f84 2026-09-17 Fix/cognito login (#8)
+14a675db4 2026-10-06 not_stable changes for stale fix cards
+09270703b 2026-09-22 Fix/testcases (#9)
+R100	backend/tests/unit/test_run_shutdown.py	backend/tests/unit/app/test_run_shutdown.py
+22bbe1bfb 2026-08-31 Apply ruff==0.7.4 format to backend (pinned CI version, 418 files); fix misplaced noqa: E402 in chat_router.py
+
+$ ls backend/tests/unit/test_shutdown_reachability.py backend/tests/unit/test_run_shutdown.py   (the paths on docstring lines 1 and 3)
+ls: backend/tests/unit/test_run_shutdown.py: No such file or directory
+ls: backend/tests/unit/test_shutdown_reachability.py: No such file or directory
+
+$ git log --format='%h %ad %s' -- backend/tests/unit/test_run_shutdown_stale_citations.py   (guard history; 14a675db4 replaced the 3 line-pinned xfail tests with the current 2)
+14a675db4 2026-10-06 not_stable changes for stale fix cards
+835793a99 2026-08-31 fix(engine): close gate, resume and roster defects from bug-hunt domain 15
+
+$ grep -rnE '_LINE_CITE|_SCANNED' backend tests tools ci --include='*.py'   (every definition and use)
+backend/tests/unit/test_run_shutdown_stale_citations.py:17:_SCANNED = [
+backend/tests/unit/test_run_shutdown_stale_citations.py:25:_LINE_CITE = re.compile(
+backend/tests/unit/test_run_shutdown_stale_citations.py:36:    for path in _SCANNED:
+backend/tests/unit/test_run_shutdown_stale_citations.py:40:            for m in _LINE_CITE.finditer(line):

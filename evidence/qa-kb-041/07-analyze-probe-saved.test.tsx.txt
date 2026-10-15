@@ -1,0 +1,142 @@
+// SCRATCH PROBE (outside the repo) — QA-KB-041 analyzer. Not a deliverable.
+// Asserts the CURRENT (buggy) behaviour so a green run == "bug reproduced".
+import { describe, expect, it, vi, beforeEach } from "vitest";
+import { render, screen, within, fireEvent, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import React from "react";
+
+const { mockGetUserWorkflows } = vi.hoisted(() => ({ mockGetUserWorkflows: vi.fn() }));
+
+vi.mock("@/lib/api", () => ({
+  getToken: () => "tok",
+  getUserWorkflows: (t: string) => mockGetUserWorkflows(t),
+  createUserWorkflow: vi.fn(),
+  renameUserWorkflow: vi.fn(),
+  deleteUserWorkflow: vi.fn(),
+}));
+
+// STABLE-identity motion mock: one component type per tag, so nodes survive
+// re-renders exactly like real motion (the repo's own mock mints a new type per
+// access and remounts the subtree, which silently drops focus).
+const STRIPPED = new Set([
+  "initial", "animate", "exit", "transition", "whileHover", "whileTap",
+  "whileFocus", "whileInView", "viewport", "layout", "layoutId", "drag",
+  "dragConstraints", "variants", "custom",
+]);
+const cache: Record<string, React.FC<Record<string, unknown>>> = {};
+vi.mock("motion/react", () => ({
+  motion: new Proxy({}, {
+    get: (_t, prop: string) =>
+      (cache[prop] ??= ({ children, ...rest }: { children?: React.ReactNode } & Record<string, unknown>) =>
+        React.createElement(
+          prop,
+          Object.fromEntries(Object.entries(rest).filter(([k]) => !STRIPPED.has(k))),
+          children,
+        )),
+  }),
+  AnimatePresence: ({ children }: { children?: React.ReactNode }) => <>{children}</>,
+}));
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: vi.fn(), replace: vi.fn(), prefetch: vi.fn() }),
+  useSearchParams: () => ({ get: vi.fn(() => null) }),
+}));
+
+import { SavedWorkflowsPage } from "@/components/savedworkflows/SavedWorkflowsPage";
+
+const ROW = {
+  id: "uw-1", name: "My saved workflow", description: "A custom composition.",
+  base_pipeline_type: "custom", agent_ids: ["a1", "a2"], model_overrides: null,
+  updated_at: "2026-07-01T10:00:00",
+};
+const trigger = () => screen.getByRole("button", { name: "Workflow actions" });
+const where = () => {
+  const a = document.activeElement;
+  return a === document.body ? "BODY" : `${a?.tagName}[${a?.getAttribute("aria-label") ?? a?.getAttribute("role") ?? a?.id ?? ""}]`;
+};
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  mockGetUserWorkflows.mockResolvedValue([{ ...ROW }]);
+});
+
+describe("QA-KB-041 probe — KebabMenu", () => {
+  it("CONTROL (Chrome-like): real click focuses the trigger -> Escape closes", async () => {
+    const user = userEvent.setup();
+    render(<SavedWorkflowsPage />);
+    await screen.findByText("My saved workflow");
+    await user.click(trigger());
+    console.log("[control] activeElement after real click =", where(), "| aria-expanded =", trigger().getAttribute("aria-expanded"));
+    expect(trigger()).toHaveAttribute("aria-expanded", "true");
+    await user.keyboard("{Escape}");
+    console.log("[control] after Escape: aria-expanded =", trigger().getAttribute("aria-expanded"), "| activeElement =", where());
+    expect(trigger()).toHaveAttribute("aria-expanded", "false");
+  });
+
+  it("REPRO (Safari/Firefox-like): click that does NOT focus the trigger -> Escape is a no-op", async () => {
+    const user = userEvent.setup();
+    render(<SavedWorkflowsPage />);
+    await screen.findByText("My saved workflow");
+    fireEvent.click(trigger()); // fireEvent.click never moves focus == Safari/Firefox macOS, == JS .click()
+    console.log("[repro] activeElement after unfocused click =", where(), "| aria-expanded =", trigger().getAttribute("aria-expanded"));
+    expect(trigger()).toHaveAttribute("aria-expanded", "true");
+    await user.keyboard("{Escape}"); // user-event sends keydown to document.activeElement (BODY)
+    console.log("[repro] after Escape: aria-expanded =", trigger().getAttribute("aria-expanded"), "| menu present =", !!screen.queryByRole("menu"));
+    // BUG ASSERTION: still open
+    expect(trigger()).toHaveAttribute("aria-expanded", "true");
+    expect(screen.queryByRole("menu")).not.toBeNull();
+  });
+
+  it("REPRO-2: same, but Escape dispatched straight on document.body (the notes' proposed test shape)", async () => {
+    render(<SavedWorkflowsPage />);
+    await screen.findByText("My saved workflow");
+    fireEvent.click(trigger());
+    fireEvent.keyDown(document.body, { key: "Escape" });
+    console.log("[repro2] aria-expanded after body Escape =", trigger().getAttribute("aria-expanded"));
+    expect(trigger()).toHaveAttribute("aria-expanded", "true");
+  });
+
+  it("SHAPE: Escape dispatched ON the wrapper subtree does close it (handler is wrapper-scoped)", async () => {
+    render(<SavedWorkflowsPage />);
+    await screen.findByText("My saved workflow");
+    fireEvent.click(trigger());
+    fireEvent.keyDown(screen.getByRole("menu"), { key: "Escape" });
+    console.log("[shape] aria-expanded after Escape on the menu node =", trigger().getAttribute("aria-expanded"));
+    expect(trigger()).toHaveAttribute("aria-expanded", "false");
+  });
+});
+
+describe("QA-KB-041 probe — Delete-confirm scrim (same pattern, SavedWorkflowsPage.tsx:421)", () => {
+  it("REPRO: with ordinary real clicks, Escape does not close the Delete confirmation", async () => {
+    const user = userEvent.setup();
+    render(<SavedWorkflowsPage />);
+    await screen.findByText("My saved workflow");
+    await user.click(trigger());
+    const menu = await screen.findByRole("menu");
+    await user.click(within(menu).getByText("Delete"));
+    const dialog = await screen.findByRole("dialog");
+    console.log("[delete] dialog open; activeElement =", where());
+    await user.keyboard("{Escape}");
+    console.log("[delete] after Escape: dialog still present =", !!screen.queryByRole("dialog"));
+    expect(screen.queryByRole("dialog")).not.toBeNull(); // BUG: stays open
+    // CONTROL: the same keydown aimed inside the scrim DOES close it
+    fireEvent.keyDown(dialog, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    console.log("[delete] keydown fired ON the dialog node closes it (handler only sees events from inside)");
+  });
+});
+
+describe("QA-KB-041 probe — Rename modal (adjacent: no Escape handler at all)", () => {
+  it("REPRO: Escape does nothing in the Rename modal even though the name input is autofocused", async () => {
+    const user = userEvent.setup();
+    render(<SavedWorkflowsPage />);
+    await screen.findByText("My saved workflow");
+    await user.click(trigger());
+    const menu = await screen.findByRole("menu");
+    await user.click(within(menu).getByText("Rename"));
+    const input = await screen.findByDisplayValue("My saved workflow");
+    console.log("[rename] activeElement =", where(), "| is name input =", document.activeElement === input);
+    await user.keyboard("{Escape}");
+    console.log("[rename] after Escape: modal still present =", !!screen.queryByDisplayValue("My saved workflow"));
+    expect(screen.queryByDisplayValue("My saved workflow")).not.toBeNull();
+  });
+});

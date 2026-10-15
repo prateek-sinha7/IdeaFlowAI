@@ -18,12 +18,12 @@ export const AGENTS: Record<string, AgentSeed[]> = {
     { id: "app-infra-generator", name: "Infra Generator", role: "Infrastructure" },
     { id: "app-devops", name: "DevOps Agent", role: "DevOps" },
   ],
-  od_ppt: [
+  ppt: [
     { id: "ppt-brief-analyst", name: "Brief Analyst", role: "Analysis" },
     { id: "ppt-composer", name: "Deck Composer", role: "Composition" },
     { id: "ppt-validator", name: "Deck Validator", role: "Validation" },
   ],
-  od_prototype: [
+  prototype: [
     { id: "prototype-specify", name: "Spec Writer", role: "Specification" },
     { id: "prototype-plan", name: "Task Planner", role: "Planning" },
     { id: "prototype-build", name: "Build Agent", role: "Construction" },
@@ -40,7 +40,7 @@ export const AGENTS: Record<string, AgentSeed[]> = {
 /** Sample HTML deliverable (renders in the generic sandboxed iframe). */
 export const SAMPLE_HTML = `<!DOCTYPE html><html><head><title>Habit Tracker</title></head><body><h1>Habit Tracker</h1><p>Custom deliverable</p></body></html>`;
 
-/** A minimal 5-slide deck (od_ppt). */
+/** A minimal 5-slide deck (ppt). */
 export const SAMPLE_DECK = `<!DOCTYPE html><html><body>${Array.from({ length: 5 }).map((_, i) => `<section class="slide">Slide ${i + 1}</section>`).join("")}</body></html>`;
 
 /** A user-stories markdown backlog. */

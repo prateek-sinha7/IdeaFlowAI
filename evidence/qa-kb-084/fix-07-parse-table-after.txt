@@ -1,0 +1,15 @@
+/runs/r1/versions                  {"screen":"unknown"} keys=screen
+/runs/r1/versions/2/stream         {"screen":"unknown"} keys=screen
+/runs/r1/versions/2/preview/full   {"screen":"unknown"} keys=screen
+/runs/r1/versions/2                {"screen":"run-version","runId":"r1","version":"2"} keys=screen,runId,version
+/runs/r1/versions/2/steps          {"screen":"run-steps","runId":"r1","version":"2"} keys=screen,runId,version
+/runs/r1/versions/2/steps/a1       {"screen":"run-steps-agent","runId":"r1","agentId":"a1","version":"2"} keys=screen,runId,agentId,version
+/runs/r1/versions/2/files          {"screen":"run-files","runId":"r1","version":"2"} keys=screen,runId,version
+/runs/r1/versions/2/workspace      {"screen":"run-workspace","runId":"r1","version":"2"} keys=screen,runId,version
+/runs/r1/versions/2/audit          {"screen":"run-audit","runId":"r1","version":"2"} keys=screen,runId,version
+/runs/r1/versions/2/preview        {"screen":"unknown"} keys=screen
+/runs/r1/versions/2/versions/3     {"screen":"unknown"} keys=screen
+/runs/r1                           {"screen":"run-detail","runId":"r1"} keys=screen,runId
+/runs/r1/stream                    {"screen":"run-stream","runId":"r1"} keys=screen,runId
+/runs/r1/preview/full              {"screen":"run-preview-full","runId":"r1"} keys=screen,runId
+/runs/r1/steps                     {"screen":"run-steps","runId":"r1"} keys=screen,runId,version

@@ -1,0 +1,15 @@
+### real Chrome (channel=chrome, headless) probe of CSP 'sandbox allow-scripts', throwaway 127.0.0.1 server, 2026-10-07T18:26:23Z
+browser: 151.0.7922.138 headless: True
+/pdf-plain: title=''
+  frames=['http://127.0.0.1:62343/pdf-plain', 'chrome-extension://mhjfbmdgcfjbbpaeojofohoefgiehjai/index.html', 'http://127.0.0.1:62343/pdf-plain']
+/pdf-sandbox: title=''
+  frames=['http://127.0.0.1:62343/pdf-sandbox', 'chrome-extension://mhjfbmdgcfjbbpaeojofohoefgiehjai/index.html', 'http://127.0.0.1:62343/pdf-sandbox']
+/html-plain: title='{"origin":"http://127.0.0.1:62343","ls":"null"}'
+  frames=['http://127.0.0.1:62343/html-plain']
+/html-sandbox: title='{"origin":"null","ls":"THREW SecurityError"}'
+  frames=['http://127.0.0.1:62343/html-sandbox']
+
+### PDF render compare (screenshots copied alongside)
+engine: chrome 151.0.7922.138
+/pdf-plain: frames=['http://127.0.0.1:62387/pdf-plain', 'chrome-extension://mhjfbmdgcfjbbpaeojofohoefgiehjai/index.html', 'http://127.0.0.1:62387/pdf-plain'] console=['Failed to load resource: the server responded with a status of 404 (Not Found)'] downloads=[] shot=chrome_pdf-plain.png sha=bacde08a41
+/pdf-sandbox: frames=['http://127.0.0.1:62387/pdf-sandbox', 'chrome-extension://mhjfbmdgcfjbbpaeojofohoefgiehjai/index.html', 'http://127.0.0.1:62387/pdf-sandbox'] console=[] downloads=[] shot=chrome_pdf-sandbox.png sha=bacde08a41

@@ -43,6 +43,11 @@ from typing import Any, Sequence
 from agents.capabilities.registry import register
 from agents.workflows.plan import Task
 
+# The file this parser reads by default. One constant feeds both the registry's
+# config_schema default (what the composer seeds) and ``fallback_targets``, so the
+# two cannot drift (ISS-686).
+DEFAULT_TARGET = "build/tasks.json"
+
 # A fenced ```json … ``` (or bare ``` … ```) block, anywhere in the text. The agent may
 # wrap its JSON plan in prose ("Here is the plan: ```json … ```"), so the fence is
 # extracted from WITHIN the surrounding text, not just stripped when leading.
@@ -94,6 +99,16 @@ def _strip_json_fence(text: str) -> str:
     "json_tasks",
     user_allowed=True,
     description="Uses the task list an agent wrote as JSON, including which tasks depend on which. Independent tasks run in parallel waves; dependent ones wait their turn.",
+    config_schema={
+        "type": "object",
+        "properties": {
+            "target": {
+                "type": "string",
+                "description": "The file this parser reads the task list from.",
+                "default": DEFAULT_TARGET,
+            },
+        },
+    },
 )
 class JsonTasksParser:
     """Structured JSON task-list → ``list[Task]`` parser (depends_on/conflict_keys/targets).
@@ -211,7 +226,7 @@ class JsonTasksParser:
         *,
         sandbox: Any = None,
         target: str | None = None,
-        fallback_targets: Sequence[str] = ("build/tasks.json",),
+        fallback_targets: Sequence[str] = (DEFAULT_TARGET,),
     ) -> list[Task]:
         """Parse the task list, preferring the file already written to disk (A2).
 

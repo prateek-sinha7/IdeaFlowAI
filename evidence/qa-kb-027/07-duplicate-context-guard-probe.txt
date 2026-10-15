@@ -1,0 +1,20 @@
+Out-of-scope probe on tests/integration/api/test_duplicate_context_guard_api.py (QA-KB-027 fix phase).
+Shipped state (relocated + cognito_sub seed): 8 failed, every one 'assert 401 == 200' {"detail":"Not authenticated"}.
+Transient probe, file restored byte-identical afterwards (cmp): add, after the get_current_user override,
+  app.dependency_overrides[get_current_principal] = lambda: (state['user'], principal_for(state['user']))
+(the override tests/integration/api/test_rest_run_launch_api.py:115-130 uses). Observed:
+E       AssertionError: {"detail":{"code":"source_payload_missing","error":"Chain launch refused","recoverable":false}}
+E       assert 422 == 200
+E        +  where 422 = <Response [422 Unprocessable Entity]>.status_code
+E       AssertionError: {"detail":{"code":"source_payload_missing","error":"Chain launch refused","recoverable":false}}
+E       assert 422 == 200
+E        +  where 422 = <Response [422 Unprocessable Entity]>.status_code
+E       AssertionError: {"detail":{"code":"source_payload_missing","error":"Chain launch refused","recoverable":false}}
+E       assert 422 == 200
+FAILED tests/integration/api/test_duplicate_context_guard_api.py::TestDuplicateContextStripped::test_legacy_block_stripped_when_source_run_id_present
+FAILED tests/integration/api/test_duplicate_context_guard_api.py::TestDuplicateContextStripped::test_brief_preserved_after_strip
+FAILED tests/integration/api/test_duplicate_context_guard_api.py::TestDuplicateContextStripped::test_strip_audit_row_recorded
+FAILED tests/integration/api/test_duplicate_context_guard_api.py::TestDuplicateContextStripped::test_strip_audit_row_references_source_run
+FAILED tests/integration/api/test_duplicate_context_guard_api.py::TestSourceRunIdOnlyNoStrip::test_no_strip_without_legacy_block
+FAILED tests/integration/api/test_duplicate_context_guard_api.py::TestSourceRunIdOnlyNoStrip::test_v2_native_launch_content_unchanged
+6 failed, 2 passed, 9 warnings in 2.82s

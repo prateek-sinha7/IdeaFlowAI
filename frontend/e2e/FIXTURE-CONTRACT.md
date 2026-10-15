@@ -50,7 +50,7 @@ mockSse.reviewGateReady({ gateKey:"g1", agentId:"prototype-specify", agentName:"
 mockSse.reviewGateApproved();
 mockSse.waveStarted(0, "fanout", ["t1","t2"]); mockSse.waveCompleted(0,"fanout"); mockSse.waveFailed(0,"fanout");
 mockSse.subagentSpawned(0,"fanout","worker-a",0); mockSse.subagentResult(0,"fanout","worker-a",0);
-mockSse.complete({ pipelineType:"od_ppt", finalOutput: SAMPLE_DECK, deliverableMimetype?, deliverableFilename?, status?:"degraded", agentsFailed? });
+mockSse.complete({ pipelineType:"ppt", finalOutput: SAMPLE_DECK, deliverableMimetype?, deliverableFilename?, status?:"degraded", agentsFailed? });
 mockSse.failed({ agentsFailed:["a1"], error:"Operation not allowed" });  // → pipeline_failed
 mockSse.cancelled({ duration: 8 });          // → pipeline_cancelled
 mockSse.reconnected({ live:false, status:"completed"|"failed"|"running"|null });
@@ -84,7 +84,7 @@ mockApi.requests;   // recorded [{method,url,body}] for assertions
 
 ## CRITICAL gotchas (these caused real failures — avoid them)
 
-1. **Run is disabled until there are agents.** `user_stories`/`app_builder`/`od_ppt`/`prototype` seed default agents (Run enables once an idea is typed). **`custom` seeds NONE** → Run shows `Add agents first`. To run `custom`, open the composer and add an agent first, OR (if you only need the execution surface) use `user_stories` and just send the events you care about — the execution surface/wave panel mounts for any pipeline type.
+1. **Run is disabled until there are agents.** `user_stories`/`app_builder`/`ppt`/`prototype` seed default agents (Run enables once an idea is typed). **`custom` seeds NONE** → Run shows `Add agents first`. To run `custom`, open the composer and add an agent first, OR (if you only need the execution surface) use `user_stories` and just send the events you care about — the execution surface/wave panel mounts for any pipeline type.
 2. **Agent cards come from `pipeline_start`, not the pre-run seed.** Assert card names AFTER `mockSse.start([...])`. The names you assert must match the agent `name` you passed to `start()`.
 3. **`prototype`/`ppt` from home do NOT open IdeaInputPage** — they `router.push` to `/workflow/{prototype,ppt}/templates`. For the IdeaInputPage flow use `user_stories`/`app_builder`/`custom`/`migration`.
 4. **Almost no `data-testid`.** Use exact text / role / `iframe[title=...]` / `button[title=...]`. When unsure of an exact string, **open the component file** (`frontend/src/components/...`) and read it.

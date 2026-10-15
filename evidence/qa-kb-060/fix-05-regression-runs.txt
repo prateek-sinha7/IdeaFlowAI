@@ -1,0 +1,31 @@
+# QA-KB-060 fix phase, 2026-10-07, AFTER the fix: neighbouring files, one at a time (cwd frontend/, npx vitest --run <file>)
+=== src/components/workflow/composer/ComposerPage.iss410.test.tsx
+ Test Files  1 passed (1)
+      Tests  3 passed (3)
+=== src/components/workflow/composer/ComposerPage.test.tsx
+ Test Files  1 passed (1)
+      Tests  16 passed (16)
+=== src/components/workflow/composer/ComposerPage.bug025.test.tsx
+ Test Files  1 passed (1)
+      Tests  8 passed (8)
+=== src/components/workflow/composer/ComposerPage.manifestPersistence.test.tsx
+ Test Files  1 passed (1)
+      Tests  5 passed (5)
+=== src/app/[...view]/savedCompositionManifest.source.test.ts
+ Test Files  1 passed (1)
+      Tests  2 passed (2)
+=== src/app/[...view]/workflowDetailCatch.source.test.ts
+ Test Files  1 passed (1)
+      Tests  5 passed (5)
+=== src/components/savedworkflows/SavedWorkflowsPage.test.tsx
+ Test Files  1 passed (1)
+      Tests  9 passed (9)
+=== src/components/DashboardLayout.chain.test.tsx
+ Test Files  1 passed (1)
+      Tests  3 passed (3)
+=== src/components/layout/DashboardLayout.iss769.test.tsx
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+=== src/app/[...view]/page.iss657.test.tsx
+ Test Files  1 passed (1)
+      Tests  1 passed (1)

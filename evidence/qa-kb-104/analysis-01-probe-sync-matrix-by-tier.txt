@@ -1,0 +1,51 @@
+# QA-KB-104 analysis 01: which source pipelines sync-from-file copies, per caller tier, vs can_run_pipeline (HEAD c9c4c630a + working tree, 2026-10-08T19:25Z)
+# cmd: cd backend && PYTHONDONTWRITEBYTECODE=1 DATABASE_URL=sqlite:///:memory: .venv/bin/python -m pytest ../evidence/qa-kb-104/analysis-plugins/test_probe_sync_entitlement.py -c pyproject.toml --rootdir=. -p no:cacheprovider -q -s -W ignore -k 'probe_A or probe_B'
+# probe, not a product test: it asserts nothing, it prints. In-memory SQLite, no server, no LLM, no run.
+# A = PLAIN row (no overrides_pipeline_type) owned by the caller. B = OVERRIDE row (overrides_pipeline_type=ppt), where FIX-766's trust=user steps check runs.
+
+
+[A] tier=basic plain row base_pipeline_type=ppt: 41 supported types tried
+    200 and entitled (legit)            : 5
+    200 and NOT entitled (entitlement bypass): 34
+        ['app_builder', 'app_builder_revision', 'backlog', 'backlog_revision', 'chat', 'custom', 'custom_revision', 'dotnet_to_azure', 'ex_A1_loop', 'ex_A2_branch', 'ex_A3_b_spanish', 'ex_A3_c_dutch', 'ex_A3_divert', 'ex_A4_human_divert', 'ex_A4_human_gate', 'ex_playwright_smoke_test', 'ex_publish_step', 'ex_test_loop_reachable_skip', 'ex_test_transitive_skip', 'ex_validation_retry', 'mulesoft_to_springboot', 'prototype', 'prototype_feature_revision', 'prototype_large_revision', 'prototype_revision', 'prototype_v2', 'prototype_v2_feature_revision', 'prototype_v2_revision', 'reverse_engineer', 'sample_brownfield', 'sample_fanout', 'sample_subagents_parallel', 'sample_wave', 'sc001-test-fixture']
+    other status                        : {422: ['file_analyst', 'spec_kit']}
+        422 file_analyst: No usable file manifest for pipeline_type 'file_analyst': workflow.yam
+        422 spec_kit: No usable file manifest for pipeline_type 'spec_kit': workflow.yaml no
+[A] tier=hexaware plain row base_pipeline_type=prototype: 41 supported types tried
+    200 and entitled (legit)            : 11
+    200 and NOT entitled (entitlement bypass): 28
+        ['app_builder', 'app_builder_revision', 'chat', 'custom', 'custom_revision', 'dotnet_to_azure', 'ex_A1_loop', 'ex_A2_branch', 'ex_A3_b_spanish', 'ex_A3_c_dutch', 'ex_A3_divert', 'ex_A4_human_divert', 'ex_A4_human_gate', 'ex_playwright_smoke_test', 'ex_publish_step', 'ex_test_loop_reachable_skip', 'ex_test_transitive_skip', 'ex_validation_retry', 'mulesoft_to_springboot', 'ppt', 'ppt_revision', 'ppt_v2', 'reverse_engineer', 'sample_brownfield', 'sample_fanout', 'sample_subagents_parallel', 'sample_wave', 'sc001-test-fixture']
+    other status                        : {422: ['file_analyst', 'spec_kit']}
+        422 file_analyst: No usable file manifest for pipeline_type 'file_analyst': workflow.yam
+        422 spec_kit: No usable file manifest for pipeline_type 'spec_kit': workflow.yaml no
+[A] tier=pro plain row base_pipeline_type=ppt: 41 supported types tried
+    200 and entitled (legit)            : 16
+    200 and NOT entitled (entitlement bypass): 23
+        ['chat', 'custom', 'custom_revision', 'dotnet_to_azure', 'ex_A1_loop', 'ex_A2_branch', 'ex_A3_b_spanish', 'ex_A3_c_dutch', 'ex_A3_divert', 'ex_A4_human_divert', 'ex_A4_human_gate', 'ex_playwright_smoke_test', 'ex_publish_step', 'ex_test_loop_reachable_skip', 'ex_test_transitive_skip', 'ex_validation_retry', 'mulesoft_to_springboot', 'reverse_engineer', 'sample_brownfield', 'sample_fanout', 'sample_subagents_parallel', 'sample_wave', 'sc001-test-fixture']
+    other status                        : {422: ['file_analyst', 'spec_kit']}
+        422 file_analyst: No usable file manifest for pipeline_type 'file_analyst': workflow.yam
+        422 spec_kit: No usable file manifest for pipeline_type 'spec_kit': workflow.yaml no
+[A] tier=enterprise plain row base_pipeline_type=ppt: 41 supported types tried
+    200 and entitled (legit)            : 29
+    200 and NOT entitled (entitlement bypass): 10
+        ['chat', 'ex_publish_step', 'ex_test_loop_reachable_skip', 'ex_test_transitive_skip', 'ex_validation_retry', 'reverse_engineer', 'sample_brownfield', 'sample_fanout', 'sample_wave', 'sc001-test-fixture']
+    other status                        : {422: ['file_analyst', 'spec_kit']}
+        422 file_analyst: No usable file manifest for pipeline_type 'file_analyst': workflow.yam
+        422 spec_kit: No usable file manifest for pipeline_type 'spec_kit': workflow.yaml no
+.
+[B] tier=basic, OVERRIDE row (overrides_pipeline_type=ppt, FIX-766 trust=user steps check on)
+    200 and entitled                         : ['ppt', 'ppt_revision', 'ppt_v2', 'user_stories', 'user_stories_revision']
+    200 and NOT entitled (content bypass)    : 26 ['app_builder_revision', 'backlog', 'backlog_revision', 'chat', 'custom', 'custom_revision', 'dotnet_to_azure', 'ex_A1_loop', 'ex_A2_branch', 'ex_A3_b_spanish', 'ex_A3_c_dutch', 'ex_A3_divert', 'ex_A4_human_divert', 'ex_A4_human_gate', 'ex_playwright_smoke_test', 'ex_publish_step', 'ex_test_loop_reachable_skip', 'ex_test_transitive_skip', 'ex_validation_retry', 'mulesoft_to_springboot', 'prototype_v2', 'prototype_v2_feature_revision', 'prototype_v2_revision', 'reverse_engineer', 'sample_brownfield', 'sc001-test-fixture']
+    422: 10 types
+        app_builder (basic may run: False): invalid workflow override (workflow:ovr-0): capability ('post_step', 'api_prefix_audit') i
+        file_analyst (basic may run: False): No usable file manifest for pipeline_type 'file_analyst': workflow.yaml not found: /Users/
+        prototype (basic may run: False): invalid workflow override (workflow:ovr-25): capability ('compaction', 'html_skeleton') is
+        prototype_feature_revision (basic may run: False): invalid workflow override (workflow:ovr-26): capability ('compaction', 'html_skeleton') is
+        prototype_large_revision (basic may run: False): invalid workflow override (workflow:ovr-27): capability ('compaction', 'html_skeleton') is
+        prototype_revision (basic may run: False): invalid workflow override (workflow:ovr-28): capability ('post_step', 'revision_validation
+        sample_fanout (basic may run: False): invalid workflow override (workflow:ovr-34): step grant of ['spawn_subagents'] is not perm
+        sample_subagents_parallel (basic may run: False): invalid workflow override (workflow:ovr-35): step grant of ['spawn_subagents'] is not perm
+        sample_wave (basic may run: False): invalid workflow override (workflow:ovr-36): step grant of ['spawn_subagents'] is not perm
+        spec_kit (basic may run: False): No usable file manifest for pipeline_type 'spec_kit': workflow.yaml not found: /Users/bila
+.
+2 passed, 5 deselected in 4.02s

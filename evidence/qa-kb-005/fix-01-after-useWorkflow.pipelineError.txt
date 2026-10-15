@@ -1,0 +1,23 @@
+# QA-KB-005 fix phase — 2026-10-01 21:22:26 — cwd frontend/ — HEAD 024c03ef8 + shared uncommitted tree
+# cmd: ./node_modules/.bin/vitest --run src/hooks/useWorkflow.pipelineError.test.ts
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - ESM syntax in a file loaded as CommonJS (vitest.config.ts:1:1). Use a `.mjs` extension or set `"type": "module"` in the closest package.json
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+
+ RUN  v4.1.11 /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/frontend
+
+ ❯ src/hooks/useWorkflow.pipelineError.test.ts (7 tests | 1 failed) 10ms
+     × keeps all five fields from a flat frame (the shape page.tsx sends) 2ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/hooks/useWorkflow.pipelineError.test.ts > hook_run payload (ISS-107) > keeps all five fields from a flat frame (the shape page.tsx sends)
+Error: Expect test to fail
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 6 passed (7)
+   Start at  21:22:27
+   Duration  3.03s (transform 337ms, setup 251ms, import 323ms, tests 10ms, environment 1.73s)
+

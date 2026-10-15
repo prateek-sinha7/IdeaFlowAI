@@ -1,0 +1,18 @@
+# QA-KB-101 analysis, 2026-10-08. SCRATCH proof of the proposed fix. A copy of test_workflows_api.py OUTSIDE the repo, with exactly the two literals at :217-218 changed; no repo file was edited.
+# diff of the scratch copy against HEAD's file:
+#   217,218c217,218
+#   <             "prototype": "Build an interactive prototype",
+#   <             "ppt": "Pitch an idea",
+#   ---
+#   >             "prototype": "Build an interactive prototype (Fast)",
+#   >             "ppt": "Pitch an idea (Fast)",
+# cmd (cwd backend/): DATABASE_URL=sqlite:///:memory: .venv/bin/python -m pytest <scratchpad>/scratch_tests/test_scratch_patched_workflows_api.py -c pyproject.toml --rootdir=. -p no:cacheprovider -q --tb=short
+# HEAD: 7adb69a3f
+
+.....................................................                    [100%]
+=============================== warnings summary ===============================
+.venv/lib/python3.13/site-packages/fastapi/testclient.py:1
+.venv/lib/python3.13/site-packages/starlette/testclient.py:53
+app/core/config.py:94
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+53 passed, 3 warnings in 19.08s

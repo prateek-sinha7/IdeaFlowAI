@@ -22,12 +22,17 @@ from pathlib import Path
 import frontmatter  # python-frontmatter
 
 from agents.registry import get_all_agents_flat
+from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
 # backend/ root (this file lives in backend/app/agents/)
 _BACKEND_DIR = Path(__file__).resolve().parents[2]
-_GLOBAL_HOOKS_DIR = _BACKEND_DIR / "hooks" / "global"
+_GLOBAL_HOOKS_DIR = (
+    Path(settings.GLOBAL_HOOKS_ROOT)
+    if settings.GLOBAL_HOOKS_ROOT
+    else _BACKEND_DIR / "hooks" / "global"
+)
 
 
 @dataclass

@@ -1,0 +1,6 @@
+=================================== FAILURES ===================================
+_______________ test_refs_endpoint_spawns_no_git_without_dot_git _______________
+[XPASS(strict)] ISS-678 unfixed
+_____________ test_restore_tag_gate_spawns_no_git_without_dot_git ______________
+[XPASS(strict)] ISS-678 unfixed
+2 failed in 2.05s

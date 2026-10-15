@@ -1,0 +1,20 @@
+# QA-KB-100 analysis 04: regression surface of compiling override steps at trust=user (HEAD f06129262, 2026-10-08T12:04Z)
+# cmd: cd backend && PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=. DATABASE_URL=sqlite:///:memory: .venv/bin/python ../evidence/qa-kb-100/analysis-plugins/probe_builtin_steps.py
+# read-only. Each built-in's OWN manifest steps are compiled in the override isolation recipe at db and at user.
+39 built-in workflow.yaml files; SUPPORTED_PIPELINE_TYPES includes them? 39/39
+
+Built-ins whose OWN steps compile at db but are REFUSED at user (would stop applying as an override under option A):
+  app_builder                      CompilerError: capability ('post_step', 'api_prefix_audit') is not user-allowed in step 'app-infra-generator' — a user/db manifest may not reference it (CAP-03)
+  prototype                        CompilerError: capability ('compaction', 'html_skeleton') is not user-allowed in step 'prototype-build' — a user/db manifest may not reference it (CAP-03)
+  prototype_feature_revision       CompilerError: capability ('compaction', 'html_skeleton') is not user-allowed in step 'prototype-build' — a user/db manifest may not reference it (CAP-03)
+  prototype_large_revision         CompilerError: capability ('compaction', 'html_skeleton') is not user-allowed in step 'prototype-build' — a user/db manifest may not reference it (CAP-03)
+  prototype_revision               CompilerError: capability ('post_step', 'revision_validation') is not user-allowed in step 'prototype-revision-agent' — a user/db manifest may not reference it (CAP-03)
+  sample_fanout                    CompilerError: step grant of ['spawn_subagents'] is not permitted for 'user'-trust manifests in step 'sample-fanout-worker' — exec/network/secrets/spawn_subagents are engineer-only (file/builtin trust)
+  sample_subagents_parallel        CompilerError: step grant of ['spawn_subagents'] is not permitted for 'user'-trust manifests in step 'custom-agent' — exec/network/secrets/spawn_subagents are engineer-only (file/builtin trust)
+  sample_wave                      CompilerError: step grant of ['spawn_subagents'] is not permitted for 'user'-trust manifests in step 'sample-wave-worker' — exec/network/secrets/spawn_subagents are engineer-only (file/builtin trust)
+  -> 8 workflow(s)
+
+Built-ins whose own steps compile at BOTH levels (override of these keeps working under option A):
+  app_builder_revision, backlog, backlog_revision, chat, custom, custom_revision, dotnet_to_azure, ex_A1_loop, ex_A2_branch, ex_A3_b_spanish, ex_A3_c_dutch, ex_A3_divert, ex_A4_human_divert, ex_A4_human_gate, ex_playwright_smoke_test, ex_publish_step, ex_test_loop_reachable_skip, ex_test_transitive_skip, ex_validation_retry, mulesoft_to_springboot, ppt, ppt_revision, ppt_v2, prototype_v2, prototype_v2_feature_revision, prototype_v2_revision, reverse_engineer, sample_brownfield, sc001-test-fixture, user_stories, user_stories_revision
+
+Built-ins whose own steps do not compile in ISOLATION at either level (cross-step refs etc.; not trust related):

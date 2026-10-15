@@ -1,0 +1,28 @@
+# FIX-716 (QA-KB-052) fixer run, 2026-10-02 12:30 CEST, working tree on feat/user-stories-v2
+$ npx vitest run src/components/workflow/IdeaInputPage.iss472.test.tsx
+
+ RUN  v4.1.11 /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/frontend
+
+stdout | src/components/workflow/IdeaInputPage.iss472.test.tsx > ISS-472 — IdeaInputPage tier lock for an unentitled pipeline > shows the upgrade lock and disables Run for a basic tier on app_builder
+[wf] 4. roster for app_builder { fromLibrary: 1, fromManifest: 0, using: 'library' }
+
+stdout | src/components/workflow/IdeaInputPage.iss472.test.tsx > ISS-472 — IdeaInputPage tier lock for an unentitled pipeline > does not launch on Cmd+Enter for a basic tier on app_builder
+[wf] 4. roster for app_builder { fromLibrary: 1, fromManifest: 0, using: 'library' }
+
+ ❯ src/components/workflow/IdeaInputPage.iss472.test.tsx (2 tests | 2 failed) 275ms
+     × shows the upgrade lock and disables Run for a basic tier on app_builder 183ms
+     × does not launch on Cmd+Enter for a basic tier on app_builder 90ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/components/workflow/IdeaInputPage.iss472.test.tsx > ISS-472 — IdeaInputPage tier lock for an unentitled pipeline > shows the upgrade lock and disables Run for a basic tier on app_builder
+ FAIL  src/components/workflow/IdeaInputPage.iss472.test.tsx > ISS-472 — IdeaInputPage tier lock for an unentitled pipeline > does not launch on Cmd+Enter for a basic tier on app_builder
+Error: Expect test to fail
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed (2)
+   Start at  12:30:33
+   Duration  1.64s (transform 216ms, setup 71ms, import 589ms, tests 275ms, environment 602ms)
+

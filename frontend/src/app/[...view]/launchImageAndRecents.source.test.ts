@@ -28,10 +28,16 @@ describe("dashboard page.tsx launch-staging image carry (DEFECT 1)", () => {
     );
   });
 
-  it("carries images in BOTH the prototype and ppt setters", () => {
+  it("keeps a floor of 2 length-guarded images spreads, one per launch setter (prototype + ppt)", () => {
+    // A FLOOR, not an exact count (ISS-867). The two launch setters,
+    // setPendingOdProtoParams and setPendingOdPptParams, each carry one
+    // length-guarded images spread. Below 2 means a setter dropped its images;
+    // a legitimate new reader of pending.images elsewhere must not turn this
+    // red. Raise the floor when a launch setter is added, lower it only when
+    // one is deliberately removed.
     expect(
       dashboardPage.split("pending.images && pending.images.length > 0").length - 1,
-    ).toBe(2);
+    ).toBeGreaterThanOrEqual(2);
   });
 });
 

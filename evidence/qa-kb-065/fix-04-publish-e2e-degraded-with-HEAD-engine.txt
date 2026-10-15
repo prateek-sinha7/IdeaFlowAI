@@ -1,0 +1,35 @@
+# Control: tests/agents/test_mechanical_publish_step.py against HEAD's engine.py (ISS-684 guard ABSENT), in an rsync copy of backend/ at /private/tmp/claude-502/-Users-bilala-Developer-Projects-VELOCITY-AI-worktrees-feat-user-stories-v2/2d1a1575-310a-48fd-8155-2763a084604d/scratchpad/headcopy/backend
+# diff <(git show HEAD:backend/agents/execution_engine/engine.py) copy/engine.py -> identical
+E       AssertionError: assert 'degraded' != 'degraded'
+E        +  where 'degraded' = <built-in method get of dict object at 0x110da7d80>('status')
+E        +    where <built-in method get of dict object at 0x110da7d80> = {'agents_completed': 2, 'agents_total': 2, 'deliverable_filename': 'prototype.html', 'deliverable_mimetype': 'text/html', ...}.get
+WARNING  agents.execution_engine.engine:engine.py:4895 execute(): workspace/capabilities persist failed ((builtins.Exception) offline harness
+WARNING  agents.workflow_memory.memory:memory.py:90 WorkflowMemory.get_entry failed: (builtins.Exception) offline harness
+WARNING  agents.execution_engine.engine:engine.py:3355 run_events persist failed for run harness-ex_publish_step-6f07d054 seq 1 ((builtins.Exception) offline harness
+WARNING  agents.execution_engine.engine:engine.py:5759 pipeline_start created_at lookup failed ((builtins.Exception) offline harness
+WARNING  agents.execution_engine.engine:engine.py:3355 run_events persist failed for run harness-ex_publish_step-6f07d054 seq 2 ((builtins.Exception) offline harness
+WARNING  agents.execution_engine.kernel_services:kernel_services.py:480 record_hook_run(hook=audit_logger event=before_step outcome=continue) failed: (builtins.Exception) offline harness
+WARNING  agents.execution_engine.engine:engine.py:3355 run_events persist failed for run harness-ex_publish_step-6f07d054 seq 3 ((builtins.Exception) offline harness
+WARNING  agents.execution_engine.engine:engine.py:3355 run_events persist failed for run harness-ex_publish_step-6f07d054 seq 4 ((builtins.Exception) offline harness
+WARNING  agents.execution_engine.engine:engine.py:3355 run_events persist failed for run harness-ex_publish_step-6f07d054 seq 5 ((builtins.Exception) offline harness
+WARNING  agents.execution_engine.engine:engine.py:3355 run_events persist failed for run harness-ex_publish_step-6f07d054 seq 6 ((builtins.Exception) offline harness
+WARNING  agents.execution_engine.engine:engine.py:3355 run_events persist failed for run harness-ex_publish_step-6f07d054 seq 7 ((builtins.Exception) offline harness
+WARNING  agents.execution_engine.kernel_services:kernel_services.py:480 record_hook_run(hook=audit_logger event=tool_call outcome=continue) failed: (builtins.Exception) offline harness
+WARNING  agents.execution_engine.engine:engine.py:3355 run_events persist failed for run harness-ex_publish_step-6f07d054 seq 8 ((builtins.Exception) offline harness
+WARNING  agents.execution_engine.kernel_services:kernel_services.py:480 record_hook_run(hook=audit_logger event=tool_result outcome=continue) failed: (builtins.Exception) offline harness
+WARNING  agents.execution_engine.engine:engine.py:3355 run_events persist failed for run harness-ex_publish_step-6f07d054 seq 9 ((builtins.Exception) offline harness
+WARNING  agents.execution_engine.kernel_services:kernel_services.py:480 record_hook_run(hook=secret_scan event=before_write outcome=continue) failed: (builtins.Exception) offline harness
+WARNING  agents.execution_engine.engine:engine.py:13953 artifact_refs persist failed for run harness-ex_publish_step-6f07d054 kind summary ((builtins.Exception) offline harness
+WARNING  agents.execution_engine.engine:engine.py:3355 run_events persist failed for run harness-ex_publish_step-6f07d054 seq 10 ((builtins.Exception) offline harness
+WARNING  agents.execution_engine.engine:engine.py:3355 run_events persist failed for run harness-ex_publish_step-6f07d054 seq 11 ((builtins.Exception) offline harness
+WARNING  agents.execution_engine.kernel_services:kernel_services.py:480 record_hook_run(hook=audit_logger event=after_step outcome=continue) failed: (builtins.Exception) offline harness
+WARNING  agents.execution_engine.kernel_services:kernel_services.py:480 record_hook_run(hook=audit_logger event=before_step outcome=continue) failed: (builtins.Exception) offline harness
+WARNING  agents.execution_engine.engine:engine.py:3355 run_events persist failed for run harness-ex_publish_step-6f07d054 seq 12 ((builtins.Exception) offline harness
+WARNING  agents.execution_engine.engine:engine.py:3355 run_events persist failed for run harness-ex_publish_step-6f07d054 seq 13 ((builtins.Exception) offline harness
+WARNING  agents.execution_engine.engine:engine.py:3355 run_events persist failed for run harness-ex_publish_step-6f07d054 seq 14 ((builtins.Exception) offline harness
+WARNING  agents.execution_engine.kernel_services:kernel_services.py:480 record_hook_run(hook=audit_logger event=after_step outcome=continue) failed: (builtins.Exception) offline harness
+ERROR    agents.execution_engine.engine:engine.py:2603 finalize_terminal_run: create_run_ref FAILED run=harness-ex_publish_step-6f07d054 (run_id must be a UUID (hex digits and hyphens only): 'harness-ex_publish_step-6f07d054')
+WARNING  agents.execution_engine.engine:engine.py:13953 artifact_refs persist failed for run harness-ex_publish_step-6f07d054 kind deliverable ((builtins.Exception) offline harness
+WARNING  agents.execution_engine.engine:engine.py:3355 run_events persist failed for run harness-ex_publish_step-6f07d054 seq 15 ((builtins.Exception) offline harness
+FAILED tests/agents/test_mechanical_publish_step.py::test_engine_runs_mechanical_publish_step_end_to_end
+1 failed, 13 passed, 3 warnings in 2.19s

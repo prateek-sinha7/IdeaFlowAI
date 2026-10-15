@@ -1,0 +1,18 @@
+
+ RUN  v4.1.11 /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/frontend
+
+ ❯ src/app/[...view]/runVersionBackNav.iss1026.test.ts (1 test | 1 failed) 3ms
+     × maps run-version to the preview tab like run-detail 2ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/app/[...view]/runVersionBackNav.iss1026.test.ts > ISS-1026 — tracked-run branch re-opens Preview for run-version > maps run-version to the preview tab like run-detail
+Error: Expect test to fail
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed (1)
+   Start at  20:07:04
+   Duration  966ms (transform 20ms, setup 60ms, import 8ms, tests 3ms, environment 676ms)
+

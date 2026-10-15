@@ -38,6 +38,7 @@ from app.agents.sandbox import (
     RESERVED_PATHS,
     RunSandbox,
     family_lock,
+    run_dir_expired,
 )
 from app.core.config import settings
 from app.core.dependencies import get_current_user
@@ -1382,7 +1383,8 @@ async def get_run_artifacts(
 @router.get("/{workflow_id}/events")
 async def get_run_events(
     workflow_id: str,
-    after: int = 0,
+    after: int = Query(0, ge=0),
+    limit: int = Query(1000, ge=1, le=5000),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -1392,6 +1394,12 @@ async def get_run_events(
     ``event_id`` (idempotent replay). ``after`` is int-coerced by FastAPI
     (non-int → 422; ASVS V5 — never reaches raw SQL) and flows into the
     parameterized ORM ``.filter()``. A cross-owner or missing run returns 404.
+
+    ISS-1155: one page of at most ``limit`` rows, never the whole log. This
+    handler runs its read and its encoding ON the event loop (injected
+    session), so an unbounded reply froze the process (107,409 rows, 53 MB,
+    4.4 s). ``has_more`` says rows remain; ``next_after`` (the last returned
+    ``seq``, or ``after`` when empty) is the ``after`` of the next page.
     """
     workflow_run = (
         db.query(WorkflowRun)
@@ -1417,10 +1425,15 @@ async def get_run_events(
             detail="Workflow run not found",
         )
 
-    rows = await store.read_events(workflow_id, after_seq=after)
+    # One extra row answers has_more without a COUNT over the log.
+    rows = await store.read_events_page(workflow_id, after_seq=after, limit=limit + 1)
+    has_more = len(rows) > limit
+    rows = rows[:limit]
     return {
         "workflow_id": workflow_id,
         "after": after,
+        "has_more": has_more,
+        "next_after": rows[-1].seq if rows else after,
         "events": [
             {
                 "seq": r.seq,
@@ -2376,7 +2389,7 @@ async def restore_version(
         runs_root=settings.RUNS_ROOT,
     )
 
-    if not sandbox.root.is_dir():
+    if run_dir_expired(sandbox.root):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Sandbox not found",

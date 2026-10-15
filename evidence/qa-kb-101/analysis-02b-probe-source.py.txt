@@ -1,0 +1,77 @@
+"""QA-KB-101 analysis probe (scratch, outside the repo).
+Compares, for every row in the test's `authored` dict:
+  asserted (parsed from the real test file by ast, never retyped)
+  served   (GET /api/workflows through the same harness the test uses)
+  manifest (raw yaml display_name read straight from disk)
+then replays the test's loop with the first mismatch, and with the manifest labels substituted.
+"""
+import ast, sys, pathlib
+sys.path.insert(0, ".")
+import yaml
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
+from app.api.workflows import router
+from app.core.dependencies import get_current_user
+from app.models.database import Base, get_db
+
+TEST = pathlib.Path("tests/integration/api/test_workflows_api.py")
+tree = ast.parse(TEST.read_text())
+authored = None
+for node in ast.walk(tree):
+    if isinstance(node, ast.FunctionDef) and node.name == "test_list_carries_launchable_flags":
+        for sub in ast.walk(node):
+            if isinstance(sub, ast.Assign) and any(isinstance(t, ast.Name) and t.id == "authored" for t in sub.targets):
+                authored = ast.literal_eval(sub.value)
+                authored_line = sub.lineno
+assert authored, "authored dict not found"
+
+class U:
+    id = "user-1"
+
+engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+Base.metadata.create_all(bind=engine)
+session = sessionmaker(bind=engine)()
+app = FastAPI(); app.include_router(router)
+app.dependency_overrides[get_current_user] = lambda: U()
+def _db():
+    yield session
+app.dependency_overrides[get_db] = _db
+by_id = {w["id"]: w for w in TestClient(app).get("/api/workflows").json()}
+
+def manifest_label(wid):
+    p = pathlib.Path("agents/workflows") / wid / "workflow.yaml"
+    return yaml.safe_load(p.read_text()).get("display_name")
+
+print(f"# `authored` dict parsed from {TEST}:{authored_line} (first key at that line)")
+print(f"{'verdict':9} {'id':24} asserted | served | manifest(yaml)")
+rows = dict(authored); rows["custom"] = "Compose a custom workflow"  # the test's separate `custom` assert, :231-235
+first = None
+for wid, label in rows.items():
+    served = by_id[wid]["display_name"]; man = manifest_label(wid)
+    ok = served == label
+    if not ok and first is None: first = wid
+    print(f"{'OK' if ok else 'MISMATCH':9} {wid:24} {label!r} | {served!r} | {man!r}  served==manifest:{served == man}")
+
+print()
+print("# replay of the test's loop (`for wid, label in authored.items(): assert ...`) over the 6-key dict:")
+for wid, label in authored.items():
+    if wid in by_id and by_id[wid]["display_name"] != label:
+        print(f"  loop RAISES at first mismatch -> {wid} (dict order), later keys never evaluated")
+        break
+print("# keys the loop never reaches after that raise:", [w for w in authored if list(authored).index(w) > list(authored).index(wid)])
+print()
+fixed = dict(authored)
+fixed["prototype"] = manifest_label("prototype"); fixed["ppt"] = manifest_label("ppt")
+bad = [w for w, l in fixed.items() if by_id[w]["display_name"] != l]
+print("# same loop with ONLY the two literals replaced by the manifest labels ->", "ALL MATCH" if not bad else f"still red: {bad}")
+only_proto = dict(authored); only_proto["prototype"] = manifest_label("prototype")
+bad = [w for w, l in only_proto.items() if by_id[w]["display_name"] != l]
+print("# same loop with ONLY `prototype` fixed (the one the pytest output names) ->", "ALL MATCH" if not bad else f"still red: {bad}")
+print()
+print("# the whole served catalog, user_launchable rows (what a user sees as card titles), for the sibling comparison:")
+for wid, w in sorted(by_id.items()):
+    if w["user_launchable"]:
+        print(f"  {wid:28} beta={w['is_beta']!s:5} display_name={w['display_name']!r}")

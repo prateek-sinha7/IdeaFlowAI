@@ -1,0 +1,80 @@
+# QA-KB-075: probe of the PROPOSED text guard for ISS-902 (scratch copies in the session scratchpad; repo untouched).
+# target_now.py = byte copy of backend/tests/integration/agents/test_restart_resume_db.py at 06:03 2026-10-02; target_fixed.py = same with ONLY the two proposed comment hunks applied.
+
+$ TARGET=target_now.py pytest guard.py -q -p no:cacheprovider 
+x                                                                        [100%]
+1 xfailed in 0.11s
+
+$ TARGET=target_now.py pytest guard.py -q -p no:cacheprovider --runxfail
+F                                                                        [100%]
+=================================== FAILURES ===================================
+____ test_degraded_test_comments_describe_the_boundary_rule_not_latest_wins ____
+    @pytest.mark.issue("ISS-902")
+    @pytest.mark.xfail(reason="ISS-902 unfixed", strict=True)
+    def test_degraded_test_comments_describe_the_boundary_rule_not_latest_wins():
+        c = _comments_above_the_degraded_test()
+>       assert not re.search(r"latest[- ]wins|LATEST\s+pipeline_complete\s+must\s+decide", c, re.I), c
+E       AssertionError: The real incident tail (run 4bdf9398): failed at 10:09, a resume degraded on
+E         credential expiry at 12:23, the NEXT resume completed all 11 steps cleanly at
+E         13:13 — yet pre-fix the run still read "degraded" forever. The LATEST
+E         pipeline_complete must decide, not "was ANY completion ever degraded".
+E         Reverse order: a clean completion, then a LATER degraded one — latest-wins cuts
+E         the other way too.
+E         A degraded completion with no later completion at all.
+E         No pipeline_complete at all — a resume that stopped again before producing any
+E         new terminal event. The D2 fail-safe, untouched by the degraded-scoping change.
+E       assert not <re.Match object; span=(218, 254), match='LATEST\npipeline_complete must decide'>
+E        +  where <re.Match object; span=(218, 254), match='LATEST\npipeline_complete must decide'> = <function search at 0x107871940>('latest[- ]wins|LATEST\\s+pipeline_complete\\s+must\\s+decide', 'The real incident tail (run 4b
+E        +    where <function search at 0x107871940> = re.search
+E        +    and   re.IGNORECASE = re.I
+guard.py:24: AssertionError
+
+$ TARGET=target_fixed.py pytest guard.py -q -p no:cacheprovider 
+F                                                                        [100%]
+=================================== FAILURES ===================================
+____ test_degraded_test_comments_describe_the_boundary_rule_not_latest_wins ____
+[XPASS(strict)] ISS-902 unfixed
+=========================== short test summary info ============================
+FAILED guard.py::test_degraded_test_comments_describe_the_boundary_rule_not_latest_wins
+1 failed in 0.07s
+
+$ TARGET=target_fixed.py pytest guard.py -q -p no:cacheprovider --runxfail
+.                                                                        [100%]
+1 passed in 0.06s
+
+
+# ---- repo-form guard, extracted VERBATIM from the ISS-902 card, run in an emulated tree (scratch backend/tests/unit + backend/tests/integration/agents) ----
+# so Path(__file__).parents[1] resolves exactly as it will in the repo.
+
+$ pytest test_reconcile_degraded_test_comments.py -q -p no:cacheprovider   # target = shipped file copy
+x                                                                        [100%]
+1 xfailed in 0.15s
+
+$ pytest ... --runxfail   # target = shipped file copy
+E       AssertionError: The real incident tail (run 4bdf9398): failed at 10:09, a resume degraded on
+E       assert not <re.Match object; span=(218, 254), match='LATEST\npipeline_complete must decide'>
+E        +  where <re.Match object; span=(218, 254), match='LATEST\npipeline_complete must decide'> = <function search at 0x100fc9940>('latest[- ]wins|LATEST\\s+pipeline_complete\\s+must\\s+decide', '
+FAILED test_reconcile_degraded_test_comments.py::test_degraded_test_comments_describe_the_boundary_rule_not_latest_wins
+1 failed in 0.11s
+
+$ pytest ...   # target = copy with ONLY the two proposed hunks applied
+[XPASS(strict)] ISS-902 unfixed
+1 failed in 0.07s
+
+$ pytest ... --runxfail   # target = fixed copy
+1 passed in 0.07s
+
+# ---- the two hunks as a diff (scratch copies; apply_fix.py asserts each old string occurs exactly once) ----
+4318,4319c4318,4320
+<         # 13:13 — yet pre-fix the run still read "degraded" forever. The LATEST
+<         # pipeline_complete must decide, not "was ANY completion ever degraded".
+---
+>         # 13:13 — yet pre-fix the run still read "degraded" forever. Only a degraded
+>         # pipeline_complete at or after the last attempt boundary (run_resuming /
+>         # pipeline_start, FIX-484) counts, not "was ANY completion ever degraded".
+4334,4335c4335,4336
+<         # Reverse order: a clean completion, then a LATER degraded one — latest-wins cuts
+<         # the other way too.
+---
+>         # Reverse order: a clean completion, then a LATER attempt that ends degraded —
+>         # that completion is at or after the last attempt boundary, so it counts too.

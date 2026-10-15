@@ -1,0 +1,27 @@
+# QA-KB-077 fix — ISS-1019's four unit files, probed with cognito_sub added BEFORE deciding what to move (2026-10-07T17:2xZ)
+# Copies in the session scratchpad with the seed edit only; run outside tests/unit so the I/O guard is absent:
+#   cd <scratch> && PYTHONPATH=backend DATABASE_URL=sqlite:///:memory: backend/.venv/bin/python -m pytest <copy> -c /dev/null --rootdir=<scratch> -q -p no:cacheprovider [--runxfail]
+
+## test_settings_api_key_whitespace_name.py (ISS-370, resolved)          -> 1 passed
+## test_settings_github_pat_race.py (ISS-470, resolved; strict xfail "ISS-470 unfixed")
+   default:     [XPASS(strict)] ISS-470 unfixed  -> 1 failed
+   --runxfail:  1 passed
+## test_settings_preferences_race.py (ISS-319, resolved; no xfail)        -> 1 passed
+## test_admin_privilege_race.py (ISS-471, resolved; strict xfail "ISS-471 unfixed" x2)
+   default:     2 xfailed   (for the wrong reason, see below)
+   --runxfail:
+E           botocore.errorfactory.UserNotFoundException: An error occurred (UserNotFoundException) when calling the AdminListGroupsForUser operation: User does not exist.
+E           app.core.cognito_admin.ProviderUnavailableError: Could not read current group membership at the identity provider.
+   update_user_tier / update_user_role now call cognito_admin (the P1 atomicity fix that
+   tests/integration/api/test_admin_privilege_atomicity_api.py covers with boto3 MOCKED), and this race
+   test mocks nothing. Revived as-is it calls the REAL Cognito pool from backend/.env
+   (COGNITO_USER_POOL_ID is set; no conftest guards boto3). DISCLOSURE: this probe made one read-only
+   AdminListGroupsForUser call for target@example.com, which does not exist in the pool. Nothing was mutated.
+   With an email that DID exist, the same path would go on to change that account's Cognito groups.
+
+## Decision taken from this probe
+   moved + seeded:  test_settings_api_key_whitespace_name.py -> tests/integration/api/test_settings_api_key_whitespace_name_api.py
+                    test_settings_github_pat_race.py         -> tests/integration/api/test_settings_github_pat_race_api.py (strict xfail left for the verifier)
+   NOT touched:     test_admin_privilege_race.py      (reviving it reaches live Cognito; carded separately)
+                    test_settings_preferences_race.py (named in ISS-937's globs; QA-KB-083's fix must rewrite its
+                                                       update_preferences call sites, so it moves with that edit)

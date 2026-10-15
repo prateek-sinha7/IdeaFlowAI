@@ -4351,3 +4351,3627 @@ the ledger row's own title — not a reporter-written body.)
 Likely a narrower restatement of [QA-PS-051](#qa-ps-051), which covers agent, skill and hook
 detail pages. QA-PS-051 does not mention the Config tab. Whether this is a duplicate is a
 validator or analyzer call and has deliberately not been decided here.
+
+<a id="qa-kb-001"></a>
+
+## QA-KB-001 — Footer animation ignores prefers-reduced-motion accessibility setting
+
+- **Page:** /runs/{id}
+- **Route:** /runs/{id}
+- **Severity:** High
+- **Found by:** knowledge-base sweep (open card BUG-018-GROUNDED-CONTEXT)
+- **Found at:** 2026-10-01 20:50
+- **Reproduction mode:** Static — reproduce by the check below (read/grep/short script). No browser needed.
+
+### Reproduction
+
+1. In browser DevTools, enable 'Prefers reduced motion' emulation (or add @media (prefers-reduced-motion:reduce) { ... } to CSS)
+2. Navigate to a completed run at /runs/{id}
+3. Click 'Run summary' toggle to expand/collapse the footer strip
+4. Observe animation plays over ~220ms despite reduced-motion preference
+
+### Expected
+
+When prefers-reduced-motion:reduce is active, footer opens/closes instantly without animation (duration 0).
+
+### Actual
+
+Footer strip animates with 220ms transition even when user has reduced-motion accessibility preference enabled.
+
+### Notes
+
+Logged from the existing open knowledge card [BUG-018-GROUNDED-CONTEXT](.knowledge/cards/20260717-1903-BUG-018-GROUNDED-CONTEXT.md), which already holds the root cause.
+Link that card from the ledger row and update it when this closes; do not mint a duplicate root card.
+Agreed minimal fix (two independent reviewers, static read of the current code): In /frontend/src/components/chat/RunChatLane.tsx, change the import at line 35 to `import { motion, useReducedMotion } from "motion/react";`. At the top of SettledSummaryStrip (~line 790) add `const reduce = useReducedMotion();`. At line 829 change the transition to `transition={reduce ? { duration: 0 } : { duration: 0.22, ease: "easeOut" }}`. Do not use `MotionConfig reducedMotion="user"`, because it only disables transform and layout animations, not height or opacity. Optionally add one test in RunChatLane.test.tsx that mocks `matchMedia` for reduce, clicks the toggle, and asserts `aria-expanded` is true with no error.
+
+<a id="qa-kb-002"></a>
+
+## QA-KB-002 — App creation URL renders user-stories workflow instead of app_builder
+
+- **Page:** /create/app
+- **Route:** /create/app
+- **Severity:** High
+- **Found by:** knowledge-base sweep (open card BUG-023)
+- **Found at:** 2026-10-01 20:50
+- **Reproduction mode:** Browser — reproduce from the URL below.
+
+### Reproduction
+
+1. Navigate to /create/app
+2. Observe the launch panel that opens
+3. The workflow type shows GENERATE PRODUCT BACKLOG (user_stories default) instead of GENERATE APP BLUEPRINT
+
+### Expected
+
+The /create/app URL displays the app_builder workflow type in the launch panel
+
+### Actual
+
+The /create/app URL displays the user_stories workflow type (the default fallback) in the launch panel
+
+### Notes
+
+Logged from the existing open knowledge card [BUG-023](.knowledge/cards/20260827-BUG-023.md), which already holds the root cause.
+Link that card from the ledger row and update it when this closes; do not mint a duplicate root card.
+Agreed minimal fix (two independent reviewers, static read of the current code): In page.tsx initialWorkflowTypeFor, replace the single ternary with a switch. It should return "app_builder" for "create-app", "user_stories" for "create-user-stories", and parsed.pipelineType for "create-workflow". Otherwise return undefined. Optionally add a small unit test asserting the two mappings.
+
+**Interrupted fix (2026-10-01 22:40):** the first fixer for this bug was killed by an API limit mid-edit. It may have left a PARTIAL change in: frontend/src/app/[...view]/page.tsx, tests/integration/e2e/suites/03_launch_panels/test_launch_panels.py and the integration docs (MANIFEST.md, PAGES.md, DEFECTS-OBSERVED.md, screens/03-launch-panels.feature.md). Before editing, read `git diff` for those files, keep only the hunks that belong to this bug's fix and complete them; never revert hunks that belong to other QA-KB bugs (other bugs share some of these files).
+
+<a id="qa-kb-003"></a>
+
+## QA-KB-003 — status.py reports card text as commit SHA in branch line and JSON
+
+- **Page:** n/a (code-level)
+- **Route:** n/a (code-level)
+- **Severity:** High
+- **Found by:** knowledge-base sweep (open card BUG-128)
+- **Found at:** 2026-10-01 20:50
+- **Reproduction mode:** Test — reproduce by running the command below; it should fail (or misbehave) as described. No browser needed.
+
+### Reproduction
+
+1. cd /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2
+2. python3 tools/knowledge/status.py
+3. Observe branch line shows '---' where SHA should be
+4. python3 tools/knowledge/status.py --json | head -20
+5. Observe 'head' field contains ~2000 chars of markdown instead of commit SHA
+
+### Expected
+
+Branch line shows commit SHA (8 chars), e.g. 'branch: feat-branch @ a1b2c3d4'. JSON head field is an 8-character commit SHA.
+
+### Actual
+
+Branch line shows '---' (card frontmatter delimiter) or first 8 chars of card text. JSON head field contains 2000+ characters of DOMAIN card markdown.
+
+### Notes
+
+Logged from the existing open knowledge card [BUG-128](.knowledge/cards/20260918-BUG-128.md), which already holds the root cause.
+Link that card from the ledger row and update it when this closes; do not mint a duplicate root card.
+Agreed minimal fix (two independent reviewers, static read of the current code): In tools/knowledge/status.py, rename the loop variable at :319 to `text`, and change its use in the regex call at :321 from `head` to `text`. Leave :144, :342 and :355 untouched.
+
+<a id="qa-kb-004"></a>
+
+## QA-KB-004 — VirtualEnv filter uses exact name match, misses .venv312 variants
+
+- **Page:** n/a (code-level)
+- **Route:** n/a (code-level)
+- **Severity:** High
+- **Found by:** knowledge-base sweep (open card BUG-129)
+- **Found at:** 2026-10-01 20:50
+- **Reproduction mode:** Static — reproduce by the check below (read/grep/short script). No browser needed.
+
+### Reproduction
+
+1. Grep for PY_EXCLUDE in tools/knowledge/build_architecture.py; observe it lists exact names: '.venv', 'venv', '__pycache__', etc.
+2. Note that '.venv312' and other version-suffixed variants (.venv-3.13, .venv311, etc.) are not listed
+3. Verify line 159 uses set intersection (PY_EXCLUDE & set(path.parts)) — exact-name matching only, not prefix test
+
+### Expected
+
+All virtualenv directories (.venv, .venv312, .venv-3.13, venv) are excluded from source scans so modules.json contains only VELOCITY source
+
+### Actual
+
+Only hardcoded exact names (.venv, venv) match; version-suffixed variants escape, allowing site-packages files into modules.json (e.g. pip, langsmith internals from .venv312/lib/python3.12/site-packages/)
+
+### Notes
+
+Logged from the existing open knowledge card [BUG-129](.knowledge/cards/20260918-BUG-129.md), which already holds the root cause.
+Link that card from the ledger row and update it when this closes; do not mint a duplicate root card.
+Agreed minimal fix (two independent reviewers, static read of the current code): In build_architecture.py, add a helper `_is_venv(part) = part == "venv" or part.startswith(".venv")`. Change the line 159 condition to `if PY_EXCLUDE & set(parts) or any(_is_venv(x) for x in parts): continue`. Leave "tests", "runs" and the caches exact. Optionally apply the same test at line 362. Then regenerate modules.json and MOD-backend.md, which is a bookkeeping step the card already names.
+
+<a id="qa-kb-005"></a>
+
+## QA-KB-005 — hook_run reducer loses payload, defaults to audit_logger/continue
+
+- **Page:** n/a (code-level)
+- **Route:** n/a (code-level)
+- **Severity:** High
+- **Found by:** knowledge-base sweep (open card ISS-107)
+- **Found at:** 2026-10-01 20:50
+- **Reproduction mode:** Test — reproduce by running the command below; it should fail (or misbehave) as described. No browser needed.
+
+### Reproduction
+
+1. Trigger a hook_run message with payload { hook: 'secret_scan', outcome: 'block', ... }
+2. Inspect the Redux state hookRuns array or add a debug log in useWorkflow.ts:1703
+3. Observe: entry shows hook='audit_logger', outcome='continue' instead of actual payload values
+
+### Expected
+
+hookRuns entries reflect actual hook type and outcome from message payload (e.g., secret_scan/block)
+
+### Actual
+
+hookRuns entries always show hook='audit_logger', outcome='continue'; real payload is lost
+
+### Notes
+
+Logged from the existing open knowledge card [ISS-107](.knowledge/cards/20260812-1400-ISS-107.md), which already holds the root cause.
+Link that card from the ledger row and update it when this closes; do not mint a duplicate root card.
+Agreed minimal fix (two independent reviewers, static read of the current code): In frontend/src/hooks/useWorkflow.ts:1703 change `const hookData = (msg.data as Record<string, unknown>) || {};` to `const hookData = (msg.data as Record<string, unknown>) || (msg as Record<string, unknown>);`. Add one vitest case that dispatches a flat `{type:"hook_run", hook, event, outcome:"block"}` and asserts hookRuns[0].outcome === "block". Optional: strip `type` from detail.
+
+<a id="qa-kb-006"></a>
+
+## QA-KB-006 — Gate rejection persists audit record with action='approve' instead of action='reject'
+
+- **Page:** n/a (code-level)
+- **Route:** n/a (code-level)
+- **Severity:** High
+- **Found by:** knowledge-base sweep (open card ISS-128)
+- **Found at:** 2026-10-01 20:50
+- **Reproduction mode:** Test — reproduce by running the command below; it should fail (or misbehave) as described. No browser needed.
+
+### Reproduction
+
+1. cd backend && python3.11 -m pytest tests/unit/api/test_rest_gate_commands.py -v
+2. Or: send a gate rejection via /api/runs/{run_id}/gate-response (action=reject) and query store to inspect the persisted record; action will read as 'approve' instead of 'reject'
+
+### Expected
+
+When a gate is rejected, the audit record persists action='reject' to accurately reflect the user's decision
+
+### Actual
+
+All three gate reject branches omit action= when calling set_review_response, so the store defaults to action='approve' (from store.py:143), falsely labeling rejections as approvals in the durable audit row
+
+### Notes
+
+Logged from the existing open knowledge card [ISS-128](.knowledge/cards/20260812-2046-ISS-128.md), which already holds the root cause.
+Link that card from the ledger row and update it when this closes; do not mint a duplicate root card.
+Agreed minimal fix (two independent reviewers, static read of the current code): In backend/app/api/run_commands.py, add action="reject" to the three reject-branch calls. At ~:326 use set_review_response(gate_key, approved=False, action="reject", edited_content=body.edited_content). At ~:1599 use art_store.set_review_response(gate_key, approved=False, action="reject"). At ~:1965 use art_store.set_review_response(_gk, approved=False, action="reject"). Then add a unit assertion that get_review_response(...)["action"] == "reject". The card's test_files path backend/tests/unit/test_rest_gate_commands.py does not exist, so locate the real gate-command test file first.
+
+<a id="qa-kb-007"></a>
+
+## QA-KB-007 — payload_json.seq diverges from run_events.seq after retry in append_event_at_or_after
+
+- **Page:** n/a (code-level)
+- **Route:** n/a (code-level)
+- **Severity:** High
+- **Found by:** knowledge-base sweep (open card ISS-135)
+- **Found at:** 2026-10-01 20:50
+- **Reproduction mode:** Test — reproduce by running the command below; it should fail (or misbehave) as described. No browser needed.
+
+### Reproduction
+
+1. cd backend
+2. python3.11 -m pytest tests/ -k 'append_event' -v (or write a test that)
+3. 1. Triggers a seq conflict by simulating two writers targeting the same seq
+4. 2. Calls append_event_at_or_after with a conflicting seq
+5. 3. Queries the resulting run_events row from the database
+6. 4. Verifies that row.seq != JSON.parse(row.payload_json)['seq']
+
+### Expected
+
+payload_json['seq'] value matches the database row's seq column after any retry
+
+### Actual
+
+After a retry due to seq conflict, the row is persisted with seq=N but payload_json['seq']=N-1, causing data divergence
+
+### Notes
+
+Logged from the existing open knowledge card [ISS-135](.knowledge/cards/20260813-0005-ISS-135.md), which already holds the root cause.
+Link that card from the ledger row and update it when this closes; do not mint a duplicate root card.
+Agreed minimal fix (two independent reviewers, static read of the current code): In authz.py `append_event_at_or_after`, in the `except IntegrityError` branch after `attempt_seq = tail + 1`, add `if isinstance(payload_json, dict) and "seq" in payload_json: payload_json = {**payload_json, "seq": attempt_seq}`. The retry then persists a payload whose seq matches `row.seq`, and the caller's existing re-stamp (engine.py:4208, 15885) keeps the live frame in agreement. Callers without a seq key, such as the `run_resuming` marker at engine.py:13056, are untouched. Add one test that forces a collision at seq N and asserts the stored `payload_json["seq"]` equals `row.seq`.
+
+<a id="qa-kb-008"></a>
+
+## QA-KB-008 — Pipeline reconnect ignores 'degraded' status, leaves run showing as running
+
+- **Page:** /runs/{id}
+- **Route:** /runs/{id}
+- **Severity:** High
+- **Found by:** knowledge-base sweep (open card ISS-136)
+- **Found at:** 2026-10-01 20:50
+- **Reproduction mode:** Test — reproduce by running the command below; it should fail (or misbehave) as described. No browser needed.
+
+### Reproduction
+
+1. cd frontend && npm test -- useWorkflow.reconnect.test.ts
+2. Extend test to send pipeline_reconnected with live:false status: 'degraded'
+3. Observe: the handler fails to resolve isRunning to false because 'degraded' is not in TERMINAL_STATUSES
+
+### Expected
+
+The TERMINAL_STATUSES in useWorkflow.ts should include 'degraded', matching backend and other FE definitions, so reconnect events resolve terminal runs correctly.
+
+### Actual
+
+TERMINAL_STATUSES contains 'error' (never sent by backend) and omits 'degraded' (canonical backend status), causing reconnect to misclassify degraded runs as still running.
+
+### Notes
+
+Logged from the existing open knowledge card [ISS-136](.knowledge/cards/20260813-0005-ISS-136.md), which already holds the root cause.
+Link that card from the ledger row and update it when this closes; do not mint a duplicate root card.
+Agreed minimal fix (two independent reviewers, static read of the current code): In frontend/src/hooks/useWorkflow.ts:1505 add "degraded" to the TERMINAL_STATUSES array. Keep "error" in the list; do not replace it. Add one test next to the "failed" case in frontend/src/hooks/useWorkflow.reconnect.test.ts: pipeline_reconnected with live:false and status:"degraded" expects isRunning=false and sessionStorage active_pipeline_run_id cleared.
+
+<a id="qa-kb-009"></a>
+
+## QA-KB-009 — Concierge revision fails with pipeline_not_entitled on revision-run parents
+
+- **Page:** n/a (code-level)
+- **Route:** n/a (code-level)
+- **Severity:** High
+- **Found by:** knowledge-base sweep (open card ISS-160)
+- **Found at:** 2026-10-01 20:50
+- **Reproduction mode:** Test — reproduce by running the command below; it should fail (or misbehave) as described. No browser needed.
+
+### Reproduction
+
+1. cd backend && python3.11 -m pytest tests/unit/test_v2_revision_routing.py::test_concierge_nested_v2_revision_parent_keeps_v2_base -xvs
+
+### Expected
+
+Revision succeeds with target_artifact_type='prototype_v2_output' when parent is 'prototype_v2_feature_revision'
+
+### Actual
+
+Pipeline type becomes 'prototype_v2_feature_revision_revision' (duplicate suffix), causes 403 pipeline_not_entitled because it doesn't exist in TIER_PIPELINES
+
+### Notes
+
+Logged from the existing open knowledge card [ISS-160](.knowledge/cards/20260813-1300-ISS-160.md), which already holds the root cause.
+Link that card from the ledger row and update it when this closes; do not mint a duplicate root card.
+Agreed minimal fix (two independent reviewers, static read of the current code): In backend/app/api/run_commands.py, extract the base_type derivation from the disposal path (:1640-1650: prototype_large_revision and prototype_feature_revision map to prototype, prototype_v2_feature_revision maps to prototype_v2, otherwise removesuffix("_revision")) into a small helper such as `_revision_base_type(wr_type)`. Call it from both the disposal path and the CHANNEL_REVISION branch, so :2018 becomes `dispatch.target_artifact_type or f"{_revision_base_type(wr_type)}_output"`. Add one unit test in backend/tests/unit/test_rest_revisions.py: a user_stories_revision parent posting a plain text turn mints `user_stories_revision`, not a 403.
+
+<a id="qa-kb-010"></a>
+
+## QA-KB-010 — PPT wizard design system requirement blocks Continue
+
+- **Page:** /create/ppt
+- **Route:** /create/ppt
+- **Severity:** High
+- **Found by:** knowledge-base sweep (open card ISS-189)
+- **Found at:** 2026-10-01 20:50
+- **Reproduction mode:** Browser — reproduce from the URL below.
+
+### Reproduction
+
+1. Navigate to /dashboard, then /create/ppt (fresh page load)
+2. Sign in as admin@velocity.ai if not already
+3. Select 'Investment Banking Pitch Book' or 'Weekly Team Update' template from gallery
+4. Click 'Use this template' in preview modal
+5. Observe 'Pick a design system' pill appears in unmet requirements
+6. Observe Continue button is disabled
+7. Fill brief textarea with content
+8. Observe Continue button remains disabled
+
+### Expected
+
+Selecting a valid template with a non-empty brief satisfies the wizard requirements and enables Continue, matching the behavior of other PPT templates without design-system requirements (e.g. Investor Pitch Deck).
+
+### Actual
+
+A 'Pick a design system' requirement pill appears with no corresponding UI control to satisfy it. Continue remains permanently disabled regardless of valid template and brief content.
+
+### Notes
+
+Logged from the existing open knowledge card [ISS-189](.knowledge/cards/20260828-1457-ISS-189.md), which already holds the root cause.
+Link that card from the ledger row and update it when this closes; do not mint a duplicate root card.
+Agreed minimal fix (two independent reviewers, static read of the current code): In /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/frontend/src/components/workflow/LaunchWizard.tsx:1298, change `steps={isDeck ? ["template"] : [...]}` to `steps={isDeck ? (dsRequired ? ["template", "design-system"] : ["template"]) : ["template", "design-system", "discovery"]}`. The existing dsSlot/DesignSystemPicker then renders for DS-requiring deck templates and the user picks a DS. Optionally add a small test that a deck template with design_system.requires=true shows the picker step. Do not add the :668 auto-select.
+
+<a id="qa-kb-011"></a>
+
+## QA-KB-011 — Save buttons persist default agents during override load race
+
+- **Page:** /workflows/{id}/run
+- **Route:** /workflows/{id}/run
+- **Severity:** High
+- **Found by:** knowledge-base sweep (open card ISS-284)
+- **Found at:** 2026-10-01 20:50
+- **Reproduction mode:** Browser — reproduce from the URL below.
+
+### Reproduction
+
+1. Go to a saved workflow override at /workflows/{id}/run
+2. Click 'Save as my version' immediately before override finishes loading
+3. Check the saved override's agent_ids — they will be the defaults, not the override
+
+### Expected
+
+Save buttons should be disabled until the override fetch completes, preventing saves during the loading window.
+
+### Actual
+
+Save buttons are always enabled, allowing saves before getWorkflowDetail resolves. Saving during this window persists the default roster over the real override.
+
+### Notes
+
+Logged from the existing open knowledge card [ISS-284](.knowledge/cards/20260828-1906-ISS-284.md), which already holds the root cause.
+Link that card from the ledger row and update it when this closes; do not mint a duplicate root card.
+Agreed minimal fix (two independent reviewers, static read of the current code): In LaunchWizard.tsx add `const [overrideSettled, setOverrideSettled] = useState(false)`. In the override-fetch effect (after the `if (!token) return`), call setOverrideSettled(false) with the other resets. Add `.finally(() => { if (!cancelled) setOverrideSettled(true); })` after the existing .catch. Then add `disabled={!overrideSettled}` plus the matching disabled:* classes to both the "Save workflow" and "Save as my version" buttons. Optionally add an early `if (!overrideSettled) return;` in handleSaveAsOverride and handleSaveWorkflow. Edge case: when there is no token, initialise settled as true, or set it true before the early return, so the buttons are not stuck disabled.
+
+**Interrupted fix (2026-10-01 22:40):** the first fixer for this bug was killed by an API limit mid-edit. It may have left a PARTIAL change in: frontend/src/components/workflow/LaunchWizard.tsx. Before editing, read `git diff` for those files, keep only the hunks that belong to this bug's fix and complete them; never revert hunks that belong to other QA-KB bugs (other bugs share some of these files).
+
+<a id="qa-kb-012"></a>
+
+## QA-KB-012 — Navigating to /login/<sub-path> renders dashboard under incorrect URL
+
+- **Page:** /login/{sub-path}
+- **Route:** /login/{sub-path}
+- **Severity:** High
+- **Found by:** knowledge-base sweep (open card ISS-348)
+- **Found at:** 2026-10-01 20:50
+- **Reproduction mode:** Browser — reproduce from the URL below.
+
+### Reproduction
+
+1. Sign in as admin@velocity.ai
+2. Navigate to https://localhost:3001/login/anything in the address bar
+3. Observe: the address bar shows /login/anything but the authenticated dashboard renders (Home, workflows, etc.)
+
+### Expected
+
+An authenticated user hitting a nonexistent sub-path under /login should receive a 404/not-found response, or be redirected to an appropriate page. The URL and rendered content should agree.
+
+### Actual
+
+The address bar shows /login/<sub-path> while the authenticated dashboard content silently renders underneath, identical to /login/anything showing the Home screen with no indication of an error.
+
+### Notes
+
+Logged from the existing open knowledge card [ISS-348](.knowledge/cards/20260828-2102-ISS-348.md), which already holds the root cause.
+Link that card from the ledger row and update it when this closes; do not mint a duplicate root card.
+Agreed minimal fix (two independent reviewers, static read of the current code): In frontend/src/lib/routes.ts:224 change `if (head === 'login') {` to `if (head === 'login' && segments.length === 1) {`, with a short ISS-348 comment mirroring the register one at lines 263-266. Optionally add a routes unit assertion that parseViewPath(['login','x']) returns { screen: 'unknown' }.
+
+<a id="qa-kb-013"></a>
+
+## QA-KB-013 — Navigating to /admin/<subpath> renders dashboard instead of 404
+
+- **Page:** /admin/{subpath}
+- **Route:** /admin/{subpath}
+- **Severity:** High
+- **Found by:** knowledge-base sweep (open card ISS-349)
+- **Found at:** 2026-10-01 20:50
+- **Reproduction mode:** Browser — reproduce from the URL below.
+
+### Reproduction
+
+1. Navigate to /admin/nonexistent in the browser (authenticated as any user)
+2. Observe dashboard renders with the invalid URL in the address bar
+
+### Expected
+
+Should display a 404 or not-found error when accessing an undefined /admin/<subpath>
+
+### Actual
+
+Dashboard renders at /admin/<subpath>, with the address bar showing the invalid URL
+
+### Notes
+
+Logged from the existing open knowledge card [ISS-349](.knowledge/cards/20260828-2102-ISS-349.md), which already holds the root cause.
+Link that card from the ledger row and update it when this closes; do not mint a duplicate root card.
+Agreed minimal fix (two independent reviewers, static read of the current code): In frontend/src/lib/routes.ts:480 change to `if (head === 'admin' && segments.length === 1) {`. Optionally add a routes unit assertion that `parseViewPath(['admin','x'])` returns `{screen:'unknown'}`. The unguarded `login` branch at routes.ts:256 has the same shape but is not part of this card.
+
+<a id="qa-kb-014"></a>
+
+## QA-KB-014 — Idea-input Back button silently discards unsaved brief and agents
+
+- **Page:** /workflows/new
+- **Route:** /workflows/new
+- **Severity:** High
+- **Found by:** knowledge-base sweep (open card ISS-371)
+- **Found at:** 2026-10-01 20:50
+- **Reproduction mode:** Browser — reproduce from the URL below.
+
+### Reproduction
+
+1. Navigate to /workflows/new
+2. Type text in the idea brief textarea
+3. Click 'Add agents' and select at least one agent
+4. Click the Back button (top-left arrow, aria-label='Back to dashboard')
+5. Confirm the brief text and agent selections are gone with no confirmation dialog shown
+
+### Expected
+
+Before navigating away via Back, show a confirmation dialog: 'You have unsaved changes. Leave anyway? Your work will be lost.' with options to stay or leave.
+
+### Actual
+
+Back button navigates away immediately, discarding all unsaved ideaInput and pipelineAgents state with no warning prompt.
+
+### Notes
+
+Logged from the existing open knowledge card [ISS-371](.knowledge/cards/20260828-2140-ISS-371.md), which already holds the root cause.
+Link that card from the ledger row and update it when this closes; do not mint a duplicate root card.
+Agreed minimal fix (two independent reviewers, static read of the current code): 1) IdeaInputPage.tsx: add `onUnsavedChange?: (dirty: boolean) => void` to IdeaInputPageProps (:775) and to the destructured args (:956). Add a baseline ref plus an effect that mirrors ComposerPage.tsx:375-379: `const snap = ideaInput + "\0" + pipelineAgents.map(a => a.id).join(","); useEffect(() => { if (base.current === null) base.current = snap; onUnsavedChange?.(snap !== base.current); return () => onUnsavedChange?.(false); }, [snap, onUnsavedChange]);`. 2) DashboardLayout.tsx ~:3161: add `onUnsavedChange={handleUnsavedChange}` to the `<IdeaInputPage>` props. 3) Optionally add a small test in the IdeaInputPage tests. A baseline snapshot keeps a seeded pendingHomeBrief or saved composition from counting as dirty. The cleanup resets the flag on unmount, so running or saving does not leave a stale dirty state.
+
+**Interrupted fix (2026-10-01 22:40):** the first fixer for this bug was killed by an API limit mid-edit. It may have left a PARTIAL change in: frontend/src/components/layout/DashboardLayout.tsx, frontend/src/components/workflow/IdeaInputPage.tsx. Before editing, read `git diff` for those files, keep only the hunks that belong to this bug's fix and complete them; never revert hunks that belong to other QA-KB bugs (other bugs share some of these files).
+
+<a id="qa-kb-015"></a>
+
+## QA-KB-015 — AccountSettings Back button discards unsaved password/model fields without confirmation
+
+- **Page:** /settings
+- **Route:** /settings
+- **Severity:** High
+- **Found by:** knowledge-base sweep (open card ISS-372)
+- **Found at:** 2026-10-01 20:50
+- **Reproduction mode:** Browser — reproduce from the URL below.
+
+### Reproduction
+
+1. Navigate to /settings (or /dashboard/settings/profile for Account Settings)
+2. Type a value into the Current password field
+3. Click the header Back button (top-left arrow icon)
+4. Observe: No confirmation dialog; navigation happens immediately
+5. Return to /settings and confirm the password field is empty
+
+### Expected
+
+Leaving Account Settings via the Back control while unsaved password fields are present (or pendingModel differs from selectedModel) should show a confirmation dialog before discarding, matching the fix for ISS-275 (ComposerPage).
+
+### Actual
+
+The Back button navigates away immediately with no confirmation prompt, silently discarding any typed passwords or model preference changes not yet saved.
+
+### Notes
+
+Logged from the existing open knowledge card [ISS-372](.knowledge/cards/20260828-2141-ISS-372.md), which already holds the root cause.
+Link that card from the ledger row and update it when this closes; do not mint a duplicate root card.
+Agreed minimal fix (two independent reviewers, static read of the current code): 1) AccountSettings.tsx: add `onUnsavedChange?: (dirty: boolean) => void` to the props (:31), destructure it (:87), and add `const dirty = !!(currentPassword || newPassword || confirmPassword) || pendingModel !== selectedModel; useEffect(() => { onUnsavedChange?.(dirty); return () => onUnsavedChange?.(false); }, [dirty, onUnsavedChange]);` Check that selectedModel and pendingModel are both initialised from prefs.preferred_model at :149, so the initial null state does not read as dirty. 2) DashboardLayout.tsx:3117: pass `onUnsavedChange={handleUnsavedChange}`. Optionally also OR in the constitution dirty flag.
+
+<a id="qa-kb-016"></a>
+
+## QA-KB-016 — ConfigLeversFlat missing Tools section in agent config modal
+
+- **Page:** /library (agent detail drawer) or workflow composer
+- **Route:** /library (agent detail drawer) or workflow composer
+- **Severity:** High
+- **Found by:** knowledge-base sweep (open card ISS-378)
+- **Found at:** 2026-10-01 20:50
+- **Reproduction mode:** Browser — reproduce from the URL below.
+
+### Reproduction
+
+1. Navigate to /library and click on any agent card to open the detail drawer
+2. Click the Config tab on the modal
+3. Observe the rendered levers: Model, Effort (if applicable), Validator, Gates (pre/post), Retry
+4. Note: no Tools grants section is rendered (expected: Read files / Write files checkboxes)
+
+### Expected
+
+The Config tab displays all per-agent lever groups: Model, Effort, Validator, Gates (pre/post), Tools grants (Read files and Write files checkboxes), and Retry — matching AdvancedExpander's full set.
+
+### Actual
+
+The Config tab displays Model, Effort, Validator, Gates, and Retry only. No Tools grants section is rendered, even though the underlying SelectionsMap.tools field exists and is passed through applyLeverPatch like the other levers.
+
+### Notes
+
+Logged from the existing open knowledge card [ISS-378](.knowledge/cards/20260828-2006-ISS-378.md), which already holds the root cause.
+Link that card from the ledger row and update it when this closes; do not mint a duplicate root card.
+Agreed minimal fix (two independent reviewers, static read of the current code): In ConfigLeversFlat in frontend/src/components/workflow/AgentsPopup.tsx, add `const grants = effectiveToolGrants(sel);`. After the Retry ConfigLeverRow, render a "Tool grants" section by mapping TOOL_GRANT_LEVERS to labelled checkboxes. Each checkbox uses checked={grants[key]}, aria-label={`${label} for ${agentName}`} and onChange={(e) => updateLever({ tools: { ...grants, [key]: e.target.checked } })}. Add the disabled, unchecked "Execute commands" row as in AdvancedExpander (use a local id prefix instead of `region`). Add one small test that the Config tab shows the Tool grants rows, in the style of composer/AgentRow.toolsVisibility.test.tsx.
+
+<a id="qa-kb-017"></a>
+
+## QA-KB-017 — Model override allows premium models to basic-tier accounts
+
+- **Page:** /canvas
+- **Route:** /canvas
+- **Severity:** High
+- **Found by:** knowledge-base sweep (open card ISS-398)
+- **Found at:** 2026-10-01 20:50
+- **Reproduction mode:** Browser — reproduce from the URL below.
+
+### Reproduction
+
+1. Sign in as basic-tier account (qa-basic@flowinqa.com)
+2. Navigate to composer/workflow canvas
+3. Create or edit a workflow and set model_overrides to map an agent to a premium model (eu.anthropic.claude-opus-4-6-v1)
+4. Save the workflow — currently accepts 200/201; should reject
+5. If saved, launch the workflow and verify it runs against the premium model instead of being rejected
+
+### Expected
+
+Model override validation should reject premium models for basic-tier accounts with a validation error
+
+### Actual
+
+Model override validation accepts any model from the full catalog regardless of user tier, allowing cost abuse
+
+### Notes
+
+Logged from the existing open knowledge card [ISS-398](.knowledge/cards/20260828-2106-ISS-398.md), which already holds the root cause.
+Link that card from the ledger row and update it when this closes; do not mint a duplicate root card.
+Agreed minimal fix (two independent reviewers, static read of the current code): 1. Add a `user_tier: str` parameter to both `_validate_model_overrides` copies (`run_engine.py:544` and `user_workflows.py:348`). After the `model_id not in allowed_model_ids` check in each loop, add `ok, why = can_use_model(user_tier, model_id)` and `if not ok: return why`, importing `can_use_model` from `app.core.entitlements`.
+2. Pass the effective tier at the call sites. At `user_workflows.py:729` use the `effective_tier(current_user, principal)` already computed near line 703. At `run_commands.py:3733` use the effective tier already derived in that launch function (around line 4676).
+3. The PATCH handler at `user_workflows.py:972` depends only on `get_current_user`, so switch it to `get_current_principal`, as the create route does at line 669, and pass `effective_tier(...)`.
+4. Add a unit test in `tests/unit/app/test_run_pipeline_validation.py`: a basic tier with an Opus override is rejected, and a pro tier is accepted.
+5. Update the existing test calls at lines 558-581 to pass a tier.
+Caveat: launches from saved workflows (the `USER_WORKFLOW_MANIFEST` source) skip the validator at `run_commands.py:3731`, so the save and PATCH checks cover that path. That leaves a downgrade-after-save edge, which is out of scope here.
+
+**Interrupted fix (2026-10-01 22:40):** the first fixer for this bug was killed by an API limit mid-edit. It may have left a PARTIAL change in: (no source edits were made yet). Before editing, read `git diff` for those files, keep only the hunks that belong to this bug's fix and complete them; never revert hunks that belong to other QA-KB bugs (other bugs share some of these files).
+
+<a id="qa-kb-018"></a>
+
+## QA-KB-018 — Transient fetch failure enables unwanted duplicate save on real workflow
+
+- **Page:** /workflows/{id}/canvas
+- **Route:** /workflows/{id}/canvas
+- **Severity:** High
+- **Found by:** knowledge-base sweep (open card ISS-410)
+- **Found at:** 2026-10-01 20:50
+- **Reproduction mode:** Browser — reproduce from the URL below.
+
+### Reproduction
+
+1. In Chrome DevTools, set Network throttling to 'Slow 3G'
+2. Navigate to /workflows/<existing-id>/canvas for a real workflow
+3. While the /api/workflows/{id} fetch is in flight, open DevTools and abort the request
+4. In the canvas composer, type a workflow name
+5. Click 'Save as copy'
+6. Verify in the workflows list that a new unwanted duplicate workflow was created
+
+### Expected
+
+A transient fetch failure (5xx, timeout, etc.) should be distinguished from 404 (not found), and Save button should be blocked or error shown while manifest is unresolved.
+
+### Actual
+
+Transient errors set initialSavedComposition=null (enabling copy-mode) without setting builtinCanvasAccessDenied, so Save button remains enabled and creates an unwanted new workflow.
+
+### Notes
+
+Logged from the existing open knowledge card [ISS-410](.knowledge/cards/20260828-2344-ISS-410.md), which already holds the root cause.
+Link that card from the ledger row and update it when this closes; do not mint a duplicate root card.
+Agreed minimal fix (two independent reviewers, static read of the current code): In frontend/src/components/workflow/composer/ComposerPage.tsx:1383 change `disabled={saving}` to `disabled={saving || (!!builtinCanvasType && !initialManifestSteps?.length && !initialAgentIds?.length)}`. Save as copy then stays unreachable until the built-in's manifest has seeded, which covers both the loading gap and a transient failure. Optionally add a title or tooltip, and add one test asserting the button is disabled when builtinCanvasType is set and nothing is seeded. Do not retry or add error UI in page.tsx.
+
+<a id="qa-kb-019"></a>
+
+## QA-KB-019 — Marker stripping fails for filenames containing "]" or ", "
+
+- **Page:** n/a (code-level)
+- **Route:** n/a (code-level)
+- **Severity:** High
+- **Found by:** knowledge-base sweep (open card ISS-579)
+- **Found at:** 2026-10-01 20:50
+- **Reproduction mode:** Test — reproduce by running the command below; it should fail (or misbehave) as described. No browser needed.
+
+### Reproduction
+
+1. const file = new File(['content'], 'my].txt'); attach it in the test
+2. Remove the attachment chip
+3. Call handleRun and verify onStartPipeline receives the message
+4. Assert message does not contain '[Attached: my].txt]'
+
+### Expected
+
+When a user removes an attachment and runs, the brief message sent to onStartPipeline should not contain the removed file's marker, even for filenames with special characters like "]" or ", "
+
+### Actual
+
+The stripAttachmentMarker function uses a regex [^\]]* that stops at the first ] in a filename, and splits on ", " which fails if a filename contains that substring. Filenames like 'report].pdf' or 'file, more.txt' are not properly matched and removed, leaving stale [Attached: ...] markers in the message.
+
+### Notes
+
+Logged from the existing open knowledge card [ISS-579](.knowledge/cards/20260829-0234-ISS-579.md), which already holds the root cause.
+Link that card from the ledger row and update it when this closes; do not mint a duplicate root card.
+Agreed minimal fix (two independent reviewers, static read of the current code): In WorkflowView.tsx, make stripAttachmentMarker match the literal filename instead of splitting the marker contents. For example, find the marker with a non-greedy `\[Attached: (.*?)\](?=\n\n|$)` and remove `filename` from it by exact, boundary-aware match (start or ", " before, ", " or end after). Alternatively, replace "]" and "," in the names at write time (line 354). Add one test case to WorkflowView.attachmentRemove.test.tsx with a name like "a, b].txt".
+
+<a id="qa-kb-020"></a>
+
+## QA-KB-020 — Review gate approval resolves wrong run's gate in family transcripts
+
+- **Page:** /runs/{id}
+- **Route:** /runs/{id}
+- **Severity:** High
+- **Found by:** knowledge-base sweep (open card ISS-654)
+- **Found at:** 2026-10-01 20:50
+- **Reproduction mode:** Browser — reproduce from the URL below.
+
+### Reproduction
+
+1. 1. Create a run that opens a review gate — leave it pending (waiting_for_user)
+2. 2. From the same family, start a revision/child run that opens its own gate before the parent's is approved
+3. 3. In the UI, approve the child run's gate
+4. 4. Check: the parent's gate card ALSO flips to 'Review approved — build continues', but backend still reports parent blocked in waiting_for_user
+
+### Expected
+
+An approval event resolves only the ONE gate card it corresponds to (matched by run + agent identity), regardless of how many runs share the transcript.
+
+### Actual
+
+Approving a gate in one run can flip a DIFFERENT run's still-open gate to the resolved rendering in the UI, while that other run's actual gate remains blocked server-side.
+
+### Notes
+
+Logged from the existing open knowledge card [ISS-654](.knowledge/cards/20260917-1250-ISS-654.md), which already holds the root cause.
+Link that card from the ledger row and update it when this closes; do not mint a duplicate root card.
+Agreed minimal fix (two independent reviewers, static read of the current code): In useRunChat.ts `case "review_gate_approved"` (~L575), read `const rid = typeof data.pipeline_run_id === "string" ? data.pipeline_run_id : undefined;`. Change the `.find` predicate to `m.cardKind === "gate" && !m.resolved && (!rid || !m.runId || m.runId === rid)`. The fallback to the old positional match when either runId is missing keeps current behavior for cards without an id. Optionally add one vitest case with two unresolved gate cards of different runIds, approving the earlier run's id and asserting only that card flips.
+
+**Interrupted fix (2026-10-01 22:40):** the first fixer for this bug was killed by an API limit mid-edit. It may have left a PARTIAL change in: frontend/src/app/[...view]/page.tsx, frontend/src/hooks/useRunChat.ts. Before editing, read `git diff` for those files, keep only the hunks that belong to this bug's fix and complete them; never revert hunks that belong to other QA-KB bugs (other bugs share some of these files).
+
+<a id="qa-kb-021"></a>
+
+## QA-KB-021 — Manifest top-level keys lost on cold-mount save (limits, input_providers, seed_files)
+
+- **Page:** /workflows/{id}/edit
+- **Route:** /workflows/{id}/edit
+- **Severity:** High
+- **Found by:** knowledge-base sweep (open card ISS-682)
+- **Found at:** 2026-10-01 20:50
+- **Reproduction mode:** Test — reproduce by running the command below; it should fail (or misbehave) as described. No browser needed.
+
+### Reproduction
+
+1. Run pdfToPrototypeManifestRoundTrip.test.ts which has an input_providers assertion that passes only when sourceManifest is provided to buildWorkflowManifest
+2. Observe that the test passes because ComposerPage's save path (line 903) passes initialManifest (fifth parameter)
+3. Note that the two cold-mount paths at /workflows/{id}/edit (line 3776) and /workflows/{id}/run (line 3978) do NOT pass manifest to setInitialSavedComposition, so when a workflow is loaded and saved from those routes, buildWorkflowManifest receives no sourceManifest and drops the top-level keys
+
+### Expected
+
+Manifest top-level keys (id, display_name, limits, input_providers, seed_files, etc.) survive a load-and-save round trip from both /workflows/{id}/edit and /workflows/{id}/run cold mounts, same as they do in ComposerPage's regular save path.
+
+### Actual
+
+Top-level manifest keys are dropped when a saved workflow is loaded via cold-mount (/workflows/{id}/edit or /workflows/{id}/run), edited, and saved because setInitialSavedComposition does not pass the manifest field to ComposerPage, so buildWorkflowManifest has no sourceManifest to preserve them.
+
+### Notes
+
+Logged from the existing open knowledge card [ISS-682](.knowledge/cards/20260904-ISS-682.md), which already holds the root cause.
+Link that card from the ledger row and update it when this closes; do not mint a duplicate root card.
+Agreed minimal fix (two independent reviewers, static read of the current code): In frontend/src/app/[...view]/page.tsx, add `manifest: (saved.manifest as Record<string, unknown> | undefined) ?? null,` to the object literals passed to setInitialSavedComposition at ~3776 (/workflows/{id}/edit) and ~3978 (/run), next to `manifestSteps: saved.manifest?.steps`. Leave the built-in canvas call at ~521 alone, since it is copy-only. Add one assertion that a cold-mount edit then Save preserves `limits`.
+
+<a id="qa-kb-022"></a>
+
+## QA-KB-022 — Deliverable readback overwrites output of all post-build agents with HTML file
+
+- **Page:** n/a (code-level)
+- **Route:** n/a (code-level)
+- **Severity:** High
+- **Found by:** knowledge-base sweep (open card ISS-683)
+- **Found at:** 2026-10-01 20:50
+- **Reproduction mode:** Test — reproduce by running the command below; it should fail (or misbehave) as described. No browser needed.
+
+### Reproduction
+
+1. Run a workflow with a build step (producing prototype.html) followed by a validator/reviewer step
+2. Inspect the reviewer/validator agent's recorded output in the run record or artifact graph
+3. Verify the output is the HTML file instead of the validator's text result
+
+### Expected
+
+Each agent's output is its own streamed result. The reviewer/validator produces text describing its findings, not the prototype HTML.
+
+### Actual
+
+After the build step writes prototype.html, any subsequent validator/reviewer/reporter agent's text output is replaced with the HTML file (if larger than the text output), rendering those agents' results unreadable.
+
+### Notes
+
+Logged from the existing open knowledge card [ISS-683](.knowledge/cards/20260904-ISS-683.md), which already holds the root cause.
+Link that card from the ledger row and update it when this closes; do not mint a duplicate root card.
+Agreed minimal fix (two independent reviewers, static read of the current code): In engine.py `_run_agent`, read `sandbox.read(deliverable.name or "prototype.html")` into a variable just before the agent runs. At the readback block (:10623), add `and file_from_disk != pre_step_file` to the condition, so a step's output is replaced only if that step actually wrote or edited the file. The final deliverable is unaffected because the resolver still reads the file from disk at run end (engine.py:7830). Add one test with a build step followed by a reviewer step, asserting the reviewer's output is kept. Known edge: parallel fan-out workers writing the same file could be misattributed to each other.
+
+<a id="qa-kb-023"></a>
+
+## QA-KB-023 — Mechanical step without engine dispatch branch silently runs model on empty prompt
+
+- **Page:** n/a (code-level)
+- **Route:** n/a (code-level)
+- **Severity:** High
+- **Found by:** knowledge-base sweep (open card ISS-684)
+- **Found at:** 2026-10-01 20:50
+- **Reproduction mode:** Test — reproduce by running the command below; it should fail (or misbehave) as described. No browser needed.
+
+### Reproduction
+
+1. Run: cd backend && python3.11 -m pytest tests/unit/test_execution_engine.py::test_mechanical_engine_parity -q (will fail—test does not exist yet)
+2. Or: Inspect engine.py:6438-6490 and compiler.py _ALLOWED_MECHANICAL_KINDS; notice assemble_backlog/extract_prototype_ui in compiler but missing from both registry._KNOWN and engine dispatch branches
+
+### Expected
+
+Every mechanical kind in compiler._ALLOWED_MECHANICAL_KINDS must have an engine dispatch branch. If a step has mechanical: <kind> with no branch, engine raises naming the kind.
+
+### Actual
+
+assemble_backlog and extract_prototype_ui are in compiler._ALLOWED_MECHANICAL_KINDS but absent from registry._KNOWN (registry parity test only covers 2 kinds, not all 4). Engine else clause at 6489 falls through to _registry.resolve(strategy_name) with default single_shot, running a model on empty prompt and billing tokens.
+
+### Notes
+
+Logged from the existing open knowledge card [ISS-684](.knowledge/cards/20260918-ISS-684.md), which already holds the root cause.
+Link that card from the ledger row and update it when this closes; do not mint a duplicate root card.
+Agreed minimal fix (two independent reviewers, static read of the current code): 1) In engine.py, insert `elif getattr(step, "mechanical", None): raise ValueError(f"mechanical kind {step.mechanical!r} has no engine dispatch branch")` just before the final `else:` at ~6489. The existing handler for unhandled step exceptions (~7589) should turn the raise into a run failure, but check that when implementing.
+2) Add a test next to test_compiler.py:575. It calls `registry.discover()` and, for each `("mechanical", name)` in `registry._KNOWN`, asserts `f'== "{name}"'` appears in the source of engine.py. It reads the file with `inspect.getsource` or `Path.read_text()`. This is a source-grep parity check, so it is brittle by design; that is acceptable here.
+
+<a id="qa-kb-024"></a>
+
+## QA-KB-024 — Resume reconcilers parse wrong input, causing task key mismatches and re-execution
+
+- **Page:** n/a (code-level)
+- **Route:** n/a (code-level)
+- **Severity:** High
+- **Found by:** knowledge-base sweep (open card ISS-685)
+- **Found at:** 2026-10-01 20:50
+- **Reproduction mode:** Test — reproduce by running the command below; it should fail (or misbehave) as described. No browser needed.
+
+### Reproduction
+
+1. cd backend
+2. Run a test that exercises resume with wave_scheduler or fanout step using json_tasks parser, then resume the run
+3. Inspect task_loop boundary reconciler (engine.py:14889) and wave orphan allowset (engine.py:14971) — they will compute different task keys than the strategy persisted, causing mis-set boundaries or missing allowsets
+
+### Expected
+
+Resume reconcilers should compute task keys from the same input source (task_source.target file) that strategies used, ensuring key consistency across persist and reconcile
+
+### Actual
+
+Resume reconcilers at fanout_batch.py:92 and engine.py:14889/14971/15202 call parser.parse(reply) instead of parse_preferring_target(reply, sandbox, target), computing keys from potentially truncated/narrated/unavailable model output rather than the persisted task file
+
+### Notes
+
+Logged from the existing open knowledge card [ISS-685](.knowledge/cards/20260918-ISS-685.md), which already holds the root cause.
+Link that card from the ledger row and update it when this closes; do not mint a duplicate root card.
+Agreed minimal fix (two independent reviewers, static read of the current code): At each of the four sites, replace `parser.parse(X)` with the same probe the strategies use. For `fanout_batch.py:92`, take `target = getattr(task_source, "target", None)` and `sandbox = getattr(runner, "sandbox", None)`. In the three engine sites, take them from `getattr(step.task_source, "target", None)` and `getattr(getattr(ectx, "runner", None), "sandbox", None)`. The probe is:
+
+if hasattr(parser, "parse_preferring_target"): tasks = parser.parse_preferring_target(X, sandbox=sandbox, target=target)
+else: tasks = parser.parse(X)
+
+At `engine.py:15202` wrap it as `len(...)`. For `wave_scheduler` steps with `task_source.kind == "custom_path"` (the wave strategy now reads that path), either mirror the `read_custom_path` branch in the 14971 reconciler or skip it. Add one test per site that asserts keys are computed from the on-disk file, not from narrated reply text.
+
+<a id="qa-kb-025"></a>
+
+## QA-KB-025 — New task parser in dropdown saves manifest pointing to previous parser's file
+
+- **Page:** /workflows/{id}
+- **Route:** /workflows/{id}
+- **Severity:** High
+- **Found by:** knowledge-base sweep (open card ISS-686)
+- **Found at:** 2026-10-01 20:50
+- **Reproduction mode:** Browser — reproduce from the URL below.
+
+### Reproduction
+
+1. Register a new task parser in backend (beyond json_tasks/screen_plan/heading_tasks)
+2. Go to workflow editor and create/edit a wave step
+3. Click the 'Task source type' dropdown — new parser appears (from /api/capabilities)
+4. Select the new parser and save the workflow
+5. Run the workflow and inspect the manifest — it points to previous parser's target file (e.g. build/tasks.json)
+
+### Expected
+
+Manifest points to the newly selected parser's configured target file (from config_schema in @register)
+
+### Actual
+
+Manifest points to previous parser's target file because CanvasConfigRail.tsx:1694 falls back to sel.task_source?.target when parser is unmapped
+
+### Notes
+
+Logged from the existing open knowledge card [ISS-686](.knowledge/cards/20260918-ISS-686.md), which already holds the root cause.
+Link that card from the ledger row and update it when this closes; do not mint a duplicate root card.
+Agreed minimal fix (two independent reviewers, static read of the current code): 1. In json_tasks.py and screen_plan.py, add to @register `config_schema={"target": {"type": "string", "default": "build/tasks.json"}}` (screen_plan uses DEFAULT_TARGET). Leave heading_tasks without one.
+2. In CanvasConfigRail.tsx, delete PARSER_TARGET and add a one-line helper `const parserTarget = (name) => taskParserOptions.find(p => p.name === name)?.config_schema?.target?.default`.
+3. Use parserTarget(parser) at :1559, :1612, :1642 and :1694.
+4. At :1694, drop the `?? sel.task_source?.target` fallback so an unmapped parser saves no target.
+5. Check whether the frontend capability type needs `config_schema` typed. Update any composer test that asserts the target.
+
+**Interrupted fix (2026-10-01 22:40):** the first fixer for this bug was killed by an API limit mid-edit. It may have left a PARTIAL change in: backend/agents/capabilities/task_parsers/json_tasks.py, screen_plan.py, backend/tests/unit/api/test_capabilities_api.py, frontend/src/components/workflow/AgentsPopup.tsx, composer/CanvasConfigRail.tsx and its test. Before editing, read `git diff` for those files, keep only the hunks that belong to this bug's fix and complete them; never revert hunks that belong to other QA-KB bugs (other bugs share some of these files).
+
+<a id="qa-kb-026"></a>
+
+## QA-KB-026 — Domain prose check reports OK when rebuild is overdue
+
+- **Page:** n/a (code-level)
+- **Route:** n/a (code-level)
+- **Severity:** High
+- **Found by:** knowledge-base sweep (open card ISS-693)
+- **Found at:** 2026-10-01 20:50
+- **Reproduction mode:** Static — reproduce by the check below (read/grep/short script). No browser needed.
+
+### Reproduction
+
+1. Run: cd /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2 && python3 tools/knowledge/status.py
+2. Observe that when 'source files covered' is STALE, 'domain prose' still reports OK despite having stale input
+
+### Expected
+
+When 'source files covered' is STALE, 'domain prose' should also be STALE or UNKNOWN, indicating that the signature comparison cannot be trusted.
+
+### Actual
+
+'domain prose' reports OK even when 'source files covered' shows rebuild is overdue (e.g. 14/14 OK alongside 39 commits behind).
+
+### Notes
+
+Logged from the existing open knowledge card [ISS-693](.knowledge/cards/20260918-ISS-693.md), which already holds the root cause.
+Link that card from the ledger row and update it when this closes; do not mint a duplicate root card.
+Agreed minimal fix (two independent reviewers, static read of the current code): In tools/knowledge/status.py, before the `domain prose` append at :329, read the covered row's verdict with `cov_stale = any(c[0] == "source files covered" and c[3] == "STALE" for c in checks)`. Change the verdict at :332 to `"STALE" if (stale_domains or unauthored_domains) else ("UNKNOWN" if cov_stale else "OK")`. UNKNOWN keeps the row out of the `stale` list at :335, so the report still fixes via the existing "source files covered" row and does not print an empty "domain cards needing a pass" line. To use STALE instead, replace "UNKNOWN" with "STALE"; the :380-382 block already handles an empty `stale_domains`. Optionally add one assertion in the status tests for the case where covered != on_disk and the signatures are equal, which must not return OK.
+
+<a id="qa-kb-027"></a>
+
+## QA-KB-027 — Workspace file content correctness under pinned ref — edge cases untested
+
+- **Page:** /runs/{id}
+- **Route:** /runs/{id}
+- **Severity:** High
+- **Found by:** knowledge-base sweep (open card ISS-724)
+- **Found at:** 2026-10-01 20:50
+- **Reproduction mode:** Test — reproduce by running the command below; it should fail (or misbehave) as described. No browser needed.
+
+### Reproduction
+
+1. Create a test for user_stories_revision with a pinned ref, open/download a file, verify content matches that revision, not stale
+2. Create a test for ppt_revision on a parent without presentation.html (fresh sandbox), attempt to access file in Workspace tab under a pinned ref, verify no silent staleness or 500
+3. Run pytest on the test suite filtering for Workspace-tab / sandbox / pinned-ref coverage — will fail or show no coverage
+
+### Expected
+
+Workspace tab consistently shows correct, version-specific file content for all revision workflows (ppt_revision, user_stories_revision) and edge cases (fresh parent, no deliverable yet written) under any pinned ref; no silent staleness.
+
+### Actual
+
+Main fix verified via ISS-723; user_stories_revision behavior unconfirmed; fresh sandbox edge case unverified; no regression guard test exists; card still open.
+
+### Notes
+
+Logged from the existing open knowledge card [ISS-724](.knowledge/cards/20260922-1246-ISS-724.md), which already holds the root cause.
+Link that card from the ledger row and update it when this closes; do not mint a duplicate root card.
+Agreed minimal fix (two independent reviewers, static read of the current code): Add one test in backend/tests/agents/test_iss720_ref_scoped_sizes.py (or a sibling file) that builds a tmp_path git repo with presentation.html committed as "v1" bytes and tagged v1, then "v2" bytes and tagged v2. Assert rf.read_sandbox_file(run_id, path="presentation.html", ref="v2") returns the v2 bytes and ref="v1" returns the v1 bytes. Assert rf.download_sandbox_zip(run_id, ref="v2") contains the v2 bytes. Then flip the card's status to resolved, with FIX-601 plus this test as evidence.
+
+<a id="qa-kb-028"></a>
+
+## QA-KB-028 — Test no longer proves single-flight refresh — shared cache collapses concurrent calls
+
+- **Page:** n/a (code-level)
+- **Route:** n/a (code-level)
+- **Severity:** High
+- **Found by:** knowledge-base sweep (open card ISS-824)
+- **Found at:** 2026-10-01 20:50
+- **Reproduction mode:** Test — reproduce by running the command below; it should fail (or misbehave) as described. No browser needed.
+
+### Reproduction
+
+1. cd frontend
+2. npx vitest run src/lib/api.refreshRetry.test.ts
+3. Observe: 'coalesces concurrent 401s' test passes
+4. Temporarily comment out refreshOnce() memoization (or remove inFlightRefresh guard) in api.ts:428-434
+5. npx vitest run src/lib/api.refreshRetry.test.ts again
+6. Observe: test still passes (should fail if it properly validates single-flight behavior)
+
+### Expected
+
+Disabling refreshOnce() memoization causes the test to fail, proving it validates the single-flight guard
+
+### Actual
+
+Test passes regardless, because three concurrent getMe(STALE(5)) calls now share one cached promise, producing one /api/auth/me request and one 401 — the burst never materializes to test the guard
+
+### Notes
+
+Logged from the existing open knowledge card [ISS-824](.knowledge/cards/20260922-1947-ISS-824.md), which already holds the root cause.
+Link that card from the ledger row and update it when this closes; do not mint a duplicate root card.
+Agreed minimal fix (two independent reviewers, static read of the current code): In the coalesce test in api.refreshRetry.test.ts, drive the burst with three different uncached authenticated calls (e.g. getChats(STALE(5)), getRunSandboxZip-like or any non-cachedGet endpoint, plus login-free ones that send the bearer), with fetchMock returning 401 for the stale bearer and ok JSON for the fresh one (adjust the response body per URL); keep the refreshCalls toHaveLength(1) assertion. Optionally assert the three /api/... 401 calls count is 3 so the burst is proven.
+
+<a id="qa-kb-029"></a>
+
+## QA-KB-029 — ArtifactNode TypeScript types disagree with backend wire format on three fields
+
+- **Page:** n/a (code-level)
+- **Route:** n/a (code-level)
+- **Severity:** Medium
+- **Found by:** knowledge-base sweep (open card ISS-077)
+- **Found at:** 2026-10-01 20:50
+- **Reproduction mode:** Static — reproduce by the check below (read/grep/short script). No browser needed.
+
+### Reproduction
+
+1. Open frontend/src/store/api/runs.ts:40-54 (ArtifactNode interface)
+2. Compare to backend/app/models/artifact_ref.py:39-45 (ArtifactRef columns)
+3. Run backend at app/api/runs.py:1383-1391 to see wire format returned by _node()
+
+### Expected
+
+TypeScript declarations match the actual runtime wire format from the backend
+
+### Actual
+
+task_id declared as string but returns null; derived_from declared as string[] but returns string|null; children declared as string[] but returns ArtifactNode[]
+
+### Notes
+
+Logged from the existing open knowledge card [ISS-077](.knowledge/cards/20260812-0212-ISS-077.md), which already holds the root cause.
+Link that card from the ledger row and update it when this closes; do not mint a duplicate root card.
+Agreed minimal fix (two independent reviewers, static read of the current code): In both frontend/src/lib/api.ts (~1497) and frontend/src/store/api/runs.ts (~40) change the ArtifactNode fields to `task_id: string | null; derived_from: string | null; children: ArtifactNode[];`. In api.ts also fix the docstring ref from `runs.py:590-608` to the current `_node` location (backend/app/api/runs.py ~1377-1393). Optionally add `retention: string` since the backend sends it. Verify with `tsc --noEmit`.
+
+<a id="qa-kb-030"></a>
+
+## QA-KB-030 — Task-loop gates broken; missing runs_agent_inline declaration
+
+- **Page:** n/a (code-level)
+- **Route:** n/a (code-level)
+- **Severity:** Medium
+- **Found by:** knowledge-base sweep (open card ISS-132)
+- **Found at:** 2026-10-01 20:50
+- **Reproduction mode:** Test — reproduce by running the command below; it should fail (or misbehave) as described. No browser needed.
+
+### Reproduction
+
+1. cd backend && python3.11 -m pytest tests/unit/agents/test_fanout.py::test_something 544 -xvs
+2. cd backend && python3.11 -m pytest tests/unit/agents/workflows/test_merge_conflict.py::test_something 591 -xvs
+
+### Expected
+
+Step-boundary human gates fire when declared on a task-loop step; the engine's dedupe logic correctly knows inline gates won't fire.
+
+### Actual
+
+Step-boundary human gates are skipped even when declared, because the engine's dedupe logic incorrectly predicts inline gates will fire (default runs_agent_inline=True). The fix (invocation_gated=False) suppresses per-task gates, but TaskLoopStrategy doesn't declare runs_agent_inline=False, breaking the step-boundary gate deduplication in _evaluate_gates.
+
+### Notes
+
+Logged from the existing open knowledge card [ISS-132](.knowledge/cards/20260812-2116-ISS-132.md), which already holds the root cause.
+Link that card from the ledger row and update it when this closes; do not mint a duplicate root card.
+Agreed minimal fix (two independent reviewers, static read of the current code): In backend/agents/capabilities/strategies/task_loop.py, add `runs_agent_inline = False` as a class attribute on TaskLoopStrategy (line 149), with a comment citing ISS-132. Optionally add a one-line assertion test next to the existing strategy tests in backend/tests/unit/agents/test_strategies.py that checks `TaskLoopStrategy.runs_agent_inline is False`. Then mark ISS-132 as fixed.
+
+<a id="qa-kb-031"></a>
+
+## QA-KB-031 — Test marked xfail(strict=True) will XPASS now that ISS-228 code fix is in place
+
+- **Page:** n/a (code-level)
+- **Route:** n/a (code-level)
+- **Severity:** Medium
+- **Found by:** knowledge-base sweep (open card ISS-228)
+- **Found at:** 2026-10-01 20:50
+- **Reproduction mode:** Test — reproduce by running the command below; it should fail (or misbehave) as described. No browser needed.
+
+### Reproduction
+
+1. cd backend
+2. python3.11 -m pytest tests/integration/e2e/suites/05_saved_workflows/test_iss228_launch_panel_override_binding.py::test_cold_launch_panel_shows_the_saved_overrides_own_name -q
+
+### Expected
+
+Test passes without the xfail marker, confirming the race condition is fixed.
+
+### Actual
+
+Test passes but xfail(strict=True) marks it as XPASS, which fails strict mode because a formerly-broken test is now passing.
+
+### Notes
+
+Logged from the existing open knowledge card [ISS-228](.knowledge/cards/20260828-1758-ISS-228.md), which already holds the root cause.
+Link that card from the ledger row and update it when this closes; do not mint a duplicate root card.
+Agreed minimal fix (two independent reviewers, static read of the current code): In /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/tests/integration/e2e/suites/05_saved_workflows/test_iss228_launch_panel_override_binding.py, delete the `@pytest.mark.xfail(reason="ISS-228 unfixed", strict=True)` line at :41. Also change the :48 wait to `expect(page.get_by_role("heading", name=PROTO_NAME)).to_be_visible()`, since the generic title is no longer shown for a saved override. Once the test is green, the card status can be closed.
+
+<a id="qa-kb-032"></a>
+
+## QA-KB-032 — Fullscreen preview silently redirects to Run History on missing or corrupt sessionStorage
+
+- **Page:** /preview-fullscreen
+- **Route:** /preview-fullscreen
+- **Severity:** Medium
+- **Found by:** knowledge-base sweep (open card ISS-407)
+- **Found at:** 2026-10-01 20:50
+- **Reproduction mode:** Browser — reproduce from the URL below.
+
+### Reproduction
+
+1. Open /preview-fullscreen directly or when sessionStorage data is missing/corrupt
+2. Observe: page silently redirects to /runs without any error message
+
+### Expected
+
+Display an error message explaining the session data is missing or invalid, with an option to return or dismiss
+
+### Actual
+
+Silently redirects to /runs (Run History) with no explanation to the user
+
+### Notes
+
+Logged from the existing open knowledge card [ISS-407](.knowledge/cards/20260828-2343-ISS-407.md), which already holds the root cause.
+Link that card from the ledger row and update it when this closes; do not mint a duplicate root card.
+Agreed minimal fix (two independent reviewers, static read of the current code): In page.tsx, add "missing" to the PageState type (line 14). In giveUp() (lines 57-63), replace router.replace(routes.runHistory()) with setState("missing"). Add a "missing" render block like the quota block, with an AlertCircle, a "Preview not available" heading, a short "preview data expired or was not found" line, and a Link to routes.runHistory(). Update the docblock at lines 27-29 to match.
+
+<a id="qa-kb-033"></a>
+
+## QA-KB-033 — Whole-file idiom count assertion is fragile; test will fail on any new legitimate 403/404 catch narrowing outside T30
+
+- **Page:** n/a (code-level)
+- **Route:** n/a (code-level)
+- **Severity:** Medium
+- **Found by:** knowledge-base sweep (open card ISS-442)
+- **Found at:** 2026-10-01 20:50
+- **Reproduction mode:** Test — reproduce by running the command below; it should fail (or misbehave) as described. No browser needed.
+
+### Reproduction
+
+1. cd frontend && vitest --run src/app/[...view]/workflowDetailCatch.source.test.ts
+2. Test passes at line 87 (expects 5, finds 5), but review lines 81–85 comment: idiom count covers entire 3,900-line file, not just T30 effect
+3. Reason brittleness persists: the four preceding assertions (lines 45–76) correctly scope to T30; this final count assertion reverts to whole-file scope, defeating the audit's point
+
+### Expected
+
+Test passes and remains robust when a new catch block elsewhere in page.tsx adopts the same 403/404 idiom for a separate feature (e.g., a new T-series effect)
+
+### Actual
+
+Test passes with count bumped to 5, but the whole-file assertion locks in that count forever; next legitimate idiom use in an unrelated catch will break the test, requiring another bump
+
+### Notes
+
+Logged from the existing open knowledge card [ISS-442](.knowledge/cards/20260829-0106-ISS-442.md), which already holds the root cause.
+Link that card from the ledger row and update it when this closes; do not mint a duplicate root card.
+Agreed minimal fix (two independent reviewers, static read of the current code): In workflowDetailCatch.source.test.ts, replace `expect(occurrences).toBe(5)` with `expect(occurrences).toBeGreaterThanOrEqual(3)`. That keeps the "a drop means a catch went back to swallowing errors" guard but allows more call sites. Update the comment above it to match. Alternatively, delete the test, since the t30Effect-scoped assertions already lock the T30 behaviour.
+
+<a id="qa-kb-034"></a>
+
+## QA-KB-034 — Silent roster expansion makes partial-roster bugs hard to debug
+
+- **Page:** n/a (code-level)
+- **Route:** n/a (code-level)
+- **Severity:** Medium
+- **Found by:** knowledge-base sweep (open card ISS-634)
+- **Found at:** 2026-10-01 20:50
+- **Reproduction mode:** Static — reproduce by the check below (read/grep/short script). No browser needed.
+
+### Reproduction
+
+1. Read engine.py:5005-5007 — when a partial roster is passed, it's silently replaced with the full plan
+2. Search for any log line around that replacement — there is none
+3. Trace a caller passing agents=[spec]: they get the full plan silently, with no indication why
+
+### Expected
+
+When ExecutionEngine.execute() receives a partial roster and expands it to the full plan, a debug log line records the expansion (agent IDs requested vs. agent IDs executed).
+
+### Actual
+
+No log line is emitted. A caller passing agents=[spec] gets the full plan silently, with no way to debug why their roster was enlarged. Test workaround uses compiled_override= to bypass the expansion entirely, but this is not the intended design — just a test-specific escape hatch.
+
+### Notes
+
+Logged from the existing open knowledge card [ISS-634](.knowledge/cards/20260831-0115-ISS-634.md), which already holds the root cause.
+Link that card from the ledger row and update it when this closes; do not mint a duplicate root card.
+Agreed minimal fix (two independent reviewers, static read of the current code): In backend/agents/execution_engine/engine.py, inside `if compiled.steps and (not agents or _roster_is_partial):` (line ~5006), only when `_roster_is_partial` is true, add `logger.info("roster expanded from plan: run=%s passed=%d plan=%d", pipeline_run_id, len(agents), len(_plan_ids))` before `agents = self._specs_from_plan(compiled.steps)`. Do not log when `not agents`, since that is the normal path. Then mark the card resolved.
+
+<a id="qa-kb-035"></a>
+
+## QA-KB-035 — Background run cancel/fail clears viewed run's clarify state
+
+- **Page:** /runs/{id}
+- **Route:** /runs/{id}
+- **Severity:** Medium
+- **Found by:** knowledge-base sweep (open card ISS-676)
+- **Found at:** 2026-10-01 20:50
+- **Reproduction mode:** Browser — reproduce from the URL below.
+
+### Reproduction
+
+1. Sign in as admin@velocity.ai and navigate to a run details page (/runs/{id}) in clarification state
+2. Launch a new background run from the dashboard (stay on the viewed run's page)
+3. Confirm the viewed run displays clarification questions (laneClarifyOpen is true)
+4. Cancel the background run via API: POST /api/runs/{background-run-id}/cancel
+5. Observe the viewed run's page: clarify state is cleared, lane switches to 'building' or 'running' instead of paused
+
+### Expected
+
+Viewed run remains paused in clarification. Its clarify state, questionnaire data, and activePipelineRunId persist regardless of other background runs' cancel/fail events.
+
+### Actual
+
+Background run cancel/fail triggers lines 1834-1836 unconditionally for all !isForeignFrame runs. Page state (activePipelineRunId, questionnaireData, reviewGateData) is cleared for the viewed run when any launched-background run terminates.
+
+### Notes
+
+Logged from the existing open knowledge card [ISS-676](.knowledge/cards/20260917-1447-ISS-676.md), which already holds the root cause.
+Link that card from the ledger row and update it when this closes; do not mint a duplicate root card.
+Agreed minimal fix (two independent reviewers, static read of the current code): In page.tsx, wrap only the three page-level setters (setReviewGateData(null), setQuestionnaireData(null), setActivePipelineRunId(null)) in `if (!frameRunId || !trackedRunIdRef.current || frameRunId === trackedRunIdRef.current) { ... }`. Leave the per-run runStore.update(frameRunId, { questionnaireData: null }) call, the setBackgroundRunTransition call, and the setLastCancelledRunId/detachRunRef/patchRecentRunStatus calls unconditional.
+
+<a id="qa-kb-036"></a>
+
+## QA-KB-036 — Dead degraded variable and mislabeled comment confuse status reconciliation
+
+- **Page:** n/a (code-level)
+- **Route:** n/a (code-level)
+- **Severity:** Medium
+- **Found by:** knowledge-base sweep (open card ISS-689)
+- **Found at:** 2026-10-01 20:50
+- **Reproduction mode:** Static — reproduce by the check below (read/grep/short script). No browser needed.
+
+### Reproduction
+
+1. cd backend && grep -n 'FIX-247' app/api/run_commands.py to locate the comment at line 840
+2. grep -n 'degraded_current.*any' app/api/run_commands.py to find the actual logic at line 933
+3. Verify: between lines 855 and 960, grep 'degraded' matches only degraded_* variables, not the bare degraded local
+
+### Expected
+
+One mechanism decides the degraded verdict: FIX-484's reattempt-boundary scan via degraded_current, correctly cited in its explanation.
+
+### Actual
+
+Two mechanisms both claim to own the verdict—the dead degraded local (line 850-855) with a 10-line comment citing FIX-247 (a clarify-gate repaint card), and the actual logic using degraded_current (line 945). The bare degraded variable is assigned but never read.
+
+### Notes
+
+Logged from the existing open knowledge card [ISS-689](.knowledge/cards/20260918-ISS-689.md), which already holds the root cause.
+Link that card from the ledger row and update it when this closes; do not mint a duplicate root card.
+Agreed minimal fix (two independent reviewers, static read of the current code): In backend/app/api/run_commands.py `_reconcile_terminal_status`, delete the 11-line "FIX-247" comment and the `_latest_complete` / `degraded = bool(...)` assignment (about lines 840-855). Keep `completes` and everything after, including FIX-484's `degraded_current`. Optionally fix the docstring line ~805 ("LATEST pipeline_complete") to say "any degraded completion at or after the last reattempt boundary".
+
+<a id="qa-kb-037"></a>
+
+## QA-KB-037 — Rapid version switches transiently display stale agent data
+
+- **Page:** /runs/{id}
+- **Route:** /runs/{id}
+- **Severity:** Medium
+- **Found by:** knowledge-base sweep (open card ISS-758)
+- **Found at:** 2026-10-01 20:50
+- **Reproduction mode:** Browser — reproduce from the URL below.
+
+### Reproduction
+
+1. Open a run with multiple versions (v1–v6+)
+2. Click version menu and rapidly jump between distant versions (e.g., v6 then v2)
+3. Observe agent panel briefly showing old version's agents/tokens before correcting (~10s)
+
+### Expected
+
+Agent panel always shows the selected version's current data immediately.
+
+### Actual
+
+When network latency delivers an older fetch after a newer one, that older version's agents/pipeline/tokens display transiently before self-correcting once the latest response arrives.
+
+### Notes
+
+Logged from the existing open knowledge card [ISS-758](.knowledge/cards/20260922-1421-ISS-758.md), which already holds the root cause.
+Link that card from the ledger row and update it when this closes; do not mint a duplicate root card.
+Agreed minimal fix (two independent reviewers, static read of the current code): In /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/frontend/src/components/preview/PreviewPanel.tsx, add `const selectGen = useRef(0);` near `intendedSandboxRef`. At the top of `handleSelectVersion` (before the early returns at ~:896-910) add `const gen = ++selectGen.current;`. Bumping it on every call, including the live-return and `onOpenLiveRun` paths, also invalidates older in-flight fetches. After `await getWorkflow(...)`, change the apply line to `if (gen === selectGen.current) setViewingVersion(versionViewFrom(run));`. In the catch block, guard `setViewingVersion(null)` the same way. The latest call always passes the check, so normal switching is unchanged. Optionally add one frontend test that resolves two getWorkflow promises out of order and asserts the later selection wins.
+
+<a id="qa-kb-038"></a>
+
+## QA-KB-038 — test_migration_ledger F1 guard false positive on image block assembly in pdf_pages.py
+
+- **Page:** n/a (code-level)
+- **Route:** n/a (code-level)
+- **Severity:** Medium
+- **Found by:** knowledge-base sweep (open card ISS-858)
+- **Found at:** 2026-10-01 20:50
+- **Reproduction mode:** Test — reproduce by running the command below; it should fail (or misbehave) as described. No browser needed.
+
+### Reproduction
+
+1. cd backend && python3.11 -m pytest tests/unit/agents/test_migration_ledger.py::test_deleted_pattern_absent_from_backend -k 'F1-blocks' -v
+
+### Expected
+
+F1 banned-pattern guard returns no matches in backend/ (pattern 'blocks.append' guards deleted prompt-assembly code)
+
+### Actual
+
+Guard matches pdf_pages.py:202 where blocks.append() appends image content blocks to a local list, triggering a false positive that looks identical to an active regression
+
+### Notes
+
+Logged from the existing open knowledge card [ISS-858](.knowledge/cards/20260923-0148-ISS-858.md), which already holds the root cause.
+Link that card from the ledger row and update it when this closes; do not mint a duplicate root card.
+Agreed minimal fix (two independent reviewers, static read of the current code): In backend/agents/capabilities/input_providers/pdf_pages.py, rename the local list in `_blocks_for_document` (declared at line 130, appended to at line 202, returned at line 224) to `images`, so line 202 becomes `images.append(`. Do not use `page_blocks`, because `page_blocks.append` still contains the substring `blocks.append` and would match the F1 regex. No test change is needed.
+
+<a id="qa-kb-039"></a>
+
+## QA-KB-039 — Test fixture loops infinitely until GraphRecursionError; needs second scripted turn to stop graph cleanly
+
+- **Page:** n/a (code-level)
+- **Route:** n/a (code-level)
+- **Severity:** Medium
+- **Found by:** knowledge-base sweep (open card ISS-860)
+- **Found at:** 2026-10-01 20:50
+- **Reproduction mode:** Test — reproduce by running the command below; it should fail (or misbehave) as described. No browser needed.
+
+### Reproduction
+
+1. cd backend && python3.11 -m pytest backend/tests/agents/test_qa_ps_027_placeholder_completion.py::test_native_prototype_pipeline_placeholder_output_not_marked_completed -v
+
+### Expected
+
+The test completes cleanly with build agent reporting task_complete and the graph terminating normally.
+
+### Actual
+
+The single _ScriptedTurn causes the model to replay the tool-call turn in a loop for 1000 steps, resulting in GraphRecursionError and the run marked failed.
+
+### Notes
+
+Logged from the existing open knowledge card [ISS-860](.knowledge/cards/20260923-0229-ISS-860.md), which already holds the root cause.
+Link that card from the ledger row and update it when this closes; do not mint a duplicate root card.
+Agreed minimal fix (two independent reviewers, static read of the current code): In `_prototype_placeholder_scripts` (test_qa_ps_027_placeholder_completion.py:138-153), append a second turn after the `report_task_complete` turn: `_ScriptedTurn(texts=["Task complete."], usage=(5, 3))`. The model then ends on a text-only turn and the graph stops cleanly. Keep the validate script streaming PLACEHOLDER_TEXT, since branch 3 reads `ctx.last_streamed` from the last agent to run, which is validate (see the comment at lines 154-157). Then re-run only this test file to confirm the `final_output` and `published_status` assertions still hold.
+
+<a id="qa-kb-040"></a>
+
+## QA-KB-040 — useWorkflow.waveWorkers.test: toEqual checks exact equality but objects have 30 properties
+
+- **Page:** n/a (code-level)
+- **Route:** n/a (code-level)
+- **Severity:** Medium
+- **Found by:** knowledge-base sweep (open card ISS-863)
+- **Found at:** 2026-10-01 20:50
+- **Reproduction mode:** Test — reproduce by running the command below; it should fail (or misbehave) as described. No browser needed.
+
+### Reproduction
+
+1. cd frontend
+2. npm test -- useWorkflow.waveWorkers.test.ts
+
+### Expected
+
+Both test assertions at lines 37-39 and 52-54 pass, verifying wave-worker structure is captured correctly.
+
+### Actual
+
+Tests fail: toEqual() requires exact equality; WaveWorkerEntry objects created by upsertWaveWorker have ~30 properties (many undefined) while test expectations are partial objects with 5 properties.
+
+### Notes
+
+Logged from the existing open knowledge card [ISS-863](.knowledge/cards/20260929-1021-ISS-863.md), which already holds the root cause.
+Link that card from the ledger row and update it when this closes; do not mint a duplicate root card.
+Agreed minimal fix (two independent reviewers, static read of the current code): In frontend/src/hooks/useWorkflow.waveWorkers.test.ts lines 37 and 52, change `expect(state.agents[0].waveWorkers).toEqual([...])` to `.toMatchObject([...])`. The expected objects keep their `taskId`, `status`, `workerIndex`, `waveIndex` and `waveTotal` fields. Optionally, once confirmed, set the card to resolved.
+
+<a id="qa-kb-041"></a>
+
+## QA-KB-041 — Escape key does not close workflow actions dropdown in some browsers
+
+- **Page:** /workflows
+- **Route:** /workflows
+- **Severity:** Low
+- **Found by:** knowledge-base sweep (open card BUG-104)
+- **Found at:** 2026-10-01 20:50
+- **Reproduction mode:** Browser — reproduce from the URL below.
+
+### Reproduction
+
+1. Navigate to /workflows
+2. Click the ⋮ (Workflow actions) button on any saved workflow card
+3. Press Escape key
+4. Observe: in Safari or Firefox on macOS, the menu may remain open with aria-expanded still true
+
+### Expected
+
+Escape key dismisses the dropdown menu and returns focus to the trigger button, consistent with standard dropdown behavior and outside-click handling.
+
+### Actual
+
+Escape key has no effect when the trigger button was not focused by the click (common in Safari/Firefox on macOS); menu stays open and aria-expanded remains true.
+
+### Notes
+
+Logged from the existing open knowledge card [BUG-104](.knowledge/cards/20260829-1508-BUG-104.md), which already holds the root cause.
+Link that card from the ledger row and update it when this closes; do not mint a duplicate root card.
+Agreed minimal fix (two independent reviewers, static read of the current code): In KebabMenu (frontend/src/components/savedworkflows/SavedWorkflowsPage.tsx ~line 100), add `useEffect(() => { if (!isOpen) return; const h = (e: KeyboardEvent) => { if (e.key === "Escape") { onClose(); triggerRef.current?.focus(); } }; document.addEventListener("keydown", h); return () => document.removeEventListener("keydown", h); }, [isOpen, onClose]);`. Then delete the wrapper onKeyDown/handleKeyDown, or keep it with stopPropagation. Add a test in SavedWorkflowsPage.test.tsx that opens the menu without focusing the trigger, e.g. via fireEvent.click, then fires keydown Escape on document.body and expects aria-expanded="false".
+
+**Interrupted fix (2026-10-01 22:40):** the first fixer for this bug was killed by an API limit mid-edit. It may have left a PARTIAL change in: frontend/src/app/admin/page.tsx, history/RevisionFamilyView.tsx, layout/AppHeader.tsx, savedworkflows/SavedWorkflowsPage.tsx, ui/NotificationPanel.tsx. Before editing, read `git diff` for those files, keep only the hunks that belong to this bug's fix and complete them; never revert hunks that belong to other QA-KB bugs (other bugs share some of these files).
+
+<a id="qa-kb-042"></a>
+
+## QA-KB-042 — Line citations in shutdown comments point to wrong code locations
+
+- **Page:** n/a (code-level)
+- **Route:** n/a (code-level)
+- **Severity:** Low
+- **Found by:** knowledge-base sweep (open card ISS-104)
+- **Found at:** 2026-10-01 20:50
+- **Reproduction mode:** Test — reproduce by running the command below; it should fail (or misbehave) as described. No browser needed.
+
+### Reproduction
+
+1. cd backend && python3.11 -m pytest tests/unit/test_run_shutdown_stale_citations.py -q
+2. Observe: test fails because citations at run_shutdown.py:99-100 and line 275 do not match actual code locations
+
+### Expected
+
+All line citations in shutdown-path comments reference the correct current locations of the code they describe
+
+### Actual
+
+Citations have drifted: run_shutdown.py:99 cites run_commands.py:1401 (actual code at 2407); :100 cites :1356 (actual code at 2256); :275 cites outdated offsets for CancelledError handlers. Test fails on all four stale citations.
+
+### Notes
+
+Logged from the existing open knowledge card [ISS-104](.knowledge/cards/20260812-1312-ISS-104.md), which already holds the root cause.
+Link that card from the ledger row and update it when this closes; do not mint a duplicate root card.
+Agreed minimal fix (two independent reviewers, static read of the current code): Replace each stale cite with its current location. In docker-entrypoint.sh:27 use docker-compose.yml:75. In run_shutdown.py use the current NON_TERMINAL line in engine.py, and re-grep run_commands.py for the "NEVER cancel it on" comment, the type="chat_reply" write and the CancelledError handlers for the :99 and :284 cites. Then update the line numbers in test_run_shutdown_stale_citations.py to match, remove the strict xfail markers, and set the card to fixed. Line numbers keep drifting, so the better fix is to cite symbol names instead of line numbers.
+
+<a id="qa-kb-043"></a>
+
+## QA-KB-043 — Snapshot _PIPELINE_QUEUES while SSE subscriber-detach in flight — no race test
+
+- **Page:** n/a (code-level)
+- **Route:** n/a (code-level)
+- **Severity:** Low
+- **Found by:** knowledge-base sweep (open card ISS-105)
+- **Found at:** 2026-10-01 20:50
+- **Reproduction mode:** Static — reproduce by the check below (read/grep/short script). No browser needed.
+
+### Reproduction
+
+1. Static reading: run_shutdown.py:147-152 (step 2 snapshots _PIPELINE_QUEUES.keys()) occurs while run_stream.py SSE generators may still be in finally/subscriber-detach
+2. Concurrent mutation path: a pump's finally still running when shutdown takes the snapshot
+
+### Expected
+
+Shutdown completes without error even if subscribers are detaching concurrently; snapshot operations are tolerant.
+
+### Actual
+
+Shutdown logic handles the race (never raises), but no regression test verifies snapshot tolerance to concurrent mutation per the card's explicit fix requirement.
+
+### Notes
+
+Logged from the existing open knowledge card [ISS-105](.knowledge/cards/20260812-1312-ISS-105.md), which already holds the root cause.
+Link that card from the ledger row and update it when this closes; do not mint a duplicate root card.
+Agreed minimal fix (two independent reviewers, static read of the current code): Add one async test to backend/tests/unit/app/test_run_shutdown.py, next to TestShutdownDrainsPumpTasks and reusing its `_isolate_registries` fixture. Seed `_PIPELINE_QUEUES` and `_PUMP_TASKS` with a few entries. Start a task that pops those entries and calls `_cleanup_pipeline` (run_engine.py:120), the same teardown a detaching SSE subscriber triggers, and let it interleave with `shutdown_run_infrastructure()` using `asyncio.gather` and `await asyncio.sleep(0)`. Assert the call does not raise, `summary["errors"] == []`, and the counters are consistent. Optionally add a one-line comment above run_shutdown.py:147 saying the snapshots are synchronous and so safe against concurrent detach.
+
+<a id="qa-kb-044"></a>
+
+## QA-KB-044 — Older completed revision with null output shows generic empty placeholder instead of distinct message
+
+- **Page:** /runs/{id}
+- **Route:** /runs/{id}
+- **Severity:** Low
+- **Found by:** knowledge-base sweep (open card ISS-154)
+- **Found at:** 2026-10-01 20:50
+- **Reproduction mode:** Browser — reproduce from the URL below.
+
+### Reproduction
+
+1. Navigate to a run with multiple versions (e.g., /runs/{id})
+2. Open the Version menu (header dropdown)
+3. Click an older, completed revision marked as v1 or earlier
+4. Observe the preview pane
+
+### Expected
+
+A distinct message indicating this revision's output was not captured or backfilled, not the neutral 'Output will appear here' which reads as if the run never produced anything.
+
+### Actual
+
+Shows generic 'Output will appear here' placeholder, identical to a run still streaming or waiting to produce output.
+
+### Notes
+
+Logged from the existing open knowledge card [ISS-154](.knowledge/cards/20260813-0819-ISS-154.md), which already holds the root cause.
+Link that card from the ledger row and update it when this closes; do not mint a duplicate root card.
+Agreed minimal fix (two independent reviewers, static read of the current code): In /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/frontend/src/components/preview/PreviewPanel.tsx, in the `!hasContent ? (...)` branch (~line 1825), change the text to `{overrideActive ? "No deliverable was saved for this version" : "Output will appear here"}`. `overrideActive` (`viewingVersion != null`, line 1056) is already in scope. By that point the failure, diverted, still-running and loading branches have already been taken, so only a terminal, non-failed older version reaches it. Then drop `it.fails` to `it` in PreviewPanel.olderVersionNullOutput.test.tsx.
+
+**Interrupted fix (2026-10-01 22:40):** the first fixer for this bug was killed by an API limit mid-edit. It may have left a PARTIAL change in: frontend/src/components/preview/PreviewPanel.tsx. Before editing, read `git diff` for those files, keep only the hunks that belong to this bug's fix and complete them; never revert hunks that belong to other QA-KB bugs (other bugs share some of these files).
+
+<a id="qa-kb-045"></a>
+
+## QA-KB-045 — resume_run and _replay_clarify_run scan entire durable log instead of using bounded aggregate
+
+- **Page:** n/a (code-level)
+- **Route:** n/a (code-level)
+- **Severity:** Low
+- **Found by:** knowledge-base sweep (open card ISS-639)
+- **Found at:** 2026-10-01 20:50
+- **Reproduction mode:** Static — reproduce by the check below (read/grep/short script). No browser needed.
+
+### Reproduction
+
+1. Inspect backend/agents/execution_engine/engine.py:15682-15683 (resume_run)
+2. Inspect backend/agents/execution_engine/engine.py:16152-16153 (_replay_clarify_run)
+3. Both contain: await tail_store.read_events(run_id, after_seq=0) + max((r.seq for r in existing))+1
+4. Compare to line 13058 which uses: await store._max_event_seq(run_id) + 1
+
+### Expected
+
+Seq seed calls tail_store._max_event_seq(run_id) for bounded aggregate over uq_run_events_scope_seq index
+
+### Actual
+
+Seq seed calls tail_store.read_events(run_id, after_seq=0) which materializes all run_events rows (26k-36k per the card) to derive a single integer
+
+### Notes
+
+Logged from the existing open knowledge card [ISS-639](.knowledge/cards/20260831-1645-ISS-639.md), which already holds the root cause.
+Link that card from the ledger row and update it when this closes; do not mint a duplicate root card.
+Agreed minimal fix (two independent reviewers, static read of the current code): In /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/agents/execution_engine/engine.py, at the two sites (~15682 and ~16152), replace the two lines `existing = await tail_store.read_events(run_id, after_seq=0)` and `start = max((r.seq for r in existing), default=0) + 1` with `start = (await tail_store._max_event_seq(run_id)) + 1`. Leave the surrounding try/except fallback to start=1. Optionally add a test next to backend/tests/agents/test_resume_marker_seq_allocation.py asserting read_events is not called from these two paths.
+
+<a id="qa-kb-046"></a>
+
+## QA-KB-046 — Remove stale xfail marker from test_revision_gating.py
+
+- **Page:** n/a (code-level)
+- **Route:** n/a (code-level)
+- **Severity:** Low
+- **Found by:** knowledge-base sweep (open card ISS-642)
+- **Found at:** 2026-10-01 20:50
+- **Reproduction mode:** Test — reproduce by running the command below; it should fail (or misbehave) as described. No browser needed.
+
+### Reproduction
+
+1. cd /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend
+2. python3 -m pytest tests/unit/agents/test_revision_gating.py::test_declared_revision_with_parent_seeds_after_assert_owns -v
+3. Observe XPASS status (expected to fail but passed)
+4. Remove xfail marker at test_revision_gating.py:186
+5. Re-run test; should show PASSED
+
+### Expected
+
+Test should pass because production now reads .uploads/manifest.json, matching the test's expectations.
+
+### Actual
+
+Test is marked xfail (expected failure), so it shows XPASS when run, causing the suite to fail under strict=True.
+
+### Notes
+
+Logged from the existing open knowledge card [ISS-642](.knowledge/cards/20260831-1842-ISS-642.md), which already holds the root cause.
+Link that card from the ledger row and update it when this closes; do not mint a duplicate root card.
+Agreed minimal fix (two independent reviewers, static read of the current code): In backend/tests/unit/agents/test_revision_gating.py, delete line 186 (`@pytest.mark.xfail(reason="ISS-633 unfixed", strict=True)`). Keep the `@pytest.mark.issue("ISS-633")` marker. Then close ISS-642.
+
+<a id="qa-kb-047"></a>
+
+## QA-KB-047 — docker-compose.prod.yml missing though terraform filemd5 and EC2 bootstrap require it
+
+- **Page:** n/a (code-level)
+- **Route:** n/a (code-level)
+- **Severity:** High
+- **Found by:** knowledge-base sweep 2 (open card ISS-179)
+- **Found at:** 2026-10-02 02:55
+- **Reproduction mode:** Static — reproduce by the check below (read/grep/short script). No browser needed.
+
+### Reproduction
+
+1. From the repo root run: ls docker-compose.prod.yml (No such file).
+2. Read infra/terraform/app/main.tf lines 196-199: aws_s3_object source and filemd5() point at ../../../docker-compose.prod.yml.
+3. Read infra/scripts/bootstrap-ec2.sh lines 633-636 and 1326-1329: the S3 copy and every compose command use the prod override file.
+
+### Expected
+
+docker-compose.prod.yml exists at the repo root so terraform can hash and upload it and bootstrap can run docker compose with the prod override.
+
+### Actual
+
+The file was deleted by 215b911e0 ("removed screenshots") and never restored. Terraform filemd5 fails on the missing file and bootstrap would have no prod override to fetch.
+
+### Notes
+
+Logged from the existing open knowledge card [ISS-179](.knowledge/cards/20260825-1600-ISS-179.md), which already holds the root cause.
+Link that card from the ledger row and update it when this closes; do not mint a duplicate root card.
+Triage fix sketch (static read of the current code, not binding on the analyzer): Restore the file with: git show 215b911e0^:docker-compose.prod.yml > docker-compose.prod.yml (35 lines, repo root). README.md, docker-compose.yml and app.env.example are already back, so they need no change.
+
+<a id="qa-kb-048"></a>
+
+## QA-KB-048 — Saved workflow with removed agents launches the full built-in roster (plan completion overwrites restore)
+
+- **Page:** /workflows/{id}/run
+- **Route:** /workflows/{id}/run
+- **Severity:** High
+- **Found by:** knowledge-base sweep 2 (open card ISS-943)
+- **Found at:** 2026-10-02 02:55
+- **Reproduction mode:** Test — reproduce by running the command below; it should fail as described. No browser needed.
+
+### Reproduction
+
+1. From the repo root, add a component test for LaunchWizard like the card's probe (evidence/qa-kb-011/10-fix-scratch-plan-completion.test.tsx.txt): set sessionStorage prototype.draft with agentIds ["prototype-plan"], mock getWorkflowDetail to return five prototype steps, mount LaunchWizard.
+2. Run it with: cd frontend && npx vitest run <that test file>
+3. Click Continue and read the launch draft agentIds.
+
+### Expected
+
+The launch draft carries the saved roster ["prototype-plan"].
+
+### Actual
+
+The launch draft carries all five ids: prototype-specify, prototype-plan, prototype-analyze, prototype-build, prototype-validate. Both the cold path (library lands after the detail) and the warm path (library preloaded) behave this way.
+
+### Notes
+
+Logged from the existing open knowledge card [ISS-943](.knowledge/cards/20261002-0037-ISS-943.md), which already holds the root cause.
+Link that card from the ledger row and update it when this closes; do not mint a duplicate root card.
+Triage fix sketch (static read of the current code, not binding on the analyzer): In frontend/src/components/workflow/LaunchWizard.tsx add a ref (e.g. savedRosterRef = useRef(false)). Set it to true at :432 when `restored.length > 0` is applied. In the completion effect (:481-495), return prev at the top of the functional updater when savedRosterRef.current is true. Keep the existing length/tree guard for the non-restored case so partial library rosters (ppt_v2) are still completed. Add the card's two cases (cold and warm) as a regression test.
+
+<a id="qa-kb-049"></a>
+
+## QA-KB-049 — Cold-loading /runs/{id}/audit, /files or /steps of a generating run redirects to /stream (Steps tab)
+
+- **Page:** /runs/{id}/audit (also /files, /steps) for a generating run
+- **Route:** /runs/{id}/audit (also /files, /steps) for a generating run
+- **Severity:** Medium
+- **Found by:** knowledge-base sweep 2 (open card BUG-024)
+- **Found at:** 2026-10-02 02:55
+- **Reproduction mode:** Static — reproduce by the check below (read/grep/short script). No browser needed.
+
+### Reproduction
+
+1. Sign in as admin@velocity.ai and start a run that stays in status generating.
+2. Copy its /runs/{id}/audit URL.
+3. Open that URL in a fresh tab (cold load).
+4. The URL becomes /runs/{id}/stream and the Steps tab shows. After the run completes, the same URL stays on Audit.
+
+### Expected
+
+The requested URL and tab survive a cold load while the run is generating. Only a fresh launch lands on /stream.
+
+### Actual
+
+The URL is rewritten to /stream and the Steps tab is forced.
+
+### Notes
+
+Logged from the existing open knowledge card [BUG-024](.knowledge/cards/20260827-BUG-024.md), which already holds the root cause.
+Link that card from the ledger row and update it when this closes; do not mint a duplicate root card.
+Triage fix sketch (static read of the current code, not binding on the analyzer): In frontend/src/components/layout/DashboardLayout.tsx:855, skip the router.push(routes.runStream(incomingRunId)) when window.location.pathname already starts with /runs/{incomingRunId}/ (or use usePathname). A fresh launch, where the path is not yet a run URL, still pushes /stream. Then check that page.tsx's T11 effect (about 3567-3750) still attaches the stream only on the /stream screen, and add a source test beside the existing *.source.test.ts files.
+
+<a id="qa-kb-050"></a>
+
+## QA-KB-050 — Library-added agents on /workflows/new get an invisible disabled Remove though most are not core
+
+- **Page:** /workflows/new
+- **Route:** /workflows/new
+- **Severity:** Medium
+- **Found by:** knowledge-base sweep 2 (open card BUG-025)
+- **Found at:** 2026-10-02 02:55
+- **Reproduction mode:** Static — reproduce by the check below (read/grep/short script). No browser needed.
+
+### Reproduction
+
+1. Read frontend/src/components/workflow/composer/ComposerPage.tsx:1430 and :1629: pipelineType is passed from the shared workflowType prop (DashboardLayout.tsx:3214).
+2. Read AgentsPopup.tsx:210-225: with a stale non-custom workflowType (e.g. user_stories) and a library agent such as epic-architect, getRole returns required.
+3. Read CanvasNode.tsx:478-480 and :638-644: required gives no Core badge (badge needs locked) and removable is false, so Remove is disabled with disabled:opacity-0 (invisible).
+
+### Expected
+
+On /workflows/new (a custom composition) every library-added agent is removable, and the Remove control only locks, visibly, for agents that are really core in the canvas's own pipeline (e.g. /workflows/ppt/canvas). The lock and the Core badge agree.
+
+### Actual
+
+Added agents show a disabled, invisible Remove titled "Core agents can't be removed", though only one shows a Core badge. The author cannot remove them without reloading and losing the canvas.
+
+### Notes
+
+Logged from the existing open knowledge card [BUG-025](.knowledge/cards/20260827-BUG-025.md), which already holds the root cause.
+Link that card from the ledger row and update it when this closes; do not mint a duplicate root card.
+Triage fix sketch (static read of the current code, not binding on the analyzer): 1) ComposerPage.tsx:1430, :1629 and :669/:672: replace workflowType with a derived canvasPipelineType = (builtinCanvasType as WorkflowType) ?? "custom" for getRole and the pipelineType props, so getRole returns optional for custom compositions and the real type for built-in canvases. 2) CanvasNode.tsx:478-480 and AgentRow.tsx:84-86: make the badge and the Remove lock read the same predicate (role !== "optional" shows Core and locks), keeping the guard. 3) CanvasNode.tsx:644 and AgentRow.tsx:200: swap disabled:opacity-0 for a greyed state (e.g. disabled:opacity-40) so the title is reachable. Update CanvasNode/ComposerPage tests accordingly.
+
+<a id="qa-kb-051"></a>
+
+## QA-KB-051 — Knowledge rebuild crashes under python3 3.9: write_text(newline=) in build_context leaves .knowledge half-applied
+
+- **Page:** n/a (code-level)
+- **Route:** n/a (code-level)
+- **Severity:** Medium
+- **Found by:** knowledge-base sweep 2 (open card BUG-127)
+- **Found at:** 2026-10-02 02:55
+- **Reproduction mode:** Test — reproduce by running the command below; it should fail as described. No browser needed.
+
+### Reproduction
+
+1. From the repo root run: /usr/bin/python3 tools/knowledge/rebuild_knowledge.py --skip-architecture
+2. The index stage rewrites INDEX.md and state.yaml.
+3. The context stage then raises TypeError: write_text() got an unexpected keyword argument 'newline'.
+4. CONTEXT.md is left stale and the validate stage is never reached.
+
+### Expected
+
+The rebuild completes under the interpreter the docs name (bare python3), or fails without leaving state.yaml and INDEX.md advanced ahead of CONTEXT.md.
+
+### Actual
+
+The context stage dies with a TypeError after index has already written INDEX.md and state.yaml. CONTEXT.md is stale and validate is skipped.
+
+### Notes
+
+Logged from the existing open knowledge card [BUG-127](.knowledge/cards/20260918-BUG-127.md), which already holds the root cause.
+Link that card from the ledger row and update it when this closes; do not mint a duplicate root card.
+Triage fix sketch (static read of the current code, not binding on the analyzer): 1) tools/knowledge/build_context.py:431: drop newline='\n' so the call is OUT_PATH.write_text(body, encoding='utf-8'). POSIX text mode already writes '\n'. 2) Optionally make the ordering survivable in tools/knowledge/rebuild_knowledge.py (run_stage around :82, _run around :165): snapshot INDEX.md and state.yaml before the index stage and restore them if context or validate fails.
+
+<a id="qa-kb-052"></a>
+
+## QA-KB-052 — /create/app Input panel is fully interactive for a tier without app_builder; no lock state
+
+- **Page:** /create/app
+- **Route:** /create/app
+- **Severity:** Medium
+- **Found by:** knowledge-base sweep 2 (open card ISS-472)
+- **Found at:** 2026-10-02 02:55
+- **Reproduction mode:** Browser — reproduce from the URL below.
+
+### Reproduction
+
+1. Open http://localhost:3000 and sign in as admin@velocity.ai (or a basic-tier account such as qa-basic@flowinqa.com if admin has a higher tier)
+2. Navigate directly to http://localhost:3000/create/app (same for /create/user-stories)
+3. Observe the brief textarea, agent picker and Run button are enabled with no lock or upgrade indication
+4. Type a brief and click Run; only the backend 403 from _require_tier_entitlement rejects it
+
+### Expected
+
+A tier lacking the pipeline sees the same locked/upgrade state the dashboard catalog card shows, and Run is blocked client-side.
+
+### Actual
+
+IdeaInputPage renders ungated for an unentitled pipeline type; only the backend rejects the run after the user composes a brief.
+
+### Notes
+
+Logged from the existing open knowledge card [ISS-472](.knowledge/cards/20260829-0110-ISS-472.md), which already holds the root cause.
+Link that card from the ledger row and update it when this closes; do not mint a duplicate root card.
+Triage fix sketch (static read of the current code, not binding on the analyzer): Mirror LaunchWizard.tsx:905-911. In DashboardLayout.tsx:3159 pass userTier={userTier} to IdeaInputPage. In IdeaInputPage.tsx accept userTier, compute locked = !canRunPipeline(userTier, workflowType) and getUpgradeTier(userTier, workflowType) (import from @/lib/entitlements), then disable Run and show the same upgrade banner LaunchWizard shows when locked. Optionally add a vitest case for IdeaInputPage locked state.
+
+<a id="qa-kb-053"></a>
+
+## QA-KB-053 — Files tab names/sizes/downloads a pinned version's deliverable from the live tree, not its ref
+
+- **Page:** /runs/{id}/versions/1 (Files tab)
+- **Route:** /runs/{id}/versions/1 (Files tab)
+- **Severity:** Medium
+- **Found by:** knowledge-base sweep 2 (open card ISS-665)
+- **Found at:** 2026-10-02 02:55
+- **Reproduction mode:** Test — reproduce by running the command below; it should fail as described. No browser needed.
+
+### Reproduction
+
+1. From repo root: cd frontend && npx vitest run src/lib/api.resolveRunDeliverableRef.test.ts
+2. The it.fails case passes only because resolveRunDeliverable takes no 4th ref argument and requests /sandbox without ref=v1.
+3. Static: grep resolveRunDeliverable in frontend/src/components/results/FilesTab.tsx (lines 535 and 563) and see no ref is passed.
+
+### Expected
+
+With an older family member pinned, the Files tab row (and the From v{n-1} section) takes name and size from that version's own ref snapshot, and Download serves bytes at that ref.
+
+### Actual
+
+The row is named and sized from the live tree, and Download returns live bytes under the older version's label.
+
+### Notes
+
+Logged from the existing open knowledge card [ISS-665](.knowledge/cards/20260917-1311-ISS-665.md), which already holds the root cause.
+Link that card from the ledger row and update it when this closes; do not mint a duplicate root card.
+Triage fix sketch (static read of the current code, not binding on the analyzer): 1) api.ts:1606 add optional ref?: string param and use getRunSandbox(token, runId, ref) at :1621. 2) FilesTab.tsx: add a selectedRef prop; pass it at the :563 call with effect deps [runId, isRunning, selectedRef]; add ref to the workspace descriptor (:168, :486) and pass it to getRunSandboxFileBlob at :740. For the :535 base-version call, resolve the parent's own ref if known, else leave live. 3) PreviewPanel.tsx:1922 pass selectedRef={sandboxSelectedRef}; also pass it at :1437 (ISS-677 overlap). 4) Remove it.fails in api.resolveRunDeliverableRef.test.ts and update FilesTab.workspaceFilename.test.tsx mock signature.
+
+<a id="qa-kb-054"></a>
+
+## QA-KB-054 — Launch 400s "Invalid agent_ids" when a custom-agent file workflow's roster is sent as agent_ids
+
+- **Page:** POST launch_run (file-pipeline launch of custom-agent workflows such as prototype_v2)
+- **Route:** POST launch_run (file-pipeline launch of custom-agent workflows such as prototype_v2)
+- **Severity:** Medium
+- **Found by:** knowledge-base sweep 2 (open card ISS-687)
+- **Found at:** 2026-10-02 02:55
+- **Reproduction mode:** Static — reproduce by the check below (read/grep/short script). No browser needed.
+
+### Reproduction
+
+1. Read backend/app/api/run_commands.py:3520-3550 and backend/agents/registry.py allowed_custom_agent_ids: the allowed ids come from AGENT.md frontmatter only.
+2. Run: grep -rln 'agent: custom-agent' backend/agents/workflows/*/workflow.yaml. It lists 14 of the 36 file workflows, and their compiled ids are custom-agent:<instance_id> with no AGENT.md.
+3. Read frontend/src/app/[...view]/page.tsx:536 and :2530. Both forward the unfiltered roster as agentIds, so a prototype_v2 launch with those ids is rejected with invalid_agent_ids.
+
+### Expected
+
+A file workflow launch whose agent_ids are only compiled custom-agent:* ids succeeds, using the compiled plan as the roster.
+
+### Actual
+
+The launch returns 400 invalid_agent_ids for every sender except LaunchWizard, which filters the ids client-side.
+
+### Notes
+
+Logged from the existing open knowledge card [ISS-687](.knowledge/cards/20260918-ISS-687.md), which already holds the root cause.
+Link that card from the ledger row and update it when this closes; do not mint a duplicate root card.
+Triage fix sketch (static read of the current code, not binding on the analyzer): In backend/app/api/run_commands.py at about line 3520, when launch_source is FILE_PIPELINE only, drop ids starting with CUSTOM_AGENT_PREFIX from agent_ids before the allow-list check. If the list is then empty, set agent_ids to None so the existing else branch compiles the plan. Do not touch allowed_custom_agent_ids (KAN-75). Do not strip for USER_WORKFLOW_FLAT, because the ISS-182 stale-override error there is intentional. Optionally add a backend test that launches prototype_v2 with custom-agent:fi-planner in agent_ids.
+
+<a id="qa-kb-055"></a>
+
+## QA-KB-055 — Another family's finished revision hijacks the run-detail screen you are viewing
+
+- **Page:** /runs/[id] (run detail, app/[...view]/page.tsx)
+- **Route:** /runs/[id] (run detail, app/[...view]/page.tsx)
+- **Severity:** Medium
+- **Found by:** knowledge-base sweep 2 (open card ISS-745)
+- **Found at:** 2026-10-02 02:55
+- **Reproduction mode:** Static — reproduce by the check below (read/grep/short script). No browser needed.
+
+### Reproduction
+
+1. Read frontend/src/app/[...view]/page.tsx:1605-1629.
+2. Note isRevisionCompletion tests only the pipeline_type suffix and the OR at :1629 bypasses isForeignCompletion.
+3. Scenario: in one tab launch a *_revision on family A, open family B's run detail, let A's revision complete; setContentSourceRunId(A's run id) fires and DashboardLayout refetches family A.
+
+### Expected
+
+A *_revision completion advances contentSourceRunId only when the completing run belongs to the family currently viewed; otherwise it is treated as a background completion (setBackgroundCompletedRunId) and the screen is untouched.
+
+### Actual
+
+Any tracked *_revision completion, from any family, calls setContentSourceRunId, switching the viewed screen to the other family's content.
+
+### Notes
+
+Logged from the existing open knowledge card [ISS-745](.knowledge/cards/20260922-1400-ISS-745.md), which already holds the root cause.
+Link that card from the ledger row and update it when this closes; do not mint a duplicate root card.
+Triage fix sketch (static read of the current code, not binding on the analyzer): page.tsx:1617-1629. Make isRevisionCompletion require lineage. Either carry parent_run_id on the pipeline_complete data (engine.py, where pipeline_run_id is emitted; the family-root walk is near engine.py:1008), or record revisionParent[newRunId]=trackedRunIdRef.current at revision launch. Then set isRevisionCompletion = suffix match AND completing run's parent equals trackedRunIdRef.current (or shares its family root). Non-matching revision completions fall through to the setBackgroundCompletedRunId branch at :1625. Add a frontend test with two families' run ids.
+
+<a id="qa-kb-056"></a>
+
+## QA-KB-056 — Materialized streamed_text payload keeps artifact wrapper/preamble the Preview strips
+
+- **Page:** n/a (code-level)
+- **Route:** n/a (code-level)
+- **Severity:** Medium
+- **Found by:** knowledge-base sweep 2 (open card ISS-791)
+- **Found at:** 2026-10-02 02:55
+- **Reproduction mode:** Test — reproduce by running the command below; it should fail as described. No browser needed.
+
+### Reproduction
+
+1. From backend/, build an ectx stub with last_streamed='Thinking...\n<artifact><!DOCTYPE html><html></html></artifact>' and a streamed_text deliverable with a nominal output name.
+2. Call build_flat_payload (engine.py ~1337-1650) from a short script, or add a case to backend/tests/unit/agents/test_deliverable_resolvers.py and run: cd backend && python -m pytest tests/unit/agents/test_deliverable_resolvers.py
+3. Compare the materialized file bytes with StreamedTextResolver().resolve(ectx).
+
+### Expected
+
+The materialized payload file equals the resolver output: no artifact wrapper and no pre-document prose.
+
+### Actual
+
+The payload file holds the raw last_streamed bytes, including the wrapper and preamble. Git versioning and the chain admission gate ingest those bytes.
+
+### Notes
+
+Logged from the existing open knowledge card [ISS-791](.knowledge/cards/20260922-1823-ISS-791.md), which already holds the root cause.
+Link that card from the ledger row and update it when this closes; do not mint a duplicate root card.
+Triage fix sketch (static read of the current code, not binding on the analyzer): backend/agents/execution_engine/engine.py:1489-1491: replace the raw assignment with the resolver output, e.g. `_resolved = _CAPABILITY_REGISTRY.resolve("deliverable", "streamed_text").resolve(ectx)`, then `if _resolved: _streamed_text = _resolved` (this also covers coerce_to_declared_format). Minimal alternative: `_streamed_text = strip_pre_document_prose(unwrap_artifact(_raw_streamed))` using the same imports the ppt block uses at ~1516. Add a regression test with a wrapped and prefixed last_streamed. Then run the single test files that touch build_flat_payload (tests/agents/test_nameless_deliverable_v3.py, tests/agents/test_finalizer_v2.py) to check that none pins the raw bytes.
+
+<a id="qa-kb-057"></a>
+
+## QA-KB-057 — Duplicate-context guard API tests fail 8/8: missing principal override, then stale source run seed
+
+- **Page:** n/a (code-level)
+- **Route:** n/a (code-level)
+- **Severity:** Medium
+- **Found by:** knowledge-base sweep 2 (open card ISS-905)
+- **Found at:** 2026-10-02 02:55
+- **Reproduction mode:** Test — reproduce by running the command below; it should fail as described. No browser needed.
+
+### Reproduction
+
+1. From the repo root, run: cd backend && python -m pytest tests/integration/api/test_duplicate_context_guard_api.py -x -q
+2. Observe 401 {"detail":"Not authenticated"} on every test (8 failed).
+3. With the principal override added, 6 tests then fail with 422 source_payload_missing.
+
+### Expected
+
+All 8 tests pass and guard the legacy_context_block_stripped behaviour in _launch_run_core.
+
+### Actual
+
+All 8 tests fail with 401. After the principal override is added, 6 of them fail with 422 source_payload_missing because the source run has no committed .chain payload.
+
+### Notes
+
+Logged from the existing open knowledge card [ISS-905](.knowledge/cards/20261001-2149-ISS-905.md), which already holds the root cause.
+Link that card from the ledger row and update it when this closes; do not mint a duplicate root card.
+Triage fix sketch (static read of the current code, not binding on the analyzer): 1) In backend/tests/integration/api/test_duplicate_context_guard_api.py near line 101, import get_current_principal and tests.fakes.principal.principal_for, and add app.dependency_overrides[get_current_principal] = lambda: (state['user'], principal_for(state['user'])), mirroring test_rest_run_launch_api.py:115-130. 2) Rewrite _seed_source_run (lines 133-152) to build a finalized v2 source: a sandbox with the flat .chain/ payload committed, a tag or internal ref, and the finalization record the selector reads at run_commands.py:4930-4995. Reuse the helpers in backend/tests/agents/test_chain_exact_ref.py or test_finalizer_v2.py. Do not relax the 422 or the principal dependency. 3) Update the comment at frontend/e2e/tests/ts-v2-chain-versioning.spec.ts:8 to the new path backend/tests/integration/api/test_duplicate_context_guard_api.py.
+
+<a id="qa-kb-058"></a>
+
+## QA-KB-058 — Launch wizard Back silently discards typed brief, template/design-system picks and attachments
+
+- **Page:** /create/prototype
+- **Route:** /create/prototype
+- **Severity:** Medium
+- **Found by:** knowledge-base sweep 2 (open card ISS-917)
+- **Found at:** 2026-10-02 02:55
+- **Reproduction mode:** Browser — reproduce from the URL below.
+
+### Reproduction
+
+1. Open http://localhost:3000/create/prototype and sign in as admin@velocity.ai.
+2. Type text in the brief field and pick a template or design system.
+3. Click the header Back button ([aria-label="Back to dashboard"]).
+4. Observe immediate navigation with no [role=dialog].
+5. Reopen /create/prototype and see the brief and picks are gone.
+
+### Expected
+
+With unsaved input, Back opens the in-app "Leave without saving?" dialog with Stay and Leave anyway. No native confirm() (S-19-17 bans it). Launch never prompts.
+
+### Actual
+
+Back navigates away at once and all typed input is lost.
+
+### Notes
+
+Logged from the existing open knowledge card [ISS-917](.knowledge/cards/20261001-2220-ISS-917.md), which already holds the root cause.
+Link that card from the ledger row and update it when this closes; do not mint a duplicate root card.
+Triage fix sketch (static read of the current code, not binding on the analyzer): 1) Extract the dialog markup from DashboardLayout.tsx:3478-3517 into a small shared component and use it in both places. 2) In LaunchWizard.tsx add a user-has-edited latch ref set in the user-driven handlers for brief, template, design system, attachments and discovery answers; do not diff against a mount snapshot because the draft restore (:405-438), library re-seed (:460-465) and plan merge (:472-486) rewrite state without user action. 3) At the Back onClick (:1078), if the latch is set open the dialog and call goBackOr only on Leave anyway; leave handleLaunch (:985/:1038) unguarded. 4) Add an e2e in suite 03_launch_panels modelled on test_iss786_launch_wizard_back_loop.py using L.BACK_TO_DASHBOARD.
+
+<a id="qa-kb-059"></a>
+
+## QA-KB-059 — Save as my version enabled while override fetch is pending, overwriting override with library roster
+
+- **Page:** /create/user_stories
+- **Route:** /create/user_stories
+- **Severity:** Medium
+- **Found by:** knowledge-base sweep 2 (open card ISS-919)
+- **Found at:** 2026-10-02 02:55
+- **Reproduction mode:** Test — reproduce by running the command below; it should fail as described. No browser needed.
+
+### Reproduction
+
+1. Add a vitest to frontend/src/components/workflow/IdeaInputPage.declaredCapabilities.test.tsx: mock getWorkflowDetail with a never-resolving deferred, preload library agents, render IdeaInputPage for user_stories.
+2. Assert the 'Save as my version' and 'Save workflow' buttons are disabled while the deferred is pending.
+3. Run from repo root: cd frontend && npx vitest run src/components/workflow/IdeaInputPage.declaredCapabilities.test.tsx
+4. Today the assertion fails: both buttons are enabled because pipelineAgents holds the library roster.
+
+### Expected
+
+Both Save buttons stay disabled until getWorkflowDetail has settled, so only a roster the user has seen can be saved.
+
+### Actual
+
+Both buttons enable as soon as the library roster fills pipelineAgents. Clicking Save as my version POSTs overrides_pipeline_type plus the system roster, and the server replaces the user's real override row.
+
+### Notes
+
+Logged from the existing open knowledge card [ISS-919](.knowledge/cards/20261001-2221-ISS-919.md), which already holds the root cause.
+Link that card from the ledger row and update it when this closes; do not mint a duplicate root card.
+Triage fix sketch (static read of the current code, not binding on the analyzer): In IdeaInputPage.tsx add a detailSettled state (false initially, reset on workflowId change), set true in the getWorkflowDetail .then at ~:1159 (success only, not .finally, since the .catch degrades to an empty declaration); also true when there is no jwt or no workflowId. Add !detailSettled to the disabled expressions at :1983 (Save workflow, not-loading) and :1998 (Save as my version, success only), keeping the existing length===0 and migration terms.
+
+<a id="qa-kb-060"></a>
+
+## QA-KB-060 — Transient GET failure on /workflows/{id}/edit leaves Save workflow creating a new row instead of updating
+
+- **Page:** /workflows/{id}/edit
+- **Route:** /workflows/{id}/edit
+- **Severity:** Medium
+- **Found by:** knowledge-base sweep 2 (open card ISS-923)
+- **Found at:** 2026-10-02 02:55
+- **Reproduction mode:** Static — reproduce by the check below (read/grep/short script). No browser needed.
+
+### Reproduction
+
+1. Sign in as admin@velocity.ai.
+2. Abort GET /api/user-workflows/<id> with page.route (a 5xx or a network failure, not 401/403/404).
+3. Open /workflows/<existing-id>/edit.
+4. Type a name and add one agent.
+5. Click Save workflow and watch for POST /api/user-workflows instead of a PATCH.
+
+### Expected
+
+The load failure is shown (error or retry), or Save is unavailable until the row has loaded. Save never creates a different row than the one being edited.
+
+### Actual
+
+The composer mounts blank in create mode and Save workflow POSTs a new workflow. It returns 201 when the name differs from the saved one and at least one agent is added.
+
+### Notes
+
+Logged from the existing open knowledge card [ISS-923](.knowledge/cards/20261001-2223-ISS-923.md), which already holds the root cause.
+Link that card from the ledger row and update it when this closes; do not mint a duplicate root card.
+Triage fix sketch (static read of the current code, not binding on the analyzer): 1) page.tsx near :3790-3828: add a workflowEditSeed state of "idle", "loading", "ready" or "failed" for /edit routes. Set "ready" only in the .then, and "failed" in the catch for any non-401 error, never in a .finally. 2) DashboardLayout.tsx: forward it to ComposerPage as a prop (for example seedPending / seedFailed) next to initialUserWorkflowId at :3251. 3) ComposerPage.tsx: when the prop is set, disable the Save workflow button (around :1387) and guard handleSave (:919). Show a "failed to load, reload" banner like IdeaInputPage's loadError.
+
+<a id="qa-kb-061"></a>
+
+## QA-KB-061 — Revision launched via REST with source_workflow_run_id gets no parent_run_id (admission gate zeroes source)
+
+- **Page:** POST /api/runs/launch (pipeline_type ending _revision, with source_workflow_run_id)
+- **Route:** POST /api/runs/launch (pipeline_type ending _revision, with source_workflow_run_id)
+- **Severity:** Medium
+- **Found by:** knowledge-base sweep 2 (open card ISS-949)
+- **Found at:** 2026-10-02 02:55
+- **Reproduction mode:** Test — reproduce by running the command below; it should fail as described. No browser needed.
+
+### Reproduction
+
+1. From repo root run: cd backend && DATABASE_URL=sqlite:///:memory: .venv/bin/python -m pytest tests/integration/api/test_rest_run_launch_api.py -k test_owned_source_links_the_child
+2. Observe assert None == parent id on child.parent_run_id
+3. Static cause: run_commands.py:3855 uses the admission source_id, which is None for workflows without chains_from (5293-5297)
+
+### Expected
+
+A user_stories_revision launch with an owned source_workflow_run_id creates a child whose parent_run_id equals the source run id.
+
+### Actual
+
+parent_run_id is None, because the declaration gate zeroes the source id before _launch_run_core resolves the revision parent.
+
+### Notes
+
+Logged from the existing open knowledge card [ISS-949](.knowledge/cards/20261002-0107-ISS-949.md), which already holds the root cause.
+Link that card from the ledger row and update it when this closes; do not mint a duplicate root card.
+Triage fix sketch (static read of the current code, not binding on the analyzer): In backend/app/api/run_commands.py:3033-3037, resolve the revision parent from (request_source_workflow_run_id or source_workflow_run_id) via _resolve_owned_parent_run_id, so revision pipelines keep the owner-checked link even when the chain gate zeroes the source. Leave source_run_id and chain behaviour untouched. Separately, update the stale tests: expect 404 for foreign/unknown sources on chains_from workflows, and add agent_id to the driver-test events in test_rest_run_launch_api.py (about lines 543-660 and 907-972) and test_rest_revisions_api.py::test_driver_happy_path_persists_output_columns.
+
+<a id="qa-kb-062"></a>
+
+## QA-KB-062 — Stale chain.brief overrides the brief a caller staged in ppt.draft/prototype.draft in LaunchWizard
+
+- **Page:** n/a (code-level)
+- **Route:** n/a (code-level)
+- **Severity:** Low
+- **Found by:** knowledge-base sweep 2 (open card ISS-347)
+- **Found at:** 2026-10-02 02:55
+- **Reproduction mode:** Static — reproduce by the check below (read/grep/short script). No browser needed.
+
+### Reproduction
+
+1. Read frontend/src/components/workflow/LaunchWizard.tsx:404-414 and confirm the early return after chain.brief.
+2. Read DashboardLayout.tsx:2393, :1685 and :1712 and confirm they stage a draft without clearing chain.* keys.
+3. Scenario, not reproduced live: leave chain.brief set from an abandoned chain push, then use Edit brief and run again; the wizard shows the chained brief and the Continuing-from banner.
+
+### Expected
+
+A brief staged by the caller (ppt.draft or prototype.draft) wins; a chain hand-off applies only to the navigation that wrote it.
+
+### Actual
+
+An unconsumed chain.brief wins over the staged draft, and a stale chain.context_block is appended to the next unrelated run.
+
+### Notes
+
+Logged from the existing open knowledge card [ISS-347](.knowledge/cards/20260828-2058-ISS-347.md), which already holds the root cause.
+Link that card from the ledger row and update it when this closes; do not mint a duplicate root card.
+Triage fix sketch (static read of the current code, not binding on the analyzer): In LaunchWizard.tsx:404-414, read the mode's draft key first. If a draft exists, ignore chain.brief and remove chain.brief, chain.from, chain.context_block and chain.source_run_id so no stale chain state rides into the run. Fall back to chain.brief only when no draft exists. Add a LaunchWizard.test.tsx case with both chain.brief and a draft set, asserting the draft brief wins.
+
+<a id="qa-kb-063"></a>
+
+## QA-KB-063 — E2E clarify specs assert round-less "Clarifications answered"; S-23-45 skips, S-18-08 will fail
+
+- **Page:** n/a (code-level)
+- **Route:** n/a (code-level)
+- **Severity:** Low
+- **Found by:** knowledge-base sweep 2 (open card ISS-662)
+- **Found at:** 2026-10-02 02:55
+- **Reproduction mode:** Static — reproduce by the check below (read/grep/short script). No browser needed.
+
+### Reproduction
+
+1. grep -n 'Clarifications' tests/integration/e2e/suites/23_controls_inventory/test_controls_inventory.py tests/integration/e2e/suites/18_chat_lane/test_chat_lane.py tests/integration/screens/18-chat-lane.feature.md
+2. sed -n 160,175p backend/app/agents/chat_narrator.py to see the numbered text now emitted
+
+### Expected
+
+E2E probes match the numbered text ("Clarifications round N answered"), so S-23-45 asserts instead of skipping and S-18-08 checks distinct numbered round cards.
+
+### Actual
+
+Probes search the exact old string "Clarifications answered". On post-fix runs S-23-45 skips, and the S-18-08 D-21 guard fails with "D-21 is fixed; rewrite this".
+
+### Notes
+
+Logged from the existing open knowledge card [ISS-662](.knowledge/cards/20260917-1307-ISS-662.md), which already holds the root cause.
+Link that card from the ledger row and update it when this closes; do not mint a duplicate root card.
+Triage fix sketch (static read of the current code, not binding on the analyzer): 1) test_controls_inventory.py:643-645: match regex r"Clarifications( round \d+)? answered" against body. 2) test_chat_lane.py:34 and :295-304: rewrite S-18-08 to assert one numbered "Clarifications round N answered" and one "Round N: Before I build..." card per round, with distinct text and ids (drop the "repeats" assertion). 3) 18-chat-lane.feature.md:59 and :212-223: update the Gherkin to say each round shows a distinct numbered card.
+
+<a id="qa-kb-064"></a>
+
+## QA-KB-064 — API-built RunSandbox assumes has_git=True without a real .git, so restore can raise CalledProcessError
+
+- **Page:** n/a (code-level)
+- **Route:** n/a (code-level)
+- **Severity:** Low
+- **Found by:** knowledge-base sweep 2 (open card ISS-678)
+- **Found at:** 2026-10-02 02:55
+- **Reproduction mode:** Static — reproduce by the check below (read/grep/short script). No browser needed.
+
+### Reproduction
+
+1. Read backend/app/agents/sandbox.py:564 and :614: has_git defaults to True and is stored as-is.
+2. Grep 'RunSandbox(' in backend/app/api/: none of the construction sites pass has_git.
+3. Read backend/app/api/runs.py:2511: the restore endpoint builds the sandbox this way, then calls commit_all. On a sandbox directory with no .git, git add -A fails.
+
+### Expected
+
+A sandbox with no .git has has_git=False. Git delegations return their documented non-git results, and restore takes the 'not a git repo' branch instead of raising.
+
+### Actual
+
+The sandbox claims has_git=True. Git subprocesses are spawned that cannot succeed (FIX-522's ceiling makes them fail closed), and commit_all raises a raw CalledProcessError.
+
+### Notes
+
+Logged from the existing open knowledge card [ISS-678](.knowledge/cards/20260917-1449-ISS-678.md), which already holds the root cause.
+Link that card from the ledger row and update it when this closes; do not mint a duplicate root card.
+Triage fix sketch (static read of the current code, not binding on the analyzer): Do not change the constructor default, because the engine builds sandboxes before git_init_sandbox. Instead, at the API-only construction sites (backend/app/api/run_files.py:280,353,431,905,940,1043,1155; backend/app/api/run_figma_export.py:735; backend/app/api/runs.py:2511), set sandbox.has_git = (sandbox.root / ".git").is_dir() right after construction. A small helper or classmethod such as RunSandbox.for_existing(...) in backend/app/agents/sandbox.py, used by those sites, avoids repeating it. Then add one test file that builds a sandbox over a temp dir with no .git, asserts has_git is False and commit_all returns "".
+
+<a id="qa-kb-065"></a>
+
+## QA-KB-065 — Unhandled mechanical kind falls through to single_shot and bills a model on an empty prompt
+
+- **Page:** n/a (code-level)
+- **Route:** n/a (code-level)
+- **Severity:** Low
+- **Found by:** knowledge-base sweep 2 (open card ISS-684)
+- **Found at:** 2026-10-02 02:55
+- **Reproduction mode:** Static — reproduce by the check below (read/grep/short script). No browser needed.
+
+### Reproduction
+
+1. Open backend/agents/execution_engine/engine.py:6446-6498 and read the if/elif chain over step.mechanical.
+2. Note the final else at line 6498 resolves strategy_name (default single_shot) with no check on step.mechanical.
+3. Compare with compiler._ALLOWED_MECHANICAL_KINDS (compiler.py:206-207). A new kind added there has no engine branch and runs as a model step.
+
+### Expected
+
+A step whose mechanical kind has no engine dispatch branch fails with an error naming the kind. A test fails when a registered or compiler-allowed mechanical kind lacks an engine branch.
+
+### Actual
+
+The step silently runs the single_shot model strategy on an empty prompt and bills tokens. No test covers engine parity.
+
+### Notes
+
+Logged from the existing open knowledge card [ISS-684](.knowledge/cards/20260918-ISS-684.md), which already holds the root cause.
+Link that card from the ledger row and update it when this closes; do not mint a duplicate root card.
+Triage fix sketch (static read of the current code, not binding on the analyzer): 1) In engine.py, change the else at line 6497-6498 to: `elif getattr(step, "mechanical", None): raise ValueError(f"mechanical kind {step.mechanical!r} has no engine dispatch branch")`, followed by `else: strategy = _registry.resolve("strategy", strategy_name)`. Make sure the raise is handled as a single pipeline failure, as the AssembleStepFailed handling is. 2) Add a test, for example in backend/tests/unit/agents/execution_engine/test_compiler.py next to line 576, that parses the engine.py source, collects the `== "<kind>"` literals from the mechanical chain, and asserts they equal compiler._ALLOWED_MECHANICAL_KINDS. Alternative: replace the chain with a dict of kind to adapter class and test the dict keys against _ALLOWED_MECHANICAL_KINDS.
+
+<a id="qa-kb-066"></a>
+
+## QA-KB-066 — Steps/Files clarify rounds stay on the page run's rounds after pinning a different version
+
+- **Page:** n/a (code-level)
+- **Route:** n/a (code-level)
+- **Severity:** Low
+- **Found by:** knowledge-base sweep 2 (open card ISS-755)
+- **Found at:** 2026-10-02 02:55
+- **Reproduction mode:** Static — reproduce by the check below (read/grep/short script). No browser needed.
+
+### Reproduction
+
+1. Read frontend/src/components/preview/PreviewPanel.tsx:1075 and :1958 (effPipelineState is version-aware).
+2. Read :1922 and :1966, which use the raw pipelineState?.clarifications.
+3. Pin an older version of a run whose page-level pipelineState.clarifications is non-empty: the Steps clarify card still shows the page run's rounds.
+
+### Expected
+
+When a version is pinned, the Steps and Files clarify rounds follow that version (its own rounds, or none).
+
+### Actual
+
+The raw top-level pipelineState.clarifications shadows the version-aware state, so the page run's rounds show under the pinned version.
+
+### Notes
+
+Logged from the existing open knowledge card [ISS-755](.knowledge/cards/20260922-1415-ISS-755.md), which already holds the root cause.
+Link that card from the ledger row and update it when this closes; do not mint a duplicate root card.
+Triage fix sketch (static read of the current code, not binding on the analyzer): In PreviewPanel.tsx:1922 and :1966, change `clarifications ?? pipelineState?.clarifications` to `clarifications ?? effPipelineState?.clarifications`. That yields none for a pinned version unless VersionView later carries its own clarifications. Optionally add `clarifications` to VersionView and versionViewFrom (about :573-650) and use `viewingVersion?.clarifications ?? ...`. Add a case to the PreviewPanel tests, which already exist for refSurfaces.
+
+<a id="qa-kb-067"></a>
+
+## QA-KB-067 — History click on a completed run runs the whole reopen twice (run, events and family fetched twice)
+
+- **Page:** /runs/{id}
+- **Route:** /runs/{id}
+- **Severity:** Low
+- **Found by:** knowledge-base sweep 2 (open card ISS-840)
+- **Found at:** 2026-10-02 02:55
+- **Reproduction mode:** Static — reproduce by the check below (read/grep/short script). No browser needed.
+
+### Reproduction
+
+1. Read frontend/src/app/[...view]/page.tsx:3469-3483: the effect guard compares against trackedRunIdRef.current.
+2. Read frontend/src/components/layout/DashboardLayout.tsx:2836-2839: the History click calls onSelectWorkflowRun(run) and then router.push(routes.runStream(run.id)).
+3. Note the push remounts page.tsx (the comment at page.tsx:3480-3488 says so), so trackedRunIdRef is null and the deep-link effect re-invokes handleSelectWorkflowRun({ id: runId }).
+4. Check that a completed run is not in runConnection.liveRunIds, so the guard misses and the whole reopen runs a second time.
+
+### Expected
+
+One reopen per history click: one GET /api/runs/{id}, one events replay, and one family fetch per call site.
+
+### Actual
+
+Every history click on a completed run runs handleSelectWorkflowRun twice, so /api/runs/{id} and events are fetched 2x and /family 4x.
+
+### Notes
+
+Logged from the existing open knowledge card [ISS-840](.knowledge/cards/20260922-2030-ISS-840.md), which already holds the root cause.
+Link that card from the ledger row and update it when this closes; do not mint a duplicate root card.
+Triage fix sketch (static read of the current code, not binding on the analyzer): In page.tsx, add a module-scope `let reopenClaimRunId: string | null` next to switchGeneration (about :96-121). Set it to run.id at the top of handleSelectWorkflowRun (about :2915), where beginSwitchGeneration(run.id) is called. In the deep-link effect (about :3469), after the liveRunIds branch and before the `handleSelectWorkflowRun({ id: runId })` call at about :3552, check `if (reopenClaimRunId === runId)`. If it matches, clear it, apply the tab via runTabDeepLink.requestOpenTab as the existing early-return branch does, and return. Clear the claim on a different run's claim so a stale marker cannot suppress a later cold open. Add a source test beside page.qaSg004.test.tsx.
+
+### Verify note (2026-10-07, validate-bugs after FIX-753)
+
+The completion-toast path for a CACHED run is not covered by the fix. In DashboardLayout.tsx (`CompletionToast` `onViewResults`, about line 3462), the cached branch still calls `onSelectWorkflowRun(completedRun)` and then `router.push(routes.runStream(id))`, so the remounted page's T11 effect opens the run a second time. The History row and bell paths are fixed. Verify must cover the cached toast too: route it through the same no-fetch path as the bell (primeRunOpen), or show that T11 skips a run that is already selected.
+
+<a id="qa-kb-068"></a>
+
+## QA-KB-068 — ArtifactStore.forget_run leaves review:{run_id}:* responses in _questionnaire_responses after run end
+
+- **Page:** n/a (code-level)
+- **Route:** n/a (code-level)
+- **Severity:** Low
+- **Found by:** knowledge-base sweep 2 (open card ISS-868)
+- **Found at:** 2026-10-02 02:55
+- **Reproduction mode:** Test — reproduce by running the command below; it should fail as described. No browser needed.
+
+### Reproduction
+
+1. From repo root, run a python snippet: s = ArtifactStore(); asyncio.run(s.set_review_response('run-x:agent-a:0', approved=False)); s.forget_run('run-x'); print(s.get_review_response('run-x:agent-a:0'))
+2. Observe the response is still returned (not None) while the event key is gone.
+
+### Expected
+
+After forget_run('run-x'), get_review_response('run-x:agent-a:0') returns None, and other runs' review keys survive.
+
+### Actual
+
+The review response stays in _questionnaire_responses until process exit.
+
+### Notes
+
+Logged from the existing open knowledge card [ISS-868](.knowledge/cards/20261001-2106-ISS-868.md), which already holds the root cause.
+Link that card from the ledger row and update it when this closes; do not mint a duplicate root card.
+Triage fix sketch (static read of the current code, not binding on the analyzer): backend/agents/artifact_store/store.py:~224 in forget_run: after the _resume_events loop, add a loop over list(self._questionnaire_responses) popping keys where k == f"review:{run_id}" or k.startswith(review_prefix). Add a unit test in backend/tests/unit/app/test_artifact_store.py: set_review_response("run-1:a:0") plus another run's key, forget_run("run-1"), assert the first is None and the other survives.
+
+<a id="qa-kb-069"></a>
+
+## QA-KB-069 — AgentDetailPanel.artifactVersions.test.tsx fails 10/10: @/lib/api mock lacks getCapabilities
+
+- **Page:** n/a (code-level)
+- **Route:** n/a (code-level)
+- **Severity:** Low
+- **Found by:** knowledge-base sweep 2 (open card ISS-895)
+- **Found at:** 2026-10-02 02:55
+- **Reproduction mode:** Test — reproduce by running the command below; it should fail as described. No browser needed.
+
+### Reproduction
+
+1. From the repo root run: cd frontend && npx vitest run src/components/results/AgentDetailPanel.artifactVersions.test.tsx
+2. Observe 10 failures: No getCapabilities export is defined on the @/lib/api mock
+
+### Expected
+
+The 10 per-artifact version viewing tests run and pass against the current AgentDetailPanel.
+
+### Actual
+
+All 10 throw at AgentDetailPanel.tsx:1325 because the mock factory does not export getCapabilities.
+
+### Notes
+
+Logged from the existing open knowledge card [ISS-895](.knowledge/cards/20261001-2126-ISS-895.md), which already holds the root cause.
+Link that card from the ledger row and update it when this closes; do not mint a duplicate root card.
+Triage fix sketch (static read of the current code, not binding on the analyzer): In frontend/src/components/results/AgentDetailPanel.artifactVersions.test.tsx:16-19, add `getCapabilities: async () => ({ capabilities: [], model_catalog: [] }),` to the vi.mock("@/lib/api") factory (as AgentDetailPanel.modelChip.test.tsx:37-41 does). Then re-run the file and fix any assertions that drifted from the current panel.
+
+<a id="qa-kb-070"></a>
+
+## QA-KB-070 — No test pins task_loop per-task invocation_gated=False; revert would add a gate per task unnoticed
+
+- **Page:** n/a (code-level)
+- **Route:** n/a (code-level)
+- **Severity:** Low
+- **Found by:** knowledge-base sweep 2 (open card ISS-897)
+- **Found at:** 2026-10-02 02:55
+- **Reproduction mode:** Static — reproduce by the check below (read/grep/short script). No browser needed.
+
+### Reproduction
+
+1. Open backend/agents/capabilities/strategies/task_loop.py:364 and see invocation_gated=False.
+2. Open backend/tests/unit/agents/test_strategies.py:168-188 and see _FakeRunner.run_agent never records invocation_gated.
+3. Delete the kwarg at task_loop.py:364 mentally: no existing test fails.
+
+### Expected
+
+Removing invocation_gated=False at task_loop.py:364 makes a test fail.
+
+### Actual
+
+No test fails; N-task step would get N+1 gates.
+
+### Notes
+
+Logged from the existing open knowledge card [ISS-897](.knowledge/cards/20261001-2127-ISS-897.md), which already holds the root cause.
+Link that card from the ledger row and update it when this closes; do not mint a duplicate root card.
+Triage fix sketch (static read of the current code, not binding on the analyzer): In backend/tests/unit/agents/test_strategies.py:~183 add "invocation_gated": invocation_gated to the dict appended to self.run_agent_calls; then add a task_loop test (in test_strategies.py or test_task_loop_declared_gate_iss132.py) that runs a multi-task step and asserts all(c["invocation_gated"] is False for c in runner.run_agent_calls). Optional pairing guard is not needed.
+
+<a id="qa-kb-071"></a>
+
+## QA-KB-071 — ISS-126 source-lock test fails 5 of 9: stale anchors after ISS-304 added tokenUsage args
+
+- **Page:** n/a (code-level)
+- **Route:** n/a (code-level)
+- **Severity:** Low
+- **Found by:** knowledge-base sweep 2 (open card ISS-898)
+- **Found at:** 2026-10-02 02:55
+- **Reproduction mode:** Test — reproduce by running the command below; it should fail as described. No browser needed.
+
+### Reproduction
+
+1. cd frontend
+2. ./node_modules/.bin/vitest --run 'src/app/[...view]/terminalReopenReconcile.source.test.ts'
+3. Observe 5 failed | 4 passed in the ISS-126 source-lock block
+
+### Expected
+
+All 9 cases in the ISS-126 source-lock block pass, since the reopen reconciliation behaviour still holds.
+
+### Actual
+
+5 cases fail because the test greps for 'applyTerminalStatus(prev, fullRun.status)' and 'reconcileTerminalStatus(fullRun.status);', which no longer appear in page.tsx.
+
+### Notes
+
+Logged from the existing open knowledge card [ISS-898](.knowledge/cards/20261001-2128-ISS-898.md), which already holds the root cause.
+Link that card from the ledger row and update it when this closes; do not mint a duplicate root card.
+Triage fix sketch (static read of the current code, not binding on the analyzer): In frontend/src/app/[...view]/terminalReopenReconcile.source.test.ts, replace the anchors with prefixes that survive extra args: lines 38, 60, 70, 77, 85 use "applyTerminalStatus(prev, fullRun.status" (no closing paren), and line 48 uses "reconcileTerminalStatus(fullRun.status". Card's scratch experiment showed 9/9 pass. Do not touch page.tsx.
+
+<a id="qa-kb-072"></a>
+
+## QA-KB-072 — test_non_redoable_declared_gate_unaffected_by_redo_action times out at 60 s: it never approves after its refused redo
+
+- **Page:** n/a (code-level)
+- **Route:** n/a (code-level)
+- **Severity:** Low
+- **Found by:** knowledge-base sweep 2 (open card ISS-899)
+- **Found at:** 2026-10-02 02:55
+- **Reproduction mode:** Test — reproduce by running the command below; it should fail as described. No browser needed.
+
+### Reproduction
+
+1. cd backend
+2. ./.venv/bin/python -m pytest tests/agents/test_declared_gate_redo.py -q
+3. Observe test_non_redoable_declared_gate_unaffected_by_redo_action fails after about 60 s with CancelledError at the await event.wait() in _run_review_gate
+
+### Expected
+
+The test posts a redo, sees it refused, approves the gate, and the drive ends with one agent_start and one review_gate_ready.
+
+### Actual
+
+The refused redo leaves the gate open. Nothing approves it, so _drive hits _EVENT_TIMEOUT_S (60 s) and the test fails.
+
+### Notes
+
+Logged from the existing open knowledge card [ISS-899](.knowledge/cards/20261001-2129-ISS-899.md), which already holds the root cause.
+Link that card from the ledger row and update it when this closes; do not mint a duplicate root card.
+Triage fix sketch (static read of the current code, not binding on the analyzer): In backend/tests/agents/test_declared_gate_redo.py, edit _on_ready (about lines 205-211). After set_review_response(..., action="redo", ...), poll store.review_event_pending(gate_key) until the gate is re-armed, using the _wait_until pattern from test_redoable_eligibility_fence.py:129-135. Then call set_review_response(gate_key, approved=True). Keep the existing assertions: agent_start count is 1 and readies has length 1. A second review_gate_ready is not emitted, since the refused redo does not re-emit the ready event.
+
+<a id="qa-kb-073"></a>
+
+## QA-KB-073 — test_driver_happy_path_persists_output_columns red: stub agent_chunk/agent_complete lack agent_id
+
+- **Page:** n/a (code-level)
+- **Route:** n/a (code-level)
+- **Severity:** Low
+- **Found by:** knowledge-base sweep 2 (open card ISS-900)
+- **Found at:** 2026-10-02 02:55
+- **Reproduction mode:** Test — reproduce by running the command below; it should fail as described. No browser needed.
+
+### Reproduction
+
+1. From repo root run: backend/.venv/bin/python -m pytest backend/tests/integration/api/test_rest_revisions_api.py -k test_driver_happy_path_persists_output_columns
+2. It fails at test_rest_revisions_api.py:412 with TypeError from json.loads(None) because row.agent_outputs is NULL.
+
+### Expected
+
+agent_outputs holds one row with agent_id user-stories-revision-agent, as the test asserts.
+
+### Actual
+
+agent_outputs is NULL because the stub's agent_chunk and agent_complete events have no agent_id, so the collector never appends the row.
+
+### Notes
+
+Logged from the existing open knowledge card [ISS-900](.knowledge/cards/20261001-2132-ISS-900.md), which already holds the root cause.
+Link that card from the ledger row and update it when this closes; do not mint a duplicate root card.
+Triage fix sketch (static read of the current code, not binding on the analyzer): In backend/tests/integration/api/test_rest_revisions_api.py add "agent_id": "user-stories-revision-agent" to the data dict of the agent_chunk event (line 373) and the agent_complete event (lines 376-383) in _rich, matching what the real engine emits. No change to run_commands.py.
+
+<a id="qa-kb-074"></a>
+
+## QA-KB-074 — Three docstrings still say append_event_next_seq reads the whole run log (removed by FIX-688)
+
+- **Page:** n/a (code-level)
+- **Route:** n/a (code-level)
+- **Severity:** Low
+- **Found by:** knowledge-base sweep 2 (open card ISS-901)
+- **Found at:** 2026-10-02 02:55
+- **Reproduction mode:** Static — reproduce by the check below (read/grep/short script). No browser needed.
+
+### Reproduction
+
+1. From the repo root run: grep -n -A2 'append_event_next_seq' backend/agents/authz.py | sed -n 1,12p
+2. Read backend/agents/authz.py:592-599 (_max_event_seq docstring)
+3. Read backend/agents/execution_engine/engine.py:13058-13066 (_stamp_resume_marker docstring)
+
+### Expected
+
+Docstrings describe append_event_next_seq's current cost: one keyed event_id lookup plus one _max_event_seq probe per attempt, and no read_events call.
+
+### Actual
+
+Three docstrings still claim append_event_next_seq re-reads every row of the run log, a cost FIX-688 removed. A reader could re-file that cost.
+
+### Notes
+
+Logged from the existing open knowledge card [ISS-901](.knowledge/cards/20261001-2140-ISS-901.md), which already holds the root cause.
+Link that card from the ledger row and update it when this closes; do not mint a duplicate root card.
+Triage fix sketch (static read of the current code, not binding on the analyzer): Prose-only rewrites. (1) authz.py:476-478, read_events_of_types: remove "and this class's own append_event_next_seq seq allocation" from the list of read_events callers. (2) authz.py:595-598, _max_event_seq: replace the "and is why the engine sink cannot allocate through append_event_next_seq" clause with the current reason (it would add two index probes per event against the sink's in-memory counter), or drop it. (3) engine.py:13061-13064, _stamp_resume_marker: drop the "re-reads EVERY row ... 36k-row run" cost claim and keep the reason that the marker mints a fresh event_id and never needs the idempotent no-op. No test needed.
+
+<a id="qa-kb-075"></a>
+
+## QA-KB-075 — Test comments explain degraded verdict with dead latest-completion-wins rule (test_restart_resume_db.py)
+
+- **Page:** n/a (code-level)
+- **Route:** n/a (code-level)
+- **Severity:** Low
+- **Found by:** knowledge-base sweep 2 (open card ISS-902)
+- **Found at:** 2026-10-02 02:55
+- **Reproduction mode:** Static — reproduce by the check below (read/grep/short script). No browser needed.
+
+### Reproduction
+
+1. From the repo root run: sed -n '4318,4319p;4334,4335p;4377p' backend/tests/integration/agents/test_restart_resume_db.py
+2. The output shows the LATEST pipeline_complete wording, the latest-wins wording, and the ..._latest_completion_only name.
+
+### Expected
+
+Comments describe the live FIX-484 rule: a degraded pipeline_complete at or after the last run_resuming / pipeline_start decides the verdict.
+
+### Actual
+
+Comments say the latest pipeline_complete by seq decides (latest-wins), which is the rule ISS-689 deleted from _reconcile_terminal_status. A reader who trusts them is misled.
+
+### Notes
+
+Logged from the existing open knowledge card [ISS-902](.knowledge/cards/20261001-2144-ISS-902.md), which already holds the root cause.
+Link that card from the ledger row and update it when this closes; do not mint a duplicate root card.
+Triage fix sketch (static read of the current code, not binding on the analyzer): Edit backend/tests/integration/agents/test_restart_resume_db.py only. At lines 4318-4319, replace "The LATEST pipeline_complete must decide, not 'was ANY completion ever degraded'" with "Only a degraded pipeline_complete at or after the last attempt boundary (run_resuming / pipeline_start, FIX-484) counts, not 'was ANY completion ever degraded'". At lines 4334-4335, replace the latest-wins wording with "a clean completion, then a LATER degraded one in the last attempt: the boundary scan reads degraded too". Keep the test name unchanged, because renaming breaks -k selections and the pytest ids quoted in 5 cards. No behaviour change.
+
+<a id="qa-kb-076"></a>
+
+## QA-KB-076 — Citation guard misses bare/spaced/other-module line cites; test_shutdown_reachability.py keeps stale cites
+
+- **Page:** n/a (code-level)
+- **Route:** n/a (code-level)
+- **Severity:** Low
+- **Found by:** knowledge-base sweep 2 (open card ISS-903)
+- **Found at:** 2026-10-02 02:55
+- **Reproduction mode:** Static — reproduce by the check below (read/grep/short script). No browser needed.
+
+### Reproduction
+
+1. From the repo root, run: grep -nE 'main.py:238|pool_leak.py:196' backend/tests/unit/services/test_shutdown_reachability.py (hits at lines 23, 67, 84).
+2. Read backend/tests/unit/test_run_shutdown_stale_citations.py:25-28 and see that bare ':1734' or 'run_engine.py :399' style cites do not match _LINE_CITE.
+
+### Expected
+
+The guard fails on any file-line cite (name.ext:N, name.ext :N, or bare :NNN) in the scanned files, and test_shutdown_reachability.py has no stale cites.
+
+### Actual
+
+The guard only matches ten named modules followed by .py or .yml and a colon with no space. test_shutdown_reachability.py still cites main.py:238 (twice) and test_run_stream_pool_leak.py:196-238, names its own path wrongly, and carries a duplicated banner block.
+
+### Notes
+
+Logged from the existing open knowledge card [ISS-903](.knowledge/cards/20261001-2145-ISS-903.md), which already holds the root cause.
+Link that card from the ledger row and update it when this closes; do not mint a duplicate root card.
+Triage fix sketch (static read of the current code, not binding on the analyzer): 1) backend/tests/unit/test_run_shutdown_stale_citations.py:25-28: widen _LINE_CITE to r"[\w./-]+\.(?:py|yml|sh) ?:\d+|(?<![\w/.]):\d{3,}"; run that one file and convert any pre-existing hits in the scanned files to symbol names. 2) backend/tests/unit/services/test_shutdown_reachability.py: line 1 change the self-path to tests/unit/services/; line 23 name the in-process uvicorn.Server( test in test_run_stream_pool_leak.py instead of 196-238; lines 67 and 84 replace main.py:238 with "restore_non_terminal_runs() in app.main lifespan"; delete the first copy of the duplicated "1. Reachability" block (lines 64-~79). Comments only.
+
+<a id="qa-kb-077"></a>
+
+## QA-KB-077 — Stale test_iss401_reset_password_message.py errors at setup; it tests the deleted local break-glass account
+
+- **Page:** n/a (code-level)
+- **Route:** n/a (code-level)
+- **Severity:** Low
+- **Found by:** knowledge-base sweep 2 (open card ISS-904)
+- **Found at:** 2026-10-02 02:55
+- **Reproduction mode:** Test — reproduce by running the command below; it should fail as described. No browser needed.
+
+### Reproduction
+
+1. From backend/: .venv/bin/python -m pytest tests/unit/test_iss401_reset_password_message.py -q
+2. Observe 1 error (UnitIsolationError from tests/unit/conftest.py:91).
+
+### Expected
+
+Every test file in tests/unit collects and runs, and each test covers behaviour that still exists.
+
+### Actual
+
+The file errors at setup. Past that guard it would fail on the removed auth_provider and password_hash kwargs, and it targets a 409 branch that was deleted in migration 0038.
+
+### Notes
+
+Logged from the existing open knowledge card [ISS-904](.knowledge/cards/20261001-2149-ISS-904.md), which already holds the root cause.
+Link that card from the ledger row and update it when this closes; do not mint a duplicate root card.
+Triage fix sketch (static read of the current code, not binding on the analyzer): Delete backend/tests/unit/test_iss401_reset_password_message.py, since the local-account 409 it guards has no subject left. Then mark ISS-904 resolved. If any part of ISS-401 is still wanted for the Cognito reset path, write a new test against cognito_admin.reset_password via backend/app/api/admin.py:502-530 instead of reviving this one.
+
+<a id="qa-kb-078"></a>
+
+## QA-KB-078 — app_builder characterization goldens still expect .family.lock block; both contract tests fail
+
+- **Page:** n/a (code-level)
+- **Route:** n/a (code-level)
+- **Severity:** Low
+- **Found by:** knowledge-base sweep 2 (open card ISS-906)
+- **Found at:** 2026-10-02 02:55
+- **Reproduction mode:** Test — reproduce by running the command below; it should fail as described. No browser needed.
+
+### Reproduction
+
+1. From the repo root run: cd backend && python -m pytest tests/contract/agents/test_characterization_app_builder.py
+2. Observe 2 failures: deliverable byte snapshot (len now=88, golden=120) and event snapshot (diff at pipeline_complete final_output).
+
+### Expected
+
+Both app_builder SAFE-01 and SAFE-02 characterization tests pass, with goldens matching the deliverable without .family.lock.
+
+### Actual
+
+Goldens still start with a ".family.lock" file block that sandbox.py:68 excludes, so both tests fail.
+
+### Notes
+
+Logged from the existing open knowledge card [ISS-906](.knowledge/cards/20261001-2200-ISS-906.md), which already holds the root cause.
+Link that card from the ledger row and update it when this closes; do not mint a duplicate root card.
+Triage fix sketch (static read of the current code, not binding on the analyzer): Regenerate the goldens with SNAPSHOT_UPDATE=1 on backend/tests/contract/agents/test_characterization_app_builder.py. Confirm the only diff is the dropped .family.lock block in backend/tests/agents/characterization/golden/app_builder.txt (line 1 and its blank line), app_builder.events.json and app_builder.wsframes.json. Do not touch sandbox.py.
+
+<a id="qa-kb-079"></a>
+
+## QA-KB-079 — Payload-seq test does not guard copy-not-mutate, 2-hop re-stamp or exhaustion
+
+- **Page:** n/a (code-level)
+- **Route:** n/a (code-level)
+- **Severity:** Low
+- **Found by:** knowledge-base sweep 2 (open card ISS-907)
+- **Found at:** 2026-10-02 02:55
+- **Reproduction mode:** Test — reproduce by running the command below; it should fail as described. No browser needed.
+
+### Reproduction
+
+1. Swap in an in-place payload_json["seq"] = attempt_seq in backend/agents/authz.py append_event_at_or_after (scratch mutant).
+2. From backend/ run: python -m pytest tests/integration/repositories/test_run_events_payload_seq_db.py
+3. Both tests still pass even though the caller's dict now carries the landed seq.
+
+### Expected
+
+The test file fails when the caller's dict is mutated, when only the first hop re-stamps, or when exhaustion alters the caller's dict.
+
+### Actual
+
+Both existing tests pass under an in-place mutation and under a first-hop-only copy.
+
+### Notes
+
+Logged from the existing open knowledge card [ISS-907](.knowledge/cards/20261001-2200-ISS-907.md), which already holds the root cause.
+Link that card from the ledger row and update it when this closes; do not mint a duplicate root card.
+Triage fix sketch (static read of the current code, not binding on the analyzer): Add three tests to backend/tests/integration/repositories/test_run_events_payload_seq_db.py, using the scratch checks in evidence/qa-kb-007/05-fix-tests-and-constraint-checks.txt as a template. (1) Keep a reference to the dict passed in, retry once, and assert it still reads its original seq. (2) 2-hop case: pre-seed rows, monkeypatch the first _max_event_seq to return a stale tail, assert landed seq 4 and stored payload seq 4. (3) Exhaustion case: _max_attempts=1 into a collision, assert IntegrityError, no row stored, caller's dict unchanged. No source change.
+
+<a id="qa-kb-080"></a>
+
+## QA-KB-080 — ISS-098 Stop-mid-wave test dies on TypeError: fake run_fanout rejects event_queue kwarg
+
+- **Page:** n/a (code-level)
+- **Route:** n/a (code-level)
+- **Severity:** Low
+- **Found by:** knowledge-base sweep 2 (open card ISS-908)
+- **Found at:** 2026-10-02 02:55
+- **Reproduction mode:** Test — reproduce by running the command below; it should fail as described. No browser needed.
+
+### Reproduction
+
+1. cd backend
+2. .venv/bin/python -m pytest tests/agents/test_wave_scheduler_cancel_row.py -q -p no:cacheprovider
+
+### Expected
+
+test_cancelled_error_mid_wave_marks_row_terminal reaches the injected CancelledError and asserts the wave_runs row is flipped terminal.
+
+### Actual
+
+TypeError: _CancelMidWaveRunner.run_fanout() got an unexpected keyword argument 'event_queue' at _fanout_wave_stream.py:71, so the ISS-098 guard exercises nothing.
+
+### Notes
+
+Logged from the existing open knowledge card [ISS-908](.knowledge/cards/20261001-2204-ISS-908.md), which already holds the root cause.
+Link that card from the ledger row and update it when this closes; do not mint a duplicate root card.
+Triage fix sketch (static read of the current code, not binding on the analyzer): backend/tests/agents/test_wave_scheduler_cancel_row.py:40 change signature to `async def run_fanout(self, requests, ctx, *, step=None, event_queue=None):`. Test-only; then run the file to confirm the CancelledError path asserts.
+
+<a id="qa-kb-081"></a>
+
+## QA-KB-081 — LaunchWizard DS step is an endless skeleton when the design-system registry fails or is empty
+
+- **Page:** /create/prototype
+- **Route:** /create/prototype
+- **Severity:** Low
+- **Found by:** knowledge-base sweep 2 (open card ISS-909)
+- **Found at:** 2026-10-02 02:55
+- **Reproduction mode:** Test — reproduce by running the command below; it should fail as described. No browser needed.
+
+### Reproduction
+
+1. In frontend/src/components/workflow/LaunchWizard.test.tsx add a case that mocks listDesignSystems with mockRejectedValue(new Error('500')), and a second with mockResolvedValue([]).
+2. Render with initialMode='prototype' and open the Design System step.
+3. Assert an error or empty message is shown and no animate-pulse placeholder is present (it fails today).
+4. Run from the repo root: cd frontend && npx vitest run src/components/workflow/LaunchWizard.test.tsx
+
+### Expected
+
+A failed or empty registry fetch shows an explicit error (with a retry) in the DS step, distinguishable from loading.
+
+### Actual
+
+The .catch at LaunchWizard.tsx:685 is silent, and an empty list renders a permanent animate-pulse skeleton (:1329-1330). Continue stays disabled with only the "Pick a design system" pill.
+
+### Notes
+
+Logged from the existing open knowledge card [ISS-909](.knowledge/cards/20261001-2216-ISS-909.md), which already holds the root cause.
+Link that card from the ledger row and update it when this closes; do not mint a duplicate root card.
+Triage fix sketch (static read of the current code, not binding on the analyzer): In frontend/src/components/workflow/LaunchWizard.tsx, add `systemsLoaded` and `systemsError` state next to `systems` (:245). In the effect (:670-685), set systemsLoaded=true in .then, and in .catch set systemsError=err.message and systemsLoaded=true. In the dsSlot (:1328-1330), render the skeleton only while !systemsLoaded. If systemsError, or the list is empty after loading, render a StepNote or error with a Retry button that re-runs the fetch (extract the fetch into a callback). Mirror the web-template pattern (:635, :1290) and composer/DesignPickerModal.tsx:117-120.
+
+<a id="qa-kb-082"></a>
+
+## QA-KB-082 — Wrong-shape __app_preview__ payload crashes preview-fullscreen at render instead of falling back
+
+- **Page:** /preview-fullscreen
+- **Route:** /preview-fullscreen
+- **Severity:** Low
+- **Found by:** knowledge-base sweep 2 (open card ISS-915)
+- **Found at:** 2026-10-02 02:55
+- **Reproduction mode:** Browser — reproduce from the URL below.
+
+### Reproduction
+
+1. Open the web app URL and sign in as admin@velocity.ai.
+2. In devtools console run: sessionStorage.setItem('__app_preview__', JSON.stringify({files:'abc',projectName:'x'}))
+3. Navigate to /preview-fullscreen.
+4. Repeat with {files:[null]} and {files:[{}]}.
+
+### Expected
+
+Any payload that is not a non-empty array of objects with a string path takes the giveUp() exit (redirect to run history).
+
+### Actual
+
+AppBuilderPreview.buildTree throws a TypeError during render; the page try/catch does not catch it, so the app error boundary (error.tsx) is shown.
+
+### Notes
+
+Logged from the existing open knowledge card [ISS-915](.knowledge/cards/20261001-2219-ISS-915.md), which already holds the root cause.
+Link that card from the ledger row and update it when this closes; do not mint a duplicate root card.
+Triage fix sketch (static read of the current code, not binding on the analyzer): In frontend/src/app/preview-fullscreen/page.tsx:71 replace `!data.files?.length` with `!Array.isArray(data.files) || !data.files.length || !data.files.every(f => typeof f?.path === "string")` so giveUp() stays the single exit.
+
+<a id="qa-kb-083"></a>
+
+## QA-KB-083 — Settings model gate reads advisory users.tier instead of effective_tier(user, principal)
+
+- **Page:** /api/settings/preferences
+- **Route:** /api/settings/preferences
+- **Severity:** Low
+- **Found by:** knowledge-base sweep 2 (open card ISS-937)
+- **Found at:** 2026-10-02 02:55
+- **Reproduction mode:** Test — reproduce by running the command below; it should fail as described. No browser needed.
+
+### Reproduction
+
+1. Add a unit test in tests/integration/e2e/suites/09_settings/test_settings.py (or a small new unit test file).
+2. Override get_current_principal with a principal whose cognito:groups say basic, and use a fake user whose tier column says pro.
+3. PUT /api/settings/preferences with a premium model id.
+4. Run: python -m pytest tests/integration/e2e/suites/09_settings/test_settings.py (using ./venv/bin/python).
+
+### Expected
+
+Premium model is refused (403) and GET marks it allowed=false, since the effective tier comes from the token groups (basic).
+
+### Actual
+
+The premium model is allowed, because the gate reads the user.tier column (pro). In the ordinary case _sync_role_projection keeps the column equal to the effective tier; the gap is a stale-but-valid token after a group change made outside the admin API.
+
+### Notes
+
+Logged from the existing open knowledge card [ISS-937](.knowledge/cards/20261001-2231-ISS-937.md), which already holds the root cause.
+Link that card from the ledger row and update it when this closes; do not mint a duplicate root card.
+Triage fix sketch (static read of the current code, not binding on the analyzer): In backend/app/api/settings.py, import get_current_principal from app.core.dependencies and effective_tier from app.core.identity. On get_preferences (:332) and update_preferences (:353), add principal = Depends(get_current_principal) while keeping user. Replace user.tier with effective_tier(user, principal) at :341, :374 and :388. Add the unit test described in the card.
+
+<a id="qa-kb-084"></a>
+
+## QA-KB-084 — /runs/{id}/versions parses to run-version with no version; pinned stream/preview-full drop the pin
+
+- **Page:** /runs/{id}/versions
+- **Route:** /runs/{id}/versions
+- **Severity:** Low
+- **Found by:** knowledge-base sweep 2 (open card ISS-941)
+- **Found at:** 2026-10-02 02:55
+- **Reproduction mode:** Static — reproduce by the check below (read/grep/short script). No browser needed.
+
+### Reproduction
+
+1. Read frontend/src/lib/routes.ts lines 374-380: `segments.length <= 4` lets ['runs','r1','versions'] through with segments[3] undefined.
+2. Read lines 421-428: the run-stream and run-preview-full arms return without `version`, so ['runs','r1','versions','2','stream'] returns run-stream without the pin.
+
+### Expected
+
+/runs/{id}/versions parses to unknown. /runs/{id}/versions/{v}/stream and /runs/{id}/versions/{v}/preview/full also parse to unknown, since no builder emits them. The URL then agrees with the content rendered.
+
+### Actual
+
+The bare /versions path returns run-version with version undefined, which violates the required `version: string` in ParsedView. The pinned stream and full-preview paths silently render the un-pinned screens under a pinned URL.
+
+### Notes
+
+Logged from the existing open knowledge card [ISS-941](.knowledge/cards/20261001-2240-ISS-941.md), which already holds the root cause.
+Link that card from the ledger row and update it when this closes; do not mint a duplicate root card.
+Triage fix sketch (static read of the current code, not binding on the analyzer): In frontend/src/lib/routes.ts, change line 376 to `if (segments.length === 4) return { screen: 'run-version', runId, version: segments[3] };`. Add `if (segments.length === 3) return { screen: 'unknown' };` before it. In the stream arm (~:421) and the preview/full arm (~:426), add `&& version === undefined` to the conditions so pinned forms fall through to unknown. Optionally add the three cases to the existing routes unit test.
+
+<a id="qa-kb-085"></a>
+
+## QA-KB-085 — runTabShallowNav test fails: slice end anchor stale after pinnedVersion dep added to tab handler
+
+- **Page:** n/a (code-level)
+- **Route:** n/a (code-level)
+- **Severity:** Low
+- **Found by:** knowledge-base sweep 2 (open card ISS-942)
+- **Found at:** 2026-10-02 02:55
+- **Reproduction mode:** Test — reproduce by running the command below; it should fail as described. No browser needed.
+
+### Reproduction
+
+1. From frontend/ run: npx vitest --run 'src/app/[...view]/runTabShallowNav.test.ts'
+2. Observe 1 failed | 2 passed: the 'tab handler pushes history directly' case fails with expected body not to contain 'router.push'
+
+### Expected
+
+All 3 cases pass. The tab handler slice contains window.history.pushState and no router.push.
+
+### Actual
+
+1 of 3 cases fails. The slice runs from :516 to :737 and includes handleOpenLiveRun's router.push at :561.
+
+### Notes
+
+Logged from the existing open knowledge card [ISS-942](.knowledge/cards/20261001-2241-ISS-942.md), which already holds the root cause.
+Link that card from the ledger row and update it when this closes; do not mint a duplicate root card.
+Triage fix sketch (static read of the current code, not binding on the analyzer): In frontend/src/app/[...view]/runTabShallowNav.test.ts:28, change the end anchor to the handler's own closing. Use indexOf("\n  }, [", start), or the literal "}, [contentSourceRunId, pinnedVersion]);". The first option survives future dependency changes. Do not touch DashboardLayout.tsx.
+
+<a id="qa-kb-086"></a>
+
+## QA-KB-086 — IdeaInputPage designPicker test fails: asserts extraParams undefined but gate_agent_ids: [] is always sent
+
+- **Page:** n/a (code-level)
+- **Route:** n/a (code-level)
+- **Severity:** Low
+- **Found by:** knowledge-base sweep 2 (open card ISS-944)
+- **Found at:** 2026-10-02 02:55
+- **Reproduction mode:** Test — reproduce by running the command below; it should fail as described. No browser needed.
+
+### Reproduction
+
+1. From the repo root: cd frontend && npx vitest run src/components/workflow/IdeaInputPage.designPicker.test.tsx
+2. Observe the test 'does not offer the picker for a workflow that never declares opendesign' fails at :159 with AssertionError: expected { gate_agent_ids: [] } to be undefined
+
+### Expected
+
+The test passes, since it checks that no template_id or design_system_id is sent when the workflow never declares opendesign.
+
+### Actual
+
+The test fails because extraParams is { gate_agent_ids: [] }, which the app has sent by design since 602296cc8.
+
+### Notes
+
+Logged from the existing open knowledge card [ISS-944](.knowledge/cards/20261002-0040-ISS-944.md), which already holds the root cause.
+Link that card from the ledger row and update it when this closes; do not mint a duplicate root card.
+Triage fix sketch (static read of the current code, not binding on the analyzer): In frontend/src/components/workflow/IdeaInputPage.designPicker.test.tsx:159, replace expect(extraParams).toBeUndefined() with expect(extraParams ?? {}).not.toHaveProperty("template_id") and expect(extraParams ?? {}).not.toHaveProperty("design_system_id"). Optionally also update the stale comment at IdeaInputPage.tsx:1034-1038 ("Untouched => we omit gate_agent_ids"). Do not change the app default.
+
+<a id="qa-kb-087"></a>
+
+## QA-KB-087 — ISS-921 Constitution dirty-state test times out waiting on fetch that the mocked load never calls
+
+- **Page:** n/a (code-level)
+- **Route:** n/a (code-level)
+- **Severity:** Low
+- **Found by:** knowledge-base sweep 2 (open card ISS-945)
+- **Found at:** 2026-10-02 02:55
+- **Reproduction mode:** Test — reproduce by running the command below; it should fail as described. No browser needed.
+
+### Reproduction
+
+1. From the repo root run: cd frontend && npx vitest run src/components/settings/AccountSettings.iss372.test.tsx
+2. Temporarily remove the it.fails marker on the ISS-921 case (line 80). It fails at line 83 with AssertionError: expected vi.fn() to be called at least once, after about 1.3s.
+
+### Expected
+
+The case reaches its two real assertions and passes once ISS-921 is fixed in the app, which FIX-704 is said to do.
+
+### Actual
+
+The case always throws at line 83, whatever the app does. Under it.fails it reads "expected fail" even though the app is fixed, so it can never show the XPASS that marks ISS-921 fixed.
+
+### Notes
+
+Logged from the existing open knowledge card [ISS-945](.knowledge/cards/20261002-0053-ISS-945.md), which already holds the root cause.
+Link that card from the ledger row and update it when this closes; do not mint a duplicate root card.
+Triage fix sketch (static read of the current code, not binding on the analyzer): In frontend/src/components/settings/AccountSettings.iss372.test.tsx, delete line 83 (the waitFor on fetch); the findByRole("textbox") at line 82 already waits for the load. Then change it.fails( at line 80 to it(, since FIX-704 makes the case pass. Confirm by running that file once.
+
+<a id="qa-kb-088"></a>
+
+## QA-KB-088 — Spec-016 override round-trip tests error at setup (UnitIsolationError) and would 401 on principal auth
+
+- **Page:** n/a (code-level)
+- **Route:** n/a (code-level)
+- **Severity:** Low
+- **Found by:** knowledge-base sweep 2 (open card ISS-947)
+- **Found at:** 2026-10-02 02:55
+- **Reproduction mode:** Test — reproduce by running the command below; it should fail as described. No browser needed.
+
+### Reproduction
+
+1. From the repo root run: cd backend && DATABASE_URL=sqlite:///:memory: .venv/bin/python -m pytest tests/unit/test_workflow_override_e2e.py
+2. Observe 7 errors at fixture setup: UnitIsolationError raised from tests/unit/conftest.py:81
+
+### Expected
+
+The 7 override round-trip tests run and pass (save an override of ppt, read it back, toggle it off via PATCH).
+
+### Actual
+
+All 7 tests error at setup because the unit guard refuses the fixture's SQLite engine. Once past that, create and PATCH would return 401 because get_current_principal is not overridden.
+
+### Notes
+
+Logged from the existing open knowledge card [ISS-947](.knowledge/cards/20261002-0107-ISS-947.md), which already holds the root cause.
+Link that card from the ledger row and update it when this closes; do not mint a duplicate root card.
+Triage fix sketch (static read of the current code, not binding on the analyzer): Move backend/tests/unit/test_workflow_override_e2e.py to backend/tests/integration/api/test_workflow_override_e2e.py. In the api fixture (around line 43), also set app.dependency_overrides[get_current_principal] = lambda: (state["user"], principal_for(state["user"])), copying the pattern in tests/integration/api/test_user_workflows_api.py:81-104. Change only the test harness.
+
+<a id="qa-kb-089"></a>
+
+## QA-KB-089 — Route contract test fails: public share route GET /s/{token} missing from allow-list
+
+- **Page:** n/a (code-level)
+- **Route:** n/a (code-level)
+- **Severity:** Low
+- **Found by:** knowledge-base sweep 2 (open card ISS-948)
+- **Found at:** 2026-10-02 02:55
+- **Reproduction mode:** Test — reproduce by running the command below; it should fail as described. No browser needed.
+
+### Reproduction
+
+1. From backend/: python -m pytest tests/security/test_route_contract.py::test_all_routes_are_protected_or_allowlisted
+
+### Expected
+
+Test passes; the intentionally public share route is allow-listed with a reason.
+
+### Actual
+
+AssertionError: endpoints with no authentication dependency and not allow-listed: GET /s/{token}
+
+### Notes
+
+Logged from the existing open knowledge card [ISS-948](.knowledge/cards/20261002-0107-ISS-948.md), which already holds the root cause.
+Link that card from the ledger row and update it when this closes; do not mint a duplicate root card.
+Triage fix sketch (static read of the current code, not binding on the analyzer): Add one line to backend/tests/security/public_routes_allowlist.txt (new section after the auth entry points): "GET /s/{token}  # ADR-0035 share link: the opaque 30-day token is the credential; serves the deliverable only, 404 on a missing or expired token".
+
+<a id="qa-kb-090"></a>
+
+## QA-KB-090 — resume_run logs "step offset 1/1" and "all steps complete" for a manifest-less 3-step prototype_v2_revision resume
+
+- **Page:** n/a (code-level)
+- **Route:** n/a (code-level)
+- **Severity:** Low
+- **Found by:** knowledge-base sweep 2 (open card ISS-950)
+- **Found at:** 2026-10-02 02:55
+- **Reproduction mode:** Test — reproduce by running the command below; it should fail as described. No browser needed.
+
+### Reproduction
+
+1. Add a test under backend/tests/agents/ using the _patch_db pattern from backend/tests/agents/test_phase3_wip_commit.py:255. It drives resume_run for a workflow_runs row of type prototype_v2_revision with no manifest_json.
+2. Seed a durable state that yields resume offset 1, and stop the drive right after the offset log.
+3. From the repo root run: cd backend && ./venv/bin/python -m pytest tests/agents/<new_test_file>.py
+4. Inspect the caplog records for the 'resuming pipeline=... at step offset' line.
+
+### Expected
+
+The log reads "at step offset 1/3" (plan step count) and no "all steps complete" record is emitted while steps remain.
+
+### Actual
+
+The log reads "at step offset 1/1" (or 2/1) and "all steps complete — nothing to re-drive" is logged, because len(agents) is the registry roster of 1. Only the log is wrong; execution is unaffected.
+
+### Notes
+
+Logged from the existing open knowledge card [ISS-950](.knowledge/cards/20261002-0134-ISS-950.md), which already holds the root cause.
+Link that card from the ledger row and update it when this closes; do not mint a duplicate root card.
+Triage fix sketch (static read of the current code, not binding on the analyzer): In backend/agents/execution_engine/engine.py around :15677, after the `if not agents` fallback, also complete a partial roster from the plan when len(agents) < len(compiled.steps), using the same length rule as launch_run (never a workflow name, INV-1). Compile via compile_for_run(pipeline_type) in try/except so a failure keeps the existing roster. Then the :15718-15730 log and the all-complete test use the plan length. Add the caplog test from the repro steps.
+
+<a id="qa-kb-091"></a>
+
+## QA-KB-091 — Empty pinned version under a cancelled/failed/diverted shell run shows the shell's copy or loses Preview tab
+
+- **Page:** /runs/{member}/versions/{n}
+- **Route:** /runs/{member}/versions/{n}
+- **Severity:** Low
+- **Found by:** knowledge-base sweep 2 (open card ISS-952)
+- **Found at:** 2026-10-02 02:55
+- **Reproduction mode:** Test — reproduce by running the command below; it should fail as described. No browser needed.
+
+### Reproduction
+
+1. Add a case to frontend/src/components/preview/PreviewPanel.olderVersionNullOutput.test.tsx: pin a completed version with output null via the pinnedVersion prop and pass reopenedRunStatus cancelled, then failed, then diverted on the shell.
+2. From frontend/: npx vitest run src/components/preview/PreviewPanel.olderVersionNullOutput.test.tsx
+3. Observe: cancelled shell shows 'This run was cancelled'; failed shell drops the Preview tab and defaults to Audit; diverted shell shows 'did not complete successfully'.
+
+### Expected
+
+A pinned empty version shows its own status copy (No deliverable was saved for this version for a completed pin; cancelled/failed copy for a pin that ended badly) and keeps the Preview tab, whatever the shell run's status.
+
+### Actual
+
+The shell run's status wins: cancelled copy, diverted copy, or no Preview tab for a pinned completed version.
+
+### Notes
+
+Logged from the existing open knowledge card [ISS-952](.knowledge/cards/20261002-0147-ISS-952.md), which already holds the root cause.
+Link that card from the ledger row and update it when this closes; do not mint a duplicate root card.
+Triage fix sketch (static read of the current code, not binding on the analyzer): In frontend/src/components/preview/PreviewPanel.tsx add `!overrideActive &&` to showFailureAffordance (:1142) and showDivertedAffordance (:1154); terminalFailureNoDeliverable (:1164) and showCancelledAffordance (:1167) follow from showFailureAffordance. Also review headerFailed (:1215) and the FilesTab runStatus prop (:1922) so the header does not show failed for a pinned completed version. The existing pinned branch at :1835 then supplies the copy. Add tests for cancelled/failed/diverted shells with a pinned completed null-output version, plus an unpinned control.
+
+<a id="qa-kb-092"></a>
+
+## QA-KB-092 — WorkflowHistory.test.tsx asserts the removed run-actions Chain menu item, one red test per run
+
+- **Page:** n/a (code-level)
+- **Route:** n/a (code-level)
+- **Severity:** Low
+- **Found by:** knowledge-base sweep 2 (open card ISS-953)
+- **Found at:** 2026-10-02 02:55
+- **Reproduction mode:** Test — reproduce by running the command below; it should fail as described. No browser needed.
+
+### Reproduction
+
+1. From the repo root: cd frontend && npx vitest run src/components/history/WorkflowHistory.test.tsx
+2. Observe 1 failed | 16 passed: the Chain menu action case fails with Unable to find role=menuitem and name /chain/i
+
+### Expected
+
+The file passes 17 of 17, and the test describes the post-FIX-584 contract: the run-actions menu offers only Delete.
+
+### Actual
+
+The test opens Run actions and expects a Chain menuitem that no longer exists, so it fails.
+
+### Notes
+
+Logged from the existing open knowledge card [ISS-953](.knowledge/cards/20261002-0154-ISS-953.md), which already holds the root cause.
+Link that card from the ledger row and update it when this closes; do not mint a duplicate root card.
+Triage fix sketch (static read of the current code, not binding on the analyzer): Test-only change in frontend/src/components/history/WorkflowHistory.test.tsx, case at :371-392. Rewrite it to open "Run actions" and assert queryByRole("menuitem", { name: /chain/i }) is absent and that Delete is the only menuitem. Drop the onChainPipeline and suggested-next-steps assertions, since other cases cover the chain panel via renderAndOpenRun. Update the stale comment at ~:345-352 to say FIX-584 removed the Chain item. No app change.
+
+<a id="qa-kb-093"></a>
+
+## QA-KB-093 — Live run header undercounts tokens on runs where an agent runs more than once
+
+- **Page:** Run detail — live stream header
+- **Route:** /runs/{id}/stream
+- **Severity:** High
+- **Found by:** validate-bugs smoke test (another session)
+- **Found at:** 2026-10-02 03:00
+- **Reproduction mode:** Browser — reproduce from the URL below.
+
+### Reproduction
+
+1. Sign in as `admin@velocity.ai`
+2. Launch the `ex_A1_loop` engine example from the canvas ("Run once") with the brief "Greet me warmly", so the retry loop runs `greet` and `check` twice
+3. Watch the header token total on `/runs/{id}/stream` until the run completes
+4. Reload the page
+
+### Expected
+
+The live total at completion equals the total after reload and the backend total: the sum of every `agent_complete` event.
+
+### Actual
+
+On run d091ed54-18c7-49fb-8d6f-5d3466f27f1b the live header showed "13.3K tokens" at completion and "19.8K tokens" after a reload. The backend total is 19815, the sum of all 6 agent_complete events (3181+3188+3324+3449+3366+3307). 13303 is exactly the LAST pass of each agent (3181+3449+3366+3307), so the live tally replaces an agent's tokens on a re-run instead of adding them.
+
+### Notes
+
+Reporter's suggestion: accumulate per agent_complete event, or take pipeline_complete's total, so the live value matches the reload value. It is not yet known whether this predates today's QA-KB-001..046 fixes; the analyzer should say.
+
+<a id="qa-kb-094"></a>
+
+## QA-KB-094 — ex_A4 human-gate .http script answers the conditional gate with a bare word, so the gate always blocks
+
+- **Page:** n/a (developer tooling)
+- **Route:** n/a (code-level)
+- **Severity:** Low
+- **Found by:** validate-bugs smoke test (another session)
+- **Found at:** 2026-10-02 03:00
+- **Reproduction mode:** Static — reproduce by the check below (read/grep). No browser needed.
+
+### Reproduction
+
+1. Open `tools/api/runs/run.ex_A4_human_gate_auto.http`
+2. Find the human-gate answer: it sends `edited_content="spanish"` (a bare word)
+3. Compare with how the conditional gate reads `ask` via `condition_agent`: it only accepts JSON `{"decision": ...}`
+
+### Expected
+
+The script's gate answer is a JSON decision the conditional route accepts, so the scripted run reaches its next step.
+
+### Actual
+
+The bare word never matches a route outcome, so the run always blocks with "no matching route outcome".
+
+### Notes
+
+Test tooling only; not caused by the QA-KB-001..046 changes.
+
+<a id="qa-kb-095"></a>
+
+## QA-KB-095 — Run page requests sandbox ref v1 for a run that has no refs, and gets 400
+
+- **Page:** Run detail
+- **Route:** /runs/{id}
+- **Severity:** Medium
+- **Found by:** validate-bugs page sweep (another session)
+- **Found at:** 2026-10-07 17:40
+- **Reproduction mode:** Browser + API
+
+### Reproduction
+
+1. `GET /api/runs/0f62f7bc-d3a2-4748-8004-0b534e1741ae/sandbox/refs` (old prototype_v2 run) returns `{"refs":[]}`
+2. Open `/runs/0f62f7bc-d3a2-4748-8004-0b534e1741ae` in the UI
+3. Watch the network tab: the page calls `GET /api/runs/0f62f7bc…/sandbox?ref=v1`
+
+### Expected
+
+With no refs, the UI leaves out `?ref` or falls back to the unpinned tree. No 4xx.
+
+### Actual
+
+`400 {"detail":"invalid ref"}`.
+
+### Notes
+
+Not yet checked whether the visible preview breaks. Reproduces on feat/stale-bug-fixes.
+
+<a id="qa-kb-096"></a>
+
+## QA-KB-096 — Pinned v1 tree lacks the run's deliverable, so every run page fires a 404 for it
+
+- **Page:** Run detail (all tabs)
+- **Route:** /runs/{id}
+- **Severity:** Medium
+- **Found by:** validate-bugs page sweep (another session)
+- **Found at:** 2026-10-07 17:40
+- **Reproduction mode:** Browser + API
+
+### Reproduction
+
+1. Run `78e185fb-c032-4154-8552-774781b6e5df` (backlog) has `deliverable_filename` `Backlog.pdf`
+2. Open any of its pages (detail, steps, files, workspace, audit, stream)
+3. The page calls `GET /api/runs/78e185fb…/sandbox/file?path=Backlog.pdf&ref=v1`
+
+### Expected
+
+The deliverable resolves for the pinned version, or the UI falls back to the unpinned file.
+
+### Actual
+
+`404 "File not found"`. The v1 tree has no `Backlog.pdf`. The likely cause is that the PDF was backfilled after the v1 ref was cut.
+
+### Notes
+
+Not yet checked whether the visible preview breaks. Reproduces on feat/stale-bug-fixes.
+
+<a id="qa-kb-097"></a>
+
+## QA-KB-097 — Resume is broken: a wave worker is skipped, a failed run can't resume, clarification answers are dropped
+
+- **Page:** n/a (engine / resume)
+- **Route:** n/a (code-level)
+- **Severity:** High
+- **Found by:** validate-bugs per-bug validation (another session), from card ISS-1061
+- **Found at:** 2026-10-07 19:15
+- **Reproduction mode:** Tests. Each file run alone. Reproduced on a clean export of 14a675db4, so not caused by the 2026-10-07 bug line.
+
+### Reproduction
+
+Run `backend/tests/integration/agents/test_restart_resume_db.py`. Four tests are red:
+
+1. `test_midwave_resume_does_not_reinvoke_completed_workers`: on resume, wave-1 worker `c` never re-runs (`{'a': 2, 'b': 2}`).
+2. `test_failed_run_resumes_skips_completed_tasks` / `test_user_resume_persists_output_columns`: a user resume of a failed run stays `failed` instead of reconciling to `completed`. The log says "Cannot transition run … from terminal state 'failed' to 'generating'".
+3. `test_resume_dispatch_carries_rehydrated_planning_context`: a resumed dispatch drops the user's clarification answers (`D2`, `SPINNAKER-SENTINEL` missing).
+
+Every run also logs `update_wave_run_merge_state … 'ScopedStore' object has no attribute '_acquire'`, which looks like a real AttributeError at `kernel_services.py:754`.
+
+### Expected
+
+A resume re-runs only the unfinished wave workers, a user resume of a failed run proceeds and reconciles, the resumed dispatch carries the clarification answers, and there is no AttributeError.
+
+### Actual
+
+As above.
+
+### Notes
+
+Card ISS-1061 has this as "minor". These are functional resume defects, so it is logged here as High.
+
+<a id="qa-kb-098"></a>
+
+## QA-KB-098 — test_revision_browser_dir_writer_driven fails on a module global that no longer exists
+
+- **Page:** n/a (test code)
+- **Route:** n/a (code-level)
+- **Severity:** Low
+- **Found by:** validate-bugs (another session), from card ISS-1063
+- **Found at:** 2026-10-07 21:19
+- **Reproduction mode:** Run `backend/tests/agents/test_per_run_paths_v3.py::test_revision_browser_dir_writer_driven` alone.
+
+### Expected
+
+The test passes. It should patch whatever the browser tool now uses for its sandbox root.
+
+### Actual
+
+It fails: it saves and restores `playwright_tools._SANDBOX`, which no longer exists. It was already red at 14a675db4.
+
+<a id="qa-kb-099"></a>
+
+## QA-KB-099 — test_sigterm_reaches_the_lifespan_shutdown_half_while_a_stream_is_live errors with UnitIsolationError
+
+- **Page:** n/a (test code)
+- **Route:** n/a (code-level)
+- **Severity:** Low
+- **Found by:** validate-bugs (another session) while validating QA-KB-076
+- **Found at:** 2026-10-07 23:10
+- **Reproduction mode:** Run `backend/tests/unit/services/test_shutdown_reachability.py::test_sigterm_reaches_the_lifespan_shutdown_half_while_a_stream_is_live` alone.
+
+### Expected
+
+The test runs. A test that spawns a uvicorn subprocess belongs in `tests/integration/`, or must be marked `@pytest.mark.allow_io`.
+
+### Actual
+
+`UnitIsolationError`: it spawns a uvicorn subprocess inside `tests/unit`. It fails the same way at 9ef547e74^, so QA-KB-076 did not cause it.
+
+<a id="qa-kb-100"></a>
+
+## QA-KB-100 — A user-saved workflow override can carry a gate users are not allowed to use (security)
+
+- **Page:** Workflow override save (POST /api/user-workflows), workflow listing (GET /api/workflows/{type})
+- **Route:** /api/user-workflows, /api/workflows/ppt
+- **Severity:** High (security)
+- **Found by:** validate-bugs (another session) while validating QA-KB-088, from card ISS-1093
+- **Found at:** 2026-10-07 23:45
+- **Reproduction mode:** Test plus API. `backend/tests/unit/test_workflow_override.py::test_a_not_user_allowed_gate_is_rejected` fails. The QA-KB-088 probe (`evidence/qa-kb-088/09-analyze-merge-override-trust-probe-output.txt`) shows it end to end.
+
+### Expected
+
+Saving an override that adds a `user_allowed=False` gate (for example the "security" gate) is rejected. Such a gate is never served or run from a user override.
+
+### Actual
+
+`merge_override_steps` compiles the override at `trust="db"`, so the user_allowed check is skipped. The override is saved, served by GET /api/workflows/ppt, and run.
+
+### Notes
+
+It was pre-existing: it fails at 1d49a7c2f^ too, where a unit-guard setup error hid it.
+
+<a id="qa-kb-101"></a>
+
+## QA-KB-101 — test_list_carries_launchable_flags asserts a stale workflow label
+
+- **Page:** n/a (test code)
+- **Route:** n/a (code-level)
+- **Severity:** Low
+- **Found by:** validate-bugs (another session), from card ISS-1094
+- **Found at:** 2026-10-07 23:45
+- **Reproduction mode:** Run `backend/tests/integration/api/test_workflows_api.py::test_list_carries_launchable_flags` alone.
+
+### Expected
+
+The test asserts the current label.
+
+### Actual
+
+It expects "Build an interactive prototype", but the list now says "Build an interactive prototype (Fast)". It was pre-existing, hidden behind a setup error until QA-KB-088 relocated the file.
+
+<a id="qa-kb-102"></a>
+
+## QA-KB-102 — A user resume that dies before its first dispatch ends silently
+
+- **Page:** Run detail (Resume)
+- **Route:** /runs/{id}
+- **Severity:** Medium
+- **Found by:** QA-KB-097 analysis (ISS-1103)
+- **Found at:** 2026-10-08 00:45
+- **Reproduction mode:** Code-level. See `evidence/qa-kb-097/analysis-15-swallowed-resume-durable-state.txt`.
+
+### Expected
+
+A resume that fails before its first dispatch marks the run failed and tells the user, so the run never sits silently in a resumed state.
+
+### Actual
+
+`_drive_resumed_stream` swallows the exception, and `resume_run` has four silent early exits. The run ends with no error to the user and no failed status.
+
+<a id="qa-kb-103"></a>
+
+## QA-KB-103 — Saving "my version" of 8 built-ins from the canvas now returns 422 (regression from QA-KB-100)
+
+- **Page:** Composer canvas (save my version of a built-in)
+- **Route:** /api/user-workflows (POST / PATCH)
+- **Severity:** High
+- **Found by:** validate-bugs (another session), from card ISS-1118 (FIX-766 follow-up)
+- **Found at:** 2026-10-08 14:55
+- **Reproduction mode:** Open app_builder or prototype on the canvas, save "my version" without changing anything, and watch the save request.
+
+### Expected
+
+Saving an unchanged or lightly edited override of a built-in succeeds. FIX-766's trust="user" check still refuses any engineer-only key the user actually added or changed.
+
+### Actual
+
+The canvas sends the built-in's engineer-only step keys back unchanged, and the shared compile_override_steps check (trust="user") rejects them with 422. Eight built-ins are affected, including app_builder and prototype. See evidence/qa-kb-100/analysis-04.
+
+<a id="qa-kb-104"></a>
+
+## QA-KB-104 — sync-from-file skips the tier entitlement check (security)
+
+- **Page:** n/a (API)
+- **Route:** POST /api/user-workflows/{id}/sync-from-file
+- **Severity:** High
+- **Found by:** validate-bugs (another session), from card ISS-1117 (split from ISS-1112)
+- **Found at:** 2026-10-08 14:55
+- **Reproduction mode:** As a basic-tier user, call sync-from-file with an enterprise-only pipeline_type on a row you own.
+
+### Expected
+
+The endpoint refuses a pipeline_type the caller is not entitled to run (the can_run_pipeline check), the same way launch does.
+
+### Actual
+
+No entitlement check runs, so any tier can copy an enterprise-only workflow's manifest into a row it owns.
+
+<a id="qa-kb-105"></a>
+
+## QA-KB-105 — A resume that ends on the workflow_unsatisfiable frame still ends silently
+
+- **Page:** Run detail (Resume)
+- **Route:** /runs/{id}
+- **Severity:** Medium
+- **Found by:** QA-KB-102 fixer (card ISS-1125); validate-bugs asked for it to be fixed before the smoke test
+- **Found at:** 2026-10-08 16:08
+- **Reproduction mode:** Code-level. Resume a run whose _execute_impl yields the workflow_unsatisfiable error frame and returns.
+
+### Expected
+
+The resume is recorded through _fail_resume: one pipeline_failed with the reason, the run marked failed, and a live frame.
+
+### Actual
+
+The stream returns normally, so FIX-768's funnel never fires. There is no terminal event and the run stays non-terminal. This is the same silent-resume symptom as QA-KB-102.
+
+<a id="qa-kb-106"></a>
+
+## QA-KB-106 — A rejected launch is silent: no message, and Run stays disabled
+
+- **Page:** Composer canvas (Run once), and likely the /create wizards
+- **Route:** /workflows/{id}/canvas → POST /api/runs
+- **Severity:** Medium
+- **Found by:** validate-bugs smoke test (SMOKE-1)
+- **Found at:** 2026-10-09 01:48
+- **Reproduction mode:** Open /workflows/ex_A1_loop/canvas, enter a brief, and click "Run once" while POST /api/runs is rejected (e.g. 503 model_provider_unavailable, 403 tier_not_entitled or 422 manifest error). Evidence: /tmp/bughunt-lane2-out/smoke-runonce-503.png and /tmp/bughunt-lane2-out/console-2026-10-08T23-48-07-524Z.log lines 11-13.
+
+### Expected
+
+The user sees the API error message (error or detail) in a toast or inline, and the Run button is enabled again.
+
+### Actual
+
+The page stays on the canvas with no message, and Run once stays disabled. The onLaunch .catch in frontend/src/app/[...view]/page.tsx (around lines 4453-4467) only resets state and logs to the console in dev. Only host_capacity_exhausted gets UI (via ServiceBusyProvider). Fix it once in that catch, then check that the /create wizards use the same path.
+
+<a id="qa-kb-107"></a>
+
+## QA-KB-107 — preflight_check_provider refuses the launch on an expired Bedrock token even with USE_LOCAL_OLLAMA=1
+
+- **Page:** n/a (launch preflight)
+- **Route:** POST /api/runs
+- **Severity:** Low (dev-only)
+- **Found by:** validate-bugs smoke test (SMOKE-2)
+- **Found at:** 2026-10-09 01:48
+- **Reproduction mode:** Set USE_LOCAL_OLLAMA=1 with an expired AWS_BEARER_TOKEN_BEDROCK, then launch any run.
+
+### Expected
+
+With USE_LOCAL_OLLAMA=1 the run never touches Bedrock, so the preflight skips the Bedrock token check, as it already does for ANTHROPIC_API_KEY.
+
+### Actual
+
+preflight_check_provider (backend model_factory.py, around line 105) returns 503 model_provider_unavailable over the expired Bedrock token, which blocks the Ollama fallback.
+
+<a id="qa-kb-108"></a>
+
+## QA-KB-108 — Login returns a raw 500 (no CORS header) when the AWS SSO credentials are expired
+
+- **Page:** /login
+- **Route:** POST /api/auth/login
+- **Severity:** Medium
+- **Found by:** validate-bugs smoke test (SMOKE-3)
+- **Found at:** 2026-10-09 03:46
+- **Reproduction mode:** With the AWS SSO session expired, sign in as any user. Backend log: /private/tmp/velocity-8000.log around line 11799 (botocore TokenRetrievalError "Token has expired and refresh failed" at app/api/auth.py:342 in login).
+
+### Expected
+
+A provider or credentials failure during sign-in maps to a handled 503 with a clear message (e.g. "Sign-in service unavailable"), as the launch preflight does for Bedrock. The response carries the normal CORS headers, so the login page can show the message.
+
+### Actual
+
+An unhandled exception gives a raw 500 with no CORS header. The browser reports a CORS block, and the login page shows only "An unexpected error occurred. Please try again."
+
+
+<a id="qa-kb-109"></a>
+
+## QA-KB-109 — Admin users table shows Delete on the admin's own row
+
+- **Page/Route:** /admin/users
+- **Severity:** Medium
+- **Found by:** validate-bugs full smoke + offline e2e on :8001/:3001 (2026-10-09). Logged under the frozen scope and not scheduled.
+- **Found at:** 2026-10-09 13:17
+- **Reproduction mode:** e2e 11_admin test_an_admin_cannot_delete_their_own_account; 19 test_an_admin_cannot_delete_themselves_into_lockout. Rerun-confirmed logs are in validate-bugs' scratchpad e2e/rerun/*.log.
+
+### Actual
+
+The admin's own row renders "Delete admin@velocity.ai". The server refuses with 400, so this is UI-only. Regression from b2a621f84, which removed currentUserId.
+
+
+<a id="qa-kb-110"></a>
+
+## QA-KB-110 — "Edit brief and run again" on a failed run pre-fills an empty brief
+
+- **Page/Route:** /runs/{id}
+- **Severity:** Medium
+- **Found by:** validate-bugs full smoke + offline e2e on :8001/:3001 (2026-10-09). Logged under the frozen scope and not scheduled.
+- **Found at:** 2026-10-09 13:17
+- **Reproduction mode:** e2e 18_chat_lane test_edit_brief_and_run_again_prefills_the_original_brief. Rerun-confirmed logs are in validate-bugs' scratchpad e2e/rerun/*.log.
+
+### Actual
+
+The composer is pre-filled with '' instead of the failed run's original brief.
+
+
+<a id="qa-kb-111"></a>
+
+## QA-KB-111 — Version pinning: the tabs and picker never fetch the pinned revision's run id
+
+**Parked 2026-10-12** (user hard stop, "get done in 1 hour and park rest"). Was UNREPRODUCIBLE: 3 cold loads plus a soft-nav sweep on 2026-10-12 all fetched the pinned v2 run, but validate-bugs had reproduced it on 2026-10-09. Next: re-run the repro on a freshly restarted :3000/:3001 with the build commit recorded. If it is still clean, close as UNREPRODUCIBLE.
+
+- **Page/Route:** /runs/{id}/versions/N
+- **Severity:** High
+- **Found by:** validate-bugs full smoke + offline e2e on :8001/:3001 (2026-10-09). Logged under the frozen scope and not scheduled.
+- **Found at:** 2026-10-09 13:17
+- **Reproduction mode:** 9 failures in e2e 21_run_families_and_versions. Rerun-confirmed logs are in validate-bugs' scratchpad e2e/rerun/*.log.
+
+### Actual
+
+/runs/{id}/versions/N shows the wrong revision. Check against QA-KB-055's page.tsx change.
+
+### Repro detail (validate-bugs, rerun-confirmed)
+
+Family run 2708dbf1-50d0-465d-9bed-56b651ea1abf; v2 = revision 23bd9c67-e239-4979-b14a-cb78222795e8. On /runs/2708dbf1…/versions/2/files and …/versions/2/audit, the page never requests the revision's own data (no /api/runs/23bd9c67…/gate-events or artifacts call). Tests: test_tab_switch_keeps_fetching_the_pinned_revisions_run_id, test_audit_tab_fetches_the_pinned_versions_own_run_id. "FINAL OUTPUT" never appears within 20 s on the pinned files tab, and [data-testid='tab-thinking'] never appears on the pinned Steps tab.
+Harness causes to separate out: (a) 3 tests time out waiting for [data-testid="run-header"] button[aria-haspopup='listbox'] (the version picker); check whether the selector or markup changed before calling it a regression. (b) 2 chat deep-link tests fail with "no 'Revision started' card — this run has no revision". That is fixture data, not the app.
+Log: validate-bugs scratchpad e2e/rerun/21_run_families_and_versions.log
+
+### Reopened 2026-10-09 (validate-bugs live repro, current code, cold load each URL)
+
+Family root 78e185fb-c032-4154-8552-774781b6e5df; v2 = 80054fbc-71cc-42de-adeb-ae2db82eb2f2.
+- /runs/78e185fb…/versions/2/files is OK: it fetches /api/runs/80054fbc… plus artifacts, sandbox, sandbox/refs, sandbox/file and events.
+- /runs/78e185fb…/versions/2/steps is wrong: the only run requests are for the ROOT (/api/runs/78e185fb…, artifacts, family, sandbox/refs, events). Nothing is requested for 80054fbc, so the v2 URL shows v1's steps.
+- /runs/78e185fb…/versions/2/audit is the same: root-only requests, with no gate-events or hook-runs for 80054fbc.
+So the Files tab honours the pin, and the Steps and Audit tabs ignore it on a cold load. The first validation saw 80054fbc requests at around 12-15 s. Separate the late, incidental fetch from what the Steps and Audit tab bodies actually render (v1 vs v2 content). The stale e2e fixture IDs (2708dbf1 / 23bd9c67) belong to QA-KB-122.
+
+<a id="qa-kb-112"></a>
+
+## QA-KB-112 — Admin sees the MFA enrollment wall on /settings/security and gets a new TOTP secret on every visit
+
+**Parked 2026-10-12** (user hard stop, "get done in 1 hour and park rest"). Was ANALYZED: root ISS-1203, siblings ISS-1204 to 1206; owner decision 112a (keep the enrolment page, test-only fix). Next: write the failing tests, then align the e2e 09 settings suite, the spec and velocity.json with the /settings/security enrolment page.
+
+- **Page/Route:** /settings/security
+- **Severity:** Medium
+- **Found by:** validate-bugs full smoke + offline e2e on :8001/:3001 (2026-10-09). Logged under the frozen scope and not scheduled.
+- **Found at:** 2026-10-09 13:17
+- **Reproduction mode:** 8 failures in e2e 09_settings. Rerun-confirmed logs are in validate-bugs' scratchpad e2e/rerun/*.log.
+
+### Actual
+
+The Account Settings Security tab is replaced by the enrollment wall, and every visit mints a fresh TOTP secret. Came from b2a621f84. It may be intended; that is the user's decision.
+
+### Owner decision
+
+Owner decision 2026-10-09: option a, keep as is. /settings/security stays the TOTP enrollment page (b2a621f84). Test-only fix: update velocity.json (`/settings/security` no longer the tab-security route) and the 8 failing 09_settings e2e tests to the enrollment-page behaviour. No app change.
+
+<a id="qa-kb-113"></a>
+
+## QA-KB-113 — Composer agent config sub-tabs missing (no "Agent · step 1 of N")
+
+- **Page/Route:** /workflows/{id}/canvas
+- **Severity:** Medium
+- **Found by:** validate-bugs full smoke + offline e2e on :8001/:3001 (2026-10-09). Logged under the frozen scope and not scheduled.
+- **Found at:** 2026-10-09 13:17
+- **Reproduction mode:** e2e 04_composer_canvas. Rerun-confirmed logs are in validate-bugs' scratchpad e2e/rerun/*.log.
+
+### Actual
+
+The per-agent config sub-tabs do not render.
+
+### Repro detail (validate-bugs, rerun-confirmed)
+
+Test: 04_composer_canvas test_the_config_rails_agent_tab_has_five_sub_tabs_of_its_own. After selecting an agent in the canvas config rail, /Agent · step 1 of \d/ never shows. Rerun the single node id on :3000. Log: e2e/rerun/04_composer_canvas.log
+
+<a id="qa-kb-114"></a>
+
+## QA-KB-114 — Composer shows the blank "Custom Agent" template while authoring an override
+
+**Parked 2026-10-12** (user hard stop, "get done in 1 hour and park rest"). Was ESCALATED: the owner has not chosen yet; the recommendation is option c (hide the Custom Agent tile only in "Save as my version"). Next: owner picks a, b or c, then analyze and fix.
+
+- **Page/Route:** /workflows/{id}/canvas
+- **Severity:** Low
+- **Found by:** validate-bugs full smoke + offline e2e on :8001/:3001 (2026-10-09). Logged under the frozen scope and not scheduled.
+- **Found at:** 2026-10-09 13:17
+- **Reproduction mode:** e2e 04_composer_canvas. Rerun-confirmed logs are in validate-bugs' scratchpad e2e/rerun/*.log.
+
+### Actual
+
+The blank template appears in override authoring mode.
+
+### Repro detail (validate-bugs, rerun-confirmed)
+
+Test: 04_composer_canvas test_the_blank_custom_agent_template_is_withheld_when_authoring_an_override. The exact text "Custom Agent" has count 1 and is expected 0 while authoring a built-in override (e.g. from "Save as my version"). Log: e2e/rerun/04_composer_canvas.log
+
+<a id="qa-kb-115"></a>
+
+## QA-KB-115 — Composer fetches capabilities twice
+
+- **Page/Route:** /workflows/{id}/canvas
+- **Severity:** Low
+- **Found by:** validate-bugs full smoke + offline e2e on :8001/:3001 (2026-10-09). Logged under the frozen scope and not scheduled.
+- **Found at:** 2026-10-09 13:17
+- **Reproduction mode:** e2e 04_composer_canvas (ISS-796 test). Rerun-confirmed logs are in validate-bugs' scratchpad e2e/rerun/*.log.
+
+### Actual
+
+Duplicate capabilities fetch (ISS-796 regression test).
+
+### Repro detail (validate-bugs, rerun-confirmed)
+
+Test: test_iss796_capabilities_double_fetch::test_opening_the_agent_config_tab_reuses_the_capabilities_fetch. The capabilities endpoint is requested twice when the Agent config tab opens. Log: e2e/rerun/04_composer_canvas.log
+
+<a id="qa-kb-116"></a>
+
+## QA-KB-116 — Checking a review gate in the Advanced modal times out
+
+- **Page/Route:** /runs/{id}
+- **Severity:** Low
+- **Found by:** validate-bugs full smoke + offline e2e on :8001/:3001 (2026-10-09). Logged under the frozen scope and not scheduled.
+- **Found at:** 2026-10-09 13:17
+- **Reproduction mode:** e2e 03 test_checking_a_review_gate_sets_that_agents_gate_in_the_advanced_modal. Rerun-confirmed logs are in validate-bugs' scratchpad e2e/rerun/*.log.
+
+### Actual
+
+Clicking the gate checkbox in the advanced modal times out.
+
+
+<a id="qa-kb-117"></a>
+
+## QA-KB-117 — Deliverable access hides "Branch on a decision"
+
+- **Page/Route:** /settings (deliverable access)
+- **Severity:** Low
+- **Found by:** validate-bugs full smoke + offline e2e on :8001/:3001 (2026-10-09). Logged under the frozen scope and not scheduled.
+- **Found at:** 2026-10-09 13:17
+- **Reproduction mode:** e2e 17 test_deliverable_access_omits_workflows_the_catalog_offers. Rerun-confirmed logs are in validate-bugs' scratchpad e2e/rerun/*.log.
+
+### Actual
+
+A workflow the catalog offers is missing from deliverable access.
+
+### Owner decision
+
+Owner decision 2026-10-09: option 2, plus a rule: every example workflow that delivers something is listed under Deliverable access. Add the entitled engine-example workflows (or an "Engine examples" group listing them) to the Deliverable access grid, driven by the same entitlement list as the home catalog rather than a hand-kept map, so the two surfaces agree. Update e2e S-17-08 (test_deliverable_access_omits_workflows_the_catalog_offers), which pins the old omission.
+
+<a id="qa-kb-118"></a>
+
+## QA-KB-118 — Opening an agent in the Steps tab fetches artifacts twice
+
+- **Page/Route:** /runs/{id} (Steps tab)
+- **Severity:** Low
+- **Found by:** validate-bugs full smoke + offline e2e on :8001/:3001 (2026-10-09). Logged under the frozen scope and not scheduled.
+- **Found at:** 2026-10-09 13:17
+- **Reproduction mode:** e2e 07 test_opening_an_agent_in_steps_tab_fetches_artifacts_once. Rerun-confirmed logs are in validate-bugs' scratchpad e2e/rerun/*.log.
+
+### Actual
+
+Duplicate artifacts fetch.
+
+
+<a id="qa-kb-119"></a>
+
+## QA-KB-119 — GET /api/runs/{id}/events with no params returns 53 MB in 13 s
+
+- **Page/Route:** GET /api/runs/{id}/events
+- **Severity:** Medium
+- **Found by:** validate-bugs full smoke + offline e2e on :8001/:3001 (2026-10-09). Logged under the frozen scope and not scheduled.
+- **Found at:** 2026-10-09 13:17
+- **Reproduction mode:** validate-bugs smoke, run 78e185fb. Rerun-confirmed logs are in validate-bugs' scratchpad e2e/rerun/*.log.
+
+### Actual
+
+Unbounded replay with no paging default (run 78e185fb).
+
+
+<a id="qa-kb-120"></a>
+
+## QA-KB-120 — A failed run's finalize logs CalledProcessError on git add for missing .chain files
+
+- **Page/Route:** n/a (finalizer)
+- **Severity:** Low
+- **Found by:** validate-bugs full smoke + offline e2e on :8001/:3001 (2026-10-09). Logged under the frozen scope and not scheduled.
+- **Found at:** 2026-10-09 13:17
+- **Reproduction mode:** validate-bugs smoke, run eb1d7551. Rerun-confirmed logs are in validate-bugs' scratchpad e2e/rerun/*.log.
+
+### Actual
+
+git add is called on .chain files that do not exist (run eb1d7551).
+
+
+<a id="qa-kb-121"></a>
+
+## QA-KB-121 — Launch preflight passes a Bedrock key that Bedrock rejects (AccessDenied "API Key invalid")
+
+- **Page/Route:** POST /api/runs
+- **Severity:** Medium
+- **Found by:** validate-bugs full smoke + offline e2e on :8001/:3001 (2026-10-09). Logged under the frozen scope and not scheduled.
+- **Found at:** 2026-10-09 13:17
+- **Reproduction mode:** validate-bugs, direct converse call. Rerun-confirmed logs are in validate-bugs' scratchpad e2e/rerun/*.log.
+
+### Actual
+
+AWS_BEARER_TOKEN_BEDROCK decodes as valid until 19:06Z, but Bedrock rejects it. The preflight only checks expiry, so the launch is accepted and then fails (cleanly). A direct converse call confirmed it.
+
+### Owner decision
+
+Owner decision 2026-10-09: option a. Keep the expiry-only, no-network preflight (no live Bedrock probe). Improve the failure the user sees when Bedrock rejects the key at the first model call (AccessDenied "API Key invalid"): a clear message that the Bedrock API key is invalid or revoked and must be rotated, not a generic provider error. Owner context: only local dev uses the temporary rotated key. Production uses a persisted key, so keep this change small and dev-friendly.
+
+<a id="qa-kb-122"></a>
+
+## QA-KB-122 — Stale e2e tests after intentional app changes
+
+- **Page/Route:** n/a (e2e tests)
+- **Severity:** Low
+- **Found by:** validate-bugs full smoke + offline e2e on :8001/:3001 (2026-10-09). Logged under the frozen scope and not scheduled.
+- **Found at:** 2026-10-09 13:17
+- **Reproduction mode:** validate-bugs triage e2e/rerun/triage.txt. Rerun-confirmed logs are in validate-bugs' scratchpad e2e/rerun/*.log.
+
+### Actual
+
+12 tests POST /api/admin/users with "password" (422 extra_forbidden after QA-KB-077); "Pitch an idea (Detailed)" should be "(Depth)" in framework/locators/home_catalog.py; 24 test_the_reserved_subtrees_are_never_listed vs the deliberate f9df3737c; 4 strict-XPASS markers to remove (ISS-923, ISS-1033 in 05, ISS-213 in 06, ISS-190 in 12).
+
+### Added 2026-10-09: also stale (from validating QA-KB-111, 113 and 115)
+
+- test_composer_canvas.py:271 regex /Agent · step 1 of \d/ should be /AI agent · step 1 of \d/, and framework/locators/composer.py:52 AGENT_SUBTABS should have "Data" instead of "Hooks" (wording from 911547c7d). See UNREPRODUCIBLE.md#qa-kb-113.
+- test_iss796_capabilities_double_fetch.py:22: remove the strict xfail, because ISS-796 is resolved (FIX-617). See UNREPRODUCIBLE.md#qa-kb-115.
+- test_iss_230_version_pin_survives_tab_switch.py:23-24 hard-codes family 2708dbf1 / revision 23bd9c67, which no longer exist.
+
+<a id="qa-kb-123"></a>
+
+## QA-KB-123 — e2e test data lacks a v1 "prototype" run
+
+**Parked 2026-10-12** (user hard stop, "get done in 1 hour and park rest"). Was TESTED: root ISS-1194 has a strict-xfail test in backend/tests/unit/test_e2e_tier_drift.py; siblings ISS-1207 to 1209 are open. Next: fix the e2e chip callers to skip absent chips and seed the missing v1 prototype run.
+
+- **Page/Route:** n/a (test data)
+- **Severity:** Low
+- **Found by:** validate-bugs full smoke + offline e2e on :8001/:3001 (2026-10-09). Logged under the frozen scope and not scheduled.
+- **Found at:** 2026-10-09 13:17
+- **Reproduction mode:** validate-bugs triage e2e/rerun/triage.txt. Rerun-confirmed logs are in validate-bugs' scratchpad e2e/rerun/*.log.
+
+### Actual
+
+4 tests need a v1 prototype run, but the DB only has prototype_v2.
+
+<a id="qa-kb-124"></a>
+
+## QA-KB-124 — ex_A1_loop "Run once" on Bedrock Haiku fails: check's gate has nowhere to route
+
+- **Page/Route:** /workflows/ex_A1_loop/canvas → Run once
+- **Severity:** Medium
+- **Found by:** validate-bugs Bedrock smoke on :8001/:3001 (2026-10-09). Logged under the frozen scope and not scheduled.
+- **Found at:** 2026-10-09 13:43
+- **Reproduction mode:** Launch ex_A1_loop from the canvas on Bedrock Haiku (run 9a931a7a-54dc-4f4f-a316-b5ac1dbe3822). The same canvas run completed on local Ollama (run 32bbde34).
+
+### Actual
+
+The run ends degraded with "Check's conditional gate had nowhere to route: no matching outcome and no default_next". custom-agent:check answered in prose ("The greeting contains no joke.") instead of the required {"decision": "retry"} line. Either Haiku does not follow the prompt, or the canvas copy loses check's exact-format prompt. Fix the prompt first (user rule: prompt fix before code).
+
+<a id="qa-kb-125"></a>
+
+## QA-KB-125 — In-app previews run agent HTML with allow-scripts allow-same-origin on the app origin (security)
+
+- **Page/Route:** prototype preview and OD deck preview (Results / Preview, "Open in new tab")
+- **Severity:** High
+- **Found by:** FIX-745 fixer (card ISS-1067). The owner approved logging and fixing it on 2026-10-09.
+- **Found at:** 2026-10-07 20:30
+- **Reproduction mode:** See .knowledge/cards/20261007-2030-ISS-1067.md.
+
+### Expected
+
+Agent-generated HTML never runs with same-origin access to the app (the exposure FIX-745 already removed from the share link).
+
+### Actual
+
+The in-app prototype and OD deck previews use sandbox="allow-scripts allow-same-origin" on the app origin, and "Open in new tab" loads the HTML with no sandbox at all.
+
+<a id="qa-kb-126"></a>
+
+## QA-KB-126 — The enterprise-only Composer gate keys on a caller-chosen field, so a basic user gets exec (security)
+
+- **Page/Route:** POST /api/user-workflows, then launch by user_workflow_id
+- **Severity:** High
+- **Found by:** QA-KB-100 analysis (card ISS-1114). The owner approved logging and fixing it on 2026-10-09.
+- **Found at:** 2026-10-08 14:15
+- **Reproduction mode:** See .knowledge/cards/20261008-1415-ISS-1114.md. As a basic-tier user, save a manifest-backed row with base_pipeline_type=ppt and no override flag, then launch it by id.
+
+### Expected
+
+A basic-tier user cannot obtain exec or spawn_subagents grants through a saved row.
+
+### Actual
+
+The enterprise-only Composer gate keys on base_pipeline_type, which the caller picks. The trust="db" launch compile then grants exec and spawn_subagents.
+
+<a id="qa-kb-127"></a>
+
+## QA-KB-127 — Design-system preview frames generated HTML on the app origin with allow-same-origin (security)
+
+**Parked 2026-10-12** (user hard stop, "get done in 1 hour and park rest"). Was LOGGED (security, High), never validated. Next: validate, then apply the QA-KB-125 pattern (lib/agentHtml.ts, AGENT_HTML_SANDBOX allow-scripts only) to DesignSystemDetailModal.
+
+- **Page/Route:** prototype design-system picker → design system detail modal
+- **Severity:** High
+- **Found by:** validate-bugs while validating FIX-775 (QA-KB-125). Logged under the frozen scope; needs the owner's go to schedule.
+- **Found at:** 2026-10-09 16:35
+- **Reproduction mode:** frontend/src/components/workflow/prototype/DesignSystemDetailModal.tsx:61-67 and :218. When `!system.has_preview`, it builds HTML from `detail.body` (generateDesignSystemPreviewHtml), wraps it in a blob: URL on the app origin, and frames it with sandbox="allow-scripts allow-same-origin". openInNewTab (:100) also window.opens that blob as a top-level page. The has_preview path loads the :8000 backend URL (cross-origin) but still uses allow-same-origin.
+
+### Expected
+
+It goes through lib/agentHtml.ts (AGENT_HTML_SANDBOX, frameableAgentHtml, openAgentHtmlInNewTab), the same as every other agent-HTML surface after FIX-775.
+
+### Actual
+
+The ISS-1067 pattern applies if design-system body or DESIGN.md content can be user- or agent-authored (to be confirmed at validate).
+
+<a id="qa-kb-128"></a>
+
+## QA-KB-128 — Preview "open in new tab" opens non-HTML deliverables as a top-level blob of their declared mimetype (security)
+
+**Parked 2026-10-12** (user hard stop, "get done in 1 hour and park rest"). Was LOGGED (security, Medium), never validated. Next: validate, then route non-HTML deliverables through a download or script-free wrapper instead of a top-level blob.
+
+- **Page/Route:** Preview chrome open-in-new button
+- **Severity:** Medium
+- **Found by:** the FIX-775 fixer (found during QA-KB-125), confirmed by validate-bugs. Logged under the frozen scope; needs the owner's go to schedule.
+- **Found at:** 2026-10-09 16:35
+- **Reproduction mode:** PreviewPanel handlePreviewOpen. A deliverable whose declared mimetype is not text/html (e.g. image/svg+xml) is opened as `window.open(blob:)` of that type.
+
+### Expected
+
+Only inert types open as a top-level blob. Script-capable types (SVG, XML/XHTML) go through the sandboxed wrapper or are downloaded.
+
+### Actual
+
+An image/svg+xml deliverable would run its script on the app origin.

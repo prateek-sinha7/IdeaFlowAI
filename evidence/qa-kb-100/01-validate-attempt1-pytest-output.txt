@@ -1,0 +1,29 @@
+F
+=================================== FAILURES ===================================
+___________________ test_a_not_user_allowed_gate_is_rejected ___________________
+
+ppt_compiled = CompiledWorkflow(id='ppt', steps=[Step(agent_id='ppt-brief-analyst', strategy='single_shot', mechanical=None, gates=[]..., effort=None), repo=None, limits=Limits(max_tokens=None, max_subagents=None, max_depth=None, wall_clock_seconds=None))
+registry = <agents.capabilities.registry.CapabilityRegistry object at 0x10cc53260>
+
+    def test_a_not_user_allowed_gate_is_rejected(ppt_compiled, registry):
+        """`security` is registered user_allowed=False. A row smuggling one must be
+        refused by the trust gate and the run must fall back to the file plan."""
+        from agents.execution_engine.overrides import merge_override_steps
+    
+        bad = _steps("mine")
+        bad[0]["gates"] = ["security"]
+>       assert merge_override_steps(ppt_compiled, bad, registry) is ppt_compiled
+E       AssertionError: assert CompiledWorkflow(id='ppt', steps=[Step(agent_id='custom-agent:mine', strategy='single_shot', mechanical=None, gates=['..., effort=None), repo=None, limits=Limits(max_tokens=None, max_subagents=None, max_depth=None, wall_clock_seconds=None)) is CompiledWorkflow(id='ppt', steps=[Step(agent_id='ppt-brief-analyst', strategy='single_shot', mechanical=None, gates=[]..., effort=None), repo=None, limits=Limits(max_tokens=None, max_subagents=None, max_depth=None, wall_clock_seconds=None))
+E        +  where CompiledWorkflow(id='ppt', steps=[Step(agent_id='custom-agent:mine', strategy='single_shot', mechanical=None, gates=['..., effort=None), repo=None, limits=Limits(max_tokens=None, max_subagents=None, max_depth=None, wall_clock_seconds=None)) = <function merge_override_steps at 0x10dcd40e0>(CompiledWorkflow(id='ppt', steps=[Step(agent_id='ppt-brief-analyst', strategy='single_shot', mechanical=None, gates=[]..., effort=None), repo=None, limits=Limits(max_tokens=None, max_subagents=None, max_depth=None, wall_clock_seconds=None)), [{'agent': 'custom-agent', 'gates': ['security'], 'instance_id': 'mine', 'name': 'mine', ...}], <agents.capabilities.registry.CapabilityRegistry object at 0x10cc53260>)
+
+tests/unit/test_workflow_override.py:122: AssertionError
+=============================== warnings summary ===============================
+app/core/config.py:94
+  /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/app/core/config.py:94: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+    class Settings(BaseSettings):
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/unit/test_workflow_override.py::test_a_not_user_allowed_gate_is_rejected
+!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+1 failed, 1 warning in 1.62s

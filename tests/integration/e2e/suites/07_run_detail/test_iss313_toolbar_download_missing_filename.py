@@ -12,8 +12,8 @@ it completes with `deliverable_mimetype` set but `deliverable_filename` null.
 `PreviewPanel.tsx`'s toolbar-download effect gates the button on that name
 resolving in the workspace listing, so it never enables.
 
-Run used: edba51b5-eb00-46b1-ba30-87f2f04db120 (status `completed`,
-deliverable_filename null). Live run discovered 2026-09-21.
+The run is discovered rather than pinned: the pinned one went with a reseed
+and the page rendered a 404 (ISS-1188).
 """
 
 from __future__ import annotations
@@ -21,7 +21,19 @@ from __future__ import annotations
 import pytest
 from playwright.sync_api import expect
 
-RUN_WITH_NULL_DELIVERABLE_FILENAME = "edba51b5-eb00-46b1-ba30-87f2f04db120"
+from framework import api
+
+
+def _a_completed_run_with_no_deliverable_filename(page) -> str:
+    """A completed run with a deliverable mimetype but no `deliverable_filename`."""
+    page.goto("/dashboard")
+    for row in api.json_body(page, "GET", "/api/runs?limit=100&status_filter=completed"):
+        if row.get("deliverable_mimetype") and not row.get("deliverable_filename"):
+            return row["id"]
+    pytest.skip(
+        "no completed run in this history has a deliverable but no "
+        "deliverable_filename (e.g. an ex_playwright_smoke_test run)"
+    )
 
 
 @pytest.mark.issue("ISS-313")
@@ -29,7 +41,8 @@ def test_toolbar_download_enabled_when_deliverable_filename_missing(page):
     """A completed run with a fully rendered deliverable must offer a working
     toolbar Download button, even when the backend never wrote
     `deliverable_filename` for that run's manifest."""
-    page.goto(f"/runs/{RUN_WITH_NULL_DELIVERABLE_FILENAME}/stream")
+    run_id = _a_completed_run_with_no_deliverable_filename(page)
+    page.goto(f"/runs/{run_id}/stream")
     page.wait_for_load_state("networkidle")
 
     download_button = page.get_by_role(

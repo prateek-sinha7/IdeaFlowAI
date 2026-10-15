@@ -1,0 +1,24 @@
+#!/bin/zsh
+# QA-KB-079: mutant x test-file matrix. One pytest invocation per cell, one file at a time.
+# Application source is never edited; each mutant is swapped in at runtime by kb079_mutant.py.
+SCRATCH=/private/tmp/claude-502/-Users-bilala-Developer-Projects-VELOCITY-AI-worktrees-feat-user-stories-v2/2d1a1575-310a-48fd-8155-2763a084604d/scratchpad/kb079
+cd /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend || exit 1
+OUT=$SCRATCH/matrix.txt
+: > "$OUT"
+echo "# QA-KB-079 mutant matrix, $(date '+%Y-%m-%d %H:%M')" >> "$OUT"
+for M in ${=KB079_KINDS:-R H A B C D E F S}; do
+  for CELL in "F1|tests/integration/repositories/test_run_events_payload_seq_db.py|" \
+              "F2|tests/integration/repositories/test_run_events_db.py|" \
+              "F5|tests/integration/api/test_rest_answers_cancel_api.py|durable_cancel"; do
+    NAME=${CELL%%|*}; REST=${CELL#*|}; FILE=${REST%%|*}; KEXPR=${REST#*|}
+    KARG=()
+    [[ -n "$KEXPR" ]] && KARG=(-k "$KEXPR")
+    RAW=$(KB079_MUTANT=$M KB079_OUT=$OUT PYTHONPATH=$SCRATCH:. .venv/bin/python -m pytest "$FILE" "${KARG[@]}" \
+          -q -p no:cacheprovider -p kb079_mutant -rf 2>&1)
+    SUMMARY=$(echo "$RAW" | grep -E "^[0-9]+ (passed|failed)|passed|failed|error" | tail -1)
+    FAILS=$(echo "$RAW" | grep -E "^FAILED" | sed 's/ - .*//' | sed 's/^FAILED //' | tr '\n' ' ')
+    PSYCO=$(echo "$RAW" | grep -c -i psycopg)
+    echo "mutant=$M file=$NAME summary=[$SUMMARY] failed=[$FAILS] psycopg_mentions=$PSYCO" >> "$OUT"
+  done
+done
+echo "# done" >> "$OUT"

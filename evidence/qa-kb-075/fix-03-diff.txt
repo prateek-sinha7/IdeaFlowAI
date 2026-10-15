@@ -1,0 +1,83 @@
+# QA-KB-075 / FIX-733: this fix's hunks only (old line >= 4300). Hunks at old 4094-4209 in the same file are QA-KB-073 / FIX-732.
+diff --git a/backend/tests/integration/agents/test_restart_resume_db.py b/backend/tests/integration/agents/test_restart_resume_db.py
+index 9bd36d011..1edf92706 100644
+--- a/backend/tests/integration/agents/test_restart_resume_db.py
++++ b/backend/tests/integration/agents/test_restart_resume_db.py
+@@ -4315,8 +4327,9 @@ async def test_reconcile_supersedes_only_across_an_attempt_boundary(
+     [
+         # The real incident tail (run 4bdf9398): failed at 10:09, a resume degraded on
+         # credential expiry at 12:23, the NEXT resume completed all 11 steps cleanly at
+-        # 13:13 — yet pre-fix the run still read "degraded" forever. The LATEST
+-        # pipeline_complete must decide, not "was ANY completion ever degraded".
++        # 13:13 — yet pre-fix the run still read "degraded" forever. Only a degraded
++        # pipeline_complete at or after the last attempt boundary (run_resuming /
++        # pipeline_start, FIX-484) counts, not "was ANY completion ever degraded".
+         (
+             [
+                 ("pipeline_start", 1, {}),
+@@ -4331,8 +4344,8 @@ async def test_reconcile_supersedes_only_across_an_attempt_boundary(
+             ],
+             "completed",
+         ),
+-        # Reverse order: a clean completion, then a LATER degraded one — latest-wins cuts
+-        # the other way too.
++        # Reverse order: a clean completion, then a LATER attempt that ends degraded —
++        # that completion is at or after the last attempt boundary, so it counts too.
+         (
+             [
+                 ("pipeline_start", 1, {}),
+@@ -4361,6 +4374,8 @@ async def test_reconcile_supersedes_only_across_an_attempt_boundary(
+         ),
+         # No pipeline_complete at all — a resume that stopped again before producing any
+         # new terminal event. The D2 fail-safe, untouched by the degraded-scoping change.
++        # One attempt here; the resumed form, after an earlier completion, is T8/T9 of
++        # test_reconcile_fix484_boundary_scoping (ISS-1016).
+         (
+             [("pipeline_start", 1, {}), ("agent_start", 2, {"agent_id": "w"})],
+             "failed",
+@@ -6103,6 +6118,7 @@ async def _reconcile_tail(monkeypatch, tail):
+ 
+ 
+ @pytest.mark.issue("ISS-886")
++@pytest.mark.issue("ISS-1016")
+ @pytest.mark.parametrize(
+     "tail,expected",
+     [
+@@ -6140,8 +6156,36 @@ async def _reconcile_tail(monkeypatch, tail):
+             ],
+             "degraded",
+         ),
++        # ISS-1016: the last attempt was cut off before any terminal event; an EARLIER
++        # attempt's completion must not make the run read "completed" (or "degraded").
++        (
++            [
++                ("pipeline_start", 1, {}),
++                ("pipeline_complete", 2, _DEG),
++                ("run_resuming", 3, {}),
++                ("pipeline_start", 4, {}),
++                ("agent_start", 5, {"agent_id": "w"}),
++            ],
++            "failed",
++        ),
++        (  # the same with a clean earlier completion
++            [
++                ("pipeline_start", 1, {}),
++                ("pipeline_complete", 2, {}),
++                ("run_resuming", 3, {}),
++                ("pipeline_start", 4, {}),
++                ("agent_start", 5, {"agent_id": "w"}),
++            ],
++            "failed",
++        ),
++    ],
++    ids=[
++        "T5-iss436-degraded-then-failed",
++        "T6-iss437-failed-then-clean",
++        "T7-iss435-cancel-then-degraded",
++        "T8-iss1016-degraded-then-cut-off",
++        "T9-iss1016-clean-then-cut-off",
+     ],
+-    ids=["T5-iss436-degraded-then-failed", "T6-iss437-failed-then-clean", "T7-iss435-cancel-then-degraded"],
+ )
+ @pytest.mark.asyncio
+ async def test_reconcile_fix484_boundary_scoping(monkeypatch, tail, expected):

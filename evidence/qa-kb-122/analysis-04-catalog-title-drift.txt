@@ -1,0 +1,12 @@
+manifests: 16 launchable, 4 coming-soon (beta), 19 not user-launchable
+
+LAUNCHABLE_TITLES pinned in home_catalog.py but NOT a launchable manifest label today:
+   'Pitch an idea (Detailed)'   (same stem now served as: ['Pitch an idea (Fast)', 'Pitch an idea (Depth)'])
+
+launchable manifest labels NOT in LAUNCHABLE_TITLES (the list claims to be 'the full launchable set'):
+   'Write backlog from prototype and documents'  [backlog]
+   'Browser check'  [ex_playwright_smoke_test]
+   'Pitch an idea (Depth)'  [ppt_v2]
+   'Prototype from documents (Depth)'  [prototype_v2]
+
+COMING_SOON_TITLES pinned but not a beta+launchable manifest label today:

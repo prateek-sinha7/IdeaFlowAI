@@ -1,0 +1,9 @@
+PASS  single marker  => "idea"
+PASS  ] in name  => "idea"
+PASS  , and ] in name  => "idea"
+PASS  text after marker  => "idea\n\n more words"
+PASS  two markers  => "idea"
+PASS  user [this] bracket survives  => "see [this] idea"
+PASS  === block still stripped  => "brief"
+PASS  === block only -> filename fallback  => "📎 x.pdf"
+8/8

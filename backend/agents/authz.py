@@ -413,6 +413,30 @@ class ScopedStore:
 
         return await self._run_bounded("read_events", _body, run_id=run_id)
 
+    async def read_events_page(
+        self, run_id: str, after_seq: int, *, limit: int
+    ) -> list[Any]:
+        """Return the FIRST ``limit`` rows of ``read_events(run_id, after_seq)``: the
+        same owner+workspace scope and ``seq > after_seq`` filter, ascending, with the
+        bound pushed into SQL (ISS-1155). Following ``after_seq=<last seq returned>``
+        walks the whole log one page at a time.
+
+        ``read_events`` itself stays unbounded (see ``read_events_of_types``): it is the
+        replay primitive behind SSE resume and engine resume. ``limit`` is clamped at 0
+        because a negative SQL LIMIT means "no limit" on SQLite.
+        """
+        from app.models.run_event import RunEvent
+
+        def _body(session: Any) -> list[Any]:
+            query = session.query(RunEvent).filter(
+                RunEvent.run_id == run_id,
+                RunEvent.seq > after_seq,
+            )
+            query = self._scope_owner_ws(query, RunEvent)
+            return query.order_by(RunEvent.seq.asc()).limit(max(0, int(limit))).all()
+
+        return await self._run_bounded("read_events_page", _body, run_id=run_id)
+
     async def last_event_of_types(
         self, run_id: str, types: Any, after_seq: int = 0
     ) -> Any | None:
@@ -442,8 +466,8 @@ class ScopedStore:
 
         Bounded off-loop via ``_run_bounded`` (A16) when this store owns its session
         -- MANDATORY, because the SSE streaming generator is deliberately fed a
-        SESSION-LESS ``ScopedStore`` (``run_stream.py:251-265``, BUG-004), so each
-        read must open AND close its own ``SessionLocal``.
+        SESSION-LESS ``ScopedStore`` (``stream_store`` in ``stream_run_events``,
+        BUG-004), so each read must open AND close its own ``SessionLocal``.
         """
         from app.models.run_event import RunEvent
 
@@ -474,10 +498,9 @@ class ScopedStore:
         exactly, re-sorted ascending for reading.
 
         ``read_events`` deliberately does NOT gain a LIMIT: it is the replay primitive
-        behind SSE resume, the events API, engine resume and this class's own
-        ``append_event_next_seq`` seq allocation -- capping it would silently truncate
-        replays. Bounded READERS get this sibling instead, which pushes the bound into
-        SQL rather than materialising a whole run's log to slice it in Python. On the
+        behind SSE resume, the events API and engine resume -- capping it would silently
+        truncate replays. Bounded READERS get this sibling instead, which pushes the bound
+        into SQL rather than materialising a whole run's log to slice it in Python. On the
         worst run in the local corpus that is 20 rows instead of 12,123 (9.2 MB).
 
         ``types`` is materialised as ``tuple(sorted(types))`` for the same reason as
@@ -539,7 +562,7 @@ class ScopedStore:
         Returns ``(created, seq)``: ``created=False`` when a row with ``event_id``
         already exists (a replayed turn → no second row, D-01); ``seq`` is that row's
         per-run seq. The engine's own sink keeps its fast in-memory counter and does NOT
-        allocate through here (that would materialise the whole log per event); it
+        allocate through here (that would add two index probes per event); it
         appends through :meth:`append_event_at_or_after`, which retries past a collision
         the same way this does. Both writers therefore SURVIVE losing the race, and the
         DURABLE log holds neither a duplicate seq nor a hole.
@@ -553,14 +576,26 @@ class ScopedStore:
         """
         from sqlalchemy.exc import IntegrityError
 
-        for _ in range(max(1, _max_attempts)):
-            existing = await self.read_events(run_id, after_seq=0)
-            for row in existing:
-                if getattr(row, "event_id", None) == event_id:
-                    return False, int(getattr(row, "seq", 0) or 0)  # idempotent no-op
-            next_seq = (
-                max((int(getattr(r, "seq", 0) or 0) for r in existing), default=0) + 1
+        from app.models.run_event import RunEvent
+
+        def _body(session: Any) -> int | None:
+            # Keyed lookup on uq_run_events_scope_event, under the same scope and seq > 0
+            # filter the whole-log read applied (ISS-874).
+            query = session.query(RunEvent.seq).filter(
+                RunEvent.run_id == run_id,
+                RunEvent.event_id == event_id,
+                RunEvent.seq > 0,
             )
+            row = self._scope_owner_ws(query, RunEvent).first()
+            return None if row is None else int(row.seq)
+
+        for _ in range(max(1, _max_attempts)):
+            prior_seq = await self._run_bounded(
+                "append_event_next_seq", _body, run_id=run_id
+            )
+            if prior_seq is not None:
+                return False, prior_seq  # idempotent no-op
+            next_seq = (await self._max_event_seq(run_id)) + 1
             try:
                 await self.append_event(run_id, next_seq, event_id, type, payload_json)
                 return True, next_seq
@@ -582,8 +617,7 @@ class ScopedStore:
 
         A bounded aggregate over the ``uq_run_events_scope_seq`` index — deliberately NOT
         ``read_events``, which materialises every row (the local corpus holds a 36k-row
-        run) and is why the engine sink cannot allocate through
-        :meth:`append_event_next_seq`.
+        run).
         """
         from sqlalchemy import func
 
@@ -650,6 +684,11 @@ class ScopedStore:
                 if tail < attempt_seq:
                     raise
                 attempt_seq = tail + 1
+                # ISS-135: the row moves, so its stored payload seq moves with it. A COPY,
+                # never the caller's dict: that is the live frame, and on exhaustion it must
+                # keep the seq the caller stamped (persist() returns None => no re-stamp).
+                if isinstance(payload_json, dict) and "seq" in payload_json:
+                    payload_json = {**payload_json, "seq": attempt_seq}
         # Exhaustion re-raises the DB's OWN rejection rather than a RuntimeError, so the
         # engine sink's degrade branch (which narrows to SQLAlchemyError, treating anything
         # else as a real bug worth propagating) still absorbs it: a contended run must
@@ -1550,7 +1589,9 @@ class ScopedStore:
             session.commit()
             return None
 
-        await self._run_bounded("update_wave_run_merge_state", _body, run_id=run_id)
+        return await self._run_bounded(
+            "update_wave_run_merge_state", _body, run_id=run_id
+        )
 
     async def read_wave_runs(self, run_id: str) -> list[Any]:
         """Return the run's owner+workspace-scoped ``wave_runs`` rows (wave_index asc).

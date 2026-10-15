@@ -1,0 +1,192 @@
+diff --git a/backend/agents/authz.py b/backend/agents/authz.py
+index 3d8b95116..615f51bda 100644
+--- a/backend/agents/authz.py
++++ b/backend/agents/authz.py
+@@ -413,6 +413,30 @@ class ScopedStore:
+ 
+         return await self._run_bounded("read_events", _body, run_id=run_id)
+ 
++    async def read_events_page(
++        self, run_id: str, after_seq: int, *, limit: int
++    ) -> list[Any]:
++        """Return the FIRST ``limit`` rows of ``read_events(run_id, after_seq)``: the
++        same owner+workspace scope and ``seq > after_seq`` filter, ascending, with the
++        bound pushed into SQL (ISS-1155). Following ``after_seq=<last seq returned>``
++        walks the whole log one page at a time.
++
++        ``read_events`` itself stays unbounded (see ``read_events_of_types``): it is the
++        replay primitive behind SSE resume and engine resume. ``limit`` is clamped at 0
++        because a negative SQL LIMIT means "no limit" on SQLite.
++        """
++        from app.models.run_event import RunEvent
++
++        def _body(session: Any) -> list[Any]:
++            query = session.query(RunEvent).filter(
++                RunEvent.run_id == run_id,
++                RunEvent.seq > after_seq,
++            )
++            query = self._scope_owner_ws(query, RunEvent)
++            return query.order_by(RunEvent.seq.asc()).limit(max(0, int(limit))).all()
++
++        return await self._run_bounded("read_events_page", _body, run_id=run_id)
++
+     async def last_event_of_types(
+         self, run_id: str, types: Any, after_seq: int = 0
+     ) -> Any | None:
+diff --git a/backend/app/api/runs.py b/backend/app/api/runs.py
+index 9c0f31d7d..fbc650720 100644
+--- a/backend/app/api/runs.py
++++ b/backend/app/api/runs.py
+@@ -1522,7 +1522,8 @@ async def get_run_artifacts(
+ @router.get("/{workflow_id}/events")
+ async def get_run_events(
+     workflow_id: str,
+-    after: int = 0,
++    after: int = Query(0, ge=0),
++    limit: int = Query(1000, ge=1, le=5000),
+     current_user: User = Depends(get_current_user),
+     db: Session = Depends(get_db),
+ ):
+@@ -1532,6 +1533,12 @@ async def get_run_events(
+     ``event_id`` (idempotent replay). ``after`` is int-coerced by FastAPI
+     (non-int → 422; ASVS V5 — never reaches raw SQL) and flows into the
+     parameterized ORM ``.filter()``. A cross-owner or missing run returns 404.
++
++    ISS-1155: one page of at most ``limit`` rows, never the whole log. This
++    handler runs its read and its encoding ON the event loop (injected
++    session), so an unbounded reply froze the process (107,409 rows, 53 MB,
++    4.4 s). ``has_more`` says rows remain; ``next_after`` (the last returned
++    ``seq``, or ``after`` when empty) is the ``after`` of the next page.
+     """
+     workflow_run = (
+         db.query(WorkflowRun)
+@@ -1557,10 +1564,15 @@ async def get_run_events(
+             detail="Workflow run not found",
+         )
+ 
+-    rows = await store.read_events(workflow_id, after_seq=after)
++    # One extra row answers has_more without a COUNT over the log.
++    rows = await store.read_events_page(workflow_id, after_seq=after, limit=limit + 1)
++    has_more = len(rows) > limit
++    rows = rows[:limit]
+     return {
+         "workflow_id": workflow_id,
+         "after": after,
++        "has_more": has_more,
++        "next_after": rows[-1].seq if rows else after,
+         "events": [
+             {
+                 "seq": r.seq,
+diff --git a/frontend/src/lib/api.test.ts b/frontend/src/lib/api.test.ts
+index 3c62ded6c..4f72536f3 100644
+--- a/frontend/src/lib/api.test.ts
++++ b/frontend/src/lib/api.test.ts
+@@ -85,6 +85,54 @@ describe("getRunEvents — durable row mapping (BUG-018 Part A)", () => {
+   });
+ });
+ 
++// ─────────────────────────────────────────────────────────────────
++// ISS-1155 (QA-KB-119) — GET /api/runs/{id}/events returns one bounded page
++// plus `has_more` / `next_after`. getRunEvents must still hand every caller
++// the WHOLE log, by following the cursor, and must stop on an envelope with
++// no `has_more` (an old backend, the mock catch-all `{}`).
++// ─────────────────────────────────────────────────────────────────
++
++describe("getRunEvents — follows the events cursor (ISS-1155)", () => {
++  const row = (seq: number) => ({
++    seq,
++    event_id: `e${seq}`,
++    type: "agent_chunk",
++    payload_json: {},
++  });
++
++  it("concatenates every page in order until has_more is false", async () => {
++    fetchMock
++      .mockResolvedValueOnce(
++        okJson({ workflow_id: "run-1", after: 0, events: [row(1), row(2)], has_more: true, next_after: 2 }),
++      )
++      .mockResolvedValueOnce(
++        okJson({ workflow_id: "run-1", after: 2, events: [row(3)], has_more: false, next_after: 3 }),
++      );
++
++    const frames = await getRunEvents("t.t.t", "run-1", 0);
++
++    expect(frames.map((f) => f.data.seq)).toEqual([1, 2, 3]);
++    expect(fetchMock).toHaveBeenCalledTimes(2);
++    expect(String(fetchMock.mock.calls[1][0])).toContain("after=2");
++  });
++
++  it("stops after one request when the envelope carries no has_more", async () => {
++    fetchMock.mockResolvedValue(okJson({ workflow_id: "run-1", after: 0, events: [row(1)] }));
++
++    const frames = await getRunEvents("t.t.t", "run-1", 0);
++
++    expect(frames).toHaveLength(1);
++    expect(fetchMock).toHaveBeenCalledTimes(1);
++  });
++
++  it("returns [] for the mock catch-all {}", async () => {
++    fetchMock.mockResolvedValue(okJson({}));
++
++    expect(await getRunEvents("t.t.t", "run-1", 0)).toEqual([]);
++    expect(fetchMock).toHaveBeenCalledTimes(1);
++  });
++});
++
+ // ─────────────────────────────────────────────────────────────────
+ // specs/014 — the ApiError-constructor notification seam. Every 503
+ // host_capacity_exhausted rejection, from ANY call site that throws an
+diff --git a/frontend/src/lib/api.ts b/frontend/src/lib/api.ts
+index f780892f7..29c3c17e4 100644
+--- a/frontend/src/lib/api.ts
++++ b/frontend/src/lib/api.ts
+@@ -1452,6 +1452,11 @@ export interface RunEventsResponse {
+   workflow_id: string;
+   after: number;
+   events: RunEventRow[];
++  /** ISS-1155: the reply is ONE page; true when rows past it remain. Optional so
++   *  an old backend or a mock envelope without it reads as the last page. */
++  has_more?: boolean;
++  /** ISS-1155: the `after` of the next page (the last returned seq). */
++  next_after?: number;
+ }
+ 
+ /** A durable event frame shaped like the WS/SSE `{ type, data }` envelope the
+@@ -1473,17 +1478,32 @@ export interface DurableFrame {
+  * DEFENSIVELY tolerates a missing/empty `events` array (a mock catch-all `{}`
+  * or a legacy shape yields `[]` rather than throwing). Does NOT normalize the
+  * payload — consumers key on the snake_case `event_id`/`seq` inside it.
++ *
++ * ISS-1155: the endpoint returns one bounded page, so this follows
++ * `next_after` while `has_more` holds and returns every page concatenated.
++ * An envelope without `has_more` (old backend, mock `{}`) is the last page.
+  */
+ export async function getRunEvents(
+   token: string,
+   runId: string,
+   afterSeq = 0,
+ ): Promise<DurableFrame[]> {
+-  const res = await request<RunEventsResponse>(
+-    `/api/runs/${encodeURIComponent(runId)}/events?after=${afterSeq}`,
+-    { method: "GET", headers: authHeaders(token) },
+-  );
+-  return (res?.events ?? []).map((row) => ({
++  const pages: RunEventRow[][] = [];
++  let after = afterSeq;
++  for (;;) {
++    // limit=5000 is the server's max page (runs.py get_run_events, le=5000).
++    const res = await request<RunEventsResponse>(
++      `/api/runs/${encodeURIComponent(runId)}/events?after=${after}&limit=5000`,
++      { method: "GET", headers: authHeaders(token) },
++    );
++    pages.push(res?.events ?? []);
++    // Only a cursor that moves forward continues: a missing has_more, a missing
++    // or stuck next_after, or a NaN cursor ends the loop, never a request storm.
++    const next = res?.next_after;
++    if (!res?.has_more || typeof next !== "number" || !(next > after)) break;
++    after = next;
++  }
++  return pages.flat().map((row) => ({
+     type: row.type,
+     // Merge the row's authoritative `event_id` + `seq` COLUMNS over payload_json
+     // (BUG-018): a durable Concierge chat_reply carries its DISTINCT event_id

@@ -1,0 +1,21 @@
+# QA-KB-100 fix 06: probe of the doors no red test reaches, plus controls, AFTER the fix (d284eb258 + working tree, 2026-10-08T12:38Z)
+# cmd: cd backend && PYTHONDONTWRITEBYTECODE=1 DATABASE_URL=sqlite:///:memory: .venv/bin/python -m pytest ../evidence/qa-kb-100/fix-plugins/test_probe_fix_doors.py -c pyproject.toml --rootdir=. -p no:cacheprovider -q -s -W ignore
+# before the fix (analysis-05): PATCH to the exec step answered 200 (W3), sync-from-file of sample_subagents_parallel answered 200 (W4); the trigger door compiled every user row at the literal trust="db" (kernel_services.py:1641, analysis-06).
+
+
+[F4a] POST benign override (basic) -> 201
+      GET /api/workflows/ppt -> is_overridden=True steps=['custom-agent:benign']
+[F1]  PATCH that override to the exec step -> 422 invalid workflow override (workflow:a2199210-b118-46a5-a983-119d974640b1): capability ('gate', 'security') is not user-allowed in step 'custom-agent' 
+[F2]  sync-from-file(sample_subagents_parallel) into the ppt override -> 422 invalid workflow override (workflow:a2199210-b118-46a5-a983-119d974640b1): step grant of ['spawn_subagents'] is not permitted for 'user'-trust manifes
+[F3]  sync-from-file(ppt) into the ppt override -> 200
+      GET /api/workflows/ppt -> is_overridden=True steps=['ppt-brief-analyst', 'ppt-composer', 'ppt-validator']
+[F4b] POST override upsert, gates:[human] -> 201
+      GET /api/workflows/ppt -> steps=['custom-agent:reviewer'] gates=[['human']]
+[F5]  POST Composer row (enterprise, base custom, no override) with gates:[security] -> 201
+.
+[F6]  run_trigger_workflow(workflow_ref='ovr-1') compiled at trust=['user']
+[F7]  run_trigger_workflow(workflow_ref='plain-1') compiled at trust=['db']
+[F8]  POST /api/runs user_workflow_id='plain-1' -> 422, Case 3 compiled at trust=['db']
+[F8b]  POST /api/runs user_workflow_id='ovr-1' -> 422, Case 3 compiled at trust=['user']
+.
+2 passed in 1.53s

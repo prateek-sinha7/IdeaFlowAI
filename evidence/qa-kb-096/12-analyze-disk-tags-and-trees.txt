@@ -1,0 +1,104 @@
+# QA-KB-096 analysis, 2026-10-07 — READ-ONLY git on the family's sandbox: runs/2d626ad9-.../78e185fb-... (no write, no checkout)
+# Tags: v1 v2 v3 v4 v5 v7 v8 (no v6: that member was cancelled). 'git ls-tree -r -l <tag>' filtered to Backlog.* / backlog.* (size, path).
+
+## tags
+v1 v2 v3 v4 v5 v7 v8 
+
+## v1 (d58fe75) 2026-09-30 16:34:39  chore: terminal snapshot run=78e185fb-c032-4154-8552-774781b6e5df status=completed
+       1199757  .chain/backlog.md
+       1199757  backlog.md
+
+## v2 (711a497) 2026-10-01 12:06:32  chore: terminal snapshot run=80054fbc-71cc-42de-adeb-ae2db82eb2f2 status=completed
+      23010668  .chain/Backlog.pdf
+       1199757  backlog.md
+
+## v3 (53ac859) 2026-10-01 16:59:27  chore: terminal snapshot run=fa7bcb5f-cc6b-44eb-bbb3-0dfa38724aca status=completed
+      23553059  .chain/Backlog.pdf
+       1200489  backlog.md
+
+## v4 (2917170) 2026-10-01 17:24:05  chore: terminal snapshot run=8d4d2d70-9357-4780-a43f-405a25712807 status=completed
+      23558186  .chain/Backlog.pdf
+       1201275  .chain/backlog.md
+       1201275  backlog.md
+
+## v5 (2703fd7) 2026-10-01 18:01:08  chore: terminal snapshot run=48b0811e-cd10-473d-aac3-b9f1aac44ce7 status=completed
+      23558181  .chain/Backlog.pdf
+       1201267  .chain/backlog.md
+       1201267  backlog.md
+
+## v7 (a308649) 2026-10-01 18:20:49  chore: terminal snapshot run=10dde796-01f0-4a5e-b615-4e69f9f19c83 status=completed
+      23593271  .chain/Backlog.pdf
+       1203267  .chain/backlog.md
+       1203267  backlog.md
+
+## v8 (f4b5052) 2026-10-01 18:26:48  chore: terminal snapshot run=b40eabd0-d7e2-4bc2-bc42-99ef6a147bff status=completed
+      23626760  .chain/Backlog.pdf
+       1203656  .chain/backlog.md
+       1203656  backlog.md
+
+## .gitignore at HEAD (the last two lines arrived with step commit 6507f02 us-final, 2026-09-30 16:34:38)
+.agents/
+.browser/
+.chain-legacy/
+.chain/
+.context/
+.extract/
+.logs/
+.uploads/
+.verify/
+conversation_history/
+skills/
+/Backlog.pdf
+/Backlog.zip
+
+## git check-ignore -v Backlog.pdf
+.gitignore:12:/Backlog.pdf	Backlog.pdf
+
+## HEAD tracks
+      23626760  .chain/Backlog.pdf
+       1203656  .chain/backlog.md
+       1203656  backlog.md
+
+## working tree (untracked, ignored) Backlog.pdf:
+    23626760  Backlog.pdf  mtime Oct 1 18:26
+
+## v1 .chain/summary.md
+schema_version: 2
+run_id: 78e185fb-c032-4154-8552-774781b6e5df
+revision_root_id: 78e185fb-c032-4154-8552-774781b6e5df
+candidate_status: completed
+completed_steps: 0
+output_filename: backlog.md
+intended_tag: v1
+payload_chainable: true
+non_chainable_reason: 
+written_at: 2026-09-30T14:34:38Z
+
+## v2 .chain/summary.md
+schema_version: 2
+run_id: 80054fbc-71cc-42de-adeb-ae2db82eb2f2
+revision_root_id: 78e185fb-c032-4154-8552-774781b6e5df
+candidate_status: completed
+completed_steps: 0
+output_filename: Backlog.pdf
+intended_tag: v2
+payload_chainable: true
+non_chainable_reason: 
+written_at: 2026-10-01T10:06:30Z
+
+## us-final step log line (v1's last step): .logs/78e185fb-....jsonl:2146
+2026-09-30T14:34:37.762958+00:00 custom-agent:us-final
+Assembled backlog.md (final): 280 stories from 66 file(s), 235/235 coverage items covered (222/222 evidenced). 1 story error(s), 0 hierarchy error(s). Details: build/coverage.json. Indented 1 JSON file(s). Wrote Backlog.pdf and Backlog.zip.
+
+## manifest history: when backend/agents/workflows/backlog/workflow.yaml began declaring Backlog.pdf
+b88a0e74d 2026-09-30 17:23 feat(deliverables): binary deliverables with a text form; backlog outputs Backlog.pdf
+@@ -76,7 +76,8 @@ clarify:
+   defaults: []
+ deliverable:
+   strategy: single_file
+-  name: backlog.md
++  name: Backlog.pdf
++  text_name: backlog.md
+   chains_from: true
+ context_providers:
+ - chain_context

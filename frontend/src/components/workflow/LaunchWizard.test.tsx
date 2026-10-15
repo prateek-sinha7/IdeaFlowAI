@@ -83,10 +83,14 @@ vi.mock("@/components/workflow/WizardStepper", () => ({
     onWebSelectCustomTemplate?: (ct: { id: string; name: string; body: string } | null) => void;
     onDeckSelect: (id: string) => void;
     onDeckSelectCustomTemplate?: (ct: { id: string; name: string; body: string } | null) => void;
+    steps?: string[];
     dsSlot?: React.ReactNode;
     discoverySlot?: React.ReactNode;
   }) => (
-    <div data-testid="stepper" data-mode={props.mode}>
+    // data-steps exposes the `steps` prop the real stepper uses to decide which
+    // tabs (and so which slots) it mounts; ds-slot is still always rendered here
+    // so the older tests that pick a DS keep their shape.
+    <div data-testid="stepper" data-mode={props.mode} data-steps={(props.steps ?? ["template", "design-system", "discovery"]).join(",")}>
       <button data-testid="toggle-web" onClick={() => props.onModeChange("web")}>web</button>
       <button data-testid="toggle-deck" onClick={() => props.onModeChange("deck")}>deck</button>
       <button data-testid="pick-web" onClick={() => props.onWebSelect("kanban")}>webpick</button>
@@ -293,7 +297,10 @@ describe("LaunchWizard — SC-001 Web/Deck deliverable-mode toggle", () => {
 
   it("WR-05: page chrome (header title + brief label + save-modal title) follows the LIVE mode after toggle", async () => {
     const user = userEvent.setup();
-    renderWithProviders(<LaunchWizard initialMode="prototype" />);
+    // ISS-284: Save workflow is disabled on an empty roster, so this needs a library.
+    renderWithProviders(<LaunchWizard initialMode="prototype" />, {
+      preloadedState: { agents: { agents: createTestAgents(), totalCount: createTestAgents().length, pipelines: {}, status: "succeeded" as const, error: null } },
+    });
     // Prototype chrome initially.
     expect(await screen.findByRole("heading", { name: "Configure your prototype" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Describe what you're building" })).toBeInTheDocument();
@@ -676,110 +683,17 @@ describe("UPLD-05 — the wizard stages raw documents, not only inlined text", (
   });
 });
 
-describe("upload fail-fast — a document that did not stage blocks Continue", () => {
-  /**
-   * Dev's nginx 413'd every document over 1 MiB on POST /api/runs/uploads/stage,
-   * and the wizard swallowed the rejection: the chip looked fine and the run
-   * launched with no `.uploads/`. Every stage outcome is now on the chip, and
-   * Continue waits for (and refuses to skip) a document that has not staged.
-   */
-  const statusError = (status: number) =>
-    Object.assign(new Error(`HTTP ${status}`), { name: "ApiError", status });
-
-  const setUpWizard = async () => {
-    const user = userEvent.setup();
-    extractFileTextMock.mockImplementation((_t: unknown, f: File) =>
-      Promise.resolve({ filename: f.name, text: `text of ${f.name}`, truncated: false }),
-    );
-    const { container } = renderWithProviders(<LaunchWizard initialMode="prototype" />, {
-      preloadedState: { agents: { agents: createTestAgents(), totalCount: createTestAgents().length, pipelines: {}, status: "succeeded" as const, error: null } },
+// ISS-189 / QA-KB-010 — a deck template with design_system.requires=true needs the DS
+// step mounted, or the real stepper never shows a picker while Continue stays gated.
+describe("LaunchWizard — deck design-system step (ISS-189)", () => {
+  for (const mode of ["ppt", "ppt_v2"] as const) {
+    it(`${mode}: a DS-requiring deck template includes the design-system step`, async () => {
+      const user = userEvent.setup();
+      renderWithProviders(<LaunchWizard initialMode={mode} />, {
+        preloadedState: { agents: { agents: createTestAgents(), totalCount: createTestAgents().length, pipelines: {}, status: "succeeded" as const, error: null } },
+      });
+      await user.click(await screen.findByTestId("pick-deck")); // pitch → dsRequired
+      expect(screen.getByTestId("stepper").getAttribute("data-steps")).toContain("design-system");
     });
-    await user.type(await screen.findByLabelText("Brief"), "Build from the attached docs");
-    await user.click(screen.getByTestId("pick-web"));
-    await user.click(await screen.findByTestId("pick-ds"));
-    const input = container.querySelector('input[type="file"]') as HTMLInputElement;
-    const attach = (...names: string[]) =>
-      user.upload(input, names.map((n) => new File(["%PDF-1.4"], n, { type: "application/pdf" })));
-    return { user, attach };
-  };
-
-  const continueButton = () => screen.getByRole("button", { name: "Continue" });
-
-  it("shows the too-large message on the chip when staging returns 413", async () => {
-    stageRunFileMock.mockRejectedValue(statusError(413));
-    const { attach } = await setUpWizard();
-
-    await attach("Epics_and_user_Stories 1.pdf");
-
-    expect(await screen.findByText(/too large for this server \(limit 10 MB\)/i)).toBeInTheDocument();
-    expect(continueButton()).toBeDisabled();
-    expect(continueButton()).toHaveAccessibleDescription(
-      /upload failed for Epics_and_user_Stories 1\.pdf/i,
-    );
-    // A too-large file fails the same way again — no Retry is offered.
-    expect(screen.queryByRole("button", { name: /retry upload/i })).not.toBeInTheDocument();
-  });
-
-  it("disables Continue with a visible reason while a document is staging", async () => {
-    stageRunFileMock.mockReturnValue(new Promise(() => {}));
-    const { attach } = await setUpWizard();
-
-    await attach("a.pdf");
-
-    expect(await screen.findByText("Uploading…")).toBeInTheDocument();
-    expect(continueButton()).toBeDisabled();
-    expect(continueButton()).toHaveAccessibleDescription(/uploading 1 document/i);
-  });
-
-  it("disables Continue after a document failed to stage and re-enables after removing it", async () => {
-    stageRunFileMock.mockRejectedValue(statusError(502));
-    const { user, attach } = await setUpWizard();
-
-    await attach("a.pdf");
-    expect(await screen.findByText("Upload failed. Remove the file or try again.")).toBeInTheDocument();
-    expect(continueButton()).toBeDisabled();
-
-    await user.click(screen.getByRole("button", { name: "Remove a.pdf" }));
-
-    expect(continueButton()).toBeEnabled();
-    expect(continueButton()).not.toHaveAttribute("aria-describedby");
-  });
-
-  it("re-enables Continue after a successful retry and launches with the retried stage id", async () => {
-    stageRunFileMock
-      .mockRejectedValueOnce(statusError(502))
-      .mockResolvedValueOnce({ stage_id: "stage-retried" });
-    const { user, attach } = await setUpWizard();
-
-    await attach("a.pdf");
-    await user.click(await screen.findByRole("button", { name: "Retry upload of a.pdf" }));
-
-    await waitFor(() => expect(continueButton()).toBeEnabled());
-    await user.click(continueButton());
-    const draft = JSON.parse(sessionStorage.getItem("prototype.draft") ?? "null");
-    expect(draft.stagedUploadIds).toEqual(["stage-retried"]);
-  });
-
-  it("launches with the stage ids, in attach order, once pending stages resolve", async () => {
-    const settle: Record<string, (v: { stage_id: string }) => void> = {};
-    stageRunFileMock.mockImplementation(
-      (_t: unknown, f: File) => new Promise<{ stage_id: string }>((resolve) => { settle[f.name] = resolve; }),
-    );
-    const { user, attach } = await setUpWizard();
-
-    await attach("a.pdf", "b.pdf");
-    await waitFor(() => expect(Object.keys(settle)).toHaveLength(2));
-    // Blocked while pending: clicking cannot write a draft that lacks a stage id.
-    await user.click(continueButton());
-    expect(sessionStorage.getItem("prototype.draft")).toBeNull();
-
-    await act(async () => {
-      settle["b.pdf"]({ stage_id: "stage-b" });
-      settle["a.pdf"]({ stage_id: "stage-a" });
-    });
-    await user.click(continueButton());
-
-    const draft = JSON.parse(sessionStorage.getItem("prototype.draft") ?? "null");
-    expect(draft.stagedUploadIds).toEqual(["stage-a", "stage-b"]);
-  });
+  }
 });

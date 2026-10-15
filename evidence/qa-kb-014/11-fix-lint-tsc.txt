@@ -1,0 +1,53 @@
+# ESLint and tsc. cwd frontend/, HEAD 024c03ef8 + uncommitted tree, 2026-10-02 00:38 CEST
+# raw = 'eslint --stdin --stdin-filename <file>' (stdin mode does NOT apply eslint-suppressions.json), HEAD blob vs tree file, same config.
+# reported = 'eslint <file>' on the tree (applies the suppression budgets; this is what 'npm run lint' sees).
+
+## src/components/workflow/IdeaInputPage.tsx
+ raw HEAD:
+  per rule: {'@typescript-eslint/no-unused-vars': 6, 'react-hooks/set-state-in-effect': 4}
+  lines: 6, 25, 25, 957, 1118, 1339, 1363, 1414, 1577, 2083
+ raw tree:
+  per rule: {'@typescript-eslint/no-unused-vars': 6, 'react-hooks/set-state-in-effect': 4}
+  lines: 6, 25, 25, 963, 1142, 1363, 1387, 1441, 1604, 2116
+ reported tree:
+  per rule: {'@typescript-eslint/no-unused-vars': 6, 'react-hooks/set-state-in-effect': 4}
+  lines: 6, 25, 25, 963, 1142, 1363, 1387, 1441, 1604, 2116
+
+## src/components/layout/DashboardLayout.tsx
+ raw HEAD:
+  per rule: {'@typescript-eslint/no-unused-vars': 11, 'react-hooks/exhaustive-deps': 7, 'react-hooks/immutability': 2, 'react-hooks/set-state-in-effect': 10}
+  lines: 439, 449, 450, 451, 452, 455, 456, 457, 467, 596, 624, 643, 658, 733, 766, 831, 934, 984, 1006, 1039, 1092, 1100, 1125, 1125, 1138, 1336, 1353, 1555, 1909, 2008
+ raw tree:
+  per rule: {'@typescript-eslint/no-unused-vars': 11, 'react-hooks/exhaustive-deps': 7, 'react-hooks/immutability': 2, 'react-hooks/set-state-in-effect': 10}
+  lines: 439, 449, 450, 451, 452, 455, 456, 457, 467, 596, 624, 643, 658, 733, 766, 831, 934, 984, 1006, 1039, 1092, 1100, 1125, 1125, 1138, 1336, 1353, 1555, 1909, 2008
+ reported tree:
+  per rule: {'react-hooks/set-state-in-effect': 10}
+  lines: 596, 624, 733, 766, 831, 934, 1138, 1336, 1353, 1555
+
+## src/components/workflow/IdeaInputPage.iss371.rebaseline.test.tsx
+ raw HEAD: (new file)
+ raw tree:
+  per rule: {}
+  lines: 
+ reported tree:
+  per rule: {}
+  lines: 
+
+## eslint-suppressions.json budgets (file unchanged vs HEAD: yes)
+  src/components/workflow/IdeaInputPage.tsx {'@typescript-eslint/no-unused-vars': {'count': 3}, 'react-hooks/set-state-in-effect': {'count': 3}}
+  src/components/layout/DashboardLayout.tsx {'@typescript-eslint/no-unused-vars': {'count': 11}, 'react-hooks/exhaustive-deps': {'count': 8}, 'react-hooks/immutability': {'count': 2}, 'react-hooks/set-state-in-effect': {'count': 7}}
+
+## tsc --noEmit -p tsconfig.json (whole frontend): file and line of every error
+   1 src/components/analytics/AnalyticsPage.test.tsx L363
+   1 src/components/DashboardLayout.chain.test.tsx L145
+   1 src/components/DashboardLayout.chain.test.tsx L43
+   1 src/components/history/WorkflowHistory.modelChip.test.tsx L194
+   1 src/components/history/WorkflowHistory.modelChip.test.tsx L223
+   1 src/components/history/WorkflowHistory.modelChip.test.tsx L244
+   1 src/components/preview/PreviewPanel.liveVersion.test.tsx L94
+   2 src/components/results/AgentDetailPanel.waveWorkerStatus.test.tsx L370
+   2 src/components/results/AgentDetailPanel.waveWorkerStatus.test.tsx L387
+   1 src/hooks/useWorkflow.imagePayload.test.ts L32
+   1 src/providers/RunConnectionProvider.test.tsx L630
+ total error lines: 13
+ in IdeaInputPage*.tsx or layout/DashboardLayout.tsx: 0

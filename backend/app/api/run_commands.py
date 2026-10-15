@@ -54,7 +54,6 @@ from pydantic import BaseModel
 
 from agents.artifact_store.store import get_artifact_store
 from agents.workflows.plan import CompiledWorkflow
-from agents.capabilities.model_pricing import estimate_cost_usd
 from agents.capabilities.token_usage import (
     USAGE_VERSION,
     normalize_usage,
@@ -66,7 +65,7 @@ from app.agents.modes import get_mode_prompt
 from app.agents.sandbox import FamilyLockTimeout, family_lock
 from app.core.config import settings
 from app.core.dependencies import get_current_principal, get_current_user
-from app.core.entitlements import can_run_pipeline
+from app.core.entitlements import can_run_pipeline, can_use_model
 from app.core.identity import Principal, effective_tier
 from app.models.chat import ChatSession, Message
 from app.models.user import User
@@ -93,11 +92,14 @@ from app.api.run_engine import (
     _get_db,
     _get_or_create_queue,
     _is_run_live,
+    _model_entitlement_error,
     _resolve_owned_parent_run_id,
     _review_gate_advertises_update_specs,
     _review_gate_owned_by,
     _review_gate_run_is_terminal,
     _revalidate_selections_trust_user,
+    _saved_row_trust,
+    _trigger_entitlement_error,
     _validate_images,
     _validate_model_overrides,
 )
@@ -106,7 +108,6 @@ from app.api.run_engine import (
 # see its own docstring for why it now exists beside NON_TERMINAL_RUN_STATUSES).
 from agents.execution_engine.engine import TERMINAL_RUN_STATUSES
 from agents.execution_engine.trigger_port import (
-    ResolvedTriggeredWorkflow,
     TriggerLaunchPort,
     register_trigger_launch_port,
 )
@@ -703,6 +704,26 @@ async def resume_run_endpoint(
         # must deny exactly as a fresh launch would — never a way to route around
         # the launch-time gate.
         _require_tier_entitlement(current_user, principal, wr.type)
+        # ISS-1131: and the persisted manifest's trigger targets, as launch checks them.
+        _trigger_error = _trigger_entitlement_error(
+            effective_tier(current_user, principal), wr.manifest_json
+        )
+        if _trigger_error is not None:
+            raise _reject(
+                "tier_not_entitled", _trigger_error[1], http_status=_trigger_error[0]
+            )
+        # ISS-1165: the resume recompiles at the persisted _trust, so a run launched
+        # at "db" resumes only for a caller a fresh launch would still give "db".
+        if (
+            isinstance(wr.manifest_json, dict)
+            and wr.manifest_json.get("_trust") == "db"
+            and _saved_row_trust(effective_tier(current_user, principal)) != "db"
+        ):
+            raise _reject(
+                "tier_not_entitled",
+                "This run was launched with privileges your plan does not include.",
+                http_status=status.HTTP_403_FORBIDDEN,
+            )
 
         # specs/014: resume re-drives new agent work exactly like a fresh launch —
         # gated at the same point, same as the tier check immediately above.
@@ -770,7 +791,8 @@ async def _drive_user_resume(run_id: str, *, user: User) -> None:
     ``resume_run`` accepts none, and adding them would be dead code) and adds ONLY the two
     status writes the resume tier structurally lacks: on success, reconcile the terminal
     status from the durable tail; on any failure, flip back to ``failed`` (honest state —
-    never stuck ``running`` with no live task, T-50-06).
+    never stuck ``running`` with no live task, T-50-06) and tell the live client: one
+    failure frame, then ``_cleanup_pipeline`` (ISS-1123 — a single put, not a ladder).
 
     HARD FENCE (INV-12 / Pitfall 7): this body MUST NOT contain an
     ``async for ... engine.execute(`` event ladder and MUST NOT clone
@@ -798,7 +820,17 @@ async def _drive_user_resume(run_id: str, *, user: User) -> None:
         await _reconcile_terminal_status(run_id)
     except Exception as exc:  # noqa: BLE001 — any drive failure → honest state
         logger.error("user-resume drive failed run=%s: %s", run_id, exc, exc_info=True)
+        # ISS-1123: the honest state includes the live view, as in the launch driver's
+        # failure branch — ONE failure frame (the pipeline_failed every engine-side
+        # resume failure sends), then release the registrations and their readers.
+        _get_or_create_queue(run_id).put_nowait(
+            {
+                "type": "pipeline_failed",
+                "data": {"pipeline_run_id": run_id, "error": str(exc)},
+            }
+        )
         _flip_back_to_failed(run_id, str(exc))
+        _cleanup_pipeline(run_id)
 
 
 async def _reconcile_terminal_status(run_id: str) -> None:
@@ -807,9 +839,10 @@ async def _reconcile_terminal_status(run_id: str) -> None:
     The resume tier writes no status, so the app layer reconciles it here — reading the
     run's OWNER-SCOPED durable tail (the SAME event→status decision the launch driver
     applies at ``_drive_launch_to_queue:1470-1491``, but read from the durable tail rather
-    than a live stream): terminal ``pipeline_cancelled`` → ``cancelled``; the LATEST
-    ``pipeline_complete`` carrying ``status=="degraded"`` → ``degraded``; a clean
-    ``pipeline_complete`` with no ``pipeline_failed`` → ``completed``; anything else /
+    than a live stream): terminal ``pipeline_cancelled`` → ``cancelled``; a degraded
+    ``pipeline_complete`` at or after the last attempt boundary (``run_resuming`` /
+    ``pipeline_start``) → ``degraded``; a ``pipeline_complete`` at or after it with no
+    ``pipeline_failed`` at or after it → ``completed``; anything else /
     no clean terminal → ``failed`` (the D2 fail-safe). Best-effort: the offline harness /
     a read error degrades to leaving the prior status (INV-3) — the arm-failure path owns
     the honest-state guarantee, so a reconcile no-op never strands a genuinely-failed run.
@@ -842,16 +875,8 @@ async def _reconcile_terminal_status(run_id: str) -> None:
         events = await store.read_events(run_id, after_seq=0)
         cancelled = any(e.type == "pipeline_cancelled" for e in events)
         completes = [e for e in events if e.type == "pipeline_complete"]
-        # FIX-247: the degraded verdict must track only the LATEST pipeline_complete, not
-        # "was ANY completion ever degraded". A run completes at most once per attempt, so
-        # last-by-seq IS the latest attempt's verdict — the same attempt-scoping idea the
-        # ``resume_supersedes`` check just below already applies to ``cancelled``, minus the
-        # extra boundary lookup (that one needs a boundary because a cancellation and a
-        # completion can interleave within or across attempts; two completions can't — the
-        # highest seq is always the newest one). The old unscoped ``any()`` let ONE degraded
-        # completion from an EARLIER attempt permanently outrank a later clean completion —
-        # run 4bdf9398 failed, a resume degraded on credential expiry, the NEXT resume
-        # completed all 11 steps cleanly, and the run still read "degraded" forever.
+        # Source of the degraded error TEXT below only; the verdict is
+        # ``degraded_current`` (ISS-689).
         _latest_complete = max(completes, key=lambda e: e.seq) if completes else None
         # KAN-120: a resumed run has BOTH pipeline_cancelled (from the original
         # cancellation) AND pipeline_complete (from the resume) in the durable tail.
@@ -939,9 +964,6 @@ async def _reconcile_terminal_status(run_id: str) -> None:
                 e.type == "pipeline_failed" and e.seq >= last_reattempt_seq
                 for e in events
             )
-            # Use the scoped flags for the status ladder, but keep the unscoped
-            # variables for backwards-compat with the _persist_resume_output_columns
-            # call below (which needs the full event tail).
             if degraded_current:
                 new_status = "degraded"
             elif current_attempt_completes and not failed_current:
@@ -1028,7 +1050,7 @@ def _flip_back_to_failed(run_id: str, err: str) -> None:
 
 
 # Sentinel distinguishing "caller passed nothing" from "caller wants .error cleared to
-# NULL" — plain ``None`` could not carry that distinction (FIX-247: _reconcile_terminal_status
+# NULL" — plain ``None`` could not carry that distinction (run 4bdf9398: _reconcile_terminal_status
 # needs to CLEAR a stale prior-attempt error on a clean reconcile, not just leave it alone).
 _UNSET_ERROR = object()
 
@@ -1469,6 +1491,35 @@ def _load_pending_proposal(events, *, message_id: str, channel: str) -> dict | N
     return pending_payload
 
 
+def _revision_base_type(wr_type: str) -> str:
+    """The base family a ``wr_type`` run is revised as (fallback target
+    ``f"{base}_output"``). The one derivation both server-side fallbacks use —
+    CHANNEL_REVISION in ``post_message`` and the Concierge ``revision`` disposal —
+    so they agree by construction (ISS-160).
+    """
+    # FIX-211: when the parent run is itself a revision (e.g. user_stories_revision),
+    # wr_type already ends with "_revision". Using it verbatim as the target gives
+    # "user_stories_revision_output" → revision_pipeline_type becomes
+    # "user_stories_revision_revision" which is not in TIER_PIPELINES → 403.
+    # Strip any trailing "_revision" suffix from wr_type to get the base artifact
+    # family (e.g. "user_stories") before constructing the fallback target.
+    #
+    # Tiered prototype revision types (prototype_large_revision,
+    # prototype_feature_revision) already contain "_revision" embedded in their
+    # middle — removesuffix("_revision") would give "prototype_large", not
+    # "prototype". Remap these explicitly before the generic suffix strip.
+    if wr_type in ("prototype_large_revision", "prototype_feature_revision"):
+        return "prototype"
+    if wr_type == "prototype_v2_feature_revision":
+        # removesuffix would give "prototype_v2_feature" (spec 022).
+        return "prototype_v2"
+    if wr_type == "ppt_v2":
+        # ISS-879: ppt_v2 has no revision pipeline of its own; a deck is revised
+        # through ppt_revision, as the UI's revise path does (FIX-480).
+        return "ppt"
+    return wr_type.removesuffix("_revision")
+
+
 async def _dispose_concierge_proposal(
     intent,
     *,
@@ -1503,7 +1554,7 @@ async def _dispose_concierge_proposal(
         proposal never resolves a stopped run or an unarmed gate.
       * ``revision`` → ``_mint_revision_row`` + ``_drive_revision_to_queue`` (D-02, SC-3) —
         the shipped family-child seam; live stitching rides the existing per-run queue +
-        ``run_events``. Reuses ``REVISION_BASE_MAP`` (via ``_mint_revision_row``).
+        ``run_events``. A missing target derives via ``_revision_base_type``.
 
     CONSEQUENTIAL proposals (gate_action, revision) are HELD behind a confirm chip
     (T-33-03-01): when ``confirmed`` is False a durable ``concierge_proposal`` ``run_events``
@@ -1626,25 +1677,8 @@ async def _dispose_concierge_proposal(
         # disposals above are release/steer operations on EXISTING work and are
         # deliberately never gated.
         _require_host_capacity(current_user)
-        # FIX-211: when the parent run is itself a revision (e.g. user_stories_revision),
-        # wr_type already ends with "_revision". Using it verbatim as the target gives
-        # "user_stories_revision_output" → revision_pipeline_type becomes
-        # "user_stories_revision_revision" which is not in TIER_PIPELINES → 403.
-        # Strip any trailing "_revision" suffix from wr_type to get the base artifact
-        # family (e.g. "user_stories") before constructing the fallback target.
-        #
-        # Tiered prototype revision types (prototype_large_revision,
-        # prototype_feature_revision) already contain "_revision" embedded in their
-        # middle — removesuffix("_revision") would give "prototype_large", not
-        # "prototype". Remap these explicitly before the generic suffix strip.
-        from agents.registry import REVISION_BASE_MAP
-
-        base_type = REVISION_BASE_MAP.get(
-            wr_type,
-            wr_type.removesuffix("_revision")
-            if wr_type.endswith("_revision")
-            else wr_type,
-        )
+        run_user = _entitled_user(current_user, caller_tier)  # ISS-936
+        base_type = _revision_base_type(wr_type)
         # Two OD remap tables used to sit here (_OD_FALLBACK_MAP, _OD_TARGET_REMAP),
         # rewriting od_prototype/od_ppt targets onto their real revision pipelines.
         # They were a workaround for an incomplete alias table — the alias covered
@@ -1666,19 +1700,26 @@ async def _dispose_concierge_proposal(
                 f"{base_type}_output",
             )
             target = f"{base_type}_output"
+        # Spec 022: the parent run's type decides the family, so a v2 run can
+        # never reach a v1 pipeline — a model-supplied v1 target is rewritten.
+        if base_type == "prototype_v2" and target == "prototype_output":
+            logger.info(
+                "_dispose_concierge_proposal: parent is prototype_v2 — rewriting "
+                "target 'prototype_output' to 'prototype_v2_output' (run=%s)",
+                run_id,
+            )
+            target = "prototype_v2_output"
         instruction = params.get("instruction", "")
         # ── Tiered prototype classification via _classify_revision_tier ────────
         # Lightweight one-word LLM classify selects the correct revision pipeline.
         # The full analysis (## Solution Plan) is now produced by the engine as
         # step 0 of the manifest (produces_solution_plan: true) — no app-layer
         # run_analyzer call needed here (revision-pipeline-refactor).
-        if base_type == "prototype_v2" and target == "prototype_output":
-            target = "prototype_v2_output"
         if target == "prototype_output":
             _tier = await _classify_revision_tier(
                 instruction,
                 run_id,
-                model_id=getattr(current_user, "preferred_model", None),
+                model_id=getattr(run_user, "preferred_model", None),
             )
             target = _REVISION_TIER_TARGET_MAP.get(_tier, "prototype_output")
             logger.info(
@@ -1691,12 +1732,11 @@ async def _dispose_concierge_proposal(
             _tier = await _classify_revision_tier(
                 instruction,
                 run_id,
-                model_id=getattr(current_user, "preferred_model", None),
+                model_id=getattr(run_user, "preferred_model", None),
             )
             target = _V2_REVISION_TIER_TARGET_MAP.get(_tier, "prototype_v2_output")
             logger.info(
-                "▶ prototype v2 revision tier selected (concierge path): %r → "
-                "pipeline=%s (run=%s)",
+                "▶ prototype revision tier selected (concierge path): %r → pipeline=%s (run=%s)",
                 _tier,
                 f"{target.removesuffix('_output')}_revision",
                 run_id,
@@ -1751,7 +1791,7 @@ async def _dispose_concierge_proposal(
                 parent_run_id=run_id,
                 target_artifact_type=target,
                 instruction=instruction,
-                user=current_user,
+                user=run_user,
                 cancel_event=cancel_event,
                 event_queue=event_queue,
             )
@@ -1785,6 +1825,7 @@ async def post_message(
     """
     current_user, principal = auth
     caller_tier = effective_tier(current_user, principal)
+    run_user = _entitled_user(current_user, caller_tier)  # ISS-936
 
     from agents.authz import ScopedStore
 
@@ -1875,7 +1916,7 @@ async def post_message(
     validated_turn_images: list = []
     if settings.IMAGE_INPUT_ENABLED and body.images:
         base_model = (
-            getattr(current_user, "preferred_model", None)
+            getattr(run_user, "preferred_model", None)
             or settings.BEDROCK_INFERENCE_PROFILE_ID
         )
         _image_error = _validate_images(body.images, effective_model_ids={base_model})
@@ -2006,9 +2047,11 @@ async def post_message(
         # CHANNEL_GATE/CHANNEL_STEERING above, which release or steer EXISTING work.
         _require_host_capacity(current_user)
         # revision → mint + drive the shipped family child run (D-02), the exact seam
-        # POST /{id}/revisions uses. A generic target derives from the run type when the
-        # client omits one (string derivation only — no workflow name-branch).
-        target_artifact_type = dispatch.target_artifact_type or f"{wr_type}_output"
+        # POST /{id}/revisions uses. When the client omits a target it derives from the
+        # run type's base family, via the helper the Concierge disposal uses (ISS-160).
+        target_artifact_type = (
+            dispatch.target_artifact_type or f"{_revision_base_type(wr_type)}_output"
+        )
         rdb = _get_db()
         try:
             child_run_id, _ = _mint_revision_row(
@@ -2030,7 +2073,7 @@ async def post_message(
                 parent_run_id=run_id,
                 target_artifact_type=target_artifact_type,
                 instruction=dispatch.instruction or "",
-                user=current_user,
+                user=run_user,
                 cancel_event=cancel_event,
                 event_queue=event_queue,
             )
@@ -2295,14 +2338,17 @@ async def post_message(
                                 "total_tokens": _in + _out,
                                 "cache_read_tokens": _cr,
                                 "cache_write_tokens": _cw,
-                                # Same pricing convention as the run's headline cost
-                                # site (:2107): input_tokens is the UNCACHED portion.
-                                "estimated_cost_usd": estimate_cost_usd(
+                                "usage_version": USAGE_VERSION,
+                                # The four counts, each at its own rate
+                                # (agents/capabilities/token_usage.py).
+                                "estimated_cost_usd": usage_cost_usd(
                                     _model,
-                                    input_tokens=max(0, _in - _cr - _cw),
-                                    output_tokens=_out,
-                                    cache_read_tokens=_cr,
-                                    cache_write_tokens=_cw,
+                                    {
+                                        "input_tokens": _in,
+                                        "output_tokens": _out,
+                                        "cache_read_tokens": _cr,
+                                        "cache_write_tokens": _cw,
+                                    },
                                     cache_ttl=settings.BEDROCK_PROMPT_CACHE_TTL,
                                 ),
                             },
@@ -2497,9 +2543,10 @@ class LaunchCommand(BaseModel):
     #
     # Not a new trust surface: the identical manifest can already be POSTed to
     # /api/user_workflows and then launched, so the same bytes were always reachable.
-    # It compiles at trust="user" (STRICTER than the saved row's trust="db"), so the
-    # compiler's own per-step capability checks — which reject exec/network/secrets
-    # grants outright for a non-file manifest — remain the security boundary.
+    # It compiles at trust="user" (never looser than the saved row, which gets "db"
+    # only for a caller who may run the Composer, ISS-1114), so the compiler's own
+    # per-step capability checks — which reject exec/network/secrets grants outright
+    # at that level — remain the security boundary.
     manifest: dict | None = None
     model_overrides: dict | None = None
     selections: dict | None = None
@@ -2550,77 +2597,6 @@ def _reject(
     )
 
 
-def _manifest_seeds_uploads(manifest_json: dict | None) -> bool:
-    """True when the launch manifest's ``seed_files.from_run`` copies anything
-    under ``.uploads/`` into the new run (see ``_seed_from_prior_run``)."""
-    from app.agents.sandbox import _UPLOADS_PREFIX
-
-    seed = (manifest_json or {}).get("seed_files")
-    names = seed.get("from_run") if isinstance(seed, dict) else None
-    if not isinstance(names, list):
-        return False
-    return any(
-        str(name).lstrip("/").removeprefix("./").startswith(_UPLOADS_PREFIX)
-        for name in names
-    )
-
-
-def _guard_uploads_present(
-    *,
-    content: str,
-    staged_upload_ids: list[str] | None,
-    admitted_source_run_id: str | None,
-    manifest_json: dict | None,
-    plan: object,
-) -> None:
-    """Refuse a fresh launch whose documents never reached the server.
-
-    The brief carries the wizard's inlined ``=== Attached: … ===`` blocks, no
-    ``staged_upload_ids`` came with it, and the compiled plan has a step granted
-    the ``file_extract`` tool set — i.e. a workflow that reads its documents
-    from ``.uploads/``. A fresh run's sandbox is new, so ``.uploads/manifest.json``
-    cannot exist and the run would fail only after its first agent spent minutes
-    looking for files. Deny BEFORE the mint (no WorkflowRun row, no sandbox),
-    like every other ingress denial in ``launch_run``.
-
-    A chained launch whose source passed chain admission
-    (``admitted_source_run_id``) may reuse a sandbox whose ``.uploads/`` already
-    exists, and a manifest whose ``seed_files`` copies ``.uploads/`` content
-    seeds it after the mint; both are logged and allowed. A request source id
-    that admission dropped gets a fresh sandbox, so it is guarded like any
-    fresh launch.
-
-    Keyed on the declared tool set only, never a workflow name (SC-001). Logs
-    counts only — never file names or document content.
-    """
-    from agents.execution_engine.user_prompt import parse_inline_attachments
-    from app.api.run_files import declares_file_extract
-
-    attachment_count = len(parse_inline_attachments(content))
-    if attachment_count == 0 or staged_upload_ids or not declares_file_extract(plan):
-        return
-    if admitted_source_run_id or _manifest_seeds_uploads(manifest_json):
-        logger.warning(
-            "launch carries %d inline attachment(s) but no staged uploads "
-            "(chained or seeded launch, not rejected)",
-            attachment_count,
-        )
-        return
-    logger.warning(
-        "launch rejected (uploads_missing): %d inline attachment(s), no staged "
-        "uploads, workflow reads .uploads/",
-        attachment_count,
-    )
-    raise _reject(
-        "uploads_missing",
-        "The attached documents were not uploaded, so this workflow cannot read "
-        "them. Re-attach the files and launch again.",
-        http_status=status.HTTP_422_UNPROCESSABLE_ENTITY,
-        recoverable=True,
-        attachment_count=attachment_count,
-    )
-
-
 def _require_tier_entitlement(
     current_user: User, principal: Principal, pipeline_type: str
 ) -> None:
@@ -2665,6 +2641,23 @@ def _require_tier_entitlement(
             reason,
             http_status=status.HTTP_403_FORBIDDEN,
         )
+
+
+def _entitled_user(user: User, tier: str):
+    """ISS-936: ``user`` itself, or an id-only stand-in without ``preferred_model``
+    when the stored preference is a model ``tier`` may no longer select.
+
+    FIX-361 gates ``preferred_model`` where it is WRITTEN; a later downgrade leaves
+    it stored, and every launch/revision site read it raw as the session model
+    (resolver tier 5a). They hand the run THIS instead. The run core and both
+    drivers read only ``.id`` and ``.preferred_model`` — the contract
+    ``run_trigger_workflow``'s ``SimpleNamespace(id=...)`` already relies on — so
+    the stand-in changes the model and nothing else.
+    """
+    preferred = getattr(user, "preferred_model", None)
+    if preferred and not can_use_model(tier, preferred)[0]:
+        return SimpleNamespace(id=user.id, preferred_model=None)
+    return user
 
 
 def _require_host_capacity(current_user: User) -> None:
@@ -3029,42 +3022,20 @@ async def _launch_run_core(
     # request value, fall back to the admitted id (covers non-HTTP callers that
     # pass only source_workflow_run_id).
     _strip_trigger_id = request_source_workflow_run_id or source_workflow_run_id
+    # ISS-981: set only when the strip changes the content. The audit row is written
+    # once, after the mint, against the real run id. A message that IS the block has
+    # nothing before the marker, keeps its content, and records nothing.
+    _strip_audit_source: str | None = None
     if _strip_trigger_id and content and _LEGACY_CONTEXT_MARKER in content:
         _stripped_content = content.split(_LEGACY_CONTEXT_MARKER)[0].rstrip()
-        logger.info(
-            "_launch_run_core: stripped legacy context block from chained launch "
-            "strip_trigger_id=%s (Requirement 13 AC 10)",
-            _strip_trigger_id,
-        )
-        # Record the strip as a best-effort provenance audit row.  A failure here
-        # must never abort the launch — the strip itself has already happened.
-        _strip_db = _get_db()
-        try:
-            from app.models.run_provenance_audit import RunProvenanceAudit as _PA  # noqa: PLC0415
-
-            _strip_row = _PA(
-                owner_id=user.id,
-                workspace_id=workspace_id_override or "",
-                run_id="pending",  # run not yet minted — updated below after mint
-                operation="legacy_context_block_stripped",
-                source_ref=_strip_trigger_id,
-                outcome="stripped",
+        if _stripped_content:
+            logger.info(
+                "_launch_run_core: stripped legacy context block from chained launch "
+                "strip_trigger_id=%s (Requirement 13 AC 10)",
+                _strip_trigger_id,
             )
-            _strip_db.add(_strip_row)
-            _strip_db.commit()
-            _strip_db.refresh(_strip_row)
-            _pending_strip_audit_id: str | None = _strip_row.id
-        except Exception:  # noqa: BLE001
-            _pending_strip_audit_id = None
-            try:
-                _strip_db.rollback()
-            except Exception:  # noqa: BLE001
-                pass
-        finally:
-            _strip_db.close()
-        content = _stripped_content if _stripped_content else content
-    else:
-        _pending_strip_audit_id = None
+            content = _stripped_content
+            _strip_audit_source = _strip_trigger_id
 
     agent_count = len(compiled.steps) if compiled is not None else len(agents)
     pipeline_run_id = str(_uuid.uuid4())
@@ -3079,11 +3050,22 @@ async def _launch_run_core(
         # _owned_family_members has no type filter). A chain is NOT a revision; chained runs
         # should appear as SEPARATE entries in history, never as vN of the source family.
         # SC-001/INV-1: generic endswith check, never a hardcoded pipeline name.
+        # ISS-949: link from the REQUEST id — the admitted id is None for every
+        # declaration-gated *_revision. The owner-checked resolver drops a foreign id.
         parent_run_id = (
             parent_run_id_override
             if parent_run_id_override is not None
+            # The REQUEST source id, not the chain-ADMITTED one: a revision
+            # pipeline without a chains_from manifest is declaration-gated,
+            # which zeroes the admitted id and silently dropped the family
+            # edge. _resolve_owned_parent_run_id is itself owner-checked
+            # (foreign/unknown → None), so this widens nothing.
             else (
-                _resolve_owned_parent_run_id(db, source_workflow_run_id, user.id)
+                _resolve_owned_parent_run_id(
+                    db,
+                    request_source_workflow_run_id or source_workflow_run_id,
+                    user.id,
+                )
                 if pipeline_type.endswith("_revision")
                 else None
             )
@@ -3166,31 +3148,33 @@ async def _launch_run_core(
                     workflow_run.id,
                     source_workflow_run_id,
                 )
-        # ── Task 9.3: back-fill run_id on the pending strip audit row ────────────
-        # The audit row was written before the mint with run_id="pending"; update
-        # it now that we have the real run id.  Best-effort — never aborts the mint.
-        if _pending_strip_audit_id is not None:
-            _upd_db = _get_db()
+        # ── Task 9.3: record the strip against the minted run (ISS-981) ──────────
+        # Written after the mint, so a launch refused before it leaves no row.
+        # Best-effort — never aborts the mint.
+        if _strip_audit_source is not None:
             try:
-                from app.models.run_provenance_audit import RunProvenanceAudit as _PA2  # noqa: PLC0415
+                from app.models.run_provenance_audit import RunProvenanceAudit as _PA  # noqa: PLC0415
 
-                _upd_db.query(_PA2).filter(_PA2.id == _pending_strip_audit_id).update(
-                    {_PA2.run_id: workflow_run.id},
-                    synchronize_session=False,
+                db.add(
+                    _PA(
+                        owner_id=user.id,
+                        workspace_id=workspace_id_override or "",
+                        run_id=workflow_run.id,
+                        operation="legacy_context_block_stripped",
+                        source_ref=_strip_audit_source,
+                        outcome="stripped",
+                    )
                 )
-                _upd_db.commit()
+                db.commit()
             except Exception:  # noqa: BLE001
                 try:
-                    _upd_db.rollback()
+                    db.rollback()
                 except Exception:  # noqa: BLE001
                     pass
                 logger.warning(
-                    "_launch_run_core: failed to backfill strip audit row %s for run %s",
-                    _pending_strip_audit_id,
+                    "_launch_run_core: failed to write strip audit row for run %s",
                     workflow_run.id,
                 )
-            finally:
-                _upd_db.close()
     finally:
         db.close()
 
@@ -3302,11 +3286,22 @@ async def _launch_run_core(
     return response_body
 
 
-# Workflow-trigger adapter: app-layer resolution and minting remain outside the kernel.
+# ── Workflow-trigger adapter (spec 014 R-12 / R-15 / R-16) ────────────────────
+# ``KernelServices.run_trigger_workflow`` reaches these through
+# ``agents.execution_engine.trigger_port`` — the kernel must not import app.api
+# (import-linter). Registered below, at import of this module.
 def _resolve_saved_trigger_target(
-    workflow_ref: str, owner_id: str
-) -> ResolvedTriggeredWorkflow:
-    """Resolve complete owner-scoped saved-workflow launch state for a trigger."""
+    workflow_ref: str, owner_id: str, parent_run_id: str
+) -> tuple[str, list | None, CompiledWorkflow | None]:
+    """Resolve a saved ``user_workflow_id`` named by a ``trigger: workflow`` outcome.
+
+    Returns ``(pipeline_type, agents, compiled)`` for the new run. Moved verbatim
+    from ``KernelServices.run_trigger_workflow``: the same owner-scoped ``_owned``
+    lookup (a cross-owner / unknown id raises the same ``HTTPException`` 404,
+    IDOR→404) and the same Case 2 (flat ``agent_ids``) / Case 3 (composed
+    manifest) branching ``launch_run`` uses.
+    """
+    from app.api.run_engine import _get_db, _parent_run_trust
     from app.api.user_workflows import _owned
 
     db = _get_db()
@@ -3316,17 +3311,28 @@ def _resolve_saved_trigger_target(
         base_pipeline_type = row.base_pipeline_type
         row_agents_json = row.agents
         row_id = row.id
-        attached_hooks = row.attached_hooks
-        attached_skills = row.attached_skills
-        model_overrides = row.model_overrides
+        # ISS-1113: an override row's steps are user-authored, and the
+        # merge compiles them at "user"; this door must not give them "db".
+        # ISS-1164 / QA-KB-126: nor a plain row more than the run firing this
+        # trigger was launched at (no tier here; launch persisted that answer).
+        row_trust = (
+            "user"
+            if row.overrides_pipeline_type
+            else _parent_run_trust(db, parent_run_id)
+        )
+        # ISS-1118/ISS-1129: and it keeps what its target declares on the same step.
+        row_overrides = row.overrides_pipeline_type
     finally:
         db.close()
 
     if isinstance(manifest_json, dict) and "steps" in manifest_json:
-        from agents.execution_engine.engine import (
-            _CAPABILITY_REGISTRY,
-            _WORKFLOW_COMPILER,
-        )
+        # Case 3 — composed manifest (mirrors launch_run's
+        # USER_WORKFLOW_MANIFEST branch, minus the request-body override
+        # chain: a trigger carries no request body, so the row's own
+        # saved values are authoritative, with the SAME hardcoded
+        # fallbacks launch_run uses when a value is absent).
+        from agents.execution_engine.engine import _CAPABILITY_REGISTRY
+        from agents.execution_engine.overrides import compile_with_baseline
         from agents.workflows.manifest import build_manifest_from_dict
 
         raw_manifest = dict(manifest_json)
@@ -3338,39 +3344,39 @@ def _resolve_saved_trigger_target(
         raw_manifest.setdefault("clarify", {"mode": "skip", "defaults": []})
         raw_manifest.setdefault("capabilities", {})
         parsed_manifest = build_manifest_from_dict(raw_manifest, f"workflow:{row_id}")
-        compiled = _WORKFLOW_COMPILER.compile(
-            parsed_manifest, _CAPABILITY_REGISTRY, trust="db"
+        target_compiled = compile_with_baseline(
+            parsed_manifest,
+            _CAPABILITY_REGISTRY,
+            trust=row_trust,
+            overrides=row_overrides,
         )
-        persisted_manifest = dict(raw_manifest)
-        persisted_manifest["_trust"] = "db"
-        return ResolvedTriggeredWorkflow(
-            pipeline_type=base_pipeline_type,
-            compiled=compiled,
-            manifest_json=persisted_manifest,
-            model_overrides=model_overrides,
-            attached_skills=attached_skills,
-            attached_hooks=attached_hooks,
-        )
+        target_pipeline_type = base_pipeline_type
+        target_agents = None
+    else:
+        # Case 2 — flat agent_ids (mirrors launch_run's
+        # USER_WORKFLOW_FLAT branch).
+        import json as _json
 
-    from agents.loader import load_agent_spec
+        from agents.loader import load_agent_spec
 
-    agent_ids = json.loads(row_agents_json) if row_agents_json else []
-    agents = [load_agent_spec(agent_id) for agent_id in agent_ids]
-    if agents:
-        from app.api.composition_order import presort_specs
+        agent_ids = _json.loads(row_agents_json) if row_agents_json else []
+        target_agents = [load_agent_spec(aid) for aid in agent_ids]
+        if target_agents:
+            from app.api.composition_order import presort_specs
 
-        agents = presort_specs(agents)
-    return ResolvedTriggeredWorkflow(
-        pipeline_type=base_pipeline_type,
-        agents=agents,
-        model_overrides=model_overrides,
-        attached_skills=attached_skills,
-        attached_hooks=attached_hooks,
-    )
+            target_agents = presort_specs(target_agents)
+        target_pipeline_type = base_pipeline_type
+        target_compiled = None
+    return target_pipeline_type, target_agents, target_compiled
 
 
 async def _launch_triggered_run(**launch_kwargs: Any) -> dict:
-    """Resolve the launch core at call time so tests can patch the seam."""
+    """Mint + spawn a triggered run via ``_launch_run_core``.
+
+    Resolved at CALL time, so a test that monkeypatches
+    ``run_commands._launch_run_core`` still intercepts the trigger path, exactly
+    as when the kernel imported it lazily.
+    """
     return await _launch_run_core(**launch_kwargs)
 
 
@@ -3414,6 +3420,7 @@ async def launch_run(
     user_workflow_row = None
     compiled = None  # set only in the USER_WORKFLOW_MANIFEST branch (TODO #3)
     persisted_manifest = None  # migration 0040 — set alongside `compiled`
+    _ov_steps = None  # spec 016 override steps — set only outside Case 3, below
     if body.user_workflow_id is not None:
         # Row is the sole source of truth from here on — any client-sent
         # agent_ids/pipeline_type gets overwritten below (TODO #2/#3), never merged.
@@ -3435,6 +3442,7 @@ async def launch_run(
                 attached_hooks=_row.attached_hooks,
                 attached_skills=_row.attached_skills,
                 model_overrides=_row.model_overrides,
+                overrides_pipeline_type=_row.overrides_pipeline_type,
             )
         finally:
             launch_db.close()
@@ -3476,10 +3484,8 @@ async def launch_run(
         # says this is the intended synthesis point), then compile with
         # trust="db" — the compiler's own less-privileged, step-by-step
         # capability checks are the real security boundary for this shape.
-        from agents.execution_engine.engine import (
-            _CAPABILITY_REGISTRY,
-            _WORKFLOW_COMPILER,
-        )
+        from agents.execution_engine.engine import _CAPABILITY_REGISTRY
+        from agents.execution_engine.overrides import compile_with_baseline
         from agents.workflows.manifest import (
             ManifestValidationError,
             build_manifest_from_dict,
@@ -3489,6 +3495,20 @@ async def launch_run(
         # Saved row, or an unsaved composition sent inline. Same shape either way;
         # they differ only in provenance, which is what picks the trust level below.
         _inline = user_workflow_row is None
+        # trust="user" for an inline manifest — the client authored it this
+        # request, so it gets the compiler's most restrictive level — and for an
+        # override row launched by id (ISS-1113): its steps are user-authored and
+        # merge_override_steps compiles them at "user", so this door must not hand
+        # them "db". Any other saved row gets "db" only for a caller who may run the
+        # Composer (ISS-1114): its base_pipeline_type is a label its author picked.
+        _trust = (
+            "user"
+            if _inline or user_workflow_row.overrides_pipeline_type
+            else _saved_row_trust(effective_tier(current_user, principal))
+        )
+        # ISS-1118/ISS-1129: an override row keeps what its target built-in declares on
+        # the same step, as the merge and the writers do. None (inline, plain row): none.
+        _overrides = None if _inline else user_workflow_row.overrides_pipeline_type
         raw_manifest = dict(
             body.manifest if _inline else user_workflow_row.manifest_json
         )
@@ -3522,13 +3542,11 @@ async def launch_run(
                 raw_manifest,
                 "workflow:inline" if _inline else f"workflow:{user_workflow_row.id}",
             )
-            # trust="user" for an inline manifest — the client authored it this
-            # request, so it gets the compiler's most restrictive level. A saved row
-            # keeps trust="db" (unchanged), since it was already validated on save.
-            compiled = _WORKFLOW_COMPILER.compile(
+            compiled = compile_with_baseline(
                 parsed_manifest,
                 _CAPABILITY_REGISTRY,
-                trust="user" if _inline else "db",
+                trust=_trust,
+                overrides=_overrides,
             )
         except (ManifestValidationError, CompilerError) as exc:
             raise _reject(
@@ -3539,9 +3557,12 @@ async def launch_run(
 
         # Persisted on the run row (migration 0040) so resume_run can recompile
         # the SAME workflow. `trust` rides along so the resume recompile is
-        # exactly as restrictive as the launch compile.
+        # exactly as restrictive as the launch compile, and `_overrides` so it
+        # admits the same inherited references.
         persisted_manifest = dict(raw_manifest)
-        persisted_manifest["_trust"] = "user" if _inline else "db"
+        persisted_manifest["_trust"] = _trust
+        if _overrides:
+            persisted_manifest["_overrides"] = _overrides
 
         # A saved row dictates its own base type; an inline manifest keeps whatever
         # the client asked for (the Composer sends its fixed-at-entry base, "custom").
@@ -3551,53 +3572,9 @@ async def launch_run(
     pipeline_type = body.pipeline_type
     content = body.message
 
-    # ── Task 9.3 / Requirement 21 AC 10: duplicate-context guard (endpoint level)
-    # An older frontend may still send BOTH a `source_workflow_run_id` (v2 chain
-    # mechanism) AND a legacy "=== CONTEXT FROM PREVIOUS PIPELINE ===" block in
-    # the message.  Strip the block here — before the admission gate — so the
-    # two delivery mechanisms are never combined regardless of whether the workflow
-    # declares chaining.  The admission gate may zero out `source_workflow_run_id`
-    # (declaration_gate) but the duplicate-context was still sent by the client.
-    #
-    # Guard fires ONLY when `body.source_workflow_run_id` is set (v2 edge present
-    # in the request).  A plain legacy run keeps its context block intact.
-    _DUPLICATE_CTX_MARKER = "=== CONTEXT FROM PREVIOUS PIPELINE"
-    _pending_endpoint_strip_audit_id: str | None = None
-    if body.source_workflow_run_id and content and _DUPLICATE_CTX_MARKER in content:
-        _stripped = content.split(_DUPLICATE_CTX_MARKER)[0].rstrip()
-        logger.info(
-            "create_run: stripped legacy context block (duplicate-context guard) "
-            "source_workflow_run_id=%s",
-            body.source_workflow_run_id,
-        )
-        # Persist the strip audit row best-effort — never aborts the launch.
-        _ep_strip_db = _get_db()
-        try:
-            from app.models.run_provenance_audit import RunProvenanceAudit as _EPA  # noqa: PLC0415
-
-            _ep_strip_row = _EPA(
-                owner_id=current_user.id,
-                workspace_id=getattr(body, "workspace_id", None) or "",
-                run_id="pending",  # backfilled after mint in _launch_run_core
-                operation="legacy_context_block_stripped",
-                source_ref=body.source_workflow_run_id,
-                outcome="stripped",
-            )
-            _ep_strip_db.add(_ep_strip_row)
-            _ep_strip_db.commit()
-            _ep_strip_db.refresh(_ep_strip_row)
-            _pending_endpoint_strip_audit_id = _ep_strip_row.id
-        except Exception:  # noqa: BLE001
-            _pending_endpoint_strip_audit_id = None
-            try:
-                _ep_strip_db.rollback()
-            except Exception:  # noqa: BLE001
-                pass
-        finally:
-            _ep_strip_db.close()
-        # Use the stripped content going forward; fallback to original if strip
-        # produced an empty string (edge case: message IS the context block).
-        content = _stripped if _stripped else content
+    # The duplicate-context guard (Task 9.3 / Requirement 21 AC 10) runs once, in
+    # _launch_run_core, after every gate below — a refused launch records no strip
+    # (ISS-981). It is passed body.source_workflow_run_id for that reason.
 
     # ── Empty-brief gate (ISS-155) ─────────────────────────────────────────────
     # A run with no brief has nothing to build, and the spend is committed HERE —
@@ -3648,6 +3625,15 @@ async def launch_run(
     agent_ids = body.agent_ids
     agents = None
     if launch_source is not LaunchSource.USER_WORKFLOW_MANIFEST:
+        # ISS-687: a custom-agent file workflow's roster (`custom-agent:<id>` steps,
+        # no AGENT.md) can never pass the allow-list below, and must not be let into
+        # it (KAN-75). A list naming exactly the plan's own steps says nothing the
+        # plan does not, so drop it and let the `else` take the compiled plan.
+        from app.api.run_engine import _own_plan_roster
+
+        _plan_roster = _own_plan_roster(base_pipeline_type) if agent_ids else set()
+        if _plan_roster and set(agent_ids) == _plan_roster:
+            agent_ids = None
         if agent_ids:
             allowed_ids = allowed_custom_agent_ids(base_pipeline_type)
             rejected = [aid for aid in agent_ids if aid not in allowed_ids]
@@ -3659,10 +3645,21 @@ async def launch_run(
                 # FIX-306 repaired only NEW saves: existing rows still 400 on every
                 # launch. Name the step and where to fix it instead of a bare id
                 # dump, which reads as "you sent something malformed".
+                # ISS-978: except a step of the plan itself — no override made it.
                 _stale = [
-                    aid for aid in rejected if aid.startswith(CUSTOM_AGENT_PREFIX)
+                    aid
+                    for aid in rejected
+                    if aid.startswith(CUSTOM_AGENT_PREFIX) and aid not in _plan_roster
                 ]
+                _own = [aid for aid in rejected if aid in _plan_roster]
                 _error = f"Invalid agent_ids for {pipeline_type!r}: {rejected}"
+                if _own:
+                    _error += (
+                        f". {_own} are steps of {base_pipeline_type!r} itself, whose "
+                        "workflow file fixes which steps run: launch it with all of "
+                        "its steps, or open it in Advanced and Save as copy to "
+                        "change them"
+                    )
                 if _stale:
                     _error += (
                         f". {_stale} came from a blank custom-agent step in your "
@@ -3871,8 +3868,9 @@ async def launch_run(
     # ── model_overrides ingress validation (D-07, MODEL-03) ────────────────────
     # SKIPPED for Case 3 (USER_WORKFLOW_MANIFEST): both checks below are
     # agent_ids-specific re-validations against a flat roster. Case 3's
-    # manifest already went through the compiler's own trust="db" step-by-step
-    # checks (TODO #3) — a stricter, per-step equivalent, not a gap.
+    # manifest went through the compiler's trust checks (TODO #3), which cover
+    # capabilities but not model ids — the model gate after this block covers
+    # those, and the body maps, for every case (QA-KB-017 / ISS-935).
     model_overrides = body.model_overrides or {}
     if launch_source is not LaunchSource.USER_WORKFLOW_MANIFEST:
         _override_error = _validate_model_overrides(
@@ -3888,6 +3886,38 @@ async def launch_run(
         if _selection_error is not None:
             raise _reject("invalid_selection", _selection_error)
 
+    # ── model entitlement (QA-KB-017: ISS-398/934/935) — every launch shape ────
+    # Each user-authored model id must be a catalog model the caller's EFFECTIVE
+    # tier may run: the body maps, the Case 3 manifest (inline or the saved row's,
+    # so a downgrade after save is caught too) and an enabled override's steps. A
+    # file-backed built-in's own plan is never walked. Denies pre-mint.
+    caller_tier = effective_tier(current_user, principal)
+    _model_error = _model_entitlement_error(
+        caller_tier,
+        model_overrides=model_overrides,
+        selections=body.selections,
+        manifest=persisted_manifest or {"steps": _ov_steps},
+    )
+    if _model_error is not None:
+        raise _reject(
+            "tier_not_entitled" if _model_error[0] == 403 else "invalid_model_override",
+            _model_error[1],
+            http_status=_model_error[0],
+        )
+    # ISS-1131: the same manifest's `trigger: workflow` targets, which the run would
+    # mint mid-run with no tier in scope. Covers a row saved before the gate existed
+    # and an owner downgraded since.
+    _trigger_error = _trigger_entitlement_error(
+        caller_tier, persisted_manifest or {"steps": _ov_steps}
+    )
+    if _trigger_error is not None:
+        raise _reject(
+            "tier_not_entitled", _trigger_error[1], http_status=_trigger_error[0]
+        )
+    # ISS-936: the run's session model is the stored preference only while this
+    # tier may still select it.
+    run_user = _entitled_user(current_user, caller_tier)
+
     # ── image-input ingress gate (IMAGE-INPUT §3 Layer 1/5) ────────────────────
     # Identical caps to the WS path: mime allow-list, ~3.75MB/image, ≤20, ~8MB
     # aggregate, vision-model guard. Flag OFF / no images → [] (byte-identical,
@@ -3896,7 +3926,7 @@ async def launch_run(
     validated_images: list = []
     if settings.IMAGE_INPUT_ENABLED and images:
         base_model = (
-            getattr(current_user, "preferred_model", None)
+            getattr(run_user, "preferred_model", None)
             or settings.BEDROCK_INFERENCE_PROFILE_ID
         )
         effective_model_ids = {base_model} | {
@@ -3931,11 +3961,12 @@ async def launch_run(
         _chain_db.close()
     # ── task 6.4: Route the admission result to _launch_run_core ────────────
     #
-    # admit_chain_launch already raised HTTPException(422) for every non-
-    # degradable refusal (source_running, source_not_finalized,
-    # source_non_chainable, source_provenance_conflict) — and for a refused
-    # source_payload_missing when chain_policy != "degrade" — so execution
-    # only reaches here for three outcomes:
+    # admit_chain_launch already raised HTTPException(422) for every refusal
+    # (source_running, source_not_finalized, source_non_chainable,
+    # source_provenance_conflict, source_payload_missing — B5: the last one
+    # refuses whatever the manifest's chain_policy) — so execution reaches here
+    # for outcomes (a) and (b) only. (c) is documented for B30: it becomes
+    # reachable again only if a degrade policy is reinstated at admission.
     #
     #   a) declaration_gate (active=False, source_id=None):
     #      The workflow does not declare chaining, or no source_run_id was
@@ -3961,26 +3992,6 @@ async def launch_run(
         _chain_admission.source_id
     )  # None for declaration_gate
 
-    # ── Uploads-present gate (dev 413 RCA) — last ingress denial before the mint.
-    # The plan is the one the engine will run: the launch-compiled override when
-    # there is one, else the file manifest compile_for_run(pipeline_type) loads.
-    _uploads_plan = compiled
-    if _uploads_plan is None:
-        try:
-            _uploads_plan = _compile_for_run(pipeline_type)
-        except Exception:  # noqa: BLE001 — no plan, no file_extract step to protect
-            _uploads_plan = None
-    _guard_uploads_present(
-        content=content,
-        staged_upload_ids=body.staged_upload_ids,
-        # The admitted id, not the raw request field: only an admitted source
-        # makes the run reuse the chain-root sandbox (_find_chain_root walks
-        # source_run_id, which _launch_run_core writes from this same value).
-        admitted_source_run_id=_admitted_source_id,
-        manifest_json=persisted_manifest,
-        plan=_uploads_plan,
-    )
-
     # ── Mint the WorkflowRun + spawn the driver (mirror websocket.py:1912-1966) ─
     # ═══ JOIN POINT ═════════════════════════════════════════════════════════
     # All 3 LaunchSource branches reconverge HERE — delegates to the shared core
@@ -3993,7 +4004,7 @@ async def launch_run(
         od_context=od_context,
         validated_images=validated_images,
         model_overrides=model_overrides,
-        user=current_user,
+        user=run_user,
         source_workflow_run_id=_admitted_source_id,
         # Task 6.5: pass the pre-validated selection so _launch_run_core can
         # write the chain_source_selected audit row and thread the selection
@@ -4010,33 +4021,6 @@ async def launch_run(
         # admission gate (declaration_gate) zeroed out _admitted_source_id.
         request_source_workflow_run_id=body.source_workflow_run_id,
     )
-
-    # ── Task 9.3: back-fill run_id on the endpoint-level strip audit row ─────
-    # The audit row was written with run_id="pending" before the mint; update it
-    # now that we have the real run id from the launch result.  Best-effort.
-    if _pending_endpoint_strip_audit_id is not None:
-        _minted_run_id = (
-            _launch_result.get("run_id") if isinstance(_launch_result, dict) else None
-        )
-        if _minted_run_id:
-            _ep_upd_db = _get_db()
-            try:
-                from app.models.run_provenance_audit import RunProvenanceAudit as _EPA2  # noqa: PLC0415
-
-                _ep_upd_db.query(_EPA2).filter(
-                    _EPA2.id == _pending_endpoint_strip_audit_id
-                ).update(
-                    {_EPA2.run_id: _minted_run_id},
-                    synchronize_session=False,
-                )
-                _ep_upd_db.commit()
-            except Exception:  # noqa: BLE001
-                try:
-                    _ep_upd_db.rollback()
-                except Exception:  # noqa: BLE001
-                    pass
-            finally:
-                _ep_upd_db.close()
 
     return _launch_result
 
@@ -4067,10 +4051,16 @@ def _apply_terminal_output_columns(
     Workflow-agnostic (SC-001 — no workflow/agent name).
     """
     agent_outputs_collector: list[dict] = []
+    # One open row per (agent_id, task_id). Wave members run in parallel and their
+    # events interleave, and every member reports the step's agent_id — a single
+    # "current agent" slot dropped members and mixed their tool calls (run c4cbd381
+    # kept 55 of 63 workers). task_id tells them apart; "" for a plain step.
     open_agents: dict[tuple, dict] = {}
     final_output = ""
     deliverable_mimetype: str | None = None
     deliverable_filename: str | None = None
+    # The engine's run totals — every model call, including the ones made outside any
+    # step (planner, clarify, the validation fix-loop), and the cost priced per model.
     run_totals: dict | None = None
 
     def _row(data: dict) -> dict:
@@ -4103,7 +4093,7 @@ def _apply_terminal_output_columns(
         if not isinstance(data, dict):
             data = {}
         if utype == "agent_start":
-            _close(data)
+            _close(data)  # a re-run of the same agent/task starts a fresh row
             _row(data)
         elif utype == "agent_input":
             row = _row(data)
@@ -4124,12 +4114,13 @@ def _apply_terminal_output_columns(
                 }
             )
         elif utype == "tool_result":
-            for tool_call in _row(data).get("tool_calls", []):
-                if (
-                    tool_call.get("tool") == data.get("tool")
-                    and tool_call.get("result") is None
-                ):
-                    tool_call["result"] = data.get("result")
+            # FIFO, not LIFO. The tool_call event carries no call id, so the only
+            # thing to pair on is the tool NAME — and results come back in call
+            # order. Matching oldest-unresolved-first is correct for in-order results
+            # and no worse than LIFO for out-of-order ones.
+            for tc in _row(data).get("tool_calls", []):
+                if tc.get("tool") == data.get("tool") and tc.get("result") is None:
+                    tc["result"] = data.get("result")
                     break
         elif utype == "agent_chunk":
             row = _row(data)
@@ -4147,6 +4138,8 @@ def _apply_terminal_output_columns(
                 row[key] = data.get(key, 0)
             if data.get("usage_version") is not None:
                 row["usage_version"] = data.get("usage_version")
+            # ISS-165: the engine already emits the resolved per-agent model on this
+            # event — carry it into agent_outputs so it survives past the live stream.
             row["model_id"] = data.get("model_id")
             if row.get("agent_id"):
                 agent_outputs_collector.append(row)
@@ -4168,29 +4161,27 @@ def _apply_terminal_output_columns(
         wr.deliverable_filename = deliverable_filename
     if agent_outputs_collector:
         wr.agent_outputs = json.dumps(agent_outputs_collector)
+    # CWF-002 (fix b): record the run's EFFECTIVE model BEFORE the cost computation so the
+    # estimate_cost_usd line reads the real model instead of the BEDROCK default fallback.
     wr.model_id = model_id
     if run_totals is not None and run_totals.get("total_input_tokens") is not None:
+        # The engine's totals: complete, and the cost already priced per model.
+        # normalize_usage: an event from before usage_version 2 still holds its cache
+        # reads inside input — written back in the current meaning either way.
         usage = normalize_usage(run_totals, prefix="total_")
-        run_model = wr.model_id or settings.BEDROCK_INFERENCE_PROFILE_ID
         cost = run_totals.get("estimated_cost_usd")
-        if cost is None:
-            cost = usage_cost_usd(
-                run_model,
-                usage,
-                cache_ttl=settings.BEDROCK_PROMPT_CACHE_TTL,
-            )
         cost_full = run_totals.get("estimated_cost_full_usd")
-        if cost_full is None:
-            cost_full = usage_cost_full_usd(run_model, usage)
     else:
-        fallback_model = wr.model_id or settings.BEDROCK_INFERENCE_PROFILE_ID
+        # No pipeline_complete (a run that stopped early): sum the steps, price each
+        # at its own model.
+        _fallback_model = wr.model_id or settings.BEDROCK_INFERENCE_PROFILE_ID
         rows = [
-            (row.get("model_id") or fallback_model, normalize_usage(row))
-            for row in agent_outputs_collector
+            (a.get("model_id") or _fallback_model, normalize_usage(a))
+            for a in agent_outputs_collector
         ]
         usage = {
-            key: sum(row_usage[key] for _, row_usage in rows)
-            for key in (
+            k: sum(u[k] for _, u in rows)
+            for k in (
                 "input_tokens",
                 "output_tokens",
                 "cache_read_tokens",
@@ -4198,29 +4189,24 @@ def _apply_terminal_output_columns(
             )
         }
         cost = sum(
-            usage_cost_usd(
-                row_model,
-                row_usage,
-                cache_ttl=settings.BEDROCK_PROMPT_CACHE_TTL,
-            )
-            for row_model, row_usage in rows
+            usage_cost_usd(m, u, cache_ttl=settings.BEDROCK_PROMPT_CACHE_TTL)
+            for m, u in rows
         )
-        cost_full = sum(
-            usage_cost_full_usd(row_model, row_usage) for row_model, row_usage in rows
-        )
+        cost_full = sum(usage_cost_full_usd(m, u) for m, u in rows)
     if usage["input_tokens"] + usage["output_tokens"] > 0:
-        wr.token_usage = json.dumps(
-            {
-                "total_input_tokens": usage["input_tokens"],
-                "total_output_tokens": usage["output_tokens"],
-                "total_tokens": usage["input_tokens"] + usage["output_tokens"],
-                "total_cache_read_tokens": usage["cache_read_tokens"],
-                "total_cache_write_tokens": usage["cache_write_tokens"],
-                "estimated_cost_usd": round(float(cost or 0), 6),
-                "estimated_cost_full_usd": round(float(cost_full or 0), 6),
-                "usage_version": USAGE_VERSION,
-            }
-        )
+        token_usage = {
+            "total_input_tokens": usage["input_tokens"],
+            "total_output_tokens": usage["output_tokens"],
+            "total_tokens": usage["input_tokens"] + usage["output_tokens"],
+            "total_cache_read_tokens": usage["cache_read_tokens"],
+            "total_cache_write_tokens": usage["cache_write_tokens"],
+            "estimated_cost_usd": round(float(cost or 0), 6),
+            # ISS-034: the as-if-UNCACHED counterfactual on the SAME token base, so
+            # Analytics can report the SIGNED effect of prompt caching.
+            "estimated_cost_full_usd": round(float(cost_full or 0), 6),
+            "usage_version": USAGE_VERSION,
+        }
+        wr.token_usage = json.dumps(token_usage)
     if not wr.completed_at:
         wr.completed_at = datetime.now(timezone.utc)
     if duration_seconds is not None and not wr.duration:
@@ -4514,7 +4500,9 @@ async def _drive_launch_to_queue(
                         # subtract from the "failed" list.  If nothing remains, the
                         # run is a clean completion.  If any agent is genuinely
                         # unrecovered (no agent_complete), keep "degraded" with only
-                        # the truly-failed agents in the error message.
+                        # the truly-failed agents in the error message. A degraded
+                        # verdict with NO failed agents (a suppressed R-07 loop
+                        # abort) is never a false positive: it stays degraded.
                         _agent_complete_ids = {
                             data.get("agent_id")
                             for utype, data in raw_events
@@ -4525,22 +4513,26 @@ async def _drive_launch_to_queue(
                             for a in degraded_failed_agents
                             if a not in _agent_complete_ids
                         ]
-                        if not _truly_failed:
+                        if degraded_failed_agents and not _truly_failed:
                             # Every "failed" agent also completed — false positive.
                             wr.status = "completed"
                             wr.error = None
                         else:
                             wr.status = "degraded"
-                            # [convergence-limit fix] a suppressed R-07
-                            # loop_iterations abort carries its own
-                            # ``degraded_reason`` (no agent failed, so
-                            # ``degraded_failed_agents`` is empty) — prefer it
-                            # over the generic agents-failed message.
+                            # [convergence-limit fix] a suppressed R-07 loop_iterations
+                            # abort carries its own ``degraded_reason`` (no agent failed,
+                            # so ``degraded_failed_agents`` is empty) — prefer it over
+                            # the generic agents-failed message so the UI shows the
+                            # honest, specific reason instead of "agent(s) failed: ".
                             wr.error = (
                                 first_agent_error_msg
                                 or degraded_reason_msg
-                                or "degraded: agent(s) failed: "
-                                + ", ".join(_truly_failed)
+                                or (
+                                    "degraded: agent(s) failed: "
+                                    + ", ".join(_truly_failed)
+                                    if _truly_failed
+                                    else "degraded (no reason was recorded)"
+                                )
                             )
                     elif (
                         pipeline_complete_seen
@@ -4763,7 +4755,7 @@ def _has_active_chain_revision(db, parent_run_id: str, user_id: str) -> bool:
 
 
 def _compiled_step_count(pipeline_type: str) -> int:
-    """Return the compiled plan's step count, or zero when unavailable."""
+    """Step count of the compiled plan, 0 when there is none (or it fails to compile)."""
     from agents.execution_engine.engine import compile_for_run
 
     try:
@@ -4823,7 +4815,13 @@ def _mint_revision_row(
     # so any cycle / cross-owner / missing-ancestor failure is surfaced here,
     # before any lock is taken.  The root id is the lock key (Requirement 10 AC 1).
     revision_root_id = _revision_chain_root_id(db, parent_run_id, user.id)
-    plan_step_count = _compiled_step_count(revision_pipeline_type)
+
+    # Pure function of the pipeline type — computed before the lock to keep the
+    # critical section tight. Composed/custom-agent revision manifests (spec 022)
+    # have no AGENT.md roster; the compiled plan is the roster, as on the launch
+    # path. Every existing revision pipeline has roster == plan steps, so they
+    # are unchanged.
+    _plan_step_count = _compiled_step_count(revision_pipeline_type)
 
     # ── Acquire the cross-process family lock (Requirement 10 AC 1-2) ────────
     # The active-run check, existence gate, entitlement gate, and the DB row
@@ -4863,7 +4861,7 @@ def _mint_revision_row(
             # "this pipeline exists" and moves the engine's check earlier, before the row
             # is minted.
             _rev_agents = get_pipeline_agents(revision_pipeline_type)
-            if not _rev_agents and not plan_step_count:
+            if not _rev_agents and not _plan_step_count:
                 raise _reject(
                     "revision_unsupported",
                     f"Revisions aren't available for this workflow yet — {revision_pipeline_type!r} "
@@ -4916,7 +4914,7 @@ def _mint_revision_row(
                 type=revision_pipeline_type,
                 status="revising",
                 input=instruction,
-                agent_count=(max(len(_rev_agents), plan_step_count) or 1)
+                agent_count=(max(len(_rev_agents), _plan_step_count) or 1)
                 + extra_agent_count,
             )
             db.add(wr)
@@ -5409,10 +5407,9 @@ def admit_chain_launch(
     5. Source sandbox open (``_open_source_sandbox_or_refuse``).
     6. Payload selection and provenance validation (``select_source_payload``).
 
-    On any ``ChainRefused`` with a non-degradable reason the function writes a
-    ``chain_refused`` audit row and raises ``HTTPException(422)`` (no run row,
-    no edge).  On ``source_payload_missing`` with ``chain_policy == "degrade"``
-    it returns an admitted-with-no-payload ``ChainAdmission``.
+    On any ``ChainRefused`` the function writes a ``chain_refused`` audit row and
+    raises ``HTTPException(422)`` (no run row, no edge) — ``source_payload_missing``
+    included, whatever the manifest's ``chain_policy`` (B5 owner decision).
 
     Parameters
     ----------
@@ -5454,11 +5451,6 @@ def admit_chain_launch(
         effective_compiled.deliverable.chains_from
         if effective_compiled is not None
         else False
-    )
-    chain_policy: str = (
-        effective_compiled.deliverable.chain_policy
-        if effective_compiled is not None
-        else "refuse"
     )
     # B22-chain-fix: The receiving workflow's own deliverable.name must NOT
     # be used to constrain the source payload's filename.  Cross-type chaining
@@ -5560,37 +5552,14 @@ def admit_chain_launch(
             declared_output_basename=declared_output_basename,
         )
     except ChainRefused as exc:
-        if exc.reason == "source_payload_missing" and chain_policy == "degrade":
-            # B5 fix: this branch is now unreachable for all production manifests
-            # because chain_policy defaults to "refuse" and no manifest declares
-            # "degrade".  The guard is kept as dead code rather than removed to
-            # preserve the documented Departure N2 contract, but the degrade path
-            # is intentionally blocked by the owner's decision (2026-09-14):
-            # a missing/swept payload must refuse the launch so the user gets a
-            # clear error rather than silently starting a run with no context.
-            # See GIT_VERSIONING_BUGS.md B5.
-            #
-            # If a future manifest needs to opt into degrading launches
-            # (e.g. a resilience-focused workflow), it must explicitly set
-            # chain_policy: degrade AND this guard must be reinstated by removing
-            # the False override below.
-            _ADMIT_CHAIN_DEGRADE: bool = (
-                False  # B5: owner decision, always refuse — keep False
-            )
-            if _ADMIT_CHAIN_DEGRADE:
-                logger.info(
-                    "admit_chain_launch: source payload missing for %s, degrading "
-                    "(chain_policy=degrade, user=%s)",
-                    source_run_id,
-                    current_user.id,
-                )
-                return ChainAdmission(
-                    active=True,
-                    source_id=source_run_id,
-                    record=record,
-                    selection=None,
-                    refusal_reason=None,
-                )
+        # B5 (owner decision, 2026-09-14): every refusal — source_payload_missing
+        # included — refuses the launch, whatever the manifest's chain_policy, so the
+        # user gets a clear 422 instead of a run that silently starts with no context.
+        # The degrade branch that used to sit here behind ``if False:`` was deleted
+        # (B30: dead code in shipped admission logic). Reinstating a degrade policy
+        # means restoring an admitted-with-no-payload ChainAdmission here AND
+        # reconciling the compiler / chain_context paths that still accept it —
+        # see GIT_VERSIONING_BUGS.md B5 / B30.
         raise _refuse(exc.reason)
 
     logger.info(
@@ -5627,7 +5596,8 @@ _REVISION_TIER_TARGET_MAP: dict[str, str] = {
     "feature": "prototype_feature_output",  # → prototype_feature_revision
 }
 
-
+# Prototype v2 (spec 022): small → prototype_v2_revision (Fast);
+# large/feature → prototype_v2_feature_revision (Depth).
 _V2_REVISION_TIER_TARGET_MAP: dict[str, str] = {
     "small": "prototype_v2_output",
     "large": "prototype_v2_feature_output",
@@ -5799,6 +5769,7 @@ async def create_revision(
     # check and BEFORE the tier-classification LLM call below, so a busy host never
     # pays for a classification call it will then discard.
     _require_host_capacity(current_user)
+    run_user = _entitled_user(current_user, caller_tier)  # ISS-936
 
     # ── Tier classification (prototype_output only) ───────────────────────────
     # For prototype revisions, run a lightweight one-word LLM call to select the
@@ -5811,7 +5782,7 @@ async def create_revision(
         tier = await _classify_revision_tier(
             body.instruction,
             run_id,
-            model_id=getattr(current_user, "preferred_model", None),
+            model_id=getattr(run_user, "preferred_model", None),
         )
         effective_target = _REVISION_TIER_TARGET_MAP.get(tier, "prototype_output")
         logger.info(
@@ -5824,11 +5795,11 @@ async def create_revision(
         tier = await _classify_revision_tier(
             body.instruction,
             run_id,
-            model_id=getattr(current_user, "preferred_model", None),
+            model_id=getattr(run_user, "preferred_model", None),
         )
         effective_target = _V2_REVISION_TIER_TARGET_MAP.get(tier, "prototype_v2_output")
         logger.info(
-            "▶ prototype v2 revision tier selected: %r → pipeline=%s (run=%s)",
+            "▶ prototype revision tier selected: %r → pipeline=%s (run=%s)",
             tier,
             f"{effective_target.removesuffix('_output')}_revision",
             run_id,
@@ -5863,7 +5834,7 @@ async def create_revision(
             parent_run_id=run_id,
             target_artifact_type=effective_target,
             instruction=body.instruction,
-            user=current_user,
+            user=run_user,
             cancel_event=cancel_event,
             event_queue=event_queue,
             # analyzer_solution kwarg removed — engine populates ectx.analyzer_solution
@@ -5915,7 +5886,10 @@ async def _drive_revision_to_queue(
     pipeline_failed_seen = False
     degraded_seen = False
     pipeline_cancelled_seen = False
-    terminal_error: str | None = None
+    # Why a failed/degraded revision ended, saved on the run like the launch driver does
+    # (first agent_error, else the pipeline's own error) — run 48b0811e failed with none.
+    first_agent_error_msg: str | None = None
+    pipeline_error_msg: str | None = None
     # ISS-152: this driver is a fourth caller of the shared
     # _apply_terminal_output_columns mapping (BUG-R03, INV-12) — mirrors the launch
     # driver's raw_events/monotonic_start (this file, _drive_launch_to_queue) so a
@@ -5926,31 +5900,29 @@ async def _drive_revision_to_queue(
 
     async def _queue_send(event: dict) -> None:
         nonlocal pipeline_complete_seen, pipeline_failed_seen, degraded_seen
-        nonlocal pipeline_cancelled_seen, terminal_error
+        nonlocal pipeline_cancelled_seen, first_agent_error_msg, pipeline_error_msg
         etype = event.get("type")
-        event_data = event.get("data") or {}
-        raw_events.append((etype or "", event_data))
-        if (
-            etype in {"agent_error", "pipeline_failed", "error"}
-            and terminal_error is None
-        ):
-            terminal_error = str(
-                event_data.get("error")
-                or event_data.get("message")
-                or event_data.get("code")
-                or "Revision failed"
-            )[:2000]
+        data = event.get("data") or {}
+        raw_events.append((etype or "", data))
         if etype == "pipeline_cancelled":
             pipeline_cancelled_seen = True
         if etype == "pipeline_complete":
             pipeline_complete_seen = True
-            if event.get("data", {}).get("status") == "degraded":
+            if data.get("status") == "degraded":
                 degraded_seen = True
+                pipeline_error_msg = pipeline_error_msg or data.get("degraded_reason")
         elif etype == "pipeline_failed":
             pipeline_failed_seen = True
+            pipeline_error_msg = (
+                pipeline_error_msg or data.get("error") or "Pipeline failed"
+            )
+        elif etype == "agent_error":
+            first_agent_error_msg = (
+                first_agent_error_msg or data.get("error") or "Agent execution error"
+            )
         await event_queue.put(event)
 
-    def _persist_terminal_status(new_status: str) -> None:
+    def _persist_terminal_status(new_status: str, error: str | None = None) -> None:
         sdb = _get_db()
         try:
             swr = (
@@ -5958,8 +5930,8 @@ async def _drive_revision_to_queue(
             )
             if swr:
                 swr.status = new_status
-                if new_status in {"failed", "degraded"}:
-                    swr.error = terminal_error
+                if error:
+                    swr.error = error
                 swr.completed_at = datetime.now(timezone.utc)
                 # ISS-152: the SOLE event→column mapping (_apply_terminal_output_columns),
                 # reused byte-for-byte from the launch driver — the driver's OWN monotonic
@@ -5995,7 +5967,7 @@ async def _drive_revision_to_queue(
             live_ectx_register=register_live_ectx,
             live_ectx_unregister=unregister_live_ectx,
         )
-        _persist_terminal_status(
+        _final_status = (
             "cancelled"
             if pipeline_cancelled_seen
             else "degraded"
@@ -6004,8 +5976,13 @@ async def _drive_revision_to_queue(
             if (pipeline_complete_seen and not pipeline_failed_seen)
             else "failed"
         )
+        _persist_terminal_status(
+            _final_status,
+            error=(first_agent_error_msg or pipeline_error_msg)
+            if _final_status in ("failed", "degraded")
+            else None,
+        )
     except ValueError as exc:
-        terminal_error = str(exc)[:2000]
         await event_queue.put(
             {
                 "type": "error",
@@ -6016,7 +5993,13 @@ async def _drive_revision_to_queue(
                 },
             }
         )
-        _persist_terminal_status("failed")
+        logger.error(
+            "REST revision driver: revision %s failed: %s",
+            workflow_run_id,
+            exc,
+            exc_info=True,
+        )
+        _persist_terminal_status("failed", error=str(exc))
     except asyncio.CancelledError:
         await event_queue.put(
             {
@@ -6033,18 +6016,17 @@ async def _drive_revision_to_queue(
         _persist_terminal_status("cancelled")
     except Exception as exc:
         logger.error("REST revision driver failed: %s", exc, exc_info=True)
-        terminal_error = f"Revision failed: {exc}"[:2000]
         await event_queue.put(
             {
                 "type": "error",
                 "data": {
-                    "error": terminal_error,
+                    "error": f"Revision failed: {exc}",
                     "code": "revision_error",
                     "recoverable": True,
                 },
             }
         )
-        _persist_terminal_status("failed")
+        _persist_terminal_status("failed", error=f"Revision failed: {exc}")
     finally:
         await event_queue.put(None)
         _cleanup_pipeline(workflow_run_id)

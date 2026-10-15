@@ -167,7 +167,8 @@ export function AgentRow({
             <p className="font-sans text-[13.5px] font-semibold leading-tight text-ink-900">
               {agent.name}
             </p>
-            {locked && (
+            {/* Same predicate as the Remove lock (BUG-025): every non-optional role is Core. */}
+            {!removable && (
               <span className="inline-flex items-center gap-1 rounded-[5px] bg-line-faint-row px-1.5 py-[3px] font-sans text-[8px] font-semibold uppercase tracking-[0.05em] text-ink-400">
                 <Lock className="h-2.5 w-2.5" />
                 Core

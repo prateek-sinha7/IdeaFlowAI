@@ -1,0 +1,40 @@
+// SCRATCH DEBUG (outside the repo) — which assertion of RevisionFamilyView.escape.test.tsx stays red after the fix?
+import { describe, expect, it, vi } from "vitest";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import React, { useState } from "react";
+import { FamilyGroupCard, type FamilyGroup } from "@/components/history/RevisionFamilyView";
+import type { WorkflowRun } from "@/types/index";
+
+vi.mock("@/hooks/useWorkflowMetadata", () => ({
+  useWorkflowShortNames: () => () => undefined,
+}));
+
+const run = {
+  id: "b0642e0f-fe74-4f7e-9f16-8b164a6e989d", title: "A history run", type: "custom",
+  status: "completed", createdAt: "2026-09-01T14:46:55.000Z", agentCount: 3,
+} as WorkflowRun;
+const group = { root: run, members: [run], latest: run } as FamilyGroup;
+function Harness() {
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+  return (
+    <FamilyGroupCard group={group} index={0} expanded={false} onToggle={() => {}} onSelectRun={() => {}}
+      openMenuId={openMenuId}
+      onToggleMenu={(id, e) => { e?.stopPropagation(); setOpenMenuId(openMenuId === id ? null : id); }}
+      onDeleteClick={() => {}} />
+  );
+}
+describe("debug ISS-931", () => {
+  it("unfocused click then Escape", async () => {
+    const user = userEvent.setup();
+    render(<Harness />);
+    const trigger = screen.getByRole("button", { name: "Run actions" });
+    fireEvent.click(trigger);
+    console.log("[open] aria-expanded =", trigger.getAttribute("aria-expanded"), "| menu =", !!screen.queryByRole("menu"));
+    await user.keyboard("{Escape}");
+    const t2 = screen.getByRole("button", { name: "Run actions" });
+    console.log("[right after Escape] held-ref aria-expanded =", trigger.getAttribute("aria-expanded"), "| connected =", trigger.isConnected, "| re-queried aria-expanded =", t2.getAttribute("aria-expanded"), "| same node =", t2 === trigger, "| menu present =", !!screen.queryByRole("menu"));
+    await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
+    console.log("[after waitFor] re-queried aria-expanded =", screen.getByRole("button", { name: "Run actions" }).getAttribute("aria-expanded"), "| menu present =", !!screen.queryByRole("menu"));
+  });
+});

@@ -1,0 +1,11 @@
+# QA-KB-094 analyze 2026-10-02: output of 'node evidence/qa-kb-094/assert-sim-false-negative.js <runner>' for BOTH tools/api/runs/run.ex_A4_human_gate_auto.http and run.ex_A4_human_gate.http (identical).
+# It extracts each runner's REAL assertion block and runs it on a synthetic /events stream of a CORRECTLY ROUTED run whose pick-language MODEL reply was prose 'Hola'.
+ok  ✓ human gate opened
+ok  ✓ exactly one branch ran: spanish (say-hola)
+ok  pick-language decided: null  (from "Hola")
+ERR ✗ branch spanish does not match decision null
+ok  ✓ ask and pick-language each ran once
+ok  ✓ both untaken branches reported skipped
+ok  ✓ no gate_blocked — the conditional gate actually routed
+ok  ✓ pipeline_complete
+ok  ✓ branch output carries "Hola, mundo!"

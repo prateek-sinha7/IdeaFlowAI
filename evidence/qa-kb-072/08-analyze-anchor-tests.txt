@@ -1,0 +1,14 @@
+# QA-KB-072 analyzer: anchor test files, each run alone from backend/, offline, 2026-10-07
+# tree: branch feat/stale-bug-fixes HEAD e93aa40ed; no backend/ edits in the working tree (git status --short backend/ was empty)
+
+## test_redoable_eligibility_fence
+4 passed in 1.07s
+
+## test_update_specs_enforcement
+5 passed in 1.58s
+
+## test_gate_redo_enforcement
+2 passed in 0.96s
+
+## test_redo_gate_safety
+7 passed in 5.12s

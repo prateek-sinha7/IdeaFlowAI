@@ -1,0 +1,36 @@
+"""Probe: what GET /api/workflows serves as display_name vs what test_list_carries_launchable_flags asserts."""
+import sys
+sys.path.insert(0, ".")
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
+from app.api.workflows import router
+from app.core.dependencies import get_current_user
+from app.models.database import Base, get_db
+
+class U:
+    id = "user-1"
+
+engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+Base.metadata.create_all(bind=engine)
+session = sessionmaker(bind=engine)()
+app = FastAPI(); app.include_router(router)
+app.dependency_overrides[get_current_user] = lambda: U()
+def _db():
+    yield session
+app.dependency_overrides[get_db] = _db
+by_id = {w["id"]: w for w in TestClient(app).get("/api/workflows").json()}
+asserted = {  # tests/integration/api/test_workflows_api.py:215-222, verbatim
+    "user_stories": "Generate product requirements",
+    "prototype": "Build an interactive prototype",
+    "ppt": "Pitch an idea",
+    "app_builder": "Build an end-to-end application",
+    "mulesoft_to_springboot": "MuleSoft to Spring Boot",
+    "dotnet_to_azure": ".NET to Azure",
+    "custom": "Compose a custom workflow",
+}
+for wid, label in asserted.items():
+    served = by_id[wid]["display_name"]
+    print(f"{'OK      ' if served == label else 'MISMATCH'} {wid}: asserted={label!r} served={served!r}")

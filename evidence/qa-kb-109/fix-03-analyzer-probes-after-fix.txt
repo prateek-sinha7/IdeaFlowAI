@@ -1,0 +1,35 @@
+# QA-KB-109 5-fixer: the analyzer's own probes re-run against the FIXED app source (no PROBE_TARGET), 2026-10-09 16:55 CEST.
+# Expected after a working fix: backend [S] tier/role/disable/delete and [C] PASSED; [S] reset-password and [R] FAIL (they pinned today's acceptance); [X] XPASS(strict).
+# Frontend: [today] P1-P6 fail (they pinned today's broken behaviour); [control] P7, P8 pass; [contract] C1, C2 'Expect test to fail' (XPASS).
+
+## backend (from backend/): DATABASE_URL=sqlite:///:memory: .venv/bin/python -m pytest ../evidence/qa-kb-109/analysis-plugins/test_probe_admin_self_actions.py -p no:cacheprovider -q -s -rA -W ignore
+[S] tier            -> HTTP 400 'You cannot change your own tier. Ask another administrator.'; cognito calls: 0
+[XPASS(strict)] RED today: reset_user_password has no `user_id == admin.id` guard (admin.py:501-546)
+PASSED ::test_self_target_outcome[tier]
+PASSED ::test_self_target_outcome[role]
+PASSED ::test_self_target_outcome[disable]
+PASSED ::test_self_target_outcome[delete]
+PASSED ::test_control_reset_for_another_user_is_the_intended_use
+FAILED ::test_self_target_outcome[reset-password] - AssertionError: reset-pas...
+FAILED ::test_self_reset_side_effects - fastapi.exceptions.HTTPException: 400...
+FAILED ::test_expected_contract_self_reset_is_refused - [XPASS(strict)] RED t...
+3 failed, 5 passed in 0.83s
+
+## frontend (from frontend/, node_modules linked beside the probe config then removed): ./node_modules/.bin/vitest run --config ../evidence/qa-kb-109/analysis-plugins/vitest.probe.config.ts
+ × [today] P1 inventory: the own row carries the same controls as every other row 196ms
+ × [today] P2 clicking Delete then confirming sends the DELETE for the admin's own id; the modal stays open on the 400 49ms
+ × [today] P3 the role pill sends the self-demote (the guard b2a621f84 removed) 1041ms
+ × [today] P4 Disable sends the disable for the admin's own id 41ms
+ × [today] P5 the tier dropdown keeps showing the refused tier after the server says 400 1032ms
+ × [today] P5b the stale badge is cleared only when the row remounts: the refresh button does it (loading state replaces the table) 1032ms
+ × [today] P6 Reset password sends the reset for the admin's own id and the page reports success 36ms
+ ✓ [control, must stay green after the fix] P7 another admin's row and a plain row keep every control (the repo's T14 contract) 32ms
+ ✓ [control, must stay green after the fix] P8 with getMe() carrying no id (as in the repo's T14 tests) no row is treated as the user's own 34ms
+ × [contract, RED today] C1 the own row has NO Delete control (S-11-04); other rows keep theirs 30ms
+   → Expect test to fail
+ × [contract, RED today] C2 the own row offers no live Disable, role-demote, tier or Reset-password control 19ms
+   → Expect test to fail
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 9 ⎯⎯⎯⎯⎯⎯⎯
+Error: Expect test to fail
+ Test Files  1 failed (1)
+      Tests  9 failed | 2 passed (11)

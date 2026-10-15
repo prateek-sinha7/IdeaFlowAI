@@ -1,0 +1,88 @@
+diff --git a/backend/app/main.py b/backend/app/main.py
+index d48c020e1..48940c6d5 100644
+--- a/backend/app/main.py
++++ b/backend/app/main.py
+@@ -664,6 +664,8 @@ async def view_shared_run(token: str):
+     # Content-Security-Policy: sandbox so the shared prototype cannot run
+     # arbitrary JS in the viewer's main browsing context.
+     share_headers = {
++        # Opaque origin: adding allow-same-origin would undo the isolation.
++        "Content-Security-Policy": "sandbox allow-scripts",
+         "X-Frame-Options": "SAMEORIGIN",
+         "X-Content-Type-Options": "nosniff",
+         "Referrer-Policy": "no-referrer",
+diff --git a/backend/tests/security/public_routes_allowlist.txt b/backend/tests/security/public_routes_allowlist.txt
+index 0a9e612ad..0e2c7f9c0 100644
+--- a/backend/tests/security/public_routes_allowlist.txt
++++ b/backend/tests/security/public_routes_allowlist.txt
+@@ -19,6 +19,9 @@ POST /api/auth/login/challenge  # continues an in-flight login, authorised by th
+ POST /api/auth/forgot-password  # pre-credential recovery start; answers uniformly to avoid account enumeration
+ POST /api/auth/forgot-password/confirm  # completes recovery; the emailed code is the proof of possession
+ 
++# --- Public share link (ADR-0035) -------------------------------------------
++GET /s/{token}  # ADR-0035 share link: the opaque 30-day token is the credential; serves the deliverable only, 404 on a missing or expired token
++
+ # --- Liveness ---------------------------------------------------------------
+ GET /health  # load-balancer probe; returns no information about the system or its data
+ 
+diff --git a/backend/tests/unit/app/test_nginx_site_template.py b/backend/tests/unit/app/test_nginx_site_template.py
+index cf52cb5b0..c87049e2d 100644
+--- a/backend/tests/unit/app/test_nginx_site_template.py
++++ b/backend/tests/unit/app/test_nginx_site_template.py
+@@ -153,3 +153,22 @@ def test_general_api_rate_limit_survives():
+     api_block = re.search(r"location /api/ \{(.*?)\n    \}", site, re.S).group(1)
+     assert "limit_req zone=velocityai_api burst=20 nodelay;" in api_block
+     assert "limit_req_status 429;" in api_block
++
++
++def test_share_link_location_proxies_to_the_backend():
++    """ISS-1037: the public share link GET /s/{token} (ADR-0035) is a FastAPI route.
++
++    Without its own location it falls to `location /` and reaches the frontend,
++    which has no /s/ page. No add_header (D3): one would drop the server-level
++    security headers from every share response.
++    """
++    site = _render_site()
++    match = re.search(r"location /s/ \{(.*?)\n    \}", site, re.S)
++    assert match, "no `location /s/` in the site template"
++    directives = _directives(match.group(1))
++    assert "proxy_pass         http://velocityai_backend;" in directives
++    assert (
++        "include            /etc/nginx/snippets/velocityai-proxy-headers.conf;"
++        in directives
++    )
++    assert [d for d in directives if d.startswith("add_header")] == []
+diff --git a/frontend/next.config.ts b/frontend/next.config.ts
+index 6c73ef0b7..1b7085f33 100644
+--- a/frontend/next.config.ts
++++ b/frontend/next.config.ts
+@@ -9,10 +9,10 @@ const nextConfig: NextConfig = {
+     // rewrite Next.js catches the path and shows a 404 before FastAPI can
+     // respond.  In production both are behind the same reverse proxy, so
+     // the rewrite is only needed for local dev (NEXT_PUBLIC_API_URL absent
+-    // → falls through to the default :8000 backend URL).
++    // or empty → falls through to the default :8000 backend URL).
+     {
+       source: "/s/:token",
+-      destination: `${process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000"}/s/:token`,
++      destination: `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/s/:token`,
+     },
+   ],
+   redirects: async () => [
+diff --git a/infra/scripts/reconcile-host-config.sh b/infra/scripts/reconcile-host-config.sh
+index 66a58af60..1dd6caf85 100644
+--- a/infra/scripts/reconcile-host-config.sh
++++ b/infra/scripts/reconcile-host-config.sh
+@@ -350,6 +350,12 @@ server {
+         include            /etc/nginx/snippets/velocityai-proxy-headers.conf;
+     }
+ 
++    # Public share link GET /s/{token} (ADR-0035) is served by FastAPI.
++    location /s/ {
++        proxy_pass         http://velocityai_backend;
++        include            /etc/nginx/snippets/velocityai-proxy-headers.conf;
++    }
++
+     location / {
+         proxy_pass         http://velocityai_frontend;
+         include            /etc/nginx/snippets/velocityai-proxy-headers.conf;

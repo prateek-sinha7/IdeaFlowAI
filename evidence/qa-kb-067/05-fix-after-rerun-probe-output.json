@@ -1,0 +1,34 @@
+{
+  "history_row": {
+    "run": "38db40af-d65b-4e6c-8249-c30900700075",
+    "url": "http://localhost:3000/runs/38db40af-d65b-4e6c-8249-c30900700075",
+    "GET /api/runs/{id}": 1,
+    "events?after=0": 1,
+    "/family": 2,
+    "empty_state_visible": false
+  },
+  "bell_cached": {
+    "run": "38db40af-d65b-4e6c-8249-c30900700075",
+    "url": "http://localhost:3000/runs/38db40af-d65b-4e6c-8249-c30900700075/stream",
+    "GET /api/runs/{id}": 1,
+    "events?after=0": 1,
+    "/family": 2,
+    "empty_state_visible": false
+  },
+  "bell_uncached": {
+    "run": "417e3c59-e7aa-4d13-a415-ac141d85b428",
+    "url": "http://localhost:3000/runs/417e3c59-e7aa-4d13-a415-ac141d85b428/stream",
+    "GET /api/runs/{id}": 1,
+    "events?after=0": 1,
+    "/family": 2,
+    "empty_state_visible": false
+  },
+  "bell_same_url": {
+    "run": "38db40af-d65b-4e6c-8249-c30900700075",
+    "url": "http://localhost:3000/runs/38db40af-d65b-4e6c-8249-c30900700075/stream",
+    "GET /api/runs/{id}": 0,
+    "events?after=0": 0,
+    "/family": 0,
+    "empty_state_visible": false
+  }
+}

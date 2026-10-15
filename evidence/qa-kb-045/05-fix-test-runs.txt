@@ -1,0 +1,87 @@
+# QA-KB-045 fix: test runs, before and after (FIX-688)
+# Tree: feat/user-stories-v2 working tree on HEAD 024c03ef8 (shared, other fixers editing concurrently).
+# "before" = measured in this working tree immediately before the edits. The three files this fix edits
+# (backend/agents/authz.py, backend/agents/execution_engine/engine.py,
+#  backend/tests/integration/repositories/test_run_events_db.py) carry ONLY this fix vs HEAD
+# (`git diff --stat` on those three paths = 31 insertions, 19 deletions, all hunks this fix),
+# so their pre-change content is HEAD 024c03ef8.
+# Every run: cd backend && .venv/bin/python -m pytest <ONE FILE> -q -p no:cacheprovider. No psycopg2 in any run.
+
+## Target file: tests/agents/test_resume_seed_bounded_aggregate.py
+before: 4 xfailed
+before, --runxfail (markers ignored), each fails on the defect assertion:
+  test_resume_run_seed_uses_bounded_aggregate          :94  resume_run seed read whole log: [0]
+  test_replay_clarify_seed_uses_bounded_aggregate      :122 seed must not re-read the whole log: [0, 0]  (assert 2 == 1)
+  test_is_resumable_in_flight_probe_is_bounded         :146 existence probe read whole log: [0]
+  test_append_event_next_seq_does_not_read_whole_log   :165 append_event_next_seq read whole log: [0]
+after:  4 [XPASS(strict)] (reported "4 failed") -> the pass signal; markers left for the verifier
+after, --runxfail: 4 passed
+
+## Coupled test: tests/integration/repositories/test_run_events_db.py
+before: 9 passed
+after the fix, seam untouched: 1 failed, 8 passed
+  test_append_event_next_seq_retries_past_a_raced_seq :272 "a seq collision must have forced a re-read (retry)"
+  (created is True and seq == 2 still held; the stale snapshot was injected through read_events,
+   which the fixed method no longer calls, so the race was never provoked)
+after moving ONLY the stale-snapshot injection from read_events to _max_event_seq (assertions unchanged): 9 passed
+mutation check of the moved seam (scratch -p plugin replacing append_event_next_seq with a mutant that
+probes the tail once and never re-probes after a seq collision):
+  fixed code: 1 passed
+  mutant:     1 failed  RuntimeError: mutant: exhausted
+
+## Regression files (before -> after)
+tests/agents/test_resume_marker_seq_allocation.py                1 passed            -> 1 passed
+tests/integration/repositories/test_run_events_payload_seq_db.py 2 xfailed           -> 2 xfailed
+tests/integration/agents/test_resume_marker_workspace_db.py      5 passed            -> 5 passed
+tests/integration/agents/test_restart_resume_db.py               6 failed, 77 passed -> 6 failed, 77 passed
+    failure reasons byte-identical before/after (diff of the --tb=line reason lines is empty)
+tests/integration/agents/test_resume_ws_bridge_db.py             1 failed, 3 passed  -> same, identical reason
+    (test_engine_module_does_not_import_app_api: engine.py imports app.api.runs / app.api.launch_context)
+tests/integration/agents/test_cancel_stops_resumed_run_db.py     1 failed, 4 passed  -> same, identical reason
+    (test_cancel_stops_a_resumed_drive_and_writes_the_terminal_row :236)
+tests/integration/agents/test_specs_from_plan_db.py              1 failed            -> same, identical reason
+    (TypeError: _spy_offset() got an unexpected keyword argument 'compiled', engine.py:15642)
+tests/agents/test_resume_context_v3.py                           2 failed            -> same, identical reason
+    (TypeError: _fake_offset() got an unexpected keyword argument 'compiled', engine.py:15642)
+tests/integration/api/test_chat_messages_endpoint_api.py         20 passed, 10 xfailed -> 11 failed, 20 passed
+    all 11 are [XPASS(strict)] "ISS-160/879/880/881 unfixed" (10) and "ISS-879 unfixed" (1): another bug's fix
+    landing concurrently (git status: M app/api/run_commands.py, M this test file; 30 -> 31 tests). Not this fix.
+
+## After only (no pre-change run)
+tests/unit/api/test_chat_narrator.py           19 passed
+tests/integration/api/test_chat_narrator_api.py 19 passed
+tests/integration/api/test_sse_stream_api.py   63 passed
+tests/unit/agents/test_sc001_gate_flag.py      9 passed
+tests/unit/agents/test_banned_patterns.py      2 failed, 16 passed
+    test_capabilities_do_not_import_kernel_or_web_layer -> agents/capabilities/prototype_ui_extract.py:333
+        `from app.agents.tools.html_extract import materialise_html` (present at HEAD: git show HEAD:... line 333;
+        last commit 756f9bd8e; file not modified in the working tree)
+    TestSC001RevisionPipelineCompliance::test_no_revision_pipeline_names_in_kernel -> engine.py:981 docstring
+        "with a ``prototype_revision`` child ..." (present at HEAD line 981)
+    Neither line is in this diff.
+
+## Goldens (after)
+tests/contract/agents/test_characterization_prototype.py                2 passed
+tests/contract/agents/test_characterization_ppt.py                      2 passed
+tests/contract/agents/test_characterization_app_builder.py              2 failed
+    deliverable bytes diverged (len now=88, golden=120); pipeline_complete final_output differs
+    call trace during that run (scratch -p plugin wrapping the four changed functions):
+    {"ScopedStore.append_event_next_seq": 0, "ExecutionEngine.resume_run": 0,
+     "ExecutionEngine._replay_clarify_run": 0, "ExecutionEngine._is_resumable_in_flight": 0}
+    -> no changed code path is reached by this golden; the divergence is not this fix.
+tests/contract/agents/test_characterization_prototype_revision.py       2 passed
+tests/contract/agents/test_characterization_prototype_large_revision.py 2 passed
+
+## lint-imports (cd backend && .venv/bin/lint-imports), after
+3 kept, 2 broken
+  BROKEN kernel imports only capability ports (scaffold):
+    engine -> kernel_services (l.5798) -> app.api.composition_order (l.1654); engine -> app.api.launch_context
+    (l.4565, 4578, 4975, 15577); engine -> app.api.runs (l.3565)
+  BROKEN agents.capabilities must not import the execution kernel or the web layer:
+    agents.capabilities.prototype_ui_extract -> app.agents.tools.html_extract (l.333)
+  No chain passes through agents.authz or a changed hunk. The engine.py diff adds no import; the authz.py diff
+  adds one function-local `from app.models.run_event import RunEvent`, the same edge authz.py already has in
+  append_event / read_events / last_event_of_types / read_events_of_types / _max_event_seq.
+
+## SC-001
+grep -rnE "if pipeline_type ==|spec\.id ==" backend/agents/execution_engine/  -> no hits

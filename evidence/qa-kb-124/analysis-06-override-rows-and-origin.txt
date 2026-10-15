@@ -1,0 +1,52 @@
+# QA-KB-124 analysis-06: the saved overrides that shadow the built-ins for admin@velocity.ai, and where they came from (SELECT only)
+# captured 2026-10-09 ~17:00 CEST (UTC+2). created_at is UTC.
+
+## 1. every enabled override row (workflows.overrides_pipeline_type IS NOT NULL); all owned by admin@velocity.ai
+-- SQL: SELECT w.created_at, w.id, w.name, w.override_enabled, w.description, jsonb_array_length(w.manifest_json::jsonb->'steps') AS nsteps FROM workflows w WHERE w.overrides_pipeline_type IS NOT NULL ORDER BY w.created_at
+created_at | id | name | override_enabled | description | nsteps
+2026-10-09 07:37:12.100323 | 429e9d74-0b6e-4082-aa74-af35f6fbbed7 | My user_stories | True | ISS-280 distinctive brief marker gg77hh88 idea-input | 6
+2026-10-09 07:38:12.567034 | 2222a695-a585-4376-84f0-90d2fae8b92f | My presentation | True | ISS-226 distinctive brief marker aa11bb22 | 3
+2026-10-09 07:38:31.333066 | b50f3925-e5bb-498a-8539-193c0b50e04a | My prototype | True | Design system: apple
+
+ISS-279 distinctive brief marker cc33dd44 prototype | 5
+2026-10-09 07:38:50.107935 | 58ee4ae2-fbd6-4482-9281-db505877c5ee | My presentation + PowerPoint | True | ISS-279 distinctive brief marker ee55ff66 ppt_v2 | 4
+2026-10-09 07:39:01.856320 | 913484d3-6dd3-4eac-aa00-b0c6c8bb7386 | My ex_A4_human_divert | True | Test brief for ex_A4_human_divert save | 3
+2026-10-09 07:39:03.582163 | bdf009f2-8545-4579-81a3-96391402b713 | My ex_A1_loop | True | Test brief for ex_A1_loop save | 4
+2026-10-09 07:39:10.955526 | 90e7e6ac-e5a7-41cc-819e-b09a0746f52f | My ex_A2_branch | True | Test brief for ex_A2_branch save | 5
+2026-10-09 07:39:15.044248 | a804a93c-91d8-46e7-b9cf-c0afdf280e3a | My ex_A3_divert | True | Test brief for ex_A3_divert save | 3
+2026-10-09 07:39:17.200006 | 00550252-656f-40a2-a336-a7c3e6482148 | My ex_A4_human_gate | True | Test brief for ex_A4_human_gate save | 5
+-- SQL: SELECT u.email, count(*) AS workflow_rows FROM workflows w LEFT JOIN users u ON u.id=w.owner_id GROUP BY u.email
+email | workflow_rows
+admin@velocity.ai | 11
+
+## 2. the e2e tests that write them (tests/integration/e2e/suites/03_launch_panels/test_save_manifest_gates.py, 05_saved_workflows/*, 03_launch_panels/test_save_as_my_version_discards_brief.py)
+# description strings in the rows match the tests' brief text byte for byte:
+45:        page.fill(L.BRIEF, "Test brief for ex_A4_human_divert save")
+67:        page.fill(L.BRIEF, f"Test brief for {workflow_id} save")
+92:        page.fill(L.BRIEF, "Test brief for ex_A4_human_divert Save workflow")
+# order of the five route-declaring saves in the file == order of created_at above (A4_human_divert 07:39:01, A1 07:39:03, A2 07:39:10, A3 07:39:15, A4_human_gate 07:39:17):
+from framework.locators import launch_panels as L
+
+SAVE_CONFIRM = 'button:text-is("Save")'
+
+# The four other shipped examples whose own workflow.yaml declares `route:`
+# on a step (grep -rl "route:" backend/agents/workflows/*/workflow.yaml,
+# minus ex_A4_human_divert itself which ISS-225 covers directly).
+OTHER_ROUTE_EXAMPLES = [
+
+## 3. neither the tests nor the e2e framework delete the row afterwards
+# grep -n 'DELETE\|.delete(' in the two suites that click Save as my version -> no match for user-workflows:
+(no output above = no deletion)
+# the framework's cleanup fixture exists but is opt-in and about accounts, not workflow rows (tests/integration/e2e/conftest.py:420-431):
+@pytest.fixture
+def disposable_user(page_as):
+    """Create throwaway accounts through the admin API, and delete them after.
+
+    Several scenarios need a user that can be created, renamed, re-tiered and
+    removed without touching a seeded fixture — `seed_test_users.py` owns those
+    four, and a test that mutates one poisons every later test of that role.
+
+    **Never `is_admin=True`.** A second local admin trips the break-glass
+    invariant and `resolve_principal` then refuses EVERY admin credential,
+    including freshly minted ones — the whole suite stops authenticating and the
+    only way back is a direct database write. That is D-31, and it cost this

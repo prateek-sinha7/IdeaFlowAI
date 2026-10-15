@@ -1,0 +1,28 @@
+events: 35 -> 35; type sequence identical
+leaves: removed=0 changed=0 added=66
+added keys: {'task_author_id': 24, 'task_id': 24, 'worker_index': 18}
+added (key, value-type): {('task_author_id', 'NoneType'): 24, ('task_id', 'NoneType'): 24, ('worker_index', 'int'): 18}
+per event type:
+  agent_chunk          task_author_id  3
+  agent_chunk          task_id         3
+  agent_chunk          worker_index    3
+  agent_complete       task_author_id  3
+  agent_complete       task_id         3
+  agent_complete       worker_index    3
+  agent_input          task_author_id  3
+  agent_input          task_id         3
+  agent_input          worker_index    3
+  agent_skills         task_author_id  3
+  agent_skills         task_id         3
+  agent_skills         worker_index    3
+  agent_start          task_author_id  3
+  agent_start          task_id         3
+  agent_start          worker_index    3
+  artifact_fallback    task_author_id  3
+  artifact_fallback    task_id         3
+  artifact_fallback    worker_index    3
+  subagent_result      task_author_id  3
+  subagent_result      task_id         3
+  subagent_spawned     task_author_id  3
+  subagent_spawned     task_id         3
+VERDICT: only allowed keys added

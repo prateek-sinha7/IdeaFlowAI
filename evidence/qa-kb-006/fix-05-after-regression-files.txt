@@ -1,0 +1,11 @@
+# AFTER, regression files, one pytest invocation per file, store.py fix in place
+$ ./.venv/bin/python -m pytest tests/unit/app/test_artifact_store.py -q -p no:cacheprovider
+11 passed, 1 warning in 1.62s
+$ ./.venv/bin/python -m pytest tests/unit/api/test_rest_gate_commands.py -q -p no:cacheprovider
+2 passed, 1 warning in 2.23s
+$ ./.venv/bin/python -m pytest tests/integration/api/test_update_specs_ingress_fence_api.py -q -p no:cacheprovider
+13 passed, 3 warnings in 2.41s
+$ ./.venv/bin/python -m pytest tests/unit/api/test_concierge_proposal_channels.py -q -p no:cacheprovider
+12 passed, 1 warning in 2.21s
+$ ./.venv/bin/python -m pytest tests/integration/agents/test_declared_gate_streaming.py -q -p no:cacheprovider
+3 passed, 5 warnings in 39.13s

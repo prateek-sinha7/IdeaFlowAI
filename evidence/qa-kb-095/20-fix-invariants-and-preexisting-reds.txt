@@ -1,0 +1,34 @@
+# 20 — fix, invariants and the pre-existing reds (2026-10-07, 5-fixer, cwd backend/)
+
+## test_phase3_acceptance.py under the PRE-FIX predicate (19-fix-prefix-expiry-plugin.py.txt): the same 2 fail,
+## TypeError: _mint_revision_row() missing 1 required keyword-only argument: 'caller_tier' — not this diff
+FAILED tests/agents/test_phase3_acceptance.py::TestRevisionConcurrencyGuard::test_mint_revision_row_raises_409_on_active_child
+FAILED tests/agents/test_phase3_acceptance.py::TestRevisionConcurrencyGuard::test_second_mint_is_rejected_not_first
+2 failed, 25 passed in 1.06s
+E               TypeError: _mint_revision_row() missing 1 required keyword-only argument: 'caller_tier'
+E           TypeError: _mint_revision_row() missing 1 required keyword-only argument: 'caller_tier'
+
+## lint-imports (after): same 3 kept / 2 broken FIX-727 recorded; this diff adds no cross-package import
+kernel imports only capability ports (scaffold) BROKEN
+agents.workflows must not import the execution kernel or the web layer KEPT
+agents.capabilities must not import the execution kernel or the web layer BROKEN
+agents.runtime must not import the execution kernel or the web layer KEPT
+shipped code must not import the build-time tooling package KEPT
+Contracts: 3 kept, 2 broken.
+
+## SC-001: no file under backend/agents/execution_engine/ in this diff
+$ git diff --stat -- backend/agents/execution_engine/   (empty below means none)
+$ python -m pytest tests/unit/agents/test_banned_patterns.py -q   (FIX-727 recorded the same 2 reds)
+FAILED tests/unit/agents/test_banned_patterns.py::test_capabilities_do_not_import_kernel_or_web_layer
+FAILED tests/unit/agents/test_banned_patterns.py::TestSC001RevisionPipelineCompliance::test_no_revision_pipeline_names_in_kernel
+2 failed, 16 passed in 1.58s
+E       assert not [('agents/capabilities/prototype_ui_extract.py', 333, 'from app.agents.tools.html_extract import materialise_html')]
+E       assert not [('agents/execution_engine/engine.py', 981, 'with a ``prototype_revision`` child and a ``custom_revision`` child tagged')]
+
+## Migrations: none (no file under backend/alembic or migrations in this diff)
+
+## Goldens: tests/agents/test_event_contract.py — after, then under the pre-fix plugin
+24 passed in 1.24s
+24 passed in 1.18s
+
+## HEAD at the time of this fix: 2005a0a6b (the tree also carried other sessions' uncommitted card/ledger/test edits; none in the files this fix touches)

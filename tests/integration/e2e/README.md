@@ -52,7 +52,9 @@ uv pip install -p .venv -r requirements.txt
 Needs the frontend on :3000 and the backend on :8000, plus the seeded QA
 accounts (`backend/scripts/seed_test_users.py`). Both that script and
 `framework/accounts.py` read `E2E_BASE_PASSWORD`; set it for one and not the
-other and every sign-in fails confusingly.
+other and every sign-in fails confusingly. The four scenarios that sign in as a
+`disposable_user` set its password the same way, through `backend/.venv` and the
+backend's AWS credentials.
 
 No `playwright install` step — `--browser-channel chrome` drives the real
 Google Chrome already on the machine, not a downloaded Chromium.

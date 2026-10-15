@@ -1,0 +1,40 @@
+# QA-KB-086 analyze 2026-10-02 — the reported failure, re-measured on the working tree (HEAD 024c03ef8 + other sessions' uncommitted edits)
+# cmd: cd frontend && npx vitest run src/components/workflow/IdeaInputPage.designPicker.test.tsx
+
+ RUN  v4.1.11 /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/frontend
+
+stdout | src/components/workflow/IdeaInputPage.designPicker.test.tsx > IdeaInputPage — opendesign design-picker wiring > does not offer the picker for a workflow that never declares opendesign
+[wf] 4. roster for prototype_v2 { fromLibrary: 1, fromManifest: 0, using: 'library' }
+
+ ❯ src/components/workflow/IdeaInputPage.designPicker.test.tsx (2 tests | 1 failed) 353ms
+     × does not offer the picker for a workflow that never declares opendesign 99ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/components/workflow/IdeaInputPage.designPicker.test.tsx > IdeaInputPage — opendesign design-picker wiring > does not offer the picker for a workflow that never declares opendesign
+AssertionError: expected { gate_agent_ids: [] } to be undefined
+
+- Expected:
+undefined
+
++ Received:
+{
+  "gate_agent_ids": [],
+}
+
+ ❯ src/components/workflow/IdeaInputPage.designPicker.test.tsx:159:25
+    157|     expect(onRun).toHaveBeenCalledTimes(1);
+    158|     const [, , , extraParams] = onRun.mock.calls[0];
+    159|     expect(extraParams).toBeUndefined();
+       |                         ^
+    160|   });
+    161| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 1 passed (2)
+   Start at  10:54:34
+   Duration  1.60s (transform 160ms, setup 74ms, import 490ms, tests 353ms, environment 584ms)
+

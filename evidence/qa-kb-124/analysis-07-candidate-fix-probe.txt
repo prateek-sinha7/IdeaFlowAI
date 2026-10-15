@@ -1,0 +1,93 @@
+# QA-KB-124 re-analysis 07: the candidate fix measured through the real engine + factory (offline, scripted Haiku-like model)
+# date: 2026-10-09   tree: HEAD f3a9a97ee (feat/stale-bug-fixes); no backend application source is uncommitted (one unrelated test file belongs to another session)
+# method: three scratch copies of backend/ (no .venv) under the session scratchpad; the repo tree was not edited.
+#   baseline = unmodified copy | inert = the ISS-1156 card's original predicate (spec.produces only), as the fixer applied it
+#   optA = AgentContext.step_produces threaded by the engine + predicate reads it (analysis-07-candidate-fix.diff)
+# cmd (per tree): cd <tree>/backend && PYTHONPATH=. backend/.venv/bin/python evidence/qa-kb-124/analysis-07-candidate-fix-probe.py 2>/dev/null
+# stderr dropped: it is the harness's DB-less persistence warnings. The check model is Haiku-LIKE (see the probe docstring): the
+# 'How to deliver' branch is evidenced by 4/4 live runs (analysis-02 s3); the no-block reply branch by run 83001c0b and is INFERRED
+# for a write-granted step, because the block is exactly what the fix removes.
+
+################################################################ baseline
+backend under test: <scratch>/baseline/backend
+
+===== builtin plan (control: tool-free, must not change)
+dispatch order         : ['emoji', 'greet', 'check', 'greet', 'check', 'done']
+check 'How to deliver' : False | context_message: '\n--- Output from Greet (A user-defined workflow agent) ---
+check 'How to deliver' : False | context_message: '\n--- Output from Greet (A user-defined workflow agent) ---
+pipeline_complete {}
+greet (non-decision) 'How to deliver': False (must stay as it is: the block is right for a step whose answer is a file)
+
+===== admin's saved override bdf009f2 (the reported failure)
+dispatch order         : ['emoji', 'greet', 'check']
+check 'How to deliver' : True | context_message: ''
+   check tool_call     : read_file {"file_path": "/greet-build-me-a-thing-for-managing-tasks.md"}
+   check tool_call     : write_file {"file_path": "/check-build-me-a-thing-for-managing-tasks.md", "content": "{\"decision\": 
+gate_blocked {"step": "custom-agent:check", "gate": "conditional", "reason": "no matching route outcome and no default_next"}
+pipeline_failed {"error": "Check's conditional gate had nowhere to route: no matching outcome and no default_next."}
+greet (non-decision) 'How to deliver': True (must stay as it is: the block is right for a step whose answer is a file)
+
+===== ISS-1182: built-in edges with the Composer's default read+write grants (no override)
+dispatch order         : ['emoji', 'greet', 'check']
+check 'How to deliver' : True | context_message: ''
+   check tool_call     : read_file {"file_path": "/greet-build-me-a-thing-for-managing-tasks.md"}
+   check tool_call     : write_file {"file_path": "/check-build-me-a-thing-for-managing-tasks.md", "content": "{\"decision\": 
+gate_blocked {"step": "custom-agent:check", "gate": "conditional", "reason": "no matching route outcome and no default_next"}
+pipeline_failed {"error": "Check's conditional gate had nowhere to route: no matching outcome and no default_next."}
+greet (non-decision) 'How to deliver': True (must stay as it is: the block is right for a step whose answer is a file)
+
+################################################################ inert
+backend under test: <scratch>/inert/backend
+
+===== builtin plan (control: tool-free, must not change)
+dispatch order         : ['emoji', 'greet', 'check', 'greet', 'check', 'done']
+check 'How to deliver' : False | context_message: '\n--- Output from Greet (A user-defined workflow agent) ---
+check 'How to deliver' : False | context_message: '\n--- Output from Greet (A user-defined workflow agent) ---
+pipeline_complete {}
+greet (non-decision) 'How to deliver': False (must stay as it is: the block is right for a step whose answer is a file)
+
+===== admin's saved override bdf009f2 (the reported failure)
+dispatch order         : ['emoji', 'greet', 'check']
+check 'How to deliver' : True | context_message: ''
+   check tool_call     : read_file {"file_path": "/greet-build-me-a-thing-for-managing-tasks.md"}
+   check tool_call     : write_file {"file_path": "/check-build-me-a-thing-for-managing-tasks.md", "content": "{\"decision\": 
+gate_blocked {"step": "custom-agent:check", "gate": "conditional", "reason": "no matching route outcome and no default_next"}
+pipeline_failed {"error": "Check's conditional gate had nowhere to route: no matching outcome and no default_next."}
+greet (non-decision) 'How to deliver': True (must stay as it is: the block is right for a step whose answer is a file)
+
+===== ISS-1182: built-in edges with the Composer's default read+write grants (no override)
+dispatch order         : ['emoji', 'greet', 'check']
+check 'How to deliver' : True | context_message: ''
+   check tool_call     : read_file {"file_path": "/greet-build-me-a-thing-for-managing-tasks.md"}
+   check tool_call     : write_file {"file_path": "/check-build-me-a-thing-for-managing-tasks.md", "content": "{\"decision\": 
+gate_blocked {"step": "custom-agent:check", "gate": "conditional", "reason": "no matching route outcome and no default_next"}
+pipeline_failed {"error": "Check's conditional gate had nowhere to route: no matching outcome and no default_next."}
+greet (non-decision) 'How to deliver': True (must stay as it is: the block is right for a step whose answer is a file)
+
+################################################################ optA
+backend under test: <scratch>/optA/backend
+
+===== builtin plan (control: tool-free, must not change)
+dispatch order         : ['emoji', 'greet', 'check', 'greet', 'check', 'done']
+check 'How to deliver' : False | context_message: '\n--- Output from Greet (A user-defined workflow agent) ---
+check 'How to deliver' : False | context_message: '\n--- Output from Greet (A user-defined workflow agent) ---
+pipeline_complete {}
+greet (non-decision) 'How to deliver': False (must stay as it is: the block is right for a step whose answer is a file)
+
+===== admin's saved override bdf009f2 (the reported failure)
+dispatch order         : ['emoji', 'greet', 'check', 'greet', 'check', 'done']
+check 'How to deliver' : False | context_message: ''
+   check tool_call     : read_file {"file_path": "/greet-build-me-a-thing-for-managing-tasks.md"}
+check 'How to deliver' : False | context_message: ''
+   check tool_call     : read_file {"file_path": "/greet-build-me-a-thing-for-managing-tasks.md"}
+pipeline_complete {}
+greet (non-decision) 'How to deliver': True (must stay as it is: the block is right for a step whose answer is a file)
+
+===== ISS-1182: built-in edges with the Composer's default read+write grants (no override)
+dispatch order         : ['emoji', 'greet', 'check', 'greet', 'check', 'done']
+check 'How to deliver' : False | context_message: ''
+   check tool_call     : read_file {"file_path": "/greet-build-me-a-thing-for-managing-tasks.md"}
+check 'How to deliver' : False | context_message: ''
+   check tool_call     : read_file {"file_path": "/greet-build-me-a-thing-for-managing-tasks.md"}
+pipeline_complete {}
+greet (non-decision) 'How to deliver': True (must stay as it is: the block is right for a step whose answer is a file)

@@ -233,27 +233,35 @@ def test_deliverable_access_matches_the_tier(page_as, shot, role, plan, includes
 
 
 @pytest.mark.scenario("S-17-08")
-@pytest.mark.defect
 @pytest.mark.role("enterprise")
-def test_deliverable_access_omits_workflows_the_catalog_offers(page, shot):
-    """Scenario: Deliverable Access omits workflows the catalog offers
+def test_deliverable_access_lists_the_examples_the_catalog_offers(page, shot):
+    """Scenario: Deliverable Access lists the engine examples the catalog offers
 
-    Asserts TODAY'S behaviour — D-04. The catalogue offers "Branch on a decision"
-    to an enterprise user and Deliverable Access does not mention it, so the two
-    surfaces disagree about what the plan includes.
+    D-04, settled by the owner on 2026-10-09 (QA-KB-117): the engine examples are
+    demos, and Deliverable Access is driven by the catalogue's own list, so the
+    two surfaces agree. The expected set is read off the catalogue, not
+    hard-coded, so an example added later is held to the same rule.
     """
+    from framework.locators import home_catalog as HOME
+
     with shot("catalog-offers", 'When I cold-load "/dashboard" as enterprise'):
         page.goto("/dashboard")
-        expect(page.get_by_text("Branch on a decision")).to_be_visible()
+        page.click(HOME.EXAMPLES_SECTION)
+        examples = page.locator("details").filter(has=page.locator(HOME.EXAMPLES_SECTION))
+        titles = examples.locator("button h2")
+        expect(titles.first).to_be_visible()
+        offered = titles.all_inner_texts()
 
-    with shot("usage-omits", 'When I cold-load "/settings/usage"'):
+    assert "Branch on a decision" in offered, offered
+
+    with shot("usage-lists", 'When I cold-load "/settings/usage"'):
         page.goto("/settings/usage")
         expect(page.get_by_text(SET.DELIVERABLE_ACCESS)).to_be_visible()
+        expect(page.get_by_text("Branch on a decision", exact=True)).to_be_visible()
 
-    assert "Branch on a decision" not in page.evaluate("() => document.body.innerText"), (
-        "Deliverable Access now lists it — D-04's two surfaces agree. Re-read "
-        "the defect before changing this test."
-    )
+    access = page.evaluate("() => document.body.innerText").split(SET.DELIVERABLE_ACCESS, 1)[1]
+    missing = [title for title in offered if title not in access]
+    assert not missing, f"Deliverable Access omits engine examples the catalogue offers: {missing}"
 
 
 @pytest.mark.scenario("S-17-09")
@@ -278,7 +286,7 @@ def test_a_hexaware_user_gains_prototype_and_loses_presentations(browser, shot, 
     from framework.locators import auth as AUTH
     from framework.locators import home_catalog as HOME
 
-    user = disposable_user(tier="hexaware")
+    user = disposable_user(tier="hexaware", signs_in=True)
     context = browser.new_context(
         base_url=settings.BASE_URL,
         viewport=settings.VIEWPORT,

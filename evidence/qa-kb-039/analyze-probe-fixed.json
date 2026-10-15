@@ -1,0 +1,26 @@
+{
+  "variant": "fixed",
+  "status": "degraded",
+  "published_status": "degraded",
+  "agents_failed": null,
+  "agents_completed": 5,
+  "degraded_reason": "deliverable is the agent narrating why it could not do the work, not the requested output (matched \"i don't have access\" in 528 characters)",
+  "agent_error_events": [],
+  "event_type_counts": {
+    "workflow_validated": 1,
+    "planner_start": 1,
+    "planner_complete": 1,
+    "gate_status": 1,
+    "pipeline_start": 1,
+    "agent_start": 5,
+    "agent_input": 5,
+    "agent_skills": 5,
+    "agent_chunk": 7,
+    "agent_complete": 5,
+    "task_loop_progress": 1,
+    "tool_call": 1,
+    "tool_result": 1,
+    "task_progress": 1,
+    "pipeline_complete": 1
+  }
+}

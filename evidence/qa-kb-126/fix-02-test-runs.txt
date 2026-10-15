@@ -1,0 +1,104 @@
+# QA-KB-126 fix 02: test runs, one file at a time, offline (in-memory SQLite), 2026-10-09T14:25Z, base HEAD 01777a107 + working-tree change
+# cmd per file: cd backend && PYTHONDONTWRITEBYTECODE=1 DATABASE_URL=sqlite:///:memory: .venv/bin/python -m pytest <file> -p no:cacheprovider -q -W ignore [-rxX]
+
+## 1. ISS-1114 card test, BEFORE the change (observed at 2026-10-09T14:1xZ on the unmodified tree)
+xxxxxxxx.                                                                [100%]
+XFAIL ... test_saved_row_never_grants_exec_or_spawn_below_composer_tier[basic-exec|basic-spawn|pro-exec|pro-spawn|hexaware-exec|hexaware-spawn] - ISS-1114 unfixed
+XFAIL ... test_legacy_stored_row_refused_or_narrowed_at_launch - ISS-1114 unfixed
+XFAIL ... test_patch_cannot_put_exec_manifest_on_basic_row - ISS-1114 unfixed
+1 passed, 8 xfailed in 1.59s
+
+## 2. ISS-1114 card test, AFTER the change (strict xfail -> XPASS(strict) = the pass signal; marker left for the 6-verifier)
+PASSED tests/integration/api/test_iss1114_db_trust_composer_entitlement.py::test_enterprise_composer_row_keeps_exec
+FAILED tests/integration/api/test_iss1114_db_trust_composer_entitlement.py::test_saved_row_never_grants_exec_or_spawn_below_composer_tier[basic-exec]
+FAILED tests/integration/api/test_iss1114_db_trust_composer_entitlement.py::test_saved_row_never_grants_exec_or_spawn_below_composer_tier[basic-spawn]
+FAILED tests/integration/api/test_iss1114_db_trust_composer_entitlement.py::test_saved_row_never_grants_exec_or_spawn_below_composer_tier[pro-exec]
+FAILED tests/integration/api/test_iss1114_db_trust_composer_entitlement.py::test_saved_row_never_grants_exec_or_spawn_below_composer_tier[pro-spawn]
+FAILED tests/integration/api/test_iss1114_db_trust_composer_entitlement.py::test_saved_row_never_grants_exec_or_spawn_below_composer_tier[hexaware-exec]
+FAILED tests/integration/api/test_iss1114_db_trust_composer_entitlement.py::test_saved_row_never_grants_exec_or_spawn_below_composer_tier[hexaware-spawn]
+FAILED tests/integration/api/test_iss1114_db_trust_composer_entitlement.py::test_legacy_stored_row_refused_or_narrowed_at_launch
+FAILED tests/integration/api/test_iss1114_db_trust_composer_entitlement.py::test_patch_cannot_put_exec_manifest_on_basic_row
+8 failed, 1 passed in 1.48s
+
+## 3. ISS-1164/ISS-1165 test written by the fixer (new file, no xfail), AFTER the change
+PASSED tests/integration/api/test_iss1164_1165_trigger_resume_trust.py::test_trigger_holds_a_saved_row_to_the_firing_runs_trust[parent-has-none]
+PASSED tests/integration/api/test_iss1164_1165_trigger_resume_trust.py::test_trigger_holds_a_saved_row_to_the_firing_runs_trust[parent-user]
+PASSED tests/integration/api/test_iss1164_1165_trigger_resume_trust.py::test_trigger_from_a_db_trust_run_keeps_exec
+PASSED tests/integration/api/test_iss1164_1165_trigger_resume_trust.py::test_resume_refuses_a_db_trust_run_below_the_composer_tier[basic]
+PASSED tests/integration/api/test_iss1164_1165_trigger_resume_trust.py::test_resume_refuses_a_db_trust_run_below_the_composer_tier[pro]
+PASSED tests/integration/api/test_iss1164_1165_trigger_resume_trust.py::test_resume_refuses_a_db_trust_run_below_the_composer_tier[hexaware]
+PASSED tests/integration/api/test_iss1164_1165_trigger_resume_trust.py::test_resume_of_a_db_trust_run_still_runs_for_enterprise
+7 passed in 1.19s
+
+## 4. Same file with the PRE-FIX decisions restored by a monkeypatch plugin (evidence/qa-kb-126/fix-plugins/mut_prefix.py: _parent_run_trust -> 'db', run_commands._saved_row_trust -> 'db'); the 5 bug cases must fail, the 2 controls pass
+# cmd: PYTHONPATH=../evidence/qa-kb-126/fix-plugins ... -m pytest tests/integration/api/test_iss1164_1165_trigger_resume_trust.py -p mut_prefix -p no:cacheprovider -q -W ignore -rA
+PASSED tests/integration/api/test_iss1164_1165_trigger_resume_trust.py::test_trigger_from_a_db_trust_run_keeps_exec
+PASSED tests/integration/api/test_iss1164_1165_trigger_resume_trust.py::test_resume_of_a_db_trust_run_still_runs_for_enterprise
+FAILED tests/integration/api/test_iss1164_1165_trigger_resume_trust.py::test_trigger_holds_a_saved_row_to_the_firing_runs_trust[parent-has-none]
+FAILED tests/integration/api/test_iss1164_1165_trigger_resume_trust.py::test_trigger_holds_a_saved_row_to_the_firing_runs_trust[parent-user]
+FAILED tests/integration/api/test_iss1164_1165_trigger_resume_trust.py::test_resume_refuses_a_db_trust_run_below_the_composer_tier[basic]
+FAILED tests/integration/api/test_iss1164_1165_trigger_resume_trust.py::test_resume_refuses_a_db_trust_run_below_the_composer_tier[pro]
+FAILED tests/integration/api/test_iss1164_1165_trigger_resume_trust.py::test_resume_refuses_a_db_trust_run_below_the_composer_tier[hexaware]
+5 failed, 2 passed in 1.25s
+
+## 5. Regression files touching the changed paths (save, PATCH, override writers, launch, resume, trigger, compiler trust)
+tests/integration/api/test_user_workflows_api.py                                 39 passed in 2.12s
+tests/integration/api/test_user_workflows_selections_api.py                      9 passed in 1.25s
+tests/integration/api/test_iss1112_override_writers_trust.py                     3 passed in 1.52s
+tests/integration/api/test_iss1113_override_row_launch_trust.py                  1 passed in 1.01s
+tests/integration/api/test_iss1117_sync_from_file_entitlement.py                 12 passed in 1.35s
+tests/integration/api/test_entitlement_authority_api.py                          3 passed in 1.00s
+tests/integration/api/test_iss687_custom_agent_roster.py                         5 passed in 1.43s
+tests/integration/api/test_model_tier_gate_workflows_api.py                      21 passed in 1.52s
+tests/integration/api/test_workflow_override_e2e_api.py                          7 passed in 2.25s
+tests/unit/services/test_user_workflows_selections.py                            23 passed in 1.17s
+tests/integration/api/test_rest_run_launch_api.py                                27 passed in 1.67s
+tests/integration/api/test_rest_resume_api.py                                    10 passed in 1.37s
+tests/integration/api/test_capacity_gate_endpoints_api.py                        11 passed in 1.45s
+tests/agents/test_b3_saved_workflow_chain_launch.py                              8 passed in 0.96s
+tests/integration/agents/test_roster_seam_log.py                                 4 passed in 1.60s
+tests/agents/test_conditional_trigger_depth_v4_ac06.py                           1 passed in 1.05s
+tests/agents/test_conditional_trigger_budget_t33.py                              1 passed in 1.01s
+tests/unit/agents/execution_engine/test_compiler_trust.py                        25 passed in 1.73s
+tests/unit/test_iss1118_override_baseline_refs.py                                6 passed in 1.59s
+tests/unit/agents/test_tool_grant_invariants.py                                  26 passed in 1.49s
+tests/security/test_route_contract.py                                            4 passed in 0.61s
+tests/integration/agents/test_qa_kb_102_silent_resume.py                         6 passed in 1.90s
+tests/unit/test_run_shutdown_stale_citations.py                                  15 passed in 1.97s
+
+## 6. tests/unit/agents/test_banned_patterns.py (SC-001 / Ports & Adapters greps): 2 failures, both PRE-EXISTING at HEAD and not in a changed line
+            "record a violation. Offenders:\n"
+E       AssertionError: Ports & Adapters: agents.capabilities must not import agents.execution_engine or app — reach kernel/app primitives through the ctx.runner (KernelServices) handle instead, adding a port there if one is genuinely missing. This mirrors the import-linter contract in pyproject.toml; do NOT amend that contract to record a violation. Offenders:
+E       assert not [('agents/capabilities/prototype_ui_extract.py', 333, 'from app.agents.tools.html_extract import materialise_html')]
+            "via the capability registry instead. Offenders:\n"
+E       AssertionError: SC-001 / Req 8.1–8.2–8.4: a revision pipeline-type name literal (`prototype_revision`, `prototype_large_revision`, or `prototype_feature_revision`) was found in agents/execution_engine/. The kernel must be workflow-agnostic — remove the reference and route via the capability registry instead. Offenders:
+E       assert not [('agents/execution_engine/engine.py', 981, 'with a ``prototype_revision`` child and a ``custom_revision`` child tagged')]
+FAILED tests/unit/agents/test_banned_patterns.py::test_capabilities_do_not_import_kernel_or_web_layer
+FAILED tests/unit/agents/test_banned_patterns.py::TestSC001RevisionPipelineCompliance::test_no_revision_pipeline_names_in_kernel
+2 failed, 16 passed in 1.70s
+# HEAD check: git show HEAD:backend/agents/execution_engine/engine.py | sed -n 981p -> 'with a ``prototype_revision`` child and a ``custom_revision`` child tagged'
+# HEAD check: git show HEAD:backend/agents/capabilities/prototype_ui_extract.py | sed -n 333p -> 'from app.agents.tools.html_extract import materialise_html'
+
+## 7. RED BEFORE, on the unmodified code: a git-archive copy of HEAD 01777a107 (backend+tools) in the session scratchpad, the card tests copied in, run with --runxfail
+# cmd: backend/.venv/bin/python evidence/qa-kb-126/fix-plugins/run_files.py <scratch>/headcopy backend/.venv/bin/python <files> -- --runxfail  (one subprocess per file, cwd=<scratch>/headcopy/backend)
+== tests/integration/api/test_iss1114_db_trust_composer_entitlement.py --runxfail
+  PASSED tests/integration/api/test_iss1114_db_trust_composer_entitlement.py::test_enterprise_composer_row_keeps_exec
+  FAILED tests/integration/api/test_iss1114_db_trust_composer_entitlement.py::test_saved_row_never_grants_exec_or_spawn_below_composer_tier[basic-exec]
+  FAILED tests/integration/api/test_iss1114_db_trust_composer_entitlement.py::test_saved_row_never_grants_exec_or_spawn_below_composer_tier[basic-spawn]
+  FAILED tests/integration/api/test_iss1114_db_trust_composer_entitlement.py::test_saved_row_never_grants_exec_or_spawn_below_composer_tier[pro-exec]
+  FAILED tests/integration/api/test_iss1114_db_trust_composer_entitlement.py::test_saved_row_never_grants_exec_or_spawn_below_composer_tier[pro-spawn]
+  FAILED tests/integration/api/test_iss1114_db_trust_composer_entitlement.py::test_saved_row_never_grants_exec_or_spawn_below_composer_tier[hexaware-exec]
+  FAILED tests/integration/api/test_iss1114_db_trust_composer_entitlement.py::test_saved_row_never_grants_exec_or_spawn_below_composer_tier[hexaware-spawn]
+  FAILED tests/integration/api/test_iss1114_db_trust_composer_entitlement.py::test_legacy_stored_row_refused_or_narrowed_at_launch
+  FAILED tests/integration/api/test_iss1114_db_trust_composer_entitlement.py::test_patch_cannot_put_exec_manifest_on_basic_row
+  8 failed, 1 passed in 2.40s
+== tests/integration/api/test_iss1164_1165_trigger_resume_trust.py --runxfail
+  PASSED tests/integration/api/test_iss1164_1165_trigger_resume_trust.py::test_trigger_from_a_db_trust_run_keeps_exec
+  PASSED tests/integration/api/test_iss1164_1165_trigger_resume_trust.py::test_resume_of_a_db_trust_run_still_runs_for_enterprise
+  FAILED tests/integration/api/test_iss1164_1165_trigger_resume_trust.py::test_trigger_holds_a_saved_row_to_the_firing_runs_trust[parent-has-none]
+  FAILED tests/integration/api/test_iss1164_1165_trigger_resume_trust.py::test_trigger_holds_a_saved_row_to_the_firing_runs_trust[parent-user]
+  FAILED tests/integration/api/test_iss1164_1165_trigger_resume_trust.py::test_resume_refuses_a_db_trust_run_below_the_composer_tier[basic]
+  FAILED tests/integration/api/test_iss1164_1165_trigger_resume_trust.py::test_resume_refuses_a_db_trust_run_below_the_composer_tier[pro]
+  FAILED tests/integration/api/test_iss1164_1165_trigger_resume_trust.py::test_resume_refuses_a_db_trust_run_below_the_composer_tier[hexaware]
+  5 failed, 2 passed in 1.81s
+# failure reasons on HEAD (--tb=line): trigger tests 'Failed: DID NOT RAISE <class agents.workflows.compiler.CompilerError>' (the row compiled at db and reached the mint); resume tests 'AssertionError: {run_id: run-1} assert (200 == 403)' (the resume started)

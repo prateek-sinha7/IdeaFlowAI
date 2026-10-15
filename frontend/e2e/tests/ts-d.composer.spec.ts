@@ -122,9 +122,9 @@ test.describe("TS-D — agent composer", () => {
     for (const core of ["Domain Discovery Agent", "Delivery Compilation Agent"]) {
       await expect(page.locator('[data-testid^="canvas-node-"]', { has: removeButton(page, core) }).getByText("Core", { exact: true })).toBeVisible();
     }
-    // Required agents carry no Core pill …
-    await expect(page.locator('[data-testid^="canvas-node-"]', { has: removeButton(page, "Estimation Agent") }).getByText("Core", { exact: true })).toHaveCount(0);
-    // … but no default agent (Core or Required) can be removed.
+    // Required agents carry the pill too: every non-optional role is Core (BUG-025), same predicate as the Remove lock …
+    await expect(page.locator('[data-testid^="canvas-node-"]', { has: removeButton(page, "Estimation Agent") }).getByText("Core", { exact: true })).toBeVisible();
+    // … and no default agent (Core or Required) can be removed.
     for (const name of USER_STORIES_AGENTS) await expect(removeButton(page, name)).toBeDisabled();
 
     // Add one optional agent (another category) → its Remove is enabled.

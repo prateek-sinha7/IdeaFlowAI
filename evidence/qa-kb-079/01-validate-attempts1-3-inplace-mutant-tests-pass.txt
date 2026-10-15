@@ -1,0 +1,9 @@
+== attempt 1 in-place mutant
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+2 passed, 1 warning in 1.09s
+== attempt 2 in-place mutant
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+2 passed, 1 warning in 0.96s
+== attempt 3 in-place mutant
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+2 passed, 1 warning in 0.92s

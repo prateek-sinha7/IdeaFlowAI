@@ -128,13 +128,7 @@ test.describe("TS-H — trigger contract", () => {
   //      (DashboardLayout.tsx:1367-1386 prototype, :1438-1450 ppt) and call
   //      onStartPipeline → useWorkflow merges them TOP-LEVEL onto the
   //      run_pipeline body (useWorkflow.ts:83-122) → POST /api/runs.
-  //
-  // NAMING NOTE: the title's `od_prototype`/`od_ppt` are RETIRED run-label
-  // aliases (backend/agents/registry.py:44-76 — collapsed onto `prototype`/`ppt`;
-  // LaunchWizard.tsx:94-96 — the backend 422s them). The wizard sends the live
-  // catalog ids `prototype`/`ppt` (DashboardLayout.tsx:1360, :1427), so that is
-  // what is asserted. The title is kept verbatim (test IDs are not renamed).
-  test("TS-H-05 wizard path (prototype/ppt) sends od_prototype/od_ppt + template_id", async ({ dashboard, mockSse, page, context, tier }) => {
+  test("TS-H-05 wizard path sends prototype/ppt + template_id", async ({ dashboard, mockSse, page, context, tier }) => {
     const isRunPipeline = (pt: string) => (c: Record<string, unknown>) =>
       c.type === "run_pipeline" && c.pipeline_type === pt;
     // Two full wizard round-trips (home → wizard → home, ×2), each on its own tab.

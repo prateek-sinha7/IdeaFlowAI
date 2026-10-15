@@ -464,3 +464,79 @@ async def test_a_whole_refusal_records_its_reason(tmp_path: Path) -> None:
 
     assert result.blocked is True
     assert ectx.last_commit_block_reason == "secret_detected"
+
+
+# ---------------------------------------------------------------------------
+# Binary is decided per file, and an engine-rendered .chain/ PDF commits
+# ---------------------------------------------------------------------------
+# Live (run 6b76b6b1): the revision's Backlog.pdf had a NUL byte at offset 7019, so git
+# called it binary; the whole-diff "Binary files" test then sent EVERY staged file to the
+# binary scanner, which refused the plain-text .chain/logs.jsonl along with the PDF, and
+# the run ended degraded.
+
+_PDF_BYTES = b"%PDF-1.7\n%\xe2\xe3\xcf\xd3\n1 0 obj\n<< /Length 4 >>\nstream\n\x00\x01\x02\x03\nendstream\nendobj\n%%EOF\n"
+
+
+@pytest.mark.asyncio
+async def test_a_text_file_staged_beside_a_binary_is_not_binary_scanned(
+    tmp_path: Path,
+) -> None:
+    from agents.execution_engine.engine import commit_in_sandbox
+
+    sb = _make_sandbox(tmp_path)
+    ectx = _make_ectx()
+    (sb.root / "notes.adoc").write_text("= Notes\nplain text\n", encoding="utf-8")
+    (sb.root / "shot.png").write_bytes(_PNG_BYTES)
+
+    result = await commit_in_sandbox(
+        sb, "step: ui", ectx, _make_step(), audit_operation=None
+    )
+
+    assert result.blocked is False and result.sha, result
+    assert "notes.adoc" in _git(sb.root, "ls-tree", "-r", "--name-only", "HEAD").split()
+    assert set(ectx.commit_excluded_files) == {"shot.png"}
+
+
+@pytest.mark.asyncio
+async def test_an_engine_rendered_chain_pdf_commits(tmp_path: Path) -> None:
+    from agents.execution_engine.engine import commit_in_sandbox
+
+    sb = _make_sandbox(tmp_path)
+    ectx = _make_ectx()
+    (sb.root / ".chain").mkdir()
+    (sb.root / ".chain" / "Backlog.pdf").write_bytes(_PDF_BYTES)
+    (sb.root / ".chain" / "logs.jsonl").write_text('{"event": "x"}\n', encoding="utf-8")
+    (sb.root / ".chain" / "summary.md").write_text("# Summary\n", encoding="utf-8")
+
+    from app.agents.sandbox import payload_allowlist
+
+    result = await commit_in_sandbox(
+        sb,
+        "chore: snapshot",
+        ectx,
+        _make_step(),
+        audit_operation=None,
+        force_add=payload_allowlist("Backlog.pdf"),
+    )
+
+    assert result.blocked is False and result.sha, result
+    tracked = _git(sb.root, "ls-tree", "-r", "--name-only", "HEAD").split()
+    assert ".chain/Backlog.pdf" in tracked and ".chain/logs.jsonl" in tracked
+    assert not getattr(ectx, "commit_excluded_files", None)
+
+
+@pytest.mark.asyncio
+async def test_a_pdf_outside_chain_is_still_refused(tmp_path: Path) -> None:
+    from agents.execution_engine.engine import commit_in_sandbox
+
+    sb = _make_sandbox(tmp_path)
+    ectx = _make_ectx()
+    (sb.root / "report.pdf").write_bytes(_PDF_BYTES)
+    (sb.root / "backlog.md").write_text("# Backlog\n", encoding="utf-8")
+
+    result = await commit_in_sandbox(
+        sb, "step: writer", ectx, _make_step(), audit_operation=None
+    )
+
+    assert result.blocked is False and result.sha, result
+    assert set(ectx.commit_excluded_files) == {"report.pdf"}

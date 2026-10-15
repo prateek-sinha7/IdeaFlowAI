@@ -476,8 +476,9 @@ class LocalWorkspace:
         ACCEPTED RESIDUAL (T-10-01-05 / EGRESS-DENY): an allow-listed interpreter can
         still open sockets at runtime — ``policy.network=False`` + the no-net-capable
         allow-list + the scrubbed env mitigate but do NOT hard-block egress. OS-level
-        network-namespace enforcement is the v2 ECS seam; exec is engineer-only +
-        ``security``-gated, so this residual is documented + accepted (per N3).
+        network-namespace enforcement is the v2 ECS seam; exec is engineer- or
+        Composer-only (ISS-1114) + ``security``-gated, so this residual is documented
+        + accepted (per N3).
         """
         # (1) deny default — byte-identical to the pre-Phase-10 behavior (T-09-01-02).
         if not self.policy.allows("exec"):

@@ -11,10 +11,10 @@ const nextConfig: NextConfig = {
     // rewrite Next.js catches the path and shows a 404 before FastAPI can
     // respond.  In production both are behind the same reverse proxy, so
     // the rewrite is only needed for local dev (NEXT_PUBLIC_API_URL absent
-    // → falls through to the default :8000 backend URL).
+    // or empty → falls through to the default :8000 backend URL).
     {
       source: "/s/:token",
-      destination: `${process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000"}/s/:token`,
+      destination: `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/s/:token`,
     },
   ],
   redirects: async () => [

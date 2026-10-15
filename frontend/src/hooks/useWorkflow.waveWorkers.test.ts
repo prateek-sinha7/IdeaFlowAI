@@ -25,51 +25,6 @@ const HEAD: ReducerFrame[] = [
   { type: "agent_start", agent_id: "wave-step" },
 ];
 
-/**
- * The FULL WaveWorkerEntry shape (types/index.ts) the reducer builds for a bare
- * stamped start/complete — every declared key, compared with toStrictEqual so a
- * key that is added, dropped, or starts carrying a value fails here. The per-
- * member detail fields are present-but-undefined until their own frames
- * (agent_input, tool calls, agent_complete usage) arrive; `startedAt` is the
- * reducer's wall-clock stamp, so only its type is pinned.
- */
-function workerEntry(core: {
-  taskId: string;
-  status: "running" | "done" | "failed" | "stranded";
-  workerIndex: number;
-  waveIndex: number;
-  waveTotal: number;
-}) {
-  return {
-    ...core,
-    taskAuthorId: undefined,
-    error: undefined,
-    toolCalls: undefined,
-    thinking: undefined,
-    contextSources: undefined,
-    output: undefined,
-    inputPrompt: undefined,
-    estimatedCostUsd: undefined,
-    attachedSkills: undefined,
-    attachedHooks: undefined,
-    validationIssues: undefined,
-    validationPassed: undefined,
-    inputTokens: undefined,
-    outputTokens: undefined,
-    totalTokens: undefined,
-    modelId: undefined,
-    cacheReadTokens: undefined,
-    cacheWriteTokens: undefined,
-    earlierInputTokens: undefined,
-    earlierOutputTokens: undefined,
-    earlierTotalTokens: undefined,
-    earlierCacheReadTokens: undefined,
-    earlierCacheWriteTokens: undefined,
-    startedAt: expect.any(Number),
-    durationMs: undefined,
-  };
-}
-
 describe("wave worker nesting (agent_start/agent_complete with task_id)", () => {
   it("folds a worker's agent_start into the parent's waveWorkers, not a second agent row", () => {
     const state = runFrames([
@@ -79,8 +34,10 @@ describe("wave worker nesting (agent_start/agent_complete with task_id)", () => 
 
     expect(state.agents).toHaveLength(1);
     expect(state.agents[0].status).toBe("running");
-    expect(state.agents[0].waveWorkers).toStrictEqual([
-      workerEntry({ taskId: "task-1", status: "running", workerIndex: 0, waveIndex: 0, waveTotal: 50 }),
+    // ISS-863: toMatchObject, not toEqual. The row also carries startedAt: Date.now()
+    // (useWorkflow.ts:536), a clock value these nesting tests are not about.
+    expect(state.agents[0].waveWorkers).toMatchObject([
+      { taskId: "task-1", status: "running", workerIndex: 0, waveIndex: 0, waveTotal: 50 },
     ]);
   });
 
@@ -94,8 +51,9 @@ describe("wave worker nesting (agent_start/agent_complete with task_id)", () => 
     expect(state.agents).toHaveLength(1);
     // The parent's own agent_complete never fired — it must still read "running".
     expect(state.agents[0].status).toBe("running");
-    expect(state.agents[0].waveWorkers).toStrictEqual([
-      workerEntry({ taskId: "task-1", status: "done", workerIndex: 0, waveIndex: 0, waveTotal: 2 }),
+    // ISS-863: toMatchObject, so the reducer-stamped startedAt does not fail the match.
+    expect(state.agents[0].waveWorkers).toMatchObject([
+      { taskId: "task-1", status: "done", workerIndex: 0, waveIndex: 0, waveTotal: 2 },
     ]);
   });
 

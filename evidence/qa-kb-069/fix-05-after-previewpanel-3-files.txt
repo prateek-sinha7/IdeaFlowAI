@@ -1,0 +1,1268 @@
+# fix-05 — AFTER the fix. cwd frontend/, one file per run. revisionChip -> exit 0; versionChip -> exit 1 (5 failed, ISS-1012); PreviewPanel -> exit 1 (1 failed, ISS-1012). No Errors line in any.
+
+######## npx vitest run src/components/preview/PreviewPanel.revisionChip.test.tsx
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - ESM syntax in a file loaded as CommonJS (vitest.config.ts:1:1). Use a `.mjs` extension or set `"type": "module"` in the closest package.json
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+
+ RUN  v4.1.11 /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/frontend
+
+
+ Test Files  1 passed (1)
+      Tests  2 passed (2)
+   Start at  18:47:30
+   Duration  1.72s (transform 330ms, setup 99ms, import 679ms, tests 119ms, environment 699ms)
+
+
+######## npx vitest run src/components/preview/PreviewPanel.versionChip.test.tsx
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - ESM syntax in a file loaded as CommonJS (vitest.config.ts:1:1). Use a `.mjs` extension or set `"type": "module"` in the closest package.json
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+
+ RUN  v4.1.11 /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/frontend
+
+ ❯ src/components/preview/PreviewPanel.versionChip.test.tsx (5 tests | 5 failed) 56ms
+     × chip visibility: present as v{N} for a ≥2-member family; absent when no family 34ms
+     × dropdown + read-only load: selecting an older version fetches it via getWorkflow and shows the read-only banner; Back to latest restores live 5ms
+     × keyboard nav: opening focuses the listbox, ArrowUp moves focus, Enter loads a version, Escape closes + returns focus to the chip 5ms
+     × chip tick: when the family grows the chip label increments v2 → v3 5ms
+     × a11y: chip carries aria-haspopup/aria-expanded; the dropdown is a listbox with aria-selected options 5ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 5 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/components/preview/PreviewPanel.versionChip.test.tsx > Live version chip (B3 / D5) — PreviewPanel > chip visibility: present as v{N} for a ≥2-member family; absent when no family
+TestingLibraryElementError: Unable to find a label with the text of: /Version v3, choose version/
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div>[39m
+    [36m<div[39m
+      [33mclass[39m=[32m"flex h-full flex-col bg-surface-paper"[39m
+    [36m>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"flex flex-none items-center gap-[14px] px-[30px] pt-4"[39m
+        [33mdata-run-state[39m=[32m"complete"[39m
+        [33mdata-testid[39m=[32m"run-header"[39m
+      [36m>[39m
+        [36m<span[39m
+          [33mclass[39m=[32m"tabular-nums rounded-[8px] border border-line-control bg-surface-card px-2.5 py-[7px] font-serif text-[11.5px] font-normal leading-none text-ink-300"[39m
+        [36m>[39m
+          [0mv3[0m
+        [36m</span>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"flex-1"[39m
+        [36m/>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"relative"[39m
+        [36m>[39m
+          [36m<button[39m
+            [33maria-label[39m=[32m"Share this run"[39m
+            [33mclass[39m=[32m"inline-flex items-center gap-2 rounded-[10px] border px-3.5 py-2 font-sans text-[13px] font-medium transition-colors cursor-pointer border-line-control bg-surface-card text-ink-700 hover:border-line-faint hover:bg-surface-white"[39m
+            [33mtype[39m=[32m"button"[39m
+          [36m>[39m
+            [36m<svg[39m
+              [33maria-hidden[39m=[32m"true"[39m
+              [33mclass[39m=[32m"lucide lucide-upload h-[15px] w-[15px]"[39m
+              [33mfill[39m=[32m"none"[39m
+              [33mheight[39m=[32m"24"[39m
+              [33mstroke[39m=[32m"currentColor"[39m
+              [33mstroke-linecap[39m=[32m"round"[39m
+              [33mstroke-linejoin[39m=[32m"round"[39m
+              [33mstroke-width[39m=[32m"1.7"[39m
+              [33mviewBox[39m=[32m"0 0 24 24"[39m
+              [33mwidth[39m=[32m"24"[39m
+              [33mxmlns[39m=[32m"http://www.w3.org/2000/svg"[39m
+            [36m>[39m
+              [36m<path[39m
+                [33md[39m=[32m"M12 3v12"[39m
+              [36m/>[39m
+              [36m<path[39m
+                [33md[39m=[32m"m17 8-5-5-5 5"[39m
+              [36m/>[39m
+              [36m<path[39m
+                [33md[39m=[32m"M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"[39m
+              [36m/>[39m
+            [36m</svg>[39m
+            [0mShare[0m
+          [36m</button>[39m
+        [36m</div>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"inline-flex flex-col items-end gap-[3px]"[39m
+        [36m>[39m
+          [36m<button[39m
+            [33maria-label[39m=[32m"Download the deliverable"[39m
+            [33mclass[39m=[32m"inline-flex items-center gap-2 rounded-[10px] border-none px-[15px] py-2 font-sans text-[13px] font-semibold text-white transition-colors cursor-not-allowed bg-brand/50"[39m
+            [33mdisabled[39m=[32m""[39m
+            [33mtype[39m=[32m"button"[39m
+          [36m>[39m
+            [36m<svg[39m
+              [33maria-hidden[39m=[32m"true"[39m
+              [33mclass[39m=[32m"lucide lucide-download h-[15px] w-[15px]"[39m
+              [33mfill[39m=[32m"none"[39m
+              [33mheight[39m=[32m"24"[39m
+              [33mstroke[39m=[32m"currentColor"[39m
+              [33mstroke-linecap[39m=[32m"round"[39m
+              [33mstroke-linejoin[39m=[32m"round"[39m
+              [33mstroke-width[39m=[32m"1.9"[39m
+              [33mviewBox[39m=[32m"0 0 24 24"[39m
+              [33mwidth[39m=[32m"24"[39m
+              [33mxmlns[39m=[32m"http://www.w3.org/2000/svg"[39m
+            [36m>[39m
+              [36m<path[39m
+                [33md[39m=[32m"M12 15V3"[39m
+              [36m/>[39m
+              [36m<path[39m
+                [33md[39m=[32m"M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"[39m
+              [36m/>[39m
+              [36m<path[39m
+                [33md[39m=[32m"m7 10 5 5 5-5"[39m
+              [36m/>[39m
+            [36m</svg>[39m
+            [0mDownload[0m
+          [36m</button>[39m
+        [36m</div>[39m
+      [36m</div>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"flex-none px-[30px] pt-4 flex flex-wrap items-center justify-between gap-2 border-b border-line-divider"[39m
+      [36m>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"flex items-center gap-4 border-b border-line-divider"[39m
+          [33mrole[39m=[32m"tablist"[39m
+        [36m>[39m
+          [36m<button[39m
+            [33maria-selected[39m=[32m"true"[39m
+            [33mclass[39m=[32m"-mb-px inline-flex items-center gap-1.5 border-b-2 pb-2 pt-1 font-sans text-[12.5px] font-medium transition-colors text-ink-900 border-brand"[39m
+            [33mdata-testid[39m=[32m"tab-preview"[39m
+            [33mrole[39m=[32m"tab"[39m
+            [33mtype[39m=[32m"button"[39m
+          [36m>[39m
+            [0mPreview[0m
+          [36m</button>[39m
+          [36m<button[39m
+            [33maria-selected[39m=[32m"false"[39m
+            [33mclass[39m=[32m"-mb-px inline-flex items-center gap-1.5 border-b-2 pb-2 pt-1 font-sans text-[12.5px] font-medium transition-colors text-ink-400 border-transparent hover:text-ink-700"[39m
+            [33mdata-testid[39m=[32m"tab-thinking"[39m
+            [33mrole[39m=[32m"tab"[39m
+            [33mtype[39m=[32m"button"[39m
+          [36m>[39m
+            [0mSteps[0m
+          [36m</button>[39m
+          [36m<button[39m
+            [33maria-selected[39m=[32m"false"[39m
+            [33mclass[39m=[32m"-mb-px inline-flex items-center gap-1.5 border-b-2 pb-2 pt-1 font-sans text-[12.5px] font-medium transition-colors text-ink-400 border-transparent hover:text-ink-700"[39m
+            [33mdata-testid[39m=[32m"tab-workspace"[39m
+            [33mrole[39m=[32m"tab"[39m
+            [33mtype[39m=[32m"button"[39m
+          [36m>[39m
+            [0mWorkspace[0m
+          [36m</button>[39m
+          [36m<button[39m
+            [33maria-selected[39m=[32m"false"[39m
+            [33mclass[39m=[32m"-mb-px inline-flex items-center gap-1.5 border-b-2 pb-2 pt-1 font-sans text-[12.5px] font-medium transition-colors text-ink-400 border-transparent hover:text-ink-700"[39m
+            [33mdata-testid[39m=[32m"tab-audit"[39m
+            [33mrole[39m=[32m"tab"[39m
+            [33mtype[39m=[32m"button"[39m
+          [36m>[39m
+            [0mAudit[0m
+          [36m</button>[39m
+        [36m</div>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"flex items-center gap-2"[39m
+        [36m/>[39m
+      [36m</div>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"relative flex-1 min-h-0 overflow-hidden"[39m
+      [36m>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"absolute inset-0 overflow-y-auto"[39m
+        [36m>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"flex h-full flex-col"[39m
+          [36m>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"flex flex-none items-center gap-[6px] border-b border-line-faint-row bg-surface-warm px-[14px] py-[9px] "[39m
+              [33mdata-testid[39m=[32m"renders-as-switch"[39m
+            [36m>[39m
+              [36m<span[39m
+                [33mclass[39m=[32m"mr-[3px] font-sans text-[9px] font-semibold uppercase leading-none tracking-[0.09em] text-ink-300"[39m
+              [36m>[39m
+                [0mRenders as[0m
+              [36m</span>[39m
+              [36m<button[39m
+                [33maria-pressed[39m=[32m"true"[39m
+                [33mclass[39m=[32m"rounded-[7px] px-[10px] py-[5px] font-sans text-[11px] font-semibold leading-none transition-colors bg-brand text-white"[39m
+                [33mdata-testid[39m=[32m"renderer-pill"[39m
+                [33mtype[39m=[32m"button"[39m
+              [36m>[39m
+                [0mAuto[0m
+              [36m</button>[39m
+              [36m<button[39m
+                [33maria-pressed[39m=[32m"false"[39m
+                [33mclass[39m=[32m"rounded-[7px] px-[10px] py-[5px] font-sans text-[11px] font-semibold leading-none transition-colors border border-line-control bg-surface-white text-ink-500 hover:border-line-faint"[39m
+                [33mdata-testid[39m=[32m"renderer-pill"[39m
+                [33mtype[39m=[32m"button"[39m
+              [36m>[39m
+                [0mPrototype[0m
+              [36m</button>[39m
+            [36m</div>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"min-h-0 flex-1"[39m
+            [36m>[39m
+              [36m<div[39m
+                [33mdata-testid[39m=[32m"proto-preview"[39m
+              [36m/>[39m
+            [36m</div>[39m
+          [36m</div>[39m
+        [36m</div>[39m
+      [36m</div>[39m
+    [36m</div>[39m
+  [36m</div>[39m
+[36m</body>[39m
+ ❯ Object.getElementError node_modules/@testing-library/dom/dist/config.js:37:19
+ ❯ getAllByLabelText node_modules/@testing-library/dom/dist/queries/label-text.js:111:38
+ ❯ node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+ ❯ node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+ ❯ src/components/preview/PreviewPanel.versionChip.test.tsx:105:25
+    103|       <PreviewPanel workflowType="prototype" prototypeContent="<html>l…
+    104|     );
+    105|     const chip = screen.getByLabelText(/Version v3, choose version/);
+       |                         ^
+    106|     expect(chip).toHaveAttribute("aria-haspopup", "listbox");
+    107|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/5]⎯
+
+ FAIL  src/components/preview/PreviewPanel.versionChip.test.tsx > Live version chip (B3 / D5) — PreviewPanel > dropdown + read-only load: selecting an older version fetches it via getWorkflow and shows the read-only banner; Back to latest restores live
+TestingLibraryElementError: Unable to find a label with the text of: /Version v3/
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div>[39m
+    [36m<div[39m
+      [33mclass[39m=[32m"flex h-full flex-col bg-surface-paper"[39m
+    [36m>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"flex flex-none items-center gap-[14px] px-[30px] pt-4"[39m
+        [33mdata-run-state[39m=[32m"complete"[39m
+        [33mdata-testid[39m=[32m"run-header"[39m
+      [36m>[39m
+        [36m<span[39m
+          [33mclass[39m=[32m"tabular-nums rounded-[8px] border border-line-control bg-surface-card px-2.5 py-[7px] font-serif text-[11.5px] font-normal leading-none text-ink-300"[39m
+        [36m>[39m
+          [0mv3[0m
+        [36m</span>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"flex-1"[39m
+        [36m/>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"relative"[39m
+        [36m>[39m
+          [36m<button[39m
+            [33maria-label[39m=[32m"Share this run"[39m
+            [33mclass[39m=[32m"inline-flex items-center gap-2 rounded-[10px] border px-3.5 py-2 font-sans text-[13px] font-medium transition-colors cursor-pointer border-line-control bg-surface-card text-ink-700 hover:border-line-faint hover:bg-surface-white"[39m
+            [33mtype[39m=[32m"button"[39m
+          [36m>[39m
+            [36m<svg[39m
+              [33maria-hidden[39m=[32m"true"[39m
+              [33mclass[39m=[32m"lucide lucide-upload h-[15px] w-[15px]"[39m
+              [33mfill[39m=[32m"none"[39m
+              [33mheight[39m=[32m"24"[39m
+              [33mstroke[39m=[32m"currentColor"[39m
+              [33mstroke-linecap[39m=[32m"round"[39m
+              [33mstroke-linejoin[39m=[32m"round"[39m
+              [33mstroke-width[39m=[32m"1.7"[39m
+              [33mviewBox[39m=[32m"0 0 24 24"[39m
+              [33mwidth[39m=[32m"24"[39m
+              [33mxmlns[39m=[32m"http://www.w3.org/2000/svg"[39m
+            [36m>[39m
+              [36m<path[39m
+                [33md[39m=[32m"M12 3v12"[39m
+              [36m/>[39m
+              [36m<path[39m
+                [33md[39m=[32m"m17 8-5-5-5 5"[39m
+              [36m/>[39m
+              [36m<path[39m
+                [33md[39m=[32m"M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"[39m
+              [36m/>[39m
+            [36m</svg>[39m
+            [0mShare[0m
+          [36m</button>[39m
+        [36m</div>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"inline-flex flex-col items-end gap-[3px]"[39m
+        [36m>[39m
+          [36m<button[39m
+            [33maria-label[39m=[32m"Download the deliverable"[39m
+            [33mclass[39m=[32m"inline-flex items-center gap-2 rounded-[10px] border-none px-[15px] py-2 font-sans text-[13px] font-semibold text-white transition-colors cursor-not-allowed bg-brand/50"[39m
+            [33mdisabled[39m=[32m""[39m
+            [33mtype[39m=[32m"button"[39m
+          [36m>[39m
+            [36m<svg[39m
+              [33maria-hidden[39m=[32m"true"[39m
+              [33mclass[39m=[32m"lucide lucide-download h-[15px] w-[15px]"[39m
+              [33mfill[39m=[32m"none"[39m
+              [33mheight[39m=[32m"24"[39m
+              [33mstroke[39m=[32m"currentColor"[39m
+              [33mstroke-linecap[39m=[32m"round"[39m
+              [33mstroke-linejoin[39m=[32m"round"[39m
+              [33mstroke-width[39m=[32m"1.9"[39m
+              [33mviewBox[39m=[32m"0 0 24 24"[39m
+              [33mwidth[39m=[32m"24"[39m
+              [33mxmlns[39m=[32m"http://www.w3.org/2000/svg"[39m
+            [36m>[39m
+              [36m<path[39m
+                [33md[39m=[32m"M12 15V3"[39m
+              [36m/>[39m
+              [36m<path[39m
+                [33md[39m=[32m"M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"[39m
+              [36m/>[39m
+              [36m<path[39m
+                [33md[39m=[32m"m7 10 5 5 5-5"[39m
+              [36m/>[39m
+            [36m</svg>[39m
+            [0mDownload[0m
+          [36m</button>[39m
+        [36m</div>[39m
+      [36m</div>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"flex-none px-[30px] pt-4 flex flex-wrap items-center justify-between gap-2 border-b border-line-divider"[39m
+      [36m>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"flex items-center gap-4 border-b border-line-divider"[39m
+          [33mrole[39m=[32m"tablist"[39m
+        [36m>[39m
+          [36m<button[39m
+            [33maria-selected[39m=[32m"true"[39m
+            [33mclass[39m=[32m"-mb-px inline-flex items-center gap-1.5 border-b-2 pb-2 pt-1 font-sans text-[12.5px] font-medium transition-colors text-ink-900 border-brand"[39m
+            [33mdata-testid[39m=[32m"tab-preview"[39m
+            [33mrole[39m=[32m"tab"[39m
+            [33mtype[39m=[32m"button"[39m
+          [36m>[39m
+            [0mPreview[0m
+          [36m</button>[39m
+          [36m<button[39m
+            [33maria-selected[39m=[32m"false"[39m
+            [33mclass[39m=[32m"-mb-px inline-flex items-center gap-1.5 border-b-2 pb-2 pt-1 font-sans text-[12.5px] font-medium transition-colors text-ink-400 border-transparent hover:text-ink-700"[39m
+            [33mdata-testid[39m=[32m"tab-thinking"[39m
+            [33mrole[39m=[32m"tab"[39m
+            [33mtype[39m=[32m"button"[39m
+          [36m>[39m
+            [0mSteps[0m
+          [36m</button>[39m
+          [36m<button[39m
+            [33maria-selected[39m=[32m"false"[39m
+            [33mclass[39m=[32m"-mb-px inline-flex items-center gap-1.5 border-b-2 pb-2 pt-1 font-sans text-[12.5px] font-medium transition-colors text-ink-400 border-transparent hover:text-ink-700"[39m
+            [33mdata-testid[39m=[32m"tab-workspace"[39m
+            [33mrole[39m=[32m"tab"[39m
+            [33mtype[39m=[32m"button"[39m
+          [36m>[39m
+            [0mWorkspace[0m
+          [36m</button>[39m
+          [36m<button[39m
+            [33maria-selected[39m=[32m"false"[39m
+            [33mclass[39m=[32m"-mb-px inline-flex items-center gap-1.5 border-b-2 pb-2 pt-1 font-sans text-[12.5px] font-medium transition-colors text-ink-400 border-transparent hover:text-ink-700"[39m
+            [33mdata-testid[39m=[32m"tab-audit"[39m
+            [33mrole[39m=[32m"tab"[39m
+            [33mtype[39m=[32m"button"[39m
+          [36m>[39m
+            [0mAudit[0m
+          [36m</button>[39m
+        [36m</div>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"flex items-center gap-2"[39m
+        [36m/>[39m
+      [36m</div>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"relative flex-1 min-h-0 overflow-hidden"[39m
+      [36m>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"absolute inset-0 overflow-y-auto"[39m
+        [36m>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"flex h-full flex-col"[39m
+          [36m>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"flex flex-none items-center gap-[6px] border-b border-line-faint-row bg-surface-warm px-[14px] py-[9px] "[39m
+              [33mdata-testid[39m=[32m"renders-as-switch"[39m
+            [36m>[39m
+              [36m<span[39m
+                [33mclass[39m=[32m"mr-[3px] font-sans text-[9px] font-semibold uppercase leading-none tracking-[0.09em] text-ink-300"[39m
+              [36m>[39m
+                [0mRenders as[0m
+              [36m</span>[39m
+              [36m<button[39m
+                [33maria-pressed[39m=[32m"true"[39m
+                [33mclass[39m=[32m"rounded-[7px] px-[10px] py-[5px] font-sans text-[11px] font-semibold leading-none transition-colors bg-brand text-white"[39m
+                [33mdata-testid[39m=[32m"renderer-pill"[39m
+                [33mtype[39m=[32m"button"[39m
+              [36m>[39m
+                [0mAuto[0m
+              [36m</button>[39m
+              [36m<button[39m
+                [33maria-pressed[39m=[32m"false"[39m
+                [33mclass[39m=[32m"rounded-[7px] px-[10px] py-[5px] font-sans text-[11px] font-semibold leading-none transition-colors border border-line-control bg-surface-white text-ink-500 hover:border-line-faint"[39m
+                [33mdata-testid[39m=[32m"renderer-pill"[39m
+                [33mtype[39m=[32m"button"[39m
+              [36m>[39m
+                [0mPrototype[0m
+              [36m</button>[39m
+            [36m</div>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"min-h-0 flex-1"[39m
+            [36m>[39m
+              [36m<div[39m
+                [33mdata-testid[39m=[32m"proto-preview"[39m
+              [36m/>[39m
+            [36m</div>[39m
+          [36m</div>[39m
+        [36m</div>[39m
+      [36m</div>[39m
+    [36m</div>[39m
+  [36m</div>[39m
+[36m</body>[39m
+ ❯ Object.getElementError node_modules/@testing-library/dom/dist/config.js:37:19
+ ❯ getAllByLabelText node_modules/@testing-library/dom/dist/queries/label-text.js:111:38
+ ❯ node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+ ❯ node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+ ❯ src/components/preview/PreviewPanel.versionChip.test.tsx:119:28
+    117|
+    118|     // Open the dropdown.
+    119|     fireEvent.click(screen.getByLabelText(/Version v3/));
+       |                            ^
+    120|     expect(screen.getByRole("listbox")).toBeInTheDocument();
+    121|     const options = screen.getAllByRole("option");
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/5]⎯
+
+ FAIL  src/components/preview/PreviewPanel.versionChip.test.tsx > Live version chip (B3 / D5) — PreviewPanel > keyboard nav: opening focuses the listbox, ArrowUp moves focus, Enter loads a version, Escape closes + returns focus to the chip
+TestingLibraryElementError: Unable to find a label with the text of: /Version v3/
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div>[39m
+    [36m<div[39m
+      [33mclass[39m=[32m"flex h-full flex-col bg-surface-paper"[39m
+    [36m>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"flex flex-none items-center gap-[14px] px-[30px] pt-4"[39m
+        [33mdata-run-state[39m=[32m"complete"[39m
+        [33mdata-testid[39m=[32m"run-header"[39m
+      [36m>[39m
+        [36m<span[39m
+          [33mclass[39m=[32m"tabular-nums rounded-[8px] border border-line-control bg-surface-card px-2.5 py-[7px] font-serif text-[11.5px] font-normal leading-none text-ink-300"[39m
+        [36m>[39m
+          [0mv3[0m
+        [36m</span>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"flex-1"[39m
+        [36m/>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"relative"[39m
+        [36m>[39m
+          [36m<button[39m
+            [33maria-label[39m=[32m"Share this run"[39m
+            [33mclass[39m=[32m"inline-flex items-center gap-2 rounded-[10px] border px-3.5 py-2 font-sans text-[13px] font-medium transition-colors cursor-pointer border-line-control bg-surface-card text-ink-700 hover:border-line-faint hover:bg-surface-white"[39m
+            [33mtype[39m=[32m"button"[39m
+          [36m>[39m
+            [36m<svg[39m
+              [33maria-hidden[39m=[32m"true"[39m
+              [33mclass[39m=[32m"lucide lucide-upload h-[15px] w-[15px]"[39m
+              [33mfill[39m=[32m"none"[39m
+              [33mheight[39m=[32m"24"[39m
+              [33mstroke[39m=[32m"currentColor"[39m
+              [33mstroke-linecap[39m=[32m"round"[39m
+              [33mstroke-linejoin[39m=[32m"round"[39m
+              [33mstroke-width[39m=[32m"1.7"[39m
+              [33mviewBox[39m=[32m"0 0 24 24"[39m
+              [33mwidth[39m=[32m"24"[39m
+              [33mxmlns[39m=[32m"http://www.w3.org/2000/svg"[39m
+            [36m>[39m
+              [36m<path[39m
+                [33md[39m=[32m"M12 3v12"[39m
+              [36m/>[39m
+              [36m<path[39m
+                [33md[39m=[32m"m17 8-5-5-5 5"[39m
+              [36m/>[39m
+              [36m<path[39m
+                [33md[39m=[32m"M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"[39m
+              [36m/>[39m
+            [36m</svg>[39m
+            [0mShare[0m
+          [36m</button>[39m
+        [36m</div>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"inline-flex flex-col items-end gap-[3px]"[39m
+        [36m>[39m
+          [36m<button[39m
+            [33maria-label[39m=[32m"Download the deliverable"[39m
+            [33mclass[39m=[32m"inline-flex items-center gap-2 rounded-[10px] border-none px-[15px] py-2 font-sans text-[13px] font-semibold text-white transition-colors cursor-not-allowed bg-brand/50"[39m
+            [33mdisabled[39m=[32m""[39m
+            [33mtype[39m=[32m"button"[39m
+          [36m>[39m
+            [36m<svg[39m
+              [33maria-hidden[39m=[32m"true"[39m
+              [33mclass[39m=[32m"lucide lucide-download h-[15px] w-[15px]"[39m
+              [33mfill[39m=[32m"none"[39m
+              [33mheight[39m=[32m"24"[39m
+              [33mstroke[39m=[32m"currentColor"[39m
+              [33mstroke-linecap[39m=[32m"round"[39m
+              [33mstroke-linejoin[39m=[32m"round"[39m
+              [33mstroke-width[39m=[32m"1.9"[39m
+              [33mviewBox[39m=[32m"0 0 24 24"[39m
+              [33mwidth[39m=[32m"24"[39m
+              [33mxmlns[39m=[32m"http://www.w3.org/2000/svg"[39m
+            [36m>[39m
+              [36m<path[39m
+                [33md[39m=[32m"M12 15V3"[39m
+              [36m/>[39m
+              [36m<path[39m
+                [33md[39m=[32m"M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"[39m
+              [36m/>[39m
+              [36m<path[39m
+                [33md[39m=[32m"m7 10 5 5 5-5"[39m
+              [36m/>[39m
+            [36m</svg>[39m
+            [0mDownload[0m
+          [36m</button>[39m
+        [36m</div>[39m
+      [36m</div>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"flex-none px-[30px] pt-4 flex flex-wrap items-center justify-between gap-2 border-b border-line-divider"[39m
+      [36m>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"flex items-center gap-4 border-b border-line-divider"[39m
+          [33mrole[39m=[32m"tablist"[39m
+        [36m>[39m
+          [36m<button[39m
+            [33maria-selected[39m=[32m"true"[39m
+            [33mclass[39m=[32m"-mb-px inline-flex items-center gap-1.5 border-b-2 pb-2 pt-1 font-sans text-[12.5px] font-medium transition-colors text-ink-900 border-brand"[39m
+            [33mdata-testid[39m=[32m"tab-preview"[39m
+            [33mrole[39m=[32m"tab"[39m
+            [33mtype[39m=[32m"button"[39m
+          [36m>[39m
+            [0mPreview[0m
+          [36m</button>[39m
+          [36m<button[39m
+            [33maria-selected[39m=[32m"false"[39m
+            [33mclass[39m=[32m"-mb-px inline-flex items-center gap-1.5 border-b-2 pb-2 pt-1 font-sans text-[12.5px] font-medium transition-colors text-ink-400 border-transparent hover:text-ink-700"[39m
+            [33mdata-testid[39m=[32m"tab-thinking"[39m
+            [33mrole[39m=[32m"tab"[39m
+            [33mtype[39m=[32m"button"[39m
+          [36m>[39m
+            [0mSteps[0m
+          [36m</button>[39m
+          [36m<button[39m
+            [33maria-selected[39m=[32m"false"[39m
+            [33mclass[39m=[32m"-mb-px inline-flex items-center gap-1.5 border-b-2 pb-2 pt-1 font-sans text-[12.5px] font-medium transition-colors text-ink-400 border-transparent hover:text-ink-700"[39m
+            [33mdata-testid[39m=[32m"tab-workspace"[39m
+            [33mrole[39m=[32m"tab"[39m
+            [33mtype[39m=[32m"button"[39m
+          [36m>[39m
+            [0mWorkspace[0m
+          [36m</button>[39m
+          [36m<button[39m
+            [33maria-selected[39m=[32m"false"[39m
+            [33mclass[39m=[32m"-mb-px inline-flex items-center gap-1.5 border-b-2 pb-2 pt-1 font-sans text-[12.5px] font-medium transition-colors text-ink-400 border-transparent hover:text-ink-700"[39m
+            [33mdata-testid[39m=[32m"tab-audit"[39m
+            [33mrole[39m=[32m"tab"[39m
+            [33mtype[39m=[32m"button"[39m
+          [36m>[39m
+            [0mAudit[0m
+          [36m</button>[39m
+        [36m</div>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"flex items-center gap-2"[39m
+        [36m/>[39m
+      [36m</div>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"relative flex-1 min-h-0 overflow-hidden"[39m
+      [36m>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"absolute inset-0 overflow-y-auto"[39m
+        [36m>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"flex h-full flex-col"[39m
+          [36m>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"flex flex-none items-center gap-[6px] border-b border-line-faint-row bg-surface-warm px-[14px] py-[9px] "[39m
+              [33mdata-testid[39m=[32m"renders-as-switch"[39m
+            [36m>[39m
+              [36m<span[39m
+                [33mclass[39m=[32m"mr-[3px] font-sans text-[9px] font-semibold uppercase leading-none tracking-[0.09em] text-ink-300"[39m
+              [36m>[39m
+                [0mRenders as[0m
+              [36m</span>[39m
+              [36m<button[39m
+                [33maria-pressed[39m=[32m"true"[39m
+                [33mclass[39m=[32m"rounded-[7px] px-[10px] py-[5px] font-sans text-[11px] font-semibold leading-none transition-colors bg-brand text-white"[39m
+                [33mdata-testid[39m=[32m"renderer-pill"[39m
+                [33mtype[39m=[32m"button"[39m
+              [36m>[39m
+                [0mAuto[0m
+              [36m</button>[39m
+              [36m<button[39m
+                [33maria-pressed[39m=[32m"false"[39m
+                [33mclass[39m=[32m"rounded-[7px] px-[10px] py-[5px] font-sans text-[11px] font-semibold leading-none transition-colors border border-line-control bg-surface-white text-ink-500 hover:border-line-faint"[39m
+                [33mdata-testid[39m=[32m"renderer-pill"[39m
+                [33mtype[39m=[32m"button"[39m
+              [36m>[39m
+                [0mPrototype[0m
+              [36m</button>[39m
+            [36m</div>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"min-h-0 flex-1"[39m
+            [36m>[39m
+              [36m<div[39m
+                [33mdata-testid[39m=[32m"proto-preview"[39m
+              [36m/>[39m
+            [36m</div>[39m
+          [36m</div>[39m
+        [36m</div>[39m
+      [36m</div>[39m
+    [36m</div>[39m
+  [36m</div>[39m
+[36m</body>[39m
+ ❯ Object.getElementError node_modules/@testing-library/dom/dist/config.js:37:19
+ ❯ getAllByLabelText node_modules/@testing-library/dom/dist/queries/label-text.js:111:38
+ ❯ node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+ ❯ node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+ ❯ src/components/preview/PreviewPanel.versionChip.test.tsx:144:28
+    142|
+    143|     // Open the dropdown → keyboard focus ENTERS the listbox (onto the…
+    144|     fireEvent.click(screen.getByLabelText(/Version v3/));
+       |                            ^
+    145|     const listbox = screen.getByRole("listbox");
+    146|     expect(listbox.contains(document.activeElement)).toBe(true);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/5]⎯
+
+ FAIL  src/components/preview/PreviewPanel.versionChip.test.tsx > Live version chip (B3 / D5) — PreviewPanel > chip tick: when the family grows the chip label increments v2 → v3
+TestingLibraryElementError: Unable to find a label with the text of: /Version v2, choose version/
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div>[39m
+    [36m<div[39m
+      [33mclass[39m=[32m"flex h-full flex-col bg-surface-paper"[39m
+    [36m>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"flex flex-none items-center gap-[14px] px-[30px] pt-4"[39m
+        [33mdata-run-state[39m=[32m"complete"[39m
+        [33mdata-testid[39m=[32m"run-header"[39m
+      [36m>[39m
+        [36m<span[39m
+          [33mclass[39m=[32m"tabular-nums rounded-[8px] border border-line-control bg-surface-card px-2.5 py-[7px] font-serif text-[11.5px] font-normal leading-none text-ink-300"[39m
+        [36m>[39m
+          [0mv2[0m
+        [36m</span>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"flex-1"[39m
+        [36m/>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"relative"[39m
+        [36m>[39m
+          [36m<button[39m
+            [33maria-label[39m=[32m"Share this run"[39m
+            [33mclass[39m=[32m"inline-flex items-center gap-2 rounded-[10px] border px-3.5 py-2 font-sans text-[13px] font-medium transition-colors cursor-pointer border-line-control bg-surface-card text-ink-700 hover:border-line-faint hover:bg-surface-white"[39m
+            [33mtype[39m=[32m"button"[39m
+          [36m>[39m
+            [36m<svg[39m
+              [33maria-hidden[39m=[32m"true"[39m
+              [33mclass[39m=[32m"lucide lucide-upload h-[15px] w-[15px]"[39m
+              [33mfill[39m=[32m"none"[39m
+              [33mheight[39m=[32m"24"[39m
+              [33mstroke[39m=[32m"currentColor"[39m
+              [33mstroke-linecap[39m=[32m"round"[39m
+              [33mstroke-linejoin[39m=[32m"round"[39m
+              [33mstroke-width[39m=[32m"1.7"[39m
+              [33mviewBox[39m=[32m"0 0 24 24"[39m
+              [33mwidth[39m=[32m"24"[39m
+              [33mxmlns[39m=[32m"http://www.w3.org/2000/svg"[39m
+            [36m>[39m
+              [36m<path[39m
+                [33md[39m=[32m"M12 3v12"[39m
+              [36m/>[39m
+              [36m<path[39m
+                [33md[39m=[32m"m17 8-5-5-5 5"[39m
+              [36m/>[39m
+              [36m<path[39m
+                [33md[39m=[32m"M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"[39m
+              [36m/>[39m
+            [36m</svg>[39m
+            [0mShare[0m
+          [36m</button>[39m
+        [36m</div>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"inline-flex flex-col items-end gap-[3px]"[39m
+        [36m>[39m
+          [36m<button[39m
+            [33maria-label[39m=[32m"Download the deliverable"[39m
+            [33mclass[39m=[32m"inline-flex items-center gap-2 rounded-[10px] border-none px-[15px] py-2 font-sans text-[13px] font-semibold text-white transition-colors cursor-not-allowed bg-brand/50"[39m
+            [33mdisabled[39m=[32m""[39m
+            [33mtype[39m=[32m"button"[39m
+          [36m>[39m
+            [36m<svg[39m
+              [33maria-hidden[39m=[32m"true"[39m
+              [33mclass[39m=[32m"lucide lucide-download h-[15px] w-[15px]"[39m
+              [33mfill[39m=[32m"none"[39m
+              [33mheight[39m=[32m"24"[39m
+              [33mstroke[39m=[32m"currentColor"[39m
+              [33mstroke-linecap[39m=[32m"round"[39m
+              [33mstroke-linejoin[39m=[32m"round"[39m
+              [33mstroke-width[39m=[32m"1.9"[39m
+              [33mviewBox[39m=[32m"0 0 24 24"[39m
+              [33mwidth[39m=[32m"24"[39m
+              [33mxmlns[39m=[32m"http://www.w3.org/2000/svg"[39m
+            [36m>[39m
+              [36m<path[39m
+                [33md[39m=[32m"M12 15V3"[39m
+              [36m/>[39m
+              [36m<path[39m
+                [33md[39m=[32m"M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"[39m
+              [36m/>[39m
+              [36m<path[39m
+                [33md[39m=[32m"m7 10 5 5 5-5"[39m
+              [36m/>[39m
+            [36m</svg>[39m
+            [0mDownload[0m
+          [36m</button>[39m
+        [36m</div>[39m
+      [36m</div>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"flex-none px-[30px] pt-4 flex flex-wrap items-center justify-between gap-2 border-b border-line-divider"[39m
+      [36m>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"flex items-center gap-4 border-b border-line-divider"[39m
+          [33mrole[39m=[32m"tablist"[39m
+        [36m>[39m
+          [36m<button[39m
+            [33maria-selected[39m=[32m"true"[39m
+            [33mclass[39m=[32m"-mb-px inline-flex items-center gap-1.5 border-b-2 pb-2 pt-1 font-sans text-[12.5px] font-medium transition-colors text-ink-900 border-brand"[39m
+            [33mdata-testid[39m=[32m"tab-preview"[39m
+            [33mrole[39m=[32m"tab"[39m
+            [33mtype[39m=[32m"button"[39m
+          [36m>[39m
+            [0mPreview[0m
+          [36m</button>[39m
+          [36m<button[39m
+            [33maria-selected[39m=[32m"false"[39m
+            [33mclass[39m=[32m"-mb-px inline-flex items-center gap-1.5 border-b-2 pb-2 pt-1 font-sans text-[12.5px] font-medium transition-colors text-ink-400 border-transparent hover:text-ink-700"[39m
+            [33mdata-testid[39m=[32m"tab-thinking"[39m
+            [33mrole[39m=[32m"tab"[39m
+            [33mtype[39m=[32m"button"[39m
+          [36m>[39m
+            [0mSteps[0m
+          [36m</button>[39m
+          [36m<button[39m
+            [33maria-selected[39m=[32m"false"[39m
+            [33mclass[39m=[32m"-mb-px inline-flex items-center gap-1.5 border-b-2 pb-2 pt-1 font-sans text-[12.5px] font-medium transition-colors text-ink-400 border-transparent hover:text-ink-700"[39m
+            [33mdata-testid[39m=[32m"tab-workspace"[39m
+            [33mrole[39m=[32m"tab"[39m
+            [33mtype[39m=[32m"button"[39m
+          [36m>[39m
+            [0mWorkspace[0m
+          [36m</button>[39m
+          [36m<button[39m
+            [33maria-selected[39m=[32m"false"[39m
+            [33mclass[39m=[32m"-mb-px inline-flex items-center gap-1.5 border-b-2 pb-2 pt-1 font-sans text-[12.5px] font-medium transition-colors text-ink-400 border-transparent hover:text-ink-700"[39m
+            [33mdata-testid[39m=[32m"tab-audit"[39m
+            [33mrole[39m=[32m"tab"[39m
+            [33mtype[39m=[32m"button"[39m
+          [36m>[39m
+            [0mAudit[0m
+          [36m</button>[39m
+        [36m</div>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"flex items-center gap-2"[39m
+        [36m/>[39m
+      [36m</div>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"relative flex-1 min-h-0 overflow-hidden"[39m
+      [36m>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"absolute inset-0 overflow-y-auto"[39m
+        [36m>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"flex h-full flex-col"[39m
+          [36m>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"flex flex-none items-center gap-[6px] border-b border-line-faint-row bg-surface-warm px-[14px] py-[9px] "[39m
+              [33mdata-testid[39m=[32m"renders-as-switch"[39m
+            [36m>[39m
+              [36m<span[39m
+                [33mclass[39m=[32m"mr-[3px] font-sans text-[9px] font-semibold uppercase leading-none tracking-[0.09em] text-ink-300"[39m
+              [36m>[39m
+                [0mRenders as[0m
+              [36m</span>[39m
+              [36m<button[39m
+                [33maria-pressed[39m=[32m"true"[39m
+                [33mclass[39m=[32m"rounded-[7px] px-[10px] py-[5px] font-sans text-[11px] font-semibold leading-none transition-colors bg-brand text-white"[39m
+                [33mdata-testid[39m=[32m"renderer-pill"[39m
+                [33mtype[39m=[32m"button"[39m
+              [36m>[39m
+                [0mAuto[0m
+              [36m</button>[39m
+              [36m<button[39m
+                [33maria-pressed[39m=[32m"false"[39m
+                [33mclass[39m=[32m"rounded-[7px] px-[10px] py-[5px] font-sans text-[11px] font-semibold leading-none transition-colors border border-line-control bg-surface-white text-ink-500 hover:border-line-faint"[39m
+                [33mdata-testid[39m=[32m"renderer-pill"[39m
+                [33mtype[39m=[32m"button"[39m
+              [36m>[39m
+                [0mPrototype[0m
+              [36m</button>[39m
+            [36m</div>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"min-h-0 flex-1"[39m
+            [36m>[39m
+              [36m<div[39m
+                [33mdata-testid[39m=[32m"proto-preview"[39m
+              [36m/>[39m
+            [36m</div>[39m
+          [36m</div>[39m
+        [36m</div>[39m
+      [36m</div>[39m
+    [36m</div>[39m
+  [36m</div>[39m
+[36m</body>[39m
+ ❯ Object.getElementError node_modules/@testing-library/dom/dist/config.js:37:19
+ ❯ getAllByLabelText node_modules/@testing-library/dom/dist/queries/label-text.js:111:38
+ ❯ node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+ ❯ node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+ ❯ src/components/preview/PreviewPanel.versionChip.test.tsx:170:19
+    168|       <PreviewPanel workflowType="prototype" prototypeContent="<html>v…
+    169|     );
+    170|     expect(screen.getByLabelText(/Version v2, choose version/)).toBeIn…
+       |                   ^
+    171|
+    172|     // A revision completed → the threaded family grew and the live ru…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/5]⎯
+
+ FAIL  src/components/preview/PreviewPanel.versionChip.test.tsx > Live version chip (B3 / D5) — PreviewPanel > a11y: chip carries aria-haspopup/aria-expanded; the dropdown is a listbox with aria-selected options
+TestingLibraryElementError: Unable to find a label with the text of: /Version v3/
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div>[39m
+    [36m<div[39m
+      [33mclass[39m=[32m"flex h-full flex-col bg-surface-paper"[39m
+    [36m>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"flex flex-none items-center gap-[14px] px-[30px] pt-4"[39m
+        [33mdata-run-state[39m=[32m"complete"[39m
+        [33mdata-testid[39m=[32m"run-header"[39m
+      [36m>[39m
+        [36m<span[39m
+          [33mclass[39m=[32m"tabular-nums rounded-[8px] border border-line-control bg-surface-card px-2.5 py-[7px] font-serif text-[11.5px] font-normal leading-none text-ink-300"[39m
+        [36m>[39m
+          [0mv3[0m
+        [36m</span>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"flex-1"[39m
+        [36m/>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"relative"[39m
+        [36m>[39m
+          [36m<button[39m
+            [33maria-label[39m=[32m"Share this run"[39m
+            [33mclass[39m=[32m"inline-flex items-center gap-2 rounded-[10px] border px-3.5 py-2 font-sans text-[13px] font-medium transition-colors cursor-pointer border-line-control bg-surface-card text-ink-700 hover:border-line-faint hover:bg-surface-white"[39m
+            [33mtype[39m=[32m"button"[39m
+          [36m>[39m
+            [36m<svg[39m
+              [33maria-hidden[39m=[32m"true"[39m
+              [33mclass[39m=[32m"lucide lucide-upload h-[15px] w-[15px]"[39m
+              [33mfill[39m=[32m"none"[39m
+              [33mheight[39m=[32m"24"[39m
+              [33mstroke[39m=[32m"currentColor"[39m
+              [33mstroke-linecap[39m=[32m"round"[39m
+              [33mstroke-linejoin[39m=[32m"round"[39m
+              [33mstroke-width[39m=[32m"1.7"[39m
+              [33mviewBox[39m=[32m"0 0 24 24"[39m
+              [33mwidth[39m=[32m"24"[39m
+              [33mxmlns[39m=[32m"http://www.w3.org/2000/svg"[39m
+            [36m>[39m
+              [36m<path[39m
+                [33md[39m=[32m"M12 3v12"[39m
+              [36m/>[39m
+              [36m<path[39m
+                [33md[39m=[32m"m17 8-5-5-5 5"[39m
+              [36m/>[39m
+              [36m<path[39m
+                [33md[39m=[32m"M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"[39m
+              [36m/>[39m
+            [36m</svg>[39m
+            [0mShare[0m
+          [36m</button>[39m
+        [36m</div>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"inline-flex flex-col items-end gap-[3px]"[39m
+        [36m>[39m
+          [36m<button[39m
+            [33maria-label[39m=[32m"Download the deliverable"[39m
+            [33mclass[39m=[32m"inline-flex items-center gap-2 rounded-[10px] border-none px-[15px] py-2 font-sans text-[13px] font-semibold text-white transition-colors cursor-not-allowed bg-brand/50"[39m
+            [33mdisabled[39m=[32m""[39m
+            [33mtype[39m=[32m"button"[39m
+          [36m>[39m
+            [36m<svg[39m
+              [33maria-hidden[39m=[32m"true"[39m
+              [33mclass[39m=[32m"lucide lucide-download h-[15px] w-[15px]"[39m
+              [33mfill[39m=[32m"none"[39m
+              [33mheight[39m=[32m"24"[39m
+              [33mstroke[39m=[32m"currentColor"[39m
+              [33mstroke-linecap[39m=[32m"round"[39m
+              [33mstroke-linejoin[39m=[32m"round"[39m
+              [33mstroke-width[39m=[32m"1.9"[39m
+              [33mviewBox[39m=[32m"0 0 24 24"[39m
+              [33mwidth[39m=[32m"24"[39m
+              [33mxmlns[39m=[32m"http://www.w3.org/2000/svg"[39m
+            [36m>[39m
+              [36m<path[39m
+                [33md[39m=[32m"M12 15V3"[39m
+              [36m/>[39m
+              [36m<path[39m
+                [33md[39m=[32m"M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"[39m
+              [36m/>[39m
+              [36m<path[39m
+                [33md[39m=[32m"m7 10 5 5 5-5"[39m
+              [36m/>[39m
+            [36m</svg>[39m
+            [0mDownload[0m
+          [36m</button>[39m
+        [36m</div>[39m
+      [36m</div>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"flex-none px-[30px] pt-4 flex flex-wrap items-center justify-between gap-2 border-b border-line-divider"[39m
+      [36m>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"flex items-center gap-4 border-b border-line-divider"[39m
+          [33mrole[39m=[32m"tablist"[39m
+        [36m>[39m
+          [36m<button[39m
+            [33maria-selected[39m=[32m"true"[39m
+            [33mclass[39m=[32m"-mb-px inline-flex items-center gap-1.5 border-b-2 pb-2 pt-1 font-sans text-[12.5px] font-medium transition-colors text-ink-900 border-brand"[39m
+            [33mdata-testid[39m=[32m"tab-preview"[39m
+            [33mrole[39m=[32m"tab"[39m
+            [33mtype[39m=[32m"button"[39m
+          [36m>[39m
+            [0mPreview[0m
+          [36m</button>[39m
+          [36m<button[39m
+            [33maria-selected[39m=[32m"false"[39m
+            [33mclass[39m=[32m"-mb-px inline-flex items-center gap-1.5 border-b-2 pb-2 pt-1 font-sans text-[12.5px] font-medium transition-colors text-ink-400 border-transparent hover:text-ink-700"[39m
+            [33mdata-testid[39m=[32m"tab-thinking"[39m
+            [33mrole[39m=[32m"tab"[39m
+            [33mtype[39m=[32m"button"[39m
+          [36m>[39m
+            [0mSteps[0m
+          [36m</button>[39m
+          [36m<button[39m
+            [33maria-selected[39m=[32m"false"[39m
+            [33mclass[39m=[32m"-mb-px inline-flex items-center gap-1.5 border-b-2 pb-2 pt-1 font-sans text-[12.5px] font-medium transition-colors text-ink-400 border-transparent hover:text-ink-700"[39m
+            [33mdata-testid[39m=[32m"tab-workspace"[39m
+            [33mrole[39m=[32m"tab"[39m
+            [33mtype[39m=[32m"button"[39m
+          [36m>[39m
+            [0mWorkspace[0m
+          [36m</button>[39m
+          [36m<button[39m
+            [33maria-selected[39m=[32m"false"[39m
+            [33mclass[39m=[32m"-mb-px inline-flex items-center gap-1.5 border-b-2 pb-2 pt-1 font-sans text-[12.5px] font-medium transition-colors text-ink-400 border-transparent hover:text-ink-700"[39m
+            [33mdata-testid[39m=[32m"tab-audit"[39m
+            [33mrole[39m=[32m"tab"[39m
+            [33mtype[39m=[32m"button"[39m
+          [36m>[39m
+            [0mAudit[0m
+          [36m</button>[39m
+        [36m</div>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"flex items-center gap-2"[39m
+        [36m/>[39m
+      [36m</div>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"relative flex-1 min-h-0 overflow-hidden"[39m
+      [36m>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"absolute inset-0 overflow-y-auto"[39m
+        [36m>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"flex h-full flex-col"[39m
+          [36m>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"flex flex-none items-center gap-[6px] border-b border-line-faint-row bg-surface-warm px-[14px] py-[9px] "[39m
+              [33mdata-testid[39m=[32m"renders-as-switch"[39m
+            [36m>[39m
+              [36m<span[39m
+                [33mclass[39m=[32m"mr-[3px] font-sans text-[9px] font-semibold uppercase leading-none tracking-[0.09em] text-ink-300"[39m
+              [36m>[39m
+                [0mRenders as[0m
+              [36m</span>[39m
+              [36m<button[39m
+                [33maria-pressed[39m=[32m"true"[39m
+                [33mclass[39m=[32m"rounded-[7px] px-[10px] py-[5px] font-sans text-[11px] font-semibold leading-none transition-colors bg-brand text-white"[39m
+                [33mdata-testid[39m=[32m"renderer-pill"[39m
+                [33mtype[39m=[32m"button"[39m
+              [36m>[39m
+                [0mAuto[0m
+              [36m</button>[39m
+              [36m<button[39m
+                [33maria-pressed[39m=[32m"false"[39m
+                [33mclass[39m=[32m"rounded-[7px] px-[10px] py-[5px] font-sans text-[11px] font-semibold leading-none transition-colors border border-line-control bg-surface-white text-ink-500 hover:border-line-faint"[39m
+                [33mdata-testid[39m=[32m"renderer-pill"[39m
+                [33mtype[39m=[32m"button"[39m
+              [36m>[39m
+                [0mPrototype[0m
+              [36m</button>[39m
+            [36m</div>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"min-h-0 flex-1"[39m
+            [36m>[39m
+              [36m<div[39m
+                [33mdata-testid[39m=[32m"proto-preview"[39m
+              [36m/>[39m
+            [36m</div>[39m
+          [36m</div>[39m
+        [36m</div>[39m
+      [36m</div>[39m
+    [36m</div>[39m
+  [36m</div>[39m
+[36m</body>[39m
+ ❯ Object.getElementError node_modules/@testing-library/dom/dist/config.js:37:19
+ ❯ getAllByLabelText node_modules/@testing-library/dom/dist/queries/label-text.js:111:38
+ ❯ node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+ ❯ node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+ ❯ src/components/preview/PreviewPanel.versionChip.test.tsx:180:25
+    178|     render(<PreviewPanel workflowType="prototype" prototypeContent="<h…
+    179|
+    180|     const chip = screen.getByLabelText(/Version v3/);
+       |                         ^
+    181|     expect(chip).toHaveAttribute("aria-haspopup", "listbox");
+    182|     expect(chip).toHaveAttribute("aria-expanded", "false");
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/5]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  5 failed (5)
+   Start at  18:47:33
+   Duration  1.24s (transform 201ms, setup 63ms, import 430ms, tests 56ms, environment 497ms)
+
+
+######## npx vitest run src/components/preview/PreviewPanel.test.tsx
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - ESM syntax in a file loaded as CommonJS (vitest.config.ts:1:1). Use a `.mjs` extension or set `"type": "module"` in the closest package.json
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+
+ RUN  v4.1.11 /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/frontend
+
+ ❯ src/components/preview/PreviewPanel.test.tsx (19 tests | 1 failed) 234ms
+     × mounts the run header and exactly ONE version affordance (INV-3) in the settled state 12ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/components/preview/PreviewPanel.test.tsx > PreviewPanel — Phase 39 run header + tabs > mounts the run header and exactly ONE version affordance (INV-3) in the settled state
+TestingLibraryElementError: Unable to find a label with the text of: /choose version/
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div>[39m
+    [36m<div[39m
+      [33mclass[39m=[32m"flex h-full flex-col bg-surface-paper"[39m
+    [36m>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"flex flex-none items-center gap-[14px] px-[30px] pt-4"[39m
+        [33mdata-run-state[39m=[32m"complete"[39m
+        [33mdata-testid[39m=[32m"run-header"[39m
+      [36m>[39m
+        [36m<span[39m
+          [33mclass[39m=[32m"tabular-nums rounded-[8px] border border-line-control bg-surface-card px-2.5 py-[7px] font-serif text-[11.5px] font-normal leading-none text-ink-300"[39m
+        [36m>[39m
+          [0mv2[0m
+        [36m</span>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"flex-1"[39m
+        [36m/>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"relative"[39m
+        [36m>[39m
+          [36m<button[39m
+            [33maria-label[39m=[32m"Share this run"[39m
+            [33mclass[39m=[32m"inline-flex items-center gap-2 rounded-[10px] border px-3.5 py-2 font-sans text-[13px] font-medium transition-colors cursor-pointer border-line-control bg-surface-card text-ink-700 hover:border-line-faint hover:bg-surface-white"[39m
+            [33mtype[39m=[32m"button"[39m
+          [36m>[39m
+            [36m<svg[39m
+              [33maria-hidden[39m=[32m"true"[39m
+              [33mclass[39m=[32m"lucide lucide-upload h-[15px] w-[15px]"[39m
+              [33mfill[39m=[32m"none"[39m
+              [33mheight[39m=[32m"24"[39m
+              [33mstroke[39m=[32m"currentColor"[39m
+              [33mstroke-linecap[39m=[32m"round"[39m
+              [33mstroke-linejoin[39m=[32m"round"[39m
+              [33mstroke-width[39m=[32m"1.7"[39m
+              [33mviewBox[39m=[32m"0 0 24 24"[39m
+              [33mwidth[39m=[32m"24"[39m
+              [33mxmlns[39m=[32m"http://www.w3.org/2000/svg"[39m
+            [36m>[39m
+              [36m<path[39m
+                [33md[39m=[32m"M12 3v12"[39m
+              [36m/>[39m
+              [36m<path[39m
+                [33md[39m=[32m"m17 8-5-5-5 5"[39m
+              [36m/>[39m
+              [36m<path[39m
+                [33md[39m=[32m"M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"[39m
+              [36m/>[39m
+            [36m</svg>[39m
+            [0mShare[0m
+          [36m</button>[39m
+        [36m</div>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"inline-flex flex-col items-end gap-[3px]"[39m
+        [36m>[39m
+          [36m<button[39m
+            [33maria-label[39m=[32m"Download the deliverable"[39m
+            [33mclass[39m=[32m"inline-flex items-center gap-2 rounded-[10px] border-none px-[15px] py-2 font-sans text-[13px] font-semibold text-white transition-colors cursor-not-allowed bg-brand/50"[39m
+            [33mdisabled[39m=[32m""[39m
+            [33mtype[39m=[32m"button"[39m
+          [36m>[39m
+            [36m<svg[39m
+              [33maria-hidden[39m=[32m"true"[39m
+              [33mclass[39m=[32m"lucide lucide-download h-[15px] w-[15px]"[39m
+              [33mfill[39m=[32m"none"[39m
+              [33mheight[39m=[32m"24"[39m
+              [33mstroke[39m=[32m"currentColor"[39m
+              [33mstroke-linecap[39m=[32m"round"[39m
+              [33mstroke-linejoin[39m=[32m"round"[39m
+              [33mstroke-width[39m=[32m"1.9"[39m
+              [33mviewBox[39m=[32m"0 0 24 24"[39m
+              [33mwidth[39m=[32m"24"[39m
+              [33mxmlns[39m=[32m"http://www.w3.org/2000/svg"[39m
+            [36m>[39m
+              [36m<path[39m
+                [33md[39m=[32m"M12 15V3"[39m
+              [36m/>[39m
+              [36m<path[39m
+                [33md[39m=[32m"M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"[39m
+              [36m/>[39m
+              [36m<path[39m
+                [33md[39m=[32m"m7 10 5 5 5-5"[39m
+              [36m/>[39m
+            [36m</svg>[39m
+            [0mDownload[0m
+          [36m</button>[39m
+        [36m</div>[39m
+      [36m</div>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"flex-none px-[30px] pt-4 flex flex-wrap items-center justify-between gap-2 border-b border-line-divider"[39m
+      [36m>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"flex items-center gap-4 border-b border-line-divider"[39m
+          [33mrole[39m=[32m"tablist"[39m
+        [36m>[39m
+          [36m<button[39m
+            [33maria-selected[39m=[32m"true"[39m
+            [33mclass[39m=[32m"-mb-px inline-flex items-center gap-1.5 border-b-2 pb-2 pt-1 font-sans text-[12.5px] font-medium transition-colors text-ink-900 border-brand"[39m
+            [33mdata-testid[39m=[32m"tab-preview"[39m
+            [33mrole[39m=[32m"tab"[39m
+            [33mtype[39m=[32m"button"[39m
+          [36m>[39m
+            [0mPreview[0m
+          [36m</button>[39m
+          [36m<button[39m
+            [33maria-selected[39m=[32m"false"[39m
+            [33mclass[39m=[32m"-mb-px inline-flex items-center gap-1.5 border-b-2 pb-2 pt-1 font-sans text-[12.5px] font-medium transition-colors text-ink-400 border-transparent hover:text-ink-700"[39m
+            [33mdata-testid[39m=[32m"tab-thinking"[39m
+            [33mrole[39m=[32m"tab"[39m
+            [33mtype[39m=[32m"button"[39m
+          [36m>[39m
+            [0mSteps[0m
+          [36m</button>[39m
+          [36m<button[39m
+            [33maria-selected[39m=[32m"false"[39m
+            [33mclass[39m=[32m"-mb-px inline-flex items-center gap-1.5 border-b-2 pb-2 pt-1 font-sans text-[12.5px] font-medium transition-colors text-ink-400 border-transparent hover:text-ink-700"[39m
+            [33mdata-testid[39m=[32m"tab-workspace"[39m
+            [33mrole[39m=[32m"tab"[39m
+            [33mtype[39m=[32m"button"[39m
+          [36m>[39m
+            [0mWorkspace[0m
+          [36m</button>[39m
+          [36m<button[39m
+            [33maria-selected[39m=[32m"false"[39m
+            [33mclass[39m=[32m"-mb-px inline-flex items-center gap-1.5 border-b-2 pb-2 pt-1 font-sans text-[12.5px] font-medium transition-colors text-ink-400 border-transparent hover:text-ink-700"[39m
+            [33mdata-testid[39m=[32m"tab-audit"[39m
+            [33mrole[39m=[32m"tab"[39m
+            [33mtype[39m=[32m"button"[39m
+          [36m>[39m
+            [0mAudit[0m
+          [36m</button>[39m
+        [36m</div>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"flex items-center gap-2"[39m
+        [36m/>[39m
+      [36m</div>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"relative flex-1 min-h-0 overflow-hidden"[39m
+      [36m>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"absolute inset-0 overflow-y-auto"[39m
+        [36m>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"flex h-full flex-col"[39m
+          [36m>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"flex flex-none items-center gap-[6px] border-b border-line-faint-row bg-surface-warm px-[14px] py-[9px] "[39m
+              [33mdata-testid[39m=[32m"renders-as-switch"[39m
+            [36m>[39m
+              [36m<span[39m
+                [33mclass[39m=[32m"mr-[3px] font-sans text-[9px] font-semibold uppercase leading-none tracking-[0.09em] text-ink-300"[39m
+              [36m>[39m
+                [0mRenders as[0m
+              [36m</span>[39m
+              [36m<button[39m
+                [33maria-pressed[39m=[32m"true"[39m
+                [33mclass[39m=[32m"rounded-[7px] px-[10px] py-[5px] font-sans text-[11px] font-semibold leading-none transition-colors bg-brand text-white"[39m
+                [33mdata-testid[39m=[32m"renderer-pill"[39m
+                [33mtype[39m=[32m"button"[39m
+              [36m>[39m
+                [0mAuto[0m
+              [36m</button>[39m
+              [36m<button[39m
+                [33maria-pressed[39m=[32m"false"[39m
+                [33mclass[39m=[32m"rounded-[7px] px-[10px] py-[5px] font-sans text-[11px] font-semibold leading-none transition-colors border border-line-control bg-surface-white text-ink-500 hover:border-line-faint"[39m
+                [33mdata-testid[39m=[32m"renderer-pill"[39m
+                [33mtype[39m=[32m"button"[39m
+              [36m>[39m
+                [0mPrototype[0m
+              [36m</button>[39m
+            [36m</div>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"min-h-0 flex-1"[39m
+            [36m>[39m
+              [36m<div[39m
+                [33mdata-testid[39m=[32m"proto-preview"[39m
+              [36m/>[39m
+            [36m</div>[39m
+          [36m</div>[39m
+        [36m</div>[39m
+      [36m</div>[39m
+    [36m</div>[39m
+  [36m</div>[39m
+[36m</body>[39m
+ ❯ Object.getElementError node_modules/@testing-library/dom/dist/config.js:37:19
+ ❯ getAllByLabelText node_modules/@testing-library/dom/dist/queries/label-text.js:111:38
+ ❯ node_modules/@testing-library/dom/dist/query-helpers.js:109:15
+ ❯ src/components/preview/PreviewPanel.test.tsx:152:19
+    150|     expect(screen.getByTestId("run-header")).toBeInTheDocument();
+    151|     // Exactly one version-menu affordance — the retired LiveVersionCh…
+    152|     expect(screen.getAllByLabelText(/choose version/)).toHaveLength(1);
+       |                   ^
+    153|     expect(screen.getByLabelText(/Version v2, choose version/)).toBeIn…
+    154|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 18 passed (19)
+   Start at  18:47:35
+   Duration  1.23s (transform 187ms, setup 58ms, import 405ms, tests 234ms, environment 429ms)
+

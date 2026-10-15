@@ -1,0 +1,88 @@
+/**
+ * ISS-372 (QA-KB-015) / ISS-921 — AccountSettings never reports unsaved state to
+ * the shared Back guard (DashboardLayout `handleUnsavedChange` / `hasUnsavedWork`),
+ * so Back silently discards typed passwords, a pending model pick and a
+ * Constitution draft. Each case is `it.fails`: red today, and the runner flags it
+ * the moment the fix lands so the marker gets removed.
+ */
+import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
+import { render, screen, act } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { readFileSync } from "node:fs";
+import path from "node:path";
+
+vi.mock("@/lib/api", () => ({
+  authedFetch: (input: string, init?: RequestInit) => fetch(input, init),
+  getConstitution: () => Promise.resolve({ content: "saved rules" }),
+  getToken: () => "test-token",
+  getMe: () => Promise.resolve({ id: "u1", email: "user@example.com", tier: "pro" }),
+  getPreferences: () =>
+    Promise.resolve({
+      preferred_model: null,
+      available_models: [{ id: "model-one", name: "Model One", description: "d", tier: "fast" }],
+    }),
+  getCapabilities: () => Promise.resolve({ model_catalog: [] }),
+  changePassword: vi.fn(),
+  updatePreferences: vi.fn(),
+  getMfaStatus: () => Promise.resolve({ supported: true, enabled: false, required: false, email_available: true, factors: [] }),
+  enableEmailMfa: vi.fn(),
+  disableEmailMfa: vi.fn(),
+  ApiError: class ApiError extends Error {},
+}));
+const mockRouter = { push: vi.fn(), replace: vi.fn(), prefetch: vi.fn() };
+vi.mock("next/navigation", () => ({ useRouter: () => mockRouter }));
+
+import { AccountSettings } from "./AccountSettings";
+
+beforeEach(() => {
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => ({ content: "" }) }));
+});
+afterEach(() => vi.unstubAllGlobals());
+
+async function renderPage() {
+  const onUnsavedChange = vi.fn();
+  // Loose record: the prop does not exist on AccountSettings yet.
+  const extra = { onUnsavedChange } as Record<string, unknown>;
+  render(<AccountSettings onBack={vi.fn()} {...extra} />);
+  await screen.findByText("user@example.com");
+  return onUnsavedChange;
+}
+
+describe("ISS-372 — AccountSettings reports unsaved work to the Back guard", () => {
+  it("reports dirty after Current password is typed", async () => {
+    const onUnsavedChange = await renderPage();
+    await userEvent.setup().type(screen.getByPlaceholderText(/enter current password/i), "x");
+    expect(onUnsavedChange).toHaveBeenLastCalledWith(true);
+  });
+
+  it("is not dirty on mount, and clears when the field is emptied", async () => {
+    const onUnsavedChange = await renderPage();
+    expect(onUnsavedChange).toHaveBeenCalled();
+    expect(onUnsavedChange).not.toHaveBeenCalledWith(true);
+    const user = userEvent.setup();
+    const box = screen.getByPlaceholderText(/enter current password/i);
+    await user.type(box, "x");
+    await user.clear(box);
+    expect(onUnsavedChange).toHaveBeenLastCalledWith(false);
+  });
+
+  it("DashboardLayout feeds the AccountSettings mount into the guard", () => {
+    const src = readFileSync(path.join(__dirname, "../layout/DashboardLayout.tsx"), "utf8");
+    const start = src.indexOf("<AccountSettings");
+    const mount = src.slice(start, src.indexOf("/>", start));
+    expect(mount).toContain("onUnsavedChange={handleUnsavedChange}");
+  });
+});
+
+describe("ISS-921 — Constitution draft counts as unsaved work", () => {
+  it("reports dirty after the Constitution draft is edited (not before it loads)", async () => {
+    const onUnsavedChange = await renderPage();
+    const user = userEvent.setup();
+    await user.click(screen.getAllByText("Constitution").map((n) => n.closest("button")).find(Boolean)!);
+    const area = await screen.findByRole("textbox");
+    await act(async () => {});
+    expect(onUnsavedChange).not.toHaveBeenCalledWith(true);
+    await user.type(area, "draft");
+    expect(onUnsavedChange).toHaveBeenLastCalledWith(true);
+  });
+});

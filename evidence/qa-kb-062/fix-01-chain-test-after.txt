@@ -1,0 +1,28 @@
+# QA-KB-062 fix — LaunchWizard.chain.test.tsx after FIX-723 (2026-10-07 18:11, HEAD 0b5223f4c + working tree)
+# cmd: cd frontend && npx vitest --run src/components/workflow/LaunchWizard.chain.test.tsx
+# Before the fix (same cmd): Tests 3 expected fail (3). After: all 3 it.fails report 'Expect test to fail' = the bodies pass (XPASS signal).
+
+ RUN  v4.1.11 /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/frontend
+
+ ❯ src/components/workflow/LaunchWizard.chain.test.tsx (3 tests | 3 failed) 453ms
+     × ISS-347: stale chain trio + staged draft -> the staged draft wins and chain keys are cleared 142ms
+     × ISS-1000: stale chain.from + source_run_id + draft -> chaining not armed, no stale source id launched 101ms
+     × ISS-1002: stale chain.v2.source_status alone must not leave Continue disabled with no acknowledgement checkbox 209ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/components/workflow/LaunchWizard.chain.test.tsx > QA-KB-062 LaunchWizard ambient chain.* state > ISS-347: stale chain trio + staged draft -> the staged draft wins and chain keys are cleared
+ FAIL  src/components/workflow/LaunchWizard.chain.test.tsx > QA-KB-062 LaunchWizard ambient chain.* state > ISS-1002: stale chain.v2.source_status alone must not leave Continue disabled with no acknowledgement checkbox
+Error: Expect test to fail
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/3]⎯
+
+ FAIL  src/components/workflow/LaunchWizard.chain.test.tsx > QA-KB-062 LaunchWizard ambient chain.* state > ISS-1000: stale chain.from + source_run_id + draft -> chaining not armed, no stale source id launched
+Error: Expect test to fail
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/3]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  3 failed (3)
+   Start at  18:11:41
+   Duration  1.86s (transform 245ms, setup 79ms, import 636ms, tests 453ms, environment 587ms)
+

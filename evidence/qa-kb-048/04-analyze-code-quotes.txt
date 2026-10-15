@@ -1,0 +1,218 @@
+QA-KB-048 analysis, code quotes (working tree on top of 024c03ef8, read 2026-10-02 by 3-analyzer). Each block: file:first-last, then the lines verbatim with their numbers.
+
+### frontend/src/components/workflow/LaunchWizard.tsx:428-436
+428:       if (d.agentIds && d.agentIds.length > 0 && libraryAgents.length > 0) {
+429:         const restored = d.agentIds
+430:           .map((id) => libraryAgents.find((a) => a.id === id))
+431:           .filter(Boolean) as AgentDef[];
+432:         if (restored.length > 0) setPipelineAgents(restored);
+433:       }
+434:       setAgentRestorePending(Boolean(d.agentIds && d.agentIds.length > 0) && libraryAgents.length === 0);
+435:       if (d.selections) handleSelectionsChange(d.selections);
+436:       if (d.gateAgentIds !== undefined) gateSelectionRef.current = { ids: d.gateAgentIds, touched: true };
+
+### frontend/src/components/workflow/LaunchWizard.tsx:476-495
+476:   // Complete a partial library roster from the compiled plan (see `planAgents`).
+477:   // Guarded on "the plan lists MORE steps than we are showing" so a workflow the
+478:   // library covers fully, and any lineup the user has edited or added to, is
+479:   // left exactly as it is. Plan rows are hydrated from the library where it has
+480:   // the agent, so the shared steps keep their real icon and duration.
+481:   useEffect(() => {
+482:     if (!planAgents) return;
+483:     setPipelineAgents((prev) => {
+484:       // The plan also wins when it carries a sub-agent TREE the current lineup
+485:       // does not. A fan-out parent and its children are ONE plan row (the
+486:       // children hang off `.children`), so a nested workflow can have fewer
+487:       // rows than the flat library roster and still be the richer answer —
+488:       // the length test alone left the Advanced canvas showing a parent with
+489:       // an empty "+ Sub-agent" slot while the full canvas drew its children.
+490:       const planHasTree = planAgents.some((a) => (a.children?.length ?? 0) > 0);
+491:       const prevHasTree = prev.some((a) => (a.children?.length ?? 0) > 0);
+492:       if (planAgents.length <= prev.length && !(planHasTree && !prevHasTree)) return prev;
+493:       return mergePlanWithLibrary(planAgents, libraryAgents);
+494:     });
+495:   }, [planAgents, libraryAgents]);
+
+### frontend/src/components/workflow/LaunchWizard.tsx:548-552
+548:         // `selectionsRef` is not touched here, so an untouched run still omits
+549:         // `selections` from the launch payload).
+550:         const planProj = agentsFromManifest(detail, pipeline);
+551:         setPlanAgents(planProj.agents);
+552:         setPlanManifestSteps(planProj.rawSteps ?? undefined);
+
+### frontend/src/components/workflow/LaunchWizard.tsx:724-734
+724:   const handleModeChange = useCallback((next: "web" | "deck") => {
+725:     const nextMode = modeFromStepper(next, deckMode, webMode);
+726:     setMode(nextMode);
+727:     // Switching deliverable family is a fresh choice: reset the family-specific
+728:     // selection + lineup + levers; shared inputs (brief/DS/files/images) persist.
+729:     setSelectedTemplateId(null);
+730:     setCustomTemplateBody(null);
+731:     setPipelineAgents(defaultAgentsFor(libraryAgents, nextMode));
+732:     handleSelectionsChange({});
+733:     gateSelectionRef.current = { ids: [], touched: true };
+734:   }, [libraryAgents, deckMode, handleSelectionsChange]);
+
+### frontend/src/components/workflow/LaunchWizard.tsx:936-942
+936:       await createUserWorkflow(jwt, {
+937:         name,
+938:         description: description || undefined,
+939:         base_pipeline_type: MODE_CONFIG[mode].savePipeline,
+940:         agent_ids: pipelineAgents.map((a) => a.id),
+941:         selections: { ...sel, _wizard: wizardConfig },
+942:       });
+
+### frontend/src/components/workflow/LaunchWizard.tsx:970-988
+970:       const saved = await createUserWorkflow(jwt, {
+971:         name: `My ${cfg.eyebrow.replace(/^New /, "")}`,
+972:         // ISS-226/ISS-279 — was a hardcoded literal, so the saved row was
+973:         // byte-identical no matter what was on screen. `handleLaunch` below
+974:         // reads exactly these three pieces of state for the same click.
+975:         description: overrideDescription({
+976:           brief,
+977:           templateId: selectedTemplateId,
+978:           designSystemId: isDeck ? (dsRequired ? selectedDsId : null) : selectedDsId,
+979:         }),
+980:         base_pipeline_type: pipeline,
+981:         agent_ids: pipelineAgents.map((a) => a.id),
+982:         manifest: buildWorkflowManifest(
+983:           pipelineAgents,
+984:           undefined,
+985:           selectionsRef.current,
+986:         ) as unknown as Record<string, unknown>,
+987:         overrides_pipeline_type: pipeline,
+988:       });
+
+### frontend/src/components/workflow/LaunchWizard.tsx:1041-1041
+1041:       agentIds: pipelineAgents.map((a) => a.id).filter((id) => !id.startsWith(CUSTOM_AGENT_PREFIX)),
+
+### frontend/src/components/workflow/AgentsPopup.tsx:177-181
+177:   // od_ppt pipeline agents — all core, none removable
+178:   "ppt-brief-analyst", "ppt-composer", "ppt-validator",
+179:   // od_prototype pipeline agents — all core, none removable
+180:   "prototype-specify", "prototype-plan", "prototype-analyze", "prototype-build", "prototype-validate",
+181: ]);
+
+### frontend/src/components/workflow/AgentsPopup.tsx:210-220
+210: export function getRole(agentId: string, pipelineType: WorkflowType): AgentRole {
+211:   const isNativeLocked = LOCKED_AGENT_IDS.has(agentId);
+212:   const isNativeRequired = REQUIRED_AGENT_IDS.has(agentId);
+213:   if (!isNativeLocked && !isNativeRequired) return "optional";
+214:   const pipelinePrefixes: Record<string, string[]> = {
+215:     user_stories: ["domain-analyst", "epic-architect", "story-estimator", "nfr-specialist", "backlog-reviewer", "backlog-compiler"],
+216:     ppt: ["ppt-content-strategist", "ppt-slide-architect", "ppt-code-generator", "ppt-assembler",
+217:           "ppt-brief-analyst", "ppt-composer", "ppt-validator"],
+218:     prototype: ["requirements-analyst", "html-prototype-builder", "prototype-polisher", "prototype-finalizer",
+219:                 "prototype-specify", "prototype-plan", "prototype-analyze", "prototype-build", "prototype-validate"],
+220:     app_builder: [
+
+### frontend/src/components/workflow/AgentsPopup.tsx:243-247
+243:   const nativeAgents = pipelinePrefixes[pipelineType] || [];
+244:   if (!nativeAgents.includes(agentId)) return "optional";
+245:   if (isNativeLocked) return "locked";
+246:   if (isNativeRequired) return "required";
+247:   return "optional";
+
+### frontend/src/components/workflow/AgentsPopup.tsx:2822-2826
+2822:   const handleRemove = useCallback((agentId: string) => {
+2823:     if (getRole(agentId, pipelineType) !== "optional") return;
+2824:     stageEdit();
+2825:     onRemoveAgent?.(agentId);
+2826:   }, [onRemoveAgent, pipelineType, stageEdit]);
+
+### frontend/src/lib/api.ts:2648-2653
+2648:   if (userWorkflowId) {
+2649:     const { base_pipeline_type: _bpt, agent_ids: _aids, ...updateBody } = body;
+2650:     void _bpt;
+2651:     void _aids;
+2652:     return updateUserWorkflow(token, userWorkflowId, updateBody);
+2653:   }
+
+### frontend/src/hooks/useAgentLibrary.ts:33-36
+33:   const libraryAgents = useMemo(
+34:     () => reduxAgents.filter((a) => !agentMatchesPipelineType(a.pipeline_type, "custom")),
+35:     [reduxAgents],
+36:   );
+
+### frontend/src/components/workflow/AgentLibrary.tsx:83-83
+83:   const { allAgents: ALL_AGENTS } = useAgentLibrary();
+
+### frontend/src/app/[...view]/page.tsx:3958-3964
+3958:         const WIZARD_BY_BASE: Record<string, { mode: LaunchMode; draftKey: string }> = {
+3959:           prototype:    { mode: "prototype",    draftKey: "prototype.draft" },
+3960:           prototype_v2: { mode: "prototype_v2", draftKey: "prototype.draft" },
+3961:           ppt:          { mode: "ppt",          draftKey: "ppt.draft" },
+3962:           ppt_v2:       { mode: "ppt_v2",       draftKey: "ppt.draft" },
+3963:         };
+3964:         const wizardTarget = WIZARD_BY_BASE[saved.base_pipeline_type];
+
+### frontend/src/app/[...view]/page.tsx:3984-3989
+3984:             agentIds: saved.agent_ids,
+3985:             id: saved.id,
+3986:             name: saved.name,
+3987:             description: saved.description ?? undefined,
+3988:           };
+3989:           sessionStorage.setItem(wizardTarget.draftKey, JSON.stringify(draft));
+
+### frontend/src/components/layout/DashboardLayout.tsx:1677-1677
+1677:         agentIds: saved.agent_ids,
+
+### frontend/src/components/layout/DashboardLayout.tsx:1704-1704
+1704:         agentIds: saved.agent_ids,
+
+### backend/app/api/run_commands.py:3520-3525
+3520:     agent_ids = body.agent_ids
+3521:     agents = None
+3522:     if launch_source is not LaunchSource.USER_WORKFLOW_MANIFEST:
+3523:         if agent_ids:
+3524:             allowed_ids = allowed_custom_agent_ids(base_pipeline_type)
+3525:             rejected = [aid for aid in agent_ids if aid not in allowed_ids]
+
+### backend/app/api/run_commands.py:3550-3570
+3550:             agents = [load_agent_spec(aid) for aid in agent_ids]
+3551:             # CWF-001 D1: producer-first pre-sort (defense-in-depth + legacy repair).
+3552:             # A custom composition sent/saved consumer-before-producer is reordered to a
+3553:             # runnable producer-first order BEFORE the mint; a genuinely-unsatisfiable set
+3554:             # (a consumed non-exempt type no selected agent produces, or a real cycle) is
+3555:             # rejected pre-mint (no WorkflowRun row). ONLY the custom `agent_ids` branch —
+3556:             # file-backed built-in manifests (the `else`) are already producer-first and
+3557:             # MUST NOT be re-sorted (scope fence).
+3558:             from app.api.composition_order import (
+3559:                 UnsatisfiableComposition,
+3560:                 presort_specs,
+3561:             )
+3562: 
+3563:             try:
+3564:                 agents = presort_specs(agents)
+3565:             except UnsatisfiableComposition as exc:
+3566:                 raise _reject(
+3567:                     "workflow_unsatisfiable",
+3568:                     str(exc),
+3569:                     http_status=status.HTTP_422_UNPROCESSABLE_ENTITY,
+3570:                 )
+
+### backend/app/api/run_commands.py:3617-3622
+3617:             try:
+3618:                 _plan = compile_for_run(base_pipeline_type)
+3619:             except Exception:
+3620:                 _plan = None
+3621:             if _plan is not None and _plan.steps and len(agents) < len(_plan.steps):
+3622:                 agents = get_execution_engine()._specs_from_plan(_plan.steps)
+
+### backend/app/api/run_commands.py:3020-3020
+3020:     agent_count = len(compiled.steps) if compiled is not None else len(agents)
+
+### backend/agents/execution_engine/engine.py:5004-5015
+5004:         _plan_ids = {s.agent_id for s in compiled.steps}
+5005:         _roster_is_partial = bool(agents) and {a.id for a in agents} < _plan_ids
+5006:         if compiled.steps and (not agents or _roster_is_partial):
+5007:             if _roster_is_partial:  # `not agents` is the normal path; never log it
+5008:                 logger.info(
+5009:                     "roster expanded from plan: run=%s pipeline=%s requested=%s plan=%s",
+5010:                     pipeline_run_id,
+5011:                     pipeline_type,
+5012:                     [a.id for a in agents],
+5013:                     [s.agent_id for s in compiled.steps],
+5014:                 )
+5015:             agents = self._specs_from_plan(compiled.steps)
+

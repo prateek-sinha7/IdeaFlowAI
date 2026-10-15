@@ -7,7 +7,8 @@
  */
 
 import { describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { screen } from "@testing-library/react";
+import { renderWithProviders } from "@/test/renderWithProviders";
 
 vi.mock("@/lib/entitlements", () => ({
   TIER_LABELS: { basic: "Basic", pro: "Pro", enterprise: "Enterprise", hexaware: "Hexaware" },
@@ -26,7 +27,7 @@ import { UpgradePlanModal } from "./UpgradePlanModal";
 
 describe("UpgradePlanModal — deliverable count wording", () => {
   it("uses the singular 'type' and ignores revision variants when exactly one deliverable is unlocked", () => {
-    render(<UpgradePlanModal tier="basic" onClose={() => {}} />);
+    renderWithProviders(<UpgradePlanModal tier="basic" onClose={() => {}} />);
 
     expect(screen.getByRole("dialog", { name: "Upgrade your plan" })).toHaveTextContent(
       "The Pro plan unlocks 1 more deliverable type.",
@@ -34,7 +35,7 @@ describe("UpgradePlanModal — deliverable count wording", () => {
   });
 
   it("uses the plural 'types' when several deliverables are unlocked", () => {
-    render(<UpgradePlanModal tier="pro" onClose={() => {}} />);
+    renderWithProviders(<UpgradePlanModal tier="pro" onClose={() => {}} />);
 
     expect(screen.getByRole("dialog", { name: "Upgrade your plan" })).toHaveTextContent(
       "The Enterprise plan unlocks 3 more deliverable types.",

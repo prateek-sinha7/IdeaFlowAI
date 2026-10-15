@@ -1,0 +1,56 @@
+# QA-KB-087 5-fixer probe for ISS-1039 / ISS-1040, 2026-10-07 20:23:23 CEST, repo HEAD cec17f2f7
+# *_head_marker_off_real = HEAD test, it.fails -> it only, real component  (red for the wrong reason, the cards' claim)
+# *_fixed_real           = HEAD test + the card's fix, real component        (must pass)
+# *_fixed_mutant         = same test, component with the Copy-failed feedback removed (must fail at the behavioural assertion)
+
+### lib_head_marker_off_real
+ × lib_head_marker_off_real.test.tsx > HookDetailModal Copy button — ISS-331 > shows a failure state when the clipboard write rejects, instead of staying silent 3ms
+   → vi.mocked(...).mockReturnValue is not a function
+ × lib_head_marker_off_real.test.tsx > SkillDetailModal Copy button — ISS-555 > shows a failure state when the clipboard write rejects, instead of staying silent 0ms
+   → vi.mocked(...).mockReturnValue is not a function
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+TypeError: vi.mocked(...).mockReturnValue is not a function
+ ❯ lib_head_marker_off_real.test.tsx:98:26
+TypeError: vi.mocked(...).mockReturnValue is not a function
+ ❯ lib_head_marker_off_real.test.tsx:117:26
+      Tests  2 failed (2)
+
+### lib_fixed_real
+ ✓ lib_fixed_real.test.tsx > HookDetailModal Copy button — ISS-331 > shows a failure state when the clipboard write rejects, instead of staying silent 123ms
+ ✓ lib_fixed_real.test.tsx > SkillDetailModal Copy button — ISS-555 > shows a failure state when the clipboard write rejects, instead of staying silent 35ms
+      Tests  2 passed (2)
+
+### lib_fixed_mutant
+ × lib_fixed_mutant.test.tsx > HookDetailModal Copy button — ISS-331 > shows a failure state when the clipboard write rejects, instead of staying silent 119ms
+   → expect(received).toBeInTheDocument()
+ × lib_fixed_mutant.test.tsx > SkillDetailModal Copy button — ISS-555 > shows a failure state when the clipboard write rejects, instead of staying silent 35ms
+   → expect(received).toBeInTheDocument()
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+Error: expect(received).toBeInTheDocument()
+ ❯ lib_fixed_mutant.test.tsx:108:57
+Error: expect(received).toBeInTheDocument()
+ ❯ lib_fixed_mutant.test.tsx:123:57
+      Tests  2 failed (2)
+
+### int_head_marker_off_real
+ ↓ int_head_marker_off_real.test.tsx > IntegrationsCard install-command Copy button — ISS-561 > shows a failure state when the clipboard write rejects, instead of staying silent
+ × int_head_marker_off_real.test.tsx > IntegrationsCard API-key 'copy now' button — ISS-561 > shows SOME feedback after clicking the newly-minted-key copy button 118ms
+   → Unable to find an accessible element with the role "button"
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+TestingLibraryElementError: Unable to find an accessible element with the role "button"
+ ❯ int_head_marker_off_real.test.tsx:96:21
+      Tests  1 failed | 1 skipped (2)
+
+### int_fixed_real
+ ✓ int_fixed_real.test.tsx > IntegrationsCard install-command Copy button — ISS-561 > shows a failure state when the clipboard write rejects, instead of staying silent 102ms
+ ✓ int_fixed_real.test.tsx > IntegrationsCard API-key 'copy now' button — ISS-561 > shows SOME feedback after clicking the newly-minted-key copy button 37ms
+      Tests  2 passed (2)
+
+### int_fixed_mutant
+ ↓ int_fixed_mutant.test.tsx > IntegrationsCard install-command Copy button — ISS-561 > shows a failure state when the clipboard write rejects, instead of staying silent
+ × int_fixed_mutant.test.tsx > IntegrationsCard API-key 'copy now' button — ISS-561 > shows SOME feedback after clicking the newly-minted-key copy button 118ms
+   → expect(received).toBeInTheDocument()
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+Error: expect(received).toBeInTheDocument()
+ ❯ int_fixed_mutant.test.tsx:104:54
+      Tests  1 failed | 1 skipped (2)

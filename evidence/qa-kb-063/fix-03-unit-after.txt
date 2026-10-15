@@ -1,0 +1,14 @@
+FFF                                                                      [100%]
+=================================== FAILURES ===================================
+_ test_probe_does_not_quote_roundless_clarify_text[test_controls_inventory.py] _
+[XPASS(strict)] ISS-662 unfixed
+_____ test_probe_does_not_quote_roundless_clarify_text[test_chat_lane.py] ______
+[XPASS(strict)] ISS-662 unfixed
+__ test_probe_does_not_quote_roundless_clarify_text[18-chat-lane.feature.md] ___
+[XPASS(strict)] ISS-662 unfixed
+
+=========================== short test summary info ============================
+FAILED tests/unit/test_e2e_clarify_probes_numbered.py::test_probe_does_not_quote_roundless_clarify_text[test_controls_inventory.py]
+FAILED tests/unit/test_e2e_clarify_probes_numbered.py::test_probe_does_not_quote_roundless_clarify_text[test_chat_lane.py]
+FAILED tests/unit/test_e2e_clarify_probes_numbered.py::test_probe_does_not_quote_roundless_clarify_text[18-chat-lane.feature.md]
+3 failed, 1 warning in 1.16s

@@ -1,0 +1,105 @@
+### QA-KB-125 analysis probe, 2026-10-09T13:42:33Z
+browser: Google Chrome 151.0.7922.138 headless=True  (channel=chrome, fresh temp profile)
+app origin simulated: http://app.test  (page.route interception, no server)
+app localStorage.auth_token set to a canary: SECRET-JWT-VALUE
+
+[A  blob: src  + sandbox='allow-scripts allow-same-origin'   (PrototypePreview.tsx:610, today)]
+    child sees  origin: http://app.test
+    child sees  app_localStorage_auth_token: SECRET-JWT-VALUE
+    child sees  document_cookie_typeof: string
+    child sees  parent_document_title: APP-PARENT
+    child sees  parent_localStorage_auth_token: SECRET-JWT-VALUE
+    child sees  top_localStorage_auth_token: SECRET-JWT-VALUE
+    child sees  location_hash_assign: #/2
+    child sees  history_replaceState_hash: #/3
+    child sees  location_hash_assign_2: #/4
+    child sees  hashchange_events: 2
+    parent can read iframe.contentWindow.localStorage.auth_token: SECRET-JWT-VALUE
+
+[B  blob: src  + sandbox='allow-scripts'                      (candidate)]
+    child sees  origin: null
+    child sees  app_localStorage_auth_token: THREW SecurityError
+    child sees  document_cookie_typeof: THREW SecurityError
+    child sees  parent_document_title: THREW SecurityError
+    child sees  parent_localStorage_auth_token: THREW SecurityError
+    child sees  top_localStorage_auth_token: THREW SecurityError
+    child sees  location_hash_assign: 
+    child sees  history_replaceState_hash: #/3
+    child sees  location_hash_assign_2: #/3
+    child sees  hashchange_events: 0
+    parent can read iframe.contentWindow.localStorage.auth_token: THREW SecurityError
+
+[C  srcdoc     + sandbox='allow-scripts allow-same-origin'   (PPTPreview.tsx:252, today)]
+    child sees  origin: http://app.test
+    child sees  app_localStorage_auth_token: SECRET-JWT-VALUE
+    child sees  document_cookie_typeof: string
+    child sees  parent_document_title: APP-PARENT
+    child sees  parent_localStorage_auth_token: SECRET-JWT-VALUE
+    child sees  top_localStorage_auth_token: SECRET-JWT-VALUE
+    child sees  location_hash_assign: #/2
+    child sees  history_replaceState_hash: THREW SecurityError
+    child sees  location_hash_assign_2: #/4
+    child sees  hashchange_events: 2
+    parent can read iframe.contentWindow.localStorage.auth_token: SECRET-JWT-VALUE
+
+[D  srcdoc     + sandbox='allow-scripts'                      (generic renderer PreviewPanel.tsx:278 / candidate)]
+    child sees  origin: null
+    child sees  app_localStorage_auth_token: THREW SecurityError
+    child sees  document_cookie_typeof: THREW SecurityError
+    child sees  parent_document_title: THREW SecurityError
+    child sees  parent_localStorage_auth_token: THREW SecurityError
+    child sees  top_localStorage_auth_token: THREW SecurityError
+    child sees  location_hash_assign: #/2
+    child sees  history_replaceState_hash: THREW SecurityError
+    child sees  location_hash_assign_2: #/4
+    child sees  hashchange_events: 2
+    parent can read iframe.contentWindow.localStorage.auth_token: THREW SecurityError
+
+[E  window.open(blobUrl)  -- today: PrototypePreview.tsx:389, PreviewPanel.tsx:1597, :2182, WorkflowHistory.tsx:1006, PPTPreview.tsx:211]
+    new tab top-level URL: blob:http://app.test/f9140675-a219-4b7d-87b2-f2e30cfe65a2#/4...
+    new tab top-level document origin: http://app.test
+    new tab top-level localStorage.auth_token readable: SECRET-JWT-VALUE
+    agent HTML runs AS the top-level document; it sees:
+        origin: http://app.test
+        app_localStorage_auth_token: SECRET-JWT-VALUE
+        document_cookie_typeof: string
+        parent_document_title: child
+        parent_localStorage_auth_token: SECRET-JWT-VALUE
+        top_localStorage_auth_token: SECRET-JWT-VALUE
+        location_hash_assign: #/2
+        history_replaceState_hash: #/3
+        location_hash_assign_2: #/4
+        hashchange_events: 2
+
+[F  window.open(blobUrl of a doc with <meta CSP sandbox allow-scripts>)  -- the tempting one-line fix]
+    new tab top-level URL: blob:http://app.test/a187231a-41d3-4c4e-ab9a-4bdf83eb07d0#/4...
+    new tab top-level document origin: http://app.test
+    new tab top-level localStorage.auth_token readable: SECRET-JWT-VALUE
+    agent HTML runs AS the top-level document; it sees:
+        origin: http://app.test
+        app_localStorage_auth_token: SECRET-JWT-VALUE
+        document_cookie_typeof: string
+        parent_document_title: child
+        parent_localStorage_auth_token: SECRET-JWT-VALUE
+        top_localStorage_auth_token: SECRET-JWT-VALUE
+        location_hash_assign: #/2
+        history_replaceState_hash: #/3
+        location_hash_assign_2: #/4
+        hashchange_events: 2
+
+[G  window.open(blobUrl of a script-free WRAPPER holding <iframe sandbox='allow-scripts' srcdoc=...>)  -- candidate]
+    new tab top-level URL: blob:http://app.test/597de045-a75a-4a53-bc87-7e949ed9296d...
+    new tab top-level document origin: http://app.test
+    new tab top-level localStorage.auth_token readable: SECRET-JWT-VALUE
+    agent HTML runs in a NESTED frame; child sees:
+        origin: null
+        app_localStorage_auth_token: THREW SecurityError
+        document_cookie_typeof: THREW SecurityError
+        parent_document_title: THREW SecurityError
+        parent_localStorage_auth_token: THREW SecurityError
+        top_localStorage_auth_token: THREW SecurityError
+        location_hash_assign: #/2
+        history_replaceState_hash: THREW SecurityError
+        location_hash_assign_2: #/4
+        hashchange_events: 2
+

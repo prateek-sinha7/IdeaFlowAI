@@ -1,0 +1,86 @@
+# QA-KB-090 / FIX-746 regression runs, one file at a time, offline. Unlabelled ##### headers = working tree WITH the fix; "HEAD engine.py (scratch copy)" = backend/ copy with engine.py from git show HEAD (cec17f2f7).
+##### tests/agents/test_resume_context_v3.py
+                    "resume_run(%s): persisted manifest failed to recompile (%s) — "
+                "resume_run(%s): .context/ rebuild failed — falling back to DB column",
+E       TypeError: _fake_offset() got an unexpected keyword argument 'compiled'
+                    "resume_run(%s): persisted manifest failed to recompile (%s) — "
+                "resume_run(%s): .context/ rebuild failed — falling back to DB column",
+E       TypeError: _fake_offset() got an unexpected keyword argument 'compiled'
+  /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/app/core/config.py:94: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. S
+FAILED tests/agents/test_resume_context_v3.py::test_resume_run_uses_context_file_over_diverging_db_column
+FAILED tests/agents/test_resume_context_v3.py::test_resume_run_falls_back_to_db_column_when_context_absent
+2 failed, 2 warnings in 1.56s
+##### tests/integration/agents/test_specs_from_plan_db.py
+                    "resume_run(%s): persisted manifest failed to recompile (%s) — "
+                "resume_run(%s): .context/ rebuild failed — falling back to DB column",
+E       TypeError: test_resume_run_builds_display_names_for_a_real_composed_workflow.<locals>._spy_offset() got an unexpected keyword argument 'compiled'
+  /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/app/core/config.py:94: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. S
+FAILED tests/integration/agents/test_specs_from_plan_db.py::test_resume_run_builds_display_names_for_a_real_composed_workflow
+1 failed, 1 warning in 1.17s
+##### tests/agents/test_resume_seed_bounded_aggregate.py
+4 passed, 2 warnings in 2.73s
+##### tests/integration/agents/test_cancel_stops_resumed_run_db.py
+ERROR    agents.execution_engine.engine:engine.py:14366 step sample-wave-worker raised: scripted instance-A crash on run_fanout call #2
+ERROR    agents.execution_engine.engine:engine.py:2603 finalize_terminal_run: create_run_ref FAILED run=iss084-47a84fbe (run_id must be a UUID (hex digits and hyphens only): 'iss084-47a84fbe')
+FAILED tests/integration/agents/test_cancel_stops_resumed_run_db.py::test_cancel_stops_a_resumed_drive_and_writes_the_terminal_row
+1 failed, 4 passed, 3 warnings in 3.32s
+##### tests/integration/agents/test_resume_marker_workspace_db.py
+5 passed, 2 warnings in 2.44s
+##### tests/integration/agents/test_resume_ws_bridge_db.py
+FAILED tests/integration/agents/test_resume_ws_bridge_db.py::test_engine_module_does_not_import_app_api
+1 failed, 3 passed, 3 warnings in 3.92s
+##### HEAD engine.py (scratch copy of backend/, engine.py = git show HEAD): tests/integration/agents/test_cancel_stops_resumed_run_db.py
+E       assert 'pipeline_cancelled' in ['workflow_validated']
+ERROR    agents.execution_engine.engine:engine.py:14366 step sample-wave-worker raised: scripted instance-A crash on run_fanout call #2
+ERROR    agents.execution_engine.engine:engine.py:2603 finalize_terminal_run: create_run_ref FAILED run=iss084-4c9b901c (run_id must be a UUID (hex digits and hyphens only): 'iss084-4c9b901c')
+FAILED tests/integration/agents/test_cancel_stops_resumed_run_db.py::test_cancel_stops_a_resumed_drive_and_writes_the_terminal_row
+1 failed, 4 passed, 3 warnings in 3.80s
+##### HEAD engine.py (scratch copy of backend/, engine.py = git show HEAD): tests/integration/agents/test_resume_ws_bridge_db.py
+FAILED tests/integration/agents/test_resume_ws_bridge_db.py::test_engine_module_does_not_import_app_api
+1 failed, 3 passed, 3 warnings in 3.79s
+##### working tree: tests/integration/agents/test_restart_resume_db.py
+ERROR    agents.execution_engine.engine:engine.py:14366 step sample-wave-worker raised: scripted instance-A crash on run_fanout call #2
+ERROR    agents.execution_engine.engine:engine.py:2603 finalize_terminal_run: create_run_ref FAILED run=rr-a5011900 (run_id must be a UUID (hex digits and hyphens only): 'rr-a5011900')
+ERROR    agents.execution_engine.engine:engine.py:14366 step sample-wave-worker raised: scripted instance-A crash on run_fanout call #2
+ERROR    agents.execution_engine.engine:engine.py:14366 step sample-wave-worker raised: scripted instance-A crash on run_fanout call #2
+ERROR    agents.execution_engine.engine:engine.py:2603 finalize_terminal_run: create_run_ref FAILED run=rh-7e6e7814 (run_id must be a UUID (hex digits and hyphens only): 'rh-7e6e7814')
+FAILED tests/integration/agents/test_restart_resume_db.py::test_midwave_resume_does_not_reinvoke_completed_workers
+FAILED tests/integration/agents/test_restart_resume_db.py::test_failed_run_resumes_skips_completed_tasks
+FAILED tests/integration/agents/test_restart_resume_db.py::test_user_resume_persists_output_columns
+FAILED tests/integration/agents/test_restart_resume_db.py::test_resume_dispatch_carries_rehydrated_planning_context
+4 failed, 81 passed, 17 warnings in 19.54s
+##### HEAD engine.py (scratch copy): tests/integration/agents/test_restart_resume_db.py
+ERROR    agents.execution_engine.engine:engine.py:14366 step sample-wave-worker raised: scripted instance-A crash on run_fanout call #2
+ERROR    agents.execution_engine.engine:engine.py:2603 finalize_terminal_run: create_run_ref FAILED run=rr-142f41ac (run_id must be a UUID (hex digits and hyphens only): 'rr-142f41ac')
+ERROR    agents.execution_engine.engine:engine.py:14366 step sample-wave-worker raised: scripted instance-A crash on run_fanout call #2
+ERROR    agents.execution_engine.engine:engine.py:14366 step sample-wave-worker raised: scripted instance-A crash on run_fanout call #2
+ERROR    agents.execution_engine.engine:engine.py:2603 finalize_terminal_run: create_run_ref FAILED run=rh-59f10c10 (run_id must be a UUID (hex digits and hyphens only): 'rh-59f10c10')
+FAILED tests/integration/agents/test_restart_resume_db.py::test_midwave_resume_does_not_reinvoke_completed_workers
+FAILED tests/integration/agents/test_restart_resume_db.py::test_failed_run_resumes_skips_completed_tasks
+FAILED tests/integration/agents/test_restart_resume_db.py::test_user_resume_persists_output_columns
+FAILED tests/integration/agents/test_restart_resume_db.py::test_resume_dispatch_carries_rehydrated_planning_context
+4 failed, 81 passed, 17 warnings in 21.37s
+##### working tree: tests/integration/agents/test_roster_seam_log.py
+4 passed, 1 warning in 1.31s
+##### working tree: tests/unit/agents/test_banned_patterns.py
+FAILED tests/unit/agents/test_banned_patterns.py::test_capabilities_do_not_import_kernel_or_web_layer
+FAILED tests/unit/agents/test_banned_patterns.py::TestSC001RevisionPipelineCompliance::test_no_revision_pipeline_names_in_kernel
+2 failed, 16 passed, 1 warning in 1.74s
+##### HEAD engine.py (scratch copy): tests/unit/agents/test_banned_patterns.py
+E           agents/capabilities/prototype_ui_extract.py:333: from app.agents.tools.html_extract import materialise_html
+E       assert not [('agents/capabilities/prototype_ui_extract.py', 333, 'from app.agents.tools.html_extract import materialise_html')]
+E           agents/execution_engine/engine.py:981: with a ``prototype_revision`` child and a ``custom_revision`` child tagged
+E       assert not [('agents/execution_engine/engine.py', 981, 'with a ``prototype_revision`` child and a ``custom_revision`` child tagged')]
+FAILED tests/unit/agents/test_banned_patterns.py::test_capabilities_do_not_import_kernel_or_web_layer
+FAILED tests/unit/agents/test_banned_patterns.py::TestSC001RevisionPipelineCompliance::test_no_revision_pipeline_names_in_kernel
+2 failed, 16 passed, 1 warning in 1.96s
+##### HEAD engine.py (scratch copy): tests/agents/test_resume_context_v3.py
+E       TypeError: _fake_offset() got an unexpected keyword argument 'compiled'
+E       TypeError: _fake_offset() got an unexpected keyword argument 'compiled'
+FAILED tests/agents/test_resume_context_v3.py::test_resume_run_uses_context_file_over_diverging_db_column
+FAILED tests/agents/test_resume_context_v3.py::test_resume_run_falls_back_to_db_column_when_context_absent
+2 failed, 2 warnings in 1.35s
+##### HEAD engine.py (scratch copy): tests/integration/agents/test_specs_from_plan_db.py
+E       TypeError: test_resume_run_builds_display_names_for_a_real_composed_workflow.<locals>._spy_offset() got an unexpected keyword argument 'compiled'
+FAILED tests/integration/agents/test_specs_from_plan_db.py::test_resume_run_builds_display_names_for_a_real_composed_workflow
+1 failed, 1 warning in 1.23s

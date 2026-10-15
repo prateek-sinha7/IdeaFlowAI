@@ -63,7 +63,7 @@ four seeded accounts are not admins and must be refused.
 
 ## Resetting another user's password
 
-`adminResetUserPassword` → `POST /api/admin/users/{id}/reset-password`.
+`adminResetUserPassword` → `POST /api/admin/users/{id}/reset-password`, body `{}`.
 
 **This is the ONLY reset path when the pool uses email MFA.** AWS disqualifies email
 as an account-recovery channel whenever it is also a second factor, so
@@ -72,16 +72,15 @@ screen has no "forgot password" link (see `09-settings` § Security).
 
 | | |
 |---|---|
-| `permanent` | defaults to **false** |
-| false → | a **temporary** password; the user must choose their own at next sign-in |
-| true → | a permanent password the admin now knows |
-| either way | the target's **existing sessions are revoked** |
-| response | `requires_new_password_at_next_login` |
+| body | empty; a `new_password` or `permanent` field is a 422 |
+| effect | a **temporary** password Cognito generates and no one is shown; the user must choose their own at next sign-in |
+| sessions | the target's **existing sessions are revoked** |
+| response | `{"status": "temporary_password_set"}` |
 
-The default matters: with `permanent=false` **the admin never ends up knowing a live
-credential for someone else's account**. That is a security property, not a
-convenience, and it is what makes the `NEW_PASSWORD_REQUIRED` challenge in `01-auth`
-reachable in normal operation.
+**The admin never ends up knowing a live credential for someone else's account**
+(Phase 3, Decision 6). That is a security property, not a convenience, and it is
+what makes the `NEW_PASSWORD_REQUIRED` challenge in `01-auth` reachable in normal
+operation. There is no permanent, admin-chosen reset any more.
 
 ---
 
@@ -212,7 +211,7 @@ Feature: Admin dashboard
   Scenario: Adding a user creates an account at the chosen tier
     When I cold-load "/admin"
     And I click "Add user"
-    And I create a disposable user at tier "basic"
+    And I invite a disposable address at tier "basic"
     Then that user appears in the table with plan "BASIC" and role "User"
     And TOTAL USERS increases by one
     And BASIC increases by one
@@ -235,12 +234,12 @@ Feature: Admin dashboard
   @destructive
   Scenario: An admin resets another user's password to a temporary one
     Given I am an admin on "/admin"
-    When I reset another user's password without marking it permanent
-    Then the response reports requires_new_password_at_next_login
+    When I reset another user's password
+    Then the response is {"status": "temporary_password_set"} and nothing else
     And that user's existing sessions are revoked
     When that user next signs in
     Then they are challenged with NEW_PASSWORD_REQUIRED
-    # The default is `permanent=false` SO THAT the admin never ends up knowing a
+    # No password is supplied or shown SO THAT the admin never ends up knowing a
     # live credential for someone else's account. That is a security property.
     # It is also how the first-sign-in challenge in 01-auth is reached in normal
     # operation.
@@ -248,13 +247,13 @@ Feature: Admin dashboard
   @S-11-18
   @sourced
   @destructive
-  Scenario: A permanent reset skips the challenge but is knowable
+  Scenario: A reset that names a password is refused
     Given I am an admin on "/admin"
-    When I reset another user's password with permanent=true
-    Then that user signs in with it directly, with no challenge
-    And their existing sessions are still revoked
-    # Recorded so the trade-off is explicit: convenience for the admin, at the
-    # cost of the admin knowing a live credential. Prefer the default.
+    When I reset another user's password with a new_password and permanent=true
+    Then the status is 422 and the fields are "extra_forbidden"
+    # There is no permanent, admin-chosen reset any more. Refusing the fields
+    # rather than ignoring them means no caller can believe it set a password
+    # that was never used.
 
   @S-11-19
   @sourced

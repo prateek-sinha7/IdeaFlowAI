@@ -1,0 +1,67 @@
+# QA-KB-091 fixer: static checks, 2026-10-07T18:45:33Z
+## tsc --noEmit (whole frontend project, AFTER the fix)
+exit=1
+error count: 13
+files with errors:
+   1   Type 'MockInstance<Procedure | Constructable> & (
+   1 src/components/analytics/AnalyticsPage.test.tsx(
+   2 src/components/DashboardLayout.chain.test.tsx(
+   3 src/components/history/WorkflowHistory.modelChip.test.tsx(
+   1 src/components/preview/PreviewPanel.liveVersion.test.tsx(
+   4 src/components/results/AgentDetailPanel.waveWorkerStatus.test.tsx(
+   1 src/hooks/useWorkflow.imagePayload.test.ts(
+   1 src/providers/RunConnectionProvider.test.tsx(
+errors in PreviewPanel.tsx:
+0
+
+## eslint src/components/preview/PreviewPanel.tsx
+### BEFORE (git show HEAD:… via --stdin, same filename)
+exit=1
+  0 errors and 1 warning potentially fixable with the `--fix` option.
+
+### AFTER (working tree)
+exit=1
+  0 errors and 1 warning potentially fixable with the `--fix` option.
+
+### rule ids, before vs after (line numbers stripped)
+IDENTICAL messages
+### AFTER findings with line numbers (changed hunks are at 1101-1104, 1170-1191, 1882)
+   849:77  error    Error: Calling setState synchronously within an effect can trigger cascading renders
+   864:9   error    The 'sortedMembers' conditional could make the dependencies of useCallback Hook (at line 963) change on every render. To fix this, wrap the initialization of 'sortedMembers' in its own useMemo() Hook                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      react-hooks/exhaustive-deps
+   864:9   error    The 'sortedMembers' conditional could make the dependencies of useCallback Hook (at line 995) change on every render. To fix this, wrap the initialization of 'sortedMembers' in its own useMemo() Hook                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      react-hooks/exhaustive-deps
+   910:3   warning  Unused eslint-disable directive (no problems were reported from 'react-hooks/exhaustive-deps')
+  1025:64  error    Error: Calling setState synchronously within an effect can trigger cascading renders
+  1054:7   error    Error: Calling setState synchronously within an effect can trigger cascading renders
+  1205:9   error    'showCancelledAffordance' is assigned a value but never used. Allowed unused vars must match /^_/u                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           @typescript-eslint/no-unused-vars
+  1332:23  error    Error: Calling setState synchronously within an effect can trigger cascading renders
+  1449:5   error    Error: Calling setState synchronously within an effect can trigger cascading renders
+  1519:5   error    Error: Calling setState synchronously within an effect can trigger cascading renders
+  1649:21  error    Error: Calling setState synchronously within an effect can trigger cascading renders
+### totals
+BEFORE    910:3   warning  Unused eslint-disable directive (no problems were reported from 'react-hooks/exhaustive-deps')
+BEFORE ✖ 11 problems (10 errors, 1 warning)
+AFTER     910:3   warning  Unused eslint-disable directive (no problems were reported from 'react-hooks/exhaustive-deps')
+AFTER  ✖ 11 problems (10 errors, 1 warning)
+
+## tsc raw output (AFTER)
+src/components/analytics/AnalyticsPage.test.tsx(363,23): error TS2322: Type '{ id: string; }' is not assignable to type 'never'.
+src/components/DashboardLayout.chain.test.tsx(43,81): error TS2554: Expected 0 arguments, but got 2.
+src/components/DashboardLayout.chain.test.tsx(145,3): error TS2739: Type '{ id: string; title: string; type: "user_stories"; status: "completed"; input: string; parentRunId: null; rootRunId: string; }' is missing the following properties from type 'WorkflowRun': createdAt, agentCount
+src/components/history/WorkflowHistory.modelChip.test.tsx(194,7): error TS2322: Type 'string' is not assignable to type 'AgentThinkingEntry[]'.
+src/components/history/WorkflowHistory.modelChip.test.tsx(223,7): error TS2322: Type 'string' is not assignable to type 'AgentThinkingEntry[]'.
+src/components/history/WorkflowHistory.modelChip.test.tsx(244,7): error TS2322: Type 'string' is not assignable to type 'AgentThinkingEntry[]'.
+src/components/preview/PreviewPanel.liveVersion.test.tsx(94,53): error TS2322: Type 'Mock<Procedure | Constructable>' is not assignable to type '((runId: string, tab: string) => void) | undefined'.
+  Type 'MockInstance<Procedure | Constructable> & (new (...args: any[]) => any) & {}' is not assignable to type '((runId: string, tab: string) => void) | undefined'.
+src/components/results/AgentDetailPanel.waveWorkerStatus.test.tsx(370,39): error TS2322: Type 'any' is not assignable to type 'never'.
+src/components/results/AgentDetailPanel.waveWorkerStatus.test.tsx(370,74): error TS2349: This expression is not callable.
+  Type 'never' has no call signatures.
+src/components/results/AgentDetailPanel.waveWorkerStatus.test.tsx(387,39): error TS2322: Type 'any' is not assignable to type 'never'.
+src/components/results/AgentDetailPanel.waveWorkerStatus.test.tsx(387,74): error TS2349: This expression is not callable.
+  Type 'never' has no call signatures.
+src/hooks/useWorkflow.imagePayload.test.ts(32,47): error TS2345: Argument of type '{ enabled: true; phase: "idle"; liveRunIds: never[]; reattach: Mock<Procedure>; attachRun: Mock<Procedure>; detachRun: Mock<Procedure>; subscribe: Mock<...>; sendCommand: Mock<...>; }' is not assignable to parameter of type 'RunConnectionContextValue'.
+  Type '{ enabled: true; phase: "idle"; liveRunIds: never[]; reattach: Mock<Procedure>; attachRun: Mock<Procedure>; detachRun: Mock<Procedure>; subscribe: Mock<...>; sendCommand: Mock<...>; }' is missing the following properties from type 'RunConnectionContextValue': recentRuns, recentRunsLoaded, setRecentRuns, loadRecentRuns
+src/providers/RunConnectionProvider.test.tsx(630,45): error TS2493: Tuple type '[]' of length '0' has no element at index '0'.
+
+## after adding PreviewPanel.shellStatusForeignPin.iss1031-1032.test.tsx
+tsc --noEmit: 13 errors, error set IDENTICAL to the run above (diff empty); 0 in either shellStatusForeignPin test file
+eslint new test file: 7 problems, all @typescript-eslint/no-explicit-any, the harness's own pattern: PreviewPanel.olderVersionNullOutput.test.tsx (the harness it copies) has 7 problems (7 errors, 0 warnings), PreviewPanel.shellStatusForeignPin.iss952.test.tsx has 9 (7 no-explicit-any, 2 unused vars)

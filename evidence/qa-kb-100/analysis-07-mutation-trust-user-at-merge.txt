@@ -1,0 +1,39 @@
+# QA-KB-100 analysis 07: mutation probe, trust=user at the merge call site only (HEAD f06129262, 2026-10-08T12:07Z)
+# plugin: evidence/qa-kb-100/analysis-plugins/qakb100_trust_user_at_merge.py  (imports the engine first, then swaps the WorkflowCompiler class merge_override_steps re-imports per call; no source edited)
+# one test file per invocation, offline, in-memory SQLite. BASELINE = shipped trust=db; MUTATED = trust=user at merge only.
+
+=== tests/unit/test_workflow_override.py  BASELINE
+=========================== short test summary info ============================
+FAILED tests/unit/test_workflow_override.py::test_a_not_user_allowed_gate_is_rejected
+1 failed, 5 passed in 1.42s
+=== tests/unit/test_workflow_override.py  MUTATED
+......                                                                   [100%]
+6 passed in 1.16s
+
+=== tests/integration/api/test_workflow_override_e2e_api.py  BASELINE
+.......                                                                  [100%]
+7 passed in 1.89s
+=== tests/integration/api/test_workflow_override_e2e_api.py  MUTATED
+.......                                                                  [100%]
+7 passed in 2.04s
+
+=== tests/integration/api/test_workflow_override_api.py  BASELINE
+.................                                                        [100%]
+17 passed in 0.98s
+=== tests/integration/api/test_workflow_override_api.py  MUTATED
+.................                                                        [100%]
+17 passed in 1.02s
+
+=== tests/unit/test_user_workflows_agent_count.py  BASELINE
+........                                                                 [100%]
+8 passed in 0.89s
+=== tests/unit/test_user_workflows_agent_count.py  MUTATED
+........                                                                 [100%]
+8 passed in 0.89s
+
+=== tests/integration/api/test_model_tier_gate_workflows_api.py  BASELINE
+.....................                                                    [100%]
+21 passed in 1.48s
+=== tests/integration/api/test_model_tier_gate_workflows_api.py  MUTATED
+.....................                                                    [100%]
+21 passed in 1.41s

@@ -1,0 +1,70 @@
+# QA-KB-108 fix: supplemental probe (2026-10-09T11:08Z), cases probes 04/08 do not reach
+# cmd (from backend/): PYTHONPATH=. .venv/bin/python ../evidence/qa-kb-108/fix-04-supplemental-probe.py
+13:08:17  main        LangSmith tracing disabled
+13:08:17  main        CORS allow_origins=['http://localhost:3000', 'http://localhost:3001', 'http://127.0.0.1:3000'] (env=development)
+== F. ISS-1150 safety net on the REAL app (throwaway routes, removed afterwards)
+13:08:17  main        ERROR Unhandled botocore error on GET /__probe/boto  b6cf4eed
+Traceback (most recent call last):
+  File "/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/.venv/lib/python3.13/site-packages/starlette/_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/.venv/lib/python3.13/site-packages/fastapi/routing.py", line 144, in app
+    response = await f(request)
+               ^^^^^^^^^^^^^^^^
+  File "/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/.venv/lib/python3.13/site-packages/fastapi/routing.py", line 706, in app
+    raw_response = await run_endpoint_function(
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<3 lines>...
+    )
+    ^
+  File "/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/.venv/lib/python3.13/site-packages/fastapi/routing.py", line 354, in run_endpoint_function
+    return await run_in_threadpool(dependant.call, **values)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/.venv/lib/python3.13/site-packages/starlette/concurrency.py", line 34, in run_in_threadpool
+    return await anyio.to_thread.run_sync(func)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/.venv/lib/python3.13/site-packages/anyio/to_thread.py", line 65, in run_sync
+    return await get_async_backend().run_sync_in_worker_thread(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        func, args, abandon_on_cancel=abandon_on_cancel, limiter=limiter
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/.venv/lib/python3.13/site-packages/anyio/_backends/_asyncio.py", line 2706, in run_sync_in_worker_thread
+    return await future
+           ^^^^^^^^^^^^
+  File "/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/.venv/lib/python3.13/site-packages/anyio/_backends/_asyncio.py", line 1100, in run
+    result = context.run(func, *args)
+  File "/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/../evidence/qa-kb-108/fix-04-supplemental-probe.py", line 74, in _boto
+    raise expired_sso()
+botocore.exceptions.TokenRetrievalError: Error when retrieving token from sso: Token has expired and refresh failed
+GET route raising TokenRetrievalError                      status=503 ACAO='http://localhost:3000'    body='{"detail":"A cloud service is unavailable. Please try again."}'
+GET route raising RuntimeError (scope control)             status=500 ACAO=None                       body='Internal Server Error'
+== G. ISS-1144 login: the other BotoCoreError members
+13:08:17  api         ERROR Cognito AdminInitiateAuth failed: NoCredentialsError  4022ea25
+13:08:17  events      WARN  {"auth_event":"login_failure","email_hash":"bc9cdf2ae59d17f7","provider":"cognito","reason":"provider_error:NoCredentialsError"}  4022ea25
+POST /login NoCredentialsError                             status=503 ACAO='http://localhost:3000'    body='{"detail":"Authentication service unavailable"}'
+13:08:17  api         ERROR Cognito AdminInitiateAuth failed: EndpointConnectionError  2b3f65e9
+13:08:17  events      WARN  {"auth_event":"login_failure","email_hash":"bc9cdf2ae59d17f7","provider":"cognito","reason":"provider_error:EndpointConnectionError"}  2b3f65e9
+POST /login EndpointConnectionError                        status=503 ACAO='http://localhost:3000'    body='{"detail":"Authentication service unavailable"}'
+== H. ISS-1146 trap: /refresh outage must not reconcile the account to disabled
+13:08:17  api         ERROR Cognito REFRESH_TOKEN_AUTH failed: TokenRetrievalError  4ddb5e42
+POST /refresh TokenRetrievalError                          status=503 ACAO='http://localhost:3000'    body='{"detail":"Authentication service unavailable"}'
+  _reconcile_status_on_refresh_rejection called            False
+POST /refresh control NotAuthorizedException               status=401 ACAO='http://localhost:3000'    body='{"detail":"Refresh token is no longer valid; please log in again."}'
+  _reconcile_status_on_refresh_rejection called            True
+== I. ISS-1147 control: a wrong TOTP code stays 400
+POST /mfa/totp/verify CodeMismatchException                status=400 ACAO='http://localhost:3000'    body='{"detail":"Could not verify that code. Try the current code from your '
+== J. ISS-1148 lifecycle layer, every wrapper on the path patched
+13:08:17  cognito_ad  ERROR ListUsersInGroup failed for flowin-admins: TokenRetrievalError
+is_last_admin, local is_admin=True, both reads fail        raised ProviderUnavailableError(code='TokenRetrievalError')
+is_last_admin, local is_admin=False (degrade)              returned False
+is_last_admin, first read fails, local admin, 2 members    returned False
+13:08:17  cognito_ad  ERROR AdminDeleteUser failed for probe@example.com: TokenRetrievalError
+try_delete_pool_user (retry code, never raises)            returned 'TokenRetrievalError'
+13:08:17  cognito_ad  ERROR AdminEnableUser failed: TokenRetrievalError
+enable_user                                                raised ProviderUnavailableError(code='TokenRetrievalError')
+13:08:17  cognito_ad  ERROR AdminSetUserPassword failed for probe@example.com: TokenRetrievalError
+reset_password (set-password step)                         raised ProviderUnavailableError(code='TokenRetrievalError')
+13:08:17  cognito_ad  ERROR Group assignment failed for newly-created user new@example.com: TokenRetrievalError; compensated with AdminDeleteUser
+invite_user, group step fails (compensation path)          raised ProviderUnavailableError(code='TokenRetrievalError')
+  compensating AdminDeleteUser called                      True

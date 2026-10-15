@@ -1,0 +1,58 @@
+# QA-KB-098 analysis 11: what the refactor removed, who still names it, and the CI consumer of the node (2026-10-08T11:58Z, HEAD f06129262)
+# read-only: git show, grep, sed. No source changed.
+
+## 1. top-level definitions removed or re-signatured by 5af898322 in non-test source
+$ git show 5af898322 -- backend/agents backend/app | grep removed def/class/assignment lines
+def _resolve_runner_tools(spec, ctx: AgentContext, sandbox: Any = None, agent_id: str | None = None) -> tuple[list, bool]:
+_SANDBOX: Any = None
+_AGENT_ID: str = "unknown"  # Bound by bind_sandbox, used for per-agent browser context isolation.
+def bind_sandbox(sandbox: Any, agent_id: str = "unknown") -> None:
+
+## 2. the replacement signatures only ADD optional parameters (current source)
+54:def bind_sandbox(
+55-    sandbox: Any, agent_id: str = "unknown", worker_key: str | None = None
+56-) -> None:
+57-    """Point the tools at this run's sandbox. Called by the factory, not the model.
+1316:def _resolve_runner_tools(
+1317-    spec,
+1318-    ctx: AgentContext,
+1319-    sandbox: Any = None,
+1320-    agent_id: str | None = None,
+1321-    thread_id: str | None = None,
+1322-) -> tuple[list, bool]:
+
+## 3. every bare _AGENT_ID in backend python (none names the playwright module's global)
+backend/tests/unit/agents/test_skill_directive_block.py:31:_AGENT_ID = "domain-analyst"
+backend/tests/unit/agents/test_skill_directive_block.py:35:    spec = load_agent_spec(_AGENT_ID)
+backend/tests/unit/agents/test_capabilities_threading.py:34:_AGENT_ID = "domain-analyst"
+backend/tests/unit/agents/test_capabilities_threading.py:52:    spec = next(s for s in specs if s.id == _AGENT_ID)
+backend/tests/contract/agents/test_skill_prompt_baseline.py:34:_AGENT_ID = "domain-analyst"
+backend/tests/contract/agents/test_skill_prompt_baseline.py:42:    spec = load_agent_spec(_AGENT_ID)
+backend/tests/integration/agents/_resume_child.py:114:_AGENT_ID = "phase8-resume-probe"
+backend/tests/integration/agents/_resume_child.py:156:    agent_dir = prompts_dir / _AGENT_ID
+backend/tests/integration/agents/_resume_child.py:160:        f"id: {_AGENT_ID}\n"
+backend/tests/integration/agents/_resume_child.py:207:        _AGENT_ID,
+backend/tests/agents/_resume_child.py:114:_AGENT_ID = "phase8-resume-probe"
+backend/tests/agents/_resume_child.py:156:    agent_dir = prompts_dir / _AGENT_ID
+backend/tests/agents/_resume_child.py:160:        f"id: {_AGENT_ID}\n"
+backend/tests/agents/_resume_child.py:207:        _AGENT_ID,
+
+## 4. every playwright bind_sandbox call in the repo (all compatible with the extended signature)
+backend/tests/agents/test_playwright_tools.py:79:    playwright_tools.bind_sandbox(sb)
+backend/tests/agents/test_playwright_tools.py:84:    playwright_tools.bind_sandbox(sb, agent_id="test-agent")
+backend/tests/agents/test_playwright_tools.py:89:    playwright_tools.bind_sandbox(sb, agent_id="test-agent", worker_key="worker-1")
+backend/tests/agents/test_playwright_session.py:272:            playwright.bind_sandbox(sandbox, agent_id="custom-agent:pb-build", worker_key=worker_key)
+backend/tests/agents/test_playwright_session.py:300:        playwright.bind_sandbox(sandbox, agent_id="single-agent")
+backend/tests/agents/test_per_run_paths_v3.py:430:            playwright_tools.bind_sandbox(root_sb, agent_id="root-agent")
+backend/tests/agents/test_per_run_paths_v3.py:438:            playwright_tools.bind_sandbox(rev_sb, agent_id="rev-agent")
+backend/agents/factory.py:1285:            playwright.bind_sandbox(
+
+## 5. the CI consumer: the backend-offline job's pytest selection
+          uv run --frozen pytest tests \
+            -m "not live and not requires_api_key and not requires_postgres and not requires_postgres_populated_migration" \
+## 6. the node's own decorators and the folder hook that marks it
+    @pytest.mark.asyncio
+    async def test_revision_browser_dir_writer_driven(
+        self, tmp_path: Path, monkeypatch
+
+        item.add_marker(getattr(pytest.mark, suite))

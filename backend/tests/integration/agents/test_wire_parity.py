@@ -97,6 +97,13 @@ def _record_golden(pipeline: str, ws_frames: list[dict]) -> None:
             p,
         )
         if p == "prototype_revision"
+        else pytest.param(
+            p,
+            marks=[
+                pytest.mark.issue("ISS-1014"),
+            ],
+        )
+        if p == "app_builder"
         else p
         for p in _PIPELINES
     ],

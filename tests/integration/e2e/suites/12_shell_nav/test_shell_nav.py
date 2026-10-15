@@ -98,7 +98,11 @@ def test_the_active_screen_is_indicated_in_the_nav(page, shot):
 
 
 @pytest.mark.scenario("S-12-05")
-@pytest.mark.parametrize("route", ["/login", "/admin", "/create/ppt", "/create/prototype"])
+@pytest.mark.parametrize(
+    "route",
+    # /login signed out: a signed-in visit redirects into the app (d027f16bd).
+    [pytest.param("/login", marks=pytest.mark.anonymous), "/admin", "/create/ppt", "/create/prototype"],
+)
 def test_the_shell_is_absent_where_it_should_be(page, shot, route):
     """Scenario: The shell is absent where it should be"""
     with shot(f"no-shell{route.replace('/', '-')}", f'When I cold-load "{route}"'):
@@ -198,7 +202,7 @@ def test_the_notifications_panel_opens_with_an_empty_state(
     The empty state is still worth a scenario; it just needs an account that
     has never run anything, and creating one is the only way left to get it.
     """
-    user = disposable_user(tier="basic")
+    user = disposable_user(tier="basic", signs_in=True)
     context = browser.new_context(
         base_url=settings.BASE_URL,
         viewport=settings.VIEWPORT,
@@ -340,7 +344,6 @@ def test_browser_back_and_forward_work_across_top_level_screens(page, shot):
 
 
 @pytest.mark.issue("ISS-190")
-@pytest.mark.xfail(reason="ISS-190 unfixed", strict=True)
 def test_forward_navigation_to_prototype_wizard_rehydrates(page, shot):
     """ISS-190 — Back-then-Forward to /create/prototype must render the wizard,
     not leave the un-hydrated RSC stream as a blank body.

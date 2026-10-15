@@ -330,8 +330,9 @@ def revoke_api_key(
 
 @router.get("/preferences", response_model=UserPreferencesResponse)
 def get_preferences(
-    # Cognito groups are the tier authority (Decision 3): the principal is
-    # needed so the `allowed` flags come from effective_tier, not users.tier.
+    # get_current_principal, not get_current_user: the model gate below reads the
+    # EFFECTIVE tier from this request's verified ``cognito:groups`` (ADR-0013),
+    # never the advisory ``users.tier`` column (ISS-937).
     auth: tuple[User, Principal] = Depends(get_current_principal),
 ) -> UserPreferencesResponse:
     """Return the user's current preferences and the list of available models.
@@ -354,6 +355,8 @@ def get_preferences(
 @router.put("/preferences", response_model=UserPreferencesResponse)
 def update_preferences(
     payload: UserPreferencesUpdateRequest,
+    # get_current_principal, not get_current_user: as get_preferences above, the
+    # gate reads the EFFECTIVE tier (ADR-0013, ISS-937).
     auth: tuple[User, Principal] = Depends(get_current_principal),
     db: Session = Depends(get_db),
 ) -> UserPreferencesResponse:
@@ -362,6 +365,8 @@ def update_preferences(
     Pass ``preferred_model: null`` to reset to the system default.
     """
     user, principal = auth
+    # Once, before commit()/refresh(): the 403 gate and the response flags
+    # below are judged by the same tier.
     tier = effective_tier(user, principal)
     model_id = payload.preferred_model
 

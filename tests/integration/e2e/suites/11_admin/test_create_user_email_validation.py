@@ -20,7 +20,7 @@ import uuid
 import pytest
 from playwright.sync_api import expect
 
-from framework import accounts, api
+from framework import api
 from framework.locators import admin as L
 
 
@@ -47,13 +47,12 @@ def test_create_user_dialog_rejects_email_with_no_at_or_domain(page, shot):
     try:
         with shot("add-user-dialog", 'When I click "Add user"'):
             page.click(L.ADD_USER)
-            expect(page.get_by_text("Create New User")).to_be_visible()
+            expect(page.get_by_text(L.CREATE_DIALOG)).to_be_visible()
 
         page.fill('input[type="email"]', malformed)
-        page.fill('input[type="password"]', accounts.PASSWORD)
 
-        create_button = page.get_by_role("button", name="Create User")
-        with shot("malformed-email-blocked", "Then Create User stays disabled"):
+        create_button = page.get_by_role("button", name=L.SEND_INVITATION)
+        with shot("malformed-email-blocked", "Then Send Invitation stays disabled"):
             expect(create_button).to_be_disabled()
     finally:
         _delete_by_email(page, malformed)

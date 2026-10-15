@@ -1,0 +1,102 @@
+--- patched/PreviewPanel.orig.tsx	2026-10-02 05:14:18
++++ patched/PreviewPanel.complete.tsx	2026-10-02 05:15:26
+@@ -28,10 +28,11 @@
+ import type { WorkflowType, WorkflowStatus, GenericDeliverable, RunFamily, WorkflowRun, AgentThinkingEntry, AgentRunState, PipelineRunState } from "@/types/index";
+ import type { TabDeepLinkTarget } from "@/hooks/useTabDeepLink";
+ import { SandboxPdfPreview } from "@/components/preview/SandboxPdfPreview";
+-import { authedFetch, getToken, getWorkflow, getRunSandbox, getRunSandboxFile, getRunSandboxFileBlob, getRunSandboxZip, resolveRunDeliverable } from "@/lib/api";
++import { getRunArtifacts, authedFetch, getToken, getWorkflow, getRunSandbox, getRunSandboxFile, getRunSandboxFileBlob, getRunSandboxZip, resolveRunDeliverable } from "@/lib/api";
+ import { useClipboardCopy } from "@/hooks/useClipboardCopy";
+ import { isPlausibleFilePath } from "@/lib/parsers/filePath";
+ import { parseRunInput } from "@/lib/runInput";
++import { parseClarificationArtifacts } from "@/lib/clarifications";
+ import { ENV } from "@/lib/env";
+ // ISS-024 — shared id→name resolution for the failed-agents list (no dual-impl).
+ import { buildAgentNameById, resolveAgentNames } from "@/lib/parseFailedAgents";
+@@ -590,6 +591,8 @@
+   // marker-laden instruction while the live view of that same run reads
+   // "Starting point" + one line.
+   runInput?: string;
++  // QA-KB-066 — the pinned version's OWN answered clarify rounds. Undefined = none loaded.
++  clarifications?: import("@/types/index").ClarifyRound[];
+   agents: AgentRunState[];
+   pipelineState: PipelineRunState;
+   agentOutputs: AgentOutputItem[];
+@@ -602,6 +605,16 @@
+   genericDeliverable?: GenericDeliverable;
+ };
+ 
++// QA-KB-066 sibling (R3) — the pinned version's OWN persisted rounds, the same fetch WorkflowHistory makes.
++async function loadVersionRounds(token: string, runId: string) {
++  try {
++    const resp = await getRunArtifacts(token, runId, { kind: "clarifications", includeContent: true });
++    return parseClarificationArtifacts(resp.artifacts);
++  } catch {
++    return [];
++  }
++}
++
+ function versionViewFrom(run: WorkflowRun): VersionView {
+   const lastRowPerAgent = new Map<string, PersistedAgentRow>();
+   for (const row of (run.agentOutputs ?? []) as PersistedAgentRow[]) {
+@@ -919,8 +932,8 @@
+     }
+     const token = getToken();
+     try {
+-      const run = await getWorkflow(token || "", memberId);
+-      if (gen === selectGen.current) setViewingVersion(versionViewFrom(run));
++      const [run, rounds] = await Promise.all([getWorkflow(token || "", memberId), loadVersionRounds(token || "", memberId)]);
++      if (gen === selectGen.current) setViewingVersion({ ...versionViewFrom(run), clarifications: rounds });
+     } catch (err) {
+       // Read-only view is best-effort — never throw into the preview surface.
+       // Dev-observability only: log the swallowed failure; fallback unchanged.
+@@ -1023,8 +1036,8 @@
+     let cancelled = false;
+     void (async () => {
+       try {
+-        const run = await getWorkflow(getToken() || "", pinnedMemberId);
+-        if (!cancelled) setViewingVersion(versionViewFrom(run));
++        const [run, rounds] = await Promise.all([getWorkflow(getToken() || "", pinnedMemberId), loadVersionRounds(getToken() || "", pinnedMemberId)]);
++        if (!cancelled) setViewingVersion({ ...versionViewFrom(run), clarifications: rounds });
+       } catch (err) {
+         // Same contract as handleSelectVersion: best-effort, never throw into
+         // the preview surface — an unresolvable pin leaves the live view up.
+@@ -1077,6 +1090,9 @@
+   // QA-PS-057 — the same axis: each revision is its own run with its own brief,
+   // so a pinned version's "Starting point" is its own, not the shell's.
+   const effRunInput = viewingVersion?.runInput ?? runInput;
++  // QA-KB-066 — keyed on the PIN, not on the field: a pinned version that carries no rounds must show
++  // none, never fall through to the shell run's (`viewingVersion?.clarifications ?? clarifications ?? ...` would).
++  const effClarifications = viewingVersion ? viewingVersion.clarifications : (clarifications ?? pipelineState?.clarifications);
+   // ISS-300 — the generic deliverable belongs to the SAME axis as the three
+   // above, not to the renderType-keyed eff*Content slots: whatever a pinned
+   // version rendered, its deliverable is its own. Every read below goes through
+@@ -1919,7 +1935,7 @@
+                   With a pin active these carry the pinned member's own output,
+                   so the Files tab's "Final output" name/size/content match the
+                   Preview tab instead of always showing the live/root run's. */}
+-              <FilesTab workflowType={renderType} userStoryContent={effUserStoryContent} pptContent={effPptContent} prototypeContent={effPrototypeContent} agentOutputs={effAgentOutputs} genericDeliverable={hasGenericDeliverable ? effGenericDeliverable : undefined} runId={activeRunId} parentRunId={activeParentRunId} parentVersionNumber={activeIdx} runInput={effRunInput} clarifications={clarifications ?? pipelineState?.clarifications} onOpenPreview={() => handleTabChange("preview")} runStatus={terminalFailure && !isCancelledTerminal ? "failed" : undefined} isRunning={isStillRunning} buildingTaskIndex={buildStepIndex} buildingTaskTotal={buildStepTotal} buildingFilename={pipelineState?.deliverableFilename} />
++              <FilesTab workflowType={renderType} userStoryContent={effUserStoryContent} pptContent={effPptContent} prototypeContent={effPrototypeContent} agentOutputs={effAgentOutputs} genericDeliverable={hasGenericDeliverable ? effGenericDeliverable : undefined} runId={activeRunId} parentRunId={activeParentRunId} parentVersionNumber={activeIdx} runInput={effRunInput} clarifications={effClarifications} onOpenPreview={() => handleTabChange("preview")} runStatus={terminalFailure && !isCancelledTerminal ? "failed" : undefined} isRunning={isStillRunning} buildingTaskIndex={buildStepIndex} buildingTaskTotal={buildStepTotal} buildingFilename={pipelineState?.deliverableFilename} />
+             </motion.div>
+           )}
+           {activeTab === "workspace" && (
+@@ -1963,7 +1979,7 @@
+                 isLoadingRunData={isLoadingRunData}
+                 waves={waves}
+                 runInput={effRunInput}
+-                clarifications={clarifications ?? pipelineState?.clarifications}
++                clarifications={effClarifications}
+                 revisionParentVersion={revisionParentVersion}
+                 originalBriefRootRunId={originalBriefRootRunId}
+                 /* ISS-853 (QA-PS-048) — the family this panel already holds, so the
+@@ -1981,8 +1997,8 @@
+                 onRejectGate={onRejectGate}
+                 onRedoGate={onRedoGate}
+                 onUpdateSpecsGate={onUpdateSpecsGate}
+-                clarifyQuestions={clarifyQuestions}
+-                onSubmitClarify={onSubmitClarify}
++                clarifyQuestions={viewingVersion ? undefined : clarifyQuestions}
++                onSubmitClarify={viewingVersion ? undefined : onSubmitClarify}
+                 onSkipClarify={onSkipClarify}
+                 onCancelWorkflow={onCancelWorkflow}
+                 specRevisionCount={specRevisionCount}

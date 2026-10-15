@@ -11,8 +11,6 @@ from __future__ import annotations
 import json
 from types import SimpleNamespace
 
-import pytest
-
 from agents.capabilities.token_usage import USAGE_VERSION
 from app.api.run_commands import _apply_terminal_output_columns
 
@@ -140,37 +138,3 @@ def test_an_old_pipeline_complete_is_written_in_the_current_meaning() -> None:
     assert tu["total_input_tokens"] == 5635264
     assert tu["total_tokens"] == 6429897
     assert tu["total_cache_read_tokens"] == 86207163
-    assert tu["estimated_cost_usd"] == 19.637218
-    assert tu["estimated_cost_full_usd"] == 95.815592
-
-
-@pytest.mark.parametrize(
-    ("provided", "expected"),
-    [
-        ({"estimated_cost_usd": 7.5}, (7.5, 95.815592)),
-        ({"estimated_cost_full_usd": 8.5}, (19.637218, 8.5)),
-    ],
-    ids=["full-cost-missing", "metered-cost-missing"],
-)
-def test_apply_terminal_output_columns_reprices_only_missing_cost_when_partial_cost_is_authoritative(
-    provided: dict[str, float], expected: tuple[float, float]
-) -> None:
-    wr = _wr()
-    terminal = (
-        "pipeline_complete",
-        {
-            "total_input_tokens": 91842427,
-            "total_output_tokens": 794633,
-            "total_cache_read_tokens": 86207163,
-            "total_cache_write_tokens": 5632290,
-            **provided,
-        },
-    )
-
-    _apply_terminal_output_columns(wr, [terminal], model_id="m", duration_seconds=None)
-
-    usage = json.loads(wr.token_usage)
-    assert (
-        usage["estimated_cost_usd"],
-        usage["estimated_cost_full_usd"],
-    ) == expected

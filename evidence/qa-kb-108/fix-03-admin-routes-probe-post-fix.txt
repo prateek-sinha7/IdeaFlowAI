@@ -1,0 +1,24 @@
+# QA-KB-108 fix: analyzer probe 08 re-run after the change (2026-10-09T11:07Z); before-state is 08-analyze-admin-routes-probe-output.txt
+# cmd (from backend/): PYTHONPATH=. .venv/bin/python ../evidence/qa-kb-108/08-analyze-admin-routes-probe.py
+13:07:35  main        LangSmith tracing disabled
+13:07:35  main        CORS allow_origins=['http://localhost:3000', 'http://localhost:3001', 'http://127.0.0.1:3000'] (env=development)
+13:07:35  cognito_ad  ERROR Group lookup failed for target@example.com during tier change: InternalErrorException  f52a6c67
+PATCH  /users/{id}/tier    ClientError control             status=503 ACAO='http://localhost:3000'    body='{"detail":"Could not read current group membership at the identity provider."}'
+13:07:35  cognito_ad  ERROR Group lookup failed for target@example.com during tier change: TokenRetrievalError  f68e3cf2
+PATCH  /users/{id}/tier    TokenRetrievalError             status=503 ACAO='http://localhost:3000'    body='{"detail":"Could not read current group membership at the identity provider."}'
+13:07:35  cognito_ad  ERROR Role change failed for target@example.com: InternalErrorException  5bcac00c
+PATCH  /users/{id}/role    ClientError control             status=503 ACAO='http://localhost:3000'    body='{"detail":"Could not update role at the identity provider."}'
+13:07:35  cognito_ad  ERROR Role change failed for target@example.com: TokenRetrievalError  8a6632cc
+PATCH  /users/{id}/role    TokenRetrievalError             status=503 ACAO='http://localhost:3000'    body='{"detail":"Could not update role at the identity provider."}'
+13:07:35  cognito_ad  ERROR AdminUserGlobalSignOut failed: InternalErrorException  5e8ea8fa
+POST   /users/{id}/reset-password ClientError control      status=503 ACAO='http://localhost:3000'    body='{"detail":"Could not complete AdminUserGlobalSignOut at the identity provider.'
+13:07:35  cognito_ad  ERROR AdminUserGlobalSignOut failed: TokenRetrievalError  86f85d11
+POST   /users/{id}/reset-password TokenRetrievalError      status=503 ACAO='http://localhost:3000'    body='{"detail":"Could not complete AdminUserGlobalSignOut at the identity provider.'
+13:07:35  cognito_ad  ERROR AdminUserGlobalSignOut failed: InternalErrorException  fdf63408
+POST   /users/{id}/disable ClientError control             status=503 ACAO='http://localhost:3000'    body='{"detail":"Could not complete AdminUserGlobalSignOut at the identity provider.'
+13:07:35  cognito_ad  ERROR AdminUserGlobalSignOut failed: TokenRetrievalError  907d15d0
+POST   /users/{id}/disable TokenRetrievalError             status=503 ACAO='http://localhost:3000'    body='{"detail":"Could not complete AdminUserGlobalSignOut at the identity provider.'
+13:07:35  cognito_ad  ERROR AdminUserGlobalSignOut failed: InternalErrorException  a108fc59
+DELETE /users/{id}         ClientError control             status=503 ACAO='http://localhost:3000'    body='{"detail":"Could not complete AdminUserGlobalSignOut at the identity provider.'
+13:07:35  cognito_ad  ERROR AdminUserGlobalSignOut failed: TokenRetrievalError  5a716f82
+DELETE /users/{id}         TokenRetrievalError             status=503 ACAO='http://localhost:3000'    body='{"detail":"Could not complete AdminUserGlobalSignOut at the identity provider.'

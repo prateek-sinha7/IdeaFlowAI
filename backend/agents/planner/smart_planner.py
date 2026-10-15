@@ -345,7 +345,13 @@ class SmartPlanner:
 
     def _build_llm(self):
         """Build the LLM client — Anthropic direct, Bedrock bearer-token, or Bedrock IAM."""
+        from app.agents.model_factory import _local_ollama_env, build_model
         from app.core.config import settings
+
+        # The USE_LOCAL_OLLAMA dev override is build_model's, like every other call's
+        # (ISS-1134). The exits below stay as they are: INV-3 byte-identical requests.
+        if _local_ollama_env() is not None:
+            return build_model(self.model_id, max_tokens=2048)
 
         if settings.ANTHROPIC_API_KEY:
             from langchain_anthropic import ChatAnthropic

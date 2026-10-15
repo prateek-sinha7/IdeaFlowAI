@@ -1,0 +1,8 @@
+# AFTER (QA-KB-073 fixer, 2026-10-07): cd backend && .venv/bin/python -m pytest tests/integration/agents/test_restart_resume_db.py -q -p no:cacheprovider
+# The 4 below are the unrelated faults ISS-1013 lists (wave resume x2, user-resume status, rehydrated planning context).
+# 81 passed = 77 baseline + the 2 ISS-1013 tests + 2 T8/T9 cases a concurrent QA-KB-075 fixer added to this file (ISS-1016).
+FAILED tests/integration/agents/test_restart_resume_db.py::test_midwave_resume_does_not_reinvoke_completed_workers
+FAILED tests/integration/agents/test_restart_resume_db.py::test_failed_run_resumes_skips_completed_tasks
+FAILED tests/integration/agents/test_restart_resume_db.py::test_user_resume_persists_output_columns
+FAILED tests/integration/agents/test_restart_resume_db.py::test_resume_dispatch_carries_rehydrated_planning_context
+4 failed, 81 passed, 17 warnings in 18.73s

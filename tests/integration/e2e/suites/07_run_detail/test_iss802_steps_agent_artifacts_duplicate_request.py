@@ -68,7 +68,9 @@ def test_opening_an_agent_in_steps_tab_fetches_artifacts_once(page):
     expect(page.locator(L.HEADER)).to_be_visible()
     page.wait_for_timeout(1500)
 
-    artifact_calls = [u for u in requests if f"/api/runs/{run_id}/artifacts" in u]
+    # The version list only. `?kind=clarifications` is a different read, the
+    # run's clarify rounds (PreviewPanel, 5336d910c), not a second copy of it.
+    artifact_calls = [u for u in requests if u.split("?")[0].endswith(f"/api/runs/{run_id}/artifacts") and "kind=" not in u]
 
     assert len(artifact_calls) <= 1, (
         "opening an agent's Steps detail pane should fetch "

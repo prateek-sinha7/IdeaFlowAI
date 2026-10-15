@@ -1,0 +1,22 @@
+# QA-KB-075 analyze evidence: scratch variants of _reconcile_terminal_status through the repo harness (backend/ untouched).
+# tree feat/user-stories-v2 @ 024c03ef8, working tree, 2026-10-02. Variants are scratch COPIES in the session scratchpad.
+
+$ .venv/bin/python ../evidence/qa-kb-075/analyze/make_variants.py $SP
+opt2.py: dead last-by-seq rule restored | opt4.py: completed rung un-scoped (current_attempt_completes -> completes)
+
+$ ruff F841/F821 on each variant (sanity: variants are well-formed)
+/private/tmp/claude-502/-Users-bilala-Developer-Projects-VELOCITY-AI-worktrees-feat-user-stories-v2/2d1a1575-310a-48fd-8155-2763a084604d/scratchpad/qakb075/opt2.py:932:13: F841 Local variable `failed_current` is assigned to but never used
+Found 2 errors.
+No fixes available (2 hidden fixes can be enabled with the `--unsafe-fixes` option).
+All checks passed!
+
+$ SP=$SP .venv/bin/python ../evidence/qa-kb-075/analyze/matrix.py
+tail                                            live rule  head       opt2       opt4       
+T1 degraded -> clean resume (test tail 1)       completed  completed  completed  completed  
+T2 clean -> degraded resume (test tail 2)       degraded   degraded   degraded   degraded   
+T3 degraded only (test tail 3)                  degraded   degraded   degraded   degraded   
+T4 no completion at all (test tail 4)           failed     failed     failed     failed     
+T5 degraded -> resume FAILS (ISS-436 lock)      failed     failed     degraded   failed     
+T6 failed -> clean resume (ISS-437 lock)        completed  completed  failed     completed  
+T8 degraded -> resume cut off, no terminal      failed     failed     degraded   completed  
+T9 clean -> resume cut off, no terminal         failed     failed     completed  completed  

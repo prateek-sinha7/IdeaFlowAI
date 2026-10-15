@@ -1,0 +1,24 @@
+# QA-KB-109 analysis-01: which admin endpoints refuse actor == target (offline, in-memory SQLite, boto3 mocked)
+# date: 2026-10-09   HEAD: 01777a107   backend/app/api/admin.py unmodified (git status clean for backend/)
+# run from backend/: PYTHONDONTWRITEBYTECODE=1 DATABASE_URL=sqlite:///:memory: .venv/bin/python -m pytest ../evidence/qa-kb-109/analysis-plugins/test_probe_admin_self_actions.py -p no:cacheprovider -q -s -W ignore -v
+
+============================= test session starts ==============================
+platform darwin -- Python 3.13.14, pytest-9.0.3, pluggy-1.6.0
+rootdir: /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2
+plugins: cov-7.1.0, xdist-3.8.0, timeout-2.4.0, asyncio-1.4.0, hypothesis-6.122.3, langsmith-0.8.18, anyio-4.15.1
+asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collected 8 items
+
+../evidence/qa-kb-109/analysis-plugins/test_probe_admin_self_actions.py [S] tier            -> HTTP 400 'You cannot change your own tier. Ask another administrator.'; cognito calls: 0
+.[S] role            -> HTTP 400 'You cannot remove your own admin access.'; cognito calls: 0
+.[S] disable         -> HTTP 400 'You cannot disable your own account.'; cognito calls: 0
+.[S] delete          -> HTTP 400 'You cannot delete your own account.'; cognito calls: 0
+.[S] reset-password  -> ACCEPTED, returned {'status': 'temporary_password_set'}; cognito calls: ['admin_user_global_sign_out', 'admin_set_user_password']
+.[R] response                 : {'status': 'temporary_password_set'}
+[R] AdminSetUserPassword     : Username='admin@velocity.ai' Permanent=False (password length 12, not in the response)
+[R] AdminUserGlobalSignOut   : Username='admin@velocity.ai'
+[R] tokens_valid_from stamped: True (every access token issued before now, the admin's own included, is rejected)
+.[C] reset of ANOTHER user -> accepted, as documented
+.x
+
+========================= 7 passed, 1 xfailed in 0.77s =========================

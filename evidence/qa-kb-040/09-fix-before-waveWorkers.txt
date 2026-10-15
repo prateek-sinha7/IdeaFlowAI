@@ -1,0 +1,120 @@
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - ESM syntax in a file loaded as CommonJS (vitest.config.ts:1:1). Use a `.mjs` extension or set `"type": "module"` in the closest package.json
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+
+ RUN  v4.1.11 /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/frontend
+
+ ❯ src/hooks/useWorkflow.waveWorkers.test.ts (10 tests | 2 failed) 13ms
+     × folds a worker's agent_start into the parent's waveWorkers, not a second agent row 7ms
+     × a worker's agent_complete marks its own child row done without touching the parent's status 1ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/hooks/useWorkflow.waveWorkers.test.ts > wave worker nesting (agent_start/agent_complete with task_id) > folds a worker's agent_start into the parent's waveWorkers, not a second agent row
+AssertionError: expected [ { taskId: 'task-1', …(29) } ] to deeply equal [ { taskId: 'task-1', …(4) } ]
+
+- Expected
++ Received
+
+  [
+    {
++     "attachedHooks": undefined,
++     "attachedSkills": undefined,
++     "cacheReadTokens": undefined,
++     "cacheWriteTokens": undefined,
++     "contextSources": undefined,
++     "durationMs": undefined,
++     "earlierCacheReadTokens": undefined,
++     "earlierCacheWriteTokens": undefined,
++     "earlierInputTokens": undefined,
++     "earlierOutputTokens": undefined,
++     "earlierTotalTokens": undefined,
++     "error": undefined,
++     "estimatedCostUsd": undefined,
++     "inputPrompt": undefined,
++     "inputTokens": undefined,
++     "modelId": undefined,
++     "output": undefined,
++     "outputTokens": undefined,
++     "startedAt": 1790881928424,
+      "status": "running",
++     "taskAuthorId": undefined,
+      "taskId": "task-1",
++     "thinking": undefined,
++     "toolCalls": undefined,
++     "totalTokens": undefined,
++     "validationIssues": undefined,
++     "validationPassed": undefined,
+      "waveIndex": 0,
+      "waveTotal": 50,
+      "workerIndex": 0,
+    },
+  ]
+
+ ❯ src/hooks/useWorkflow.waveWorkers.test.ts:37:41
+     35|     expect(state.agents).toHaveLength(1);
+     36|     expect(state.agents[0].status).toBe("running");
+     37|     expect(state.agents[0].waveWorkers).toEqual([
+       |                                         ^
+     38|       { taskId: "task-1", status: "running", workerIndex: 0, waveIndex…
+     39|     ]);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  src/hooks/useWorkflow.waveWorkers.test.ts > wave worker nesting (agent_start/agent_complete with task_id) > a worker's agent_complete marks its own child row done without touching the parent's status
+AssertionError: expected [ { taskId: 'task-1', …(29) } ] to deeply equal [ { taskId: 'task-1', …(4) } ]
+
+- Expected
++ Received
+
+  [
+    {
++     "attachedHooks": undefined,
++     "attachedSkills": undefined,
++     "cacheReadTokens": undefined,
++     "cacheWriteTokens": undefined,
++     "contextSources": undefined,
++     "durationMs": undefined,
++     "earlierCacheReadTokens": undefined,
++     "earlierCacheWriteTokens": undefined,
++     "earlierInputTokens": undefined,
++     "earlierOutputTokens": undefined,
++     "earlierTotalTokens": undefined,
++     "error": undefined,
++     "estimatedCostUsd": undefined,
++     "inputPrompt": undefined,
++     "inputTokens": undefined,
++     "modelId": undefined,
++     "output": undefined,
++     "outputTokens": undefined,
++     "startedAt": 1790881928430,
+      "status": "done",
++     "taskAuthorId": undefined,
+      "taskId": "task-1",
++     "thinking": undefined,
++     "toolCalls": undefined,
++     "totalTokens": undefined,
++     "validationIssues": undefined,
++     "validationPassed": undefined,
+      "waveIndex": 0,
+      "waveTotal": 2,
+      "workerIndex": 0,
+    },
+  ]
+
+ ❯ src/hooks/useWorkflow.waveWorkers.test.ts:52:41
+     50|     // The parent's own agent_complete never fired — it must still rea…
+     51|     expect(state.agents[0].status).toBe("running");
+     52|     expect(state.agents[0].waveWorkers).toEqual([
+       |                                         ^
+     53|       { taskId: "task-1", status: "done", workerIndex: 0, waveIndex: 0…
+     54|     ]);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 8 passed (10)
+   Start at  21:12:07
+   Duration  1.38s (transform 125ms, setup 102ms, import 134ms, tests 13ms, environment 866ms)
+

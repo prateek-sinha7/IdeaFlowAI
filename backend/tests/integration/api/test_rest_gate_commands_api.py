@@ -269,7 +269,6 @@ def test_reject_sets_approved_false(env):
 
 
 @pytest.mark.issue("ISS-128")
-@pytest.mark.xfail(reason="ISS-128 unfixed", strict=True)
 def test_reject_persists_reject_action_not_approve(env):
     """ISS-128: the reject branch calls set_review_response without an
     ``action=`` kwarg, so the store's ``action: str = "approve"`` default
@@ -290,6 +289,25 @@ def test_reject_persists_reject_action_not_approve(env):
     assert (
         rec["action"] == "reject"
     ), f"durable audit row says action={rec['action']!r} for a rejection"
+
+
+@pytest.mark.issue("ISS-865")
+def test_approve_action_with_approved_false_persists_reject(env):
+    """ISS-865: the approve branch forwards a client ``approved=false`` under a
+    hardcoded action='approve'; the record must describe the enforced rejection."""
+    owner = _seed_user(env, "owner")
+    run_id = _seed_run(env, owner.id)
+    gate_key = f"{run_id}:prototype-specify"
+    _arm_gate(env, gate_key)
+    env["state"]["user"] = owner
+
+    resp = _post_gate(env, run_id, gate_key, action="approve", approved=False)
+    assert resp.status_code == 200, resp.text
+    rec = _recorded(env, gate_key)
+    assert rec["approved"] is False
+    assert (
+        rec["action"] == "reject"
+    ), f"record says action={rec['action']!r} while approved is False"
 
 
 def test_redo_carries_instructions(env):

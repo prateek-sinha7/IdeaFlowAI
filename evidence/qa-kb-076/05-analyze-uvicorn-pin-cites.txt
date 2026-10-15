@@ -1,0 +1,29 @@
+# QA-KB-076 analyze: the pinned-uvicorn cites in test_shutdown_reachability.py (lines 5-11) are accurate for the pin, and the widened pattern flags them anyway
+# tree: /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2   HEAD: 175069256   date: 2026-10-07 22:07 CEST
+
+$ grep -n uvicorn backend/pyproject.toml backend/requirements-prod.txt
+backend/requirements-prod.txt:27:uvicorn==0.34.0
+backend/pyproject.toml:9:    "uvicorn==0.34.0",
+
+$ sed -n '5,11p' backend/tests/unit/services/test_shutdown_reachability.py   (the cites, as written)
+and that is exactly what broke: uvicorn's ``timeout_graceful_shutdown`` defaults to
+``None`` (``uvicorn/config.py:215``), and ``H11Protocol.shutdown()`` does NOT close a
+connection whose response is still streaming — it only clears keep_alive
+(``uvicorn/protocols/http/h11_impl.py:328-337``). A live ``EventSourceResponse``
+therefore never leaves ``server_state.connections``, ``_wait_tasks_to_complete()`` spins
+forever (``uvicorn/server.py:294-310``), and ``await self.lifespan.shutdown()`` on line
+292 is never reached. Measured before the fix: SIGTERM left the process alive past 30s
+
+installed uvicorn: 0.34.0
+uvicorn/config.py:215:         timeout_graceful_shutdown: int | None = None,
+uvicorn/protocols/http/h11_impl.py:328:     def shutdown(self) -> None:
+uvicorn/protocols/http/h11_impl.py:329:         """
+uvicorn/protocols/http/h11_impl.py:337:             self.cycle.keep_alive = False
+uvicorn/server.py:262:     async def shutdown(self, sockets: list[socket.socket] | None = None) -> None:
+uvicorn/server.py:292:             await self.lifespan.shutdown()
+uvicorn/server.py:294:     async def _wait_tasks_to_complete(self) -> None:
+uvicorn/server.py:310:             await server.wait_closed()
+uvicorn/server.py:313:     def capture_signals(self) -> Generator[None, None, None]:
+
+# reading: 215 = Config.__init__ timeout_graceful_shutdown; h11_impl 328-337 = H11Protocol.shutdown; server 294-310 = Server._wait_tasks_to_complete; 292 = last statement of Server.shutdown (def at 262).
+# The BUGS.md sketch regex flags lines 6, 8, 10 of the reachability test (see 01), so a literal application of the sketch leaves the widened guard RED unless these are converted to symbols or exempted.

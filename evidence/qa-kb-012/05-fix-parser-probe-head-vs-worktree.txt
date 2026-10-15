@@ -1,0 +1,78 @@
+# FIX-696 parser probe: HEAD 024c03ef8 routes.ts vs working-tree routes.ts (node --experimental-strip-types, 2026-10-01 22:35)
+same     /  {"screen":"home"}
+same     /login  {"screen":"login"}
+same     /register  {"screen":"register"}
+same     /dashboard  {"screen":"home"}
+same     /admin  {"screen":"admin"}
+same     /analytics  {"screen":"analytics"}
+same     /create  {"screen":"create"}
+same     /create/ppt  {"screen":"create-ppt"}
+same     /create/prototype  {"screen":"create-prototype"}
+same     /create/app  {"screen":"create-app"}
+same     /create/user-stories  {"screen":"create-user-stories"}
+same     /create/ex_A2_branch  {"screen":"create-workflow","pipelineType":"ex_A2_branch"}
+same     /workflows  {"screen":"workflows"}
+same     /workflows/new  {"screen":"workflow-new"}
+same     /workflows/w1  {"screen":"workflow","workflowId":"w1"}
+same     /workflows/w1/edit  {"screen":"workflow-edit","workflowId":"w1"}
+same     /workflows/w1/run  {"screen":"workflow-run","workflowId":"w1"}
+same     /workflows/ppt/canvas  {"screen":"workflow-canvas","pipelineType":"ppt"}
+same     /runs  {"screen":"run-history"}
+same     /runs/r1  {"screen":"run-detail","runId":"r1"}
+same     /runs/r1/steps  {"screen":"run-steps","runId":"r1"}
+same     /runs/r1/steps/a1  {"screen":"run-steps-agent","runId":"r1","agentId":"a1"}
+same     /runs/r1/files  {"screen":"run-files","runId":"r1"}
+same     /runs/r1/workspace  {"screen":"run-workspace","runId":"r1"}
+same     /runs/r1/audit  {"screen":"run-audit","runId":"r1"}
+same     /runs/r1/stream  {"screen":"run-stream","runId":"r1"}
+same     /runs/r1/preview/full  {"screen":"run-preview-full","runId":"r1"}
+same     /runs/r1/versions/2  {"screen":"run-version","runId":"r1","version":"2"}
+same     /runs/r1/versions/2/files  {"screen":"run-files","runId":"r1","version":"2"}
+same     /runs/r1/versions/2/steps  {"screen":"run-steps","runId":"r1","version":"2"}
+same     /runs/r1/versions/2/steps/a1  {"screen":"run-steps-agent","runId":"r1","agentId":"a1","version":"2"}
+same     /runs/r1/versions/2/audit  {"screen":"run-audit","runId":"r1","version":"2"}
+same     /library  {"screen":"library"}
+same     /library/agents  {"screen":"library"}
+same     /library/skills  {"screen":"library"}
+same     /library/hooks  {"screen":"library"}
+same     /library/agents/material-analyzer  {"screen":"library-agent","slug":"material-analyzer"}
+same     /library/agents/user-agent:0b1c  {"screen":"library-agent","slug":"user-agent:0b1c"}
+same     /library/skills/web-scraper  {"screen":"library-skill","slug":"web-scraper"}
+same     /library/hooks/on-complete  {"screen":"library-hook","slug":"on-complete"}
+same     /settings  {"screen":"settings-profile"}
+same     /settings/profile  {"screen":"settings-profile"}
+same     /settings/ai-model  {"screen":"settings-ai-model"}
+same     /settings/usage  {"screen":"settings-usage"}
+same     /settings/constitution  {"screen":"settings-constitution"}
+same     /settings/security  {"screen":"settings-security"}
+same     /register/x  {"screen":"unknown"}
+same     /analytics/x  {"screen":"unknown"}
+same     /settings/bogus  {"screen":"unknown"}
+same     /workflows/w1/bogus  {"screen":"unknown"}
+same     /library/bogus/a  {"screen":"unknown"}
+same     /nonexistent  {"screen":"unknown"}
+CHANGED  /login/x  {"screen":"login"}  ->  {"screen":"unknown"}
+CHANGED  /login/a/b  {"screen":"login"}  ->  {"screen":"unknown"}
+CHANGED  /admin/x  {"screen":"admin"}  ->  {"screen":"unknown"}
+CHANGED  /admin/foo/bar  {"screen":"admin"}  ->  {"screen":"unknown"}
+CHANGED  /dashboard/x  {"screen":"home"}  ->  {"screen":"unknown"}
+CHANGED  /settings/profile/x  {"screen":"settings-profile"}  ->  {"screen":"unknown"}
+CHANGED  /settings/security/x  {"screen":"settings-security"}  ->  {"screen":"unknown"}
+CHANGED  /create/ppt/x  {"screen":"create-ppt"}  ->  {"screen":"unknown"}
+CHANGED  /create/foo/bar  {"screen":"create-workflow","pipelineType":"foo"}  ->  {"screen":"unknown"}
+CHANGED  /workflows/new/x  {"screen":"workflow-new"}  ->  {"screen":"unknown"}
+CHANGED  /workflows/w1/edit/x  {"screen":"workflow-edit","workflowId":"w1"}  ->  {"screen":"unknown"}
+CHANGED  /workflows/w1/canvas/x  {"screen":"workflow-canvas","pipelineType":"w1"}  ->  {"screen":"unknown"}
+CHANGED  /workflows/w1/run/x  {"screen":"workflow-run","workflowId":"w1"}  ->  {"screen":"unknown"}
+CHANGED  /runs/r1/files/x  {"screen":"run-files","runId":"r1"}  ->  {"screen":"unknown"}
+CHANGED  /runs/r1/workspace/x  {"screen":"run-workspace","runId":"r1"}  ->  {"screen":"unknown"}
+CHANGED  /runs/r1/audit/x  {"screen":"run-audit","runId":"r1"}  ->  {"screen":"unknown"}
+CHANGED  /runs/r1/stream/x  {"screen":"run-stream","runId":"r1"}  ->  {"screen":"unknown"}
+CHANGED  /runs/r1/steps/a1/x  {"screen":"run-steps-agent","runId":"r1","agentId":"a1"}  ->  {"screen":"unknown"}
+CHANGED  /runs/r1/preview/full/x  {"screen":"run-preview-full","runId":"r1"}  ->  {"screen":"unknown"}
+CHANGED  /runs/r1/versions/v1/files/x  {"screen":"run-files","runId":"r1","version":"v1"}  ->  {"screen":"unknown"}
+CHANGED  /library/agents/slug/x  {"screen":"library-agent","slug":"slug"}  ->  {"screen":"unknown"}
+CHANGED  /library/skills/slug/x  {"screen":"library-skill","slug":"slug"}  ->  {"screen":"unknown"}
+CHANGED  /library/hooks/slug/x  {"screen":"library-hook","slug":"slug"}  ->  {"screen":"unknown"}
+
+52 unchanged, 23 changed

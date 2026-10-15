@@ -343,13 +343,12 @@ def test_adding_a_user_creates_an_account_at_the_chosen_tier(page, shot, disposa
     try:
         with shot("add-user-dialog", 'When I click "Add user"'):
             page.click(L.ADD_USER)
-            expect(page.get_by_text("Create New User")).to_be_visible()
+            expect(page.get_by_text(L.CREATE_DIALOG)).to_be_visible()
 
-        with shot("user-created", 'And I create a disposable user at tier "basic"'):
+        with shot("user-created", 'And I invite a disposable address at tier "basic"'):
             page.fill('input[type="email"]', address)
-            page.fill('input[type="password"]', accounts.PASSWORD)
             page.locator('select[name="new-user-tier"]').select_option("basic")
-            page.get_by_role("button", name=re.compile(r"create", re.I)).last.click()
+            page.get_by_role("button", name=L.SEND_INVITATION).click()
             expect(page.locator(L.row(address)).first).to_be_visible(timeout=20000)
 
         row = page.locator(L.row(address)).first.inner_text()
@@ -361,28 +360,6 @@ def test_adding_a_user_creates_an_account_at_the_chosen_tier(page, shot, disposa
         assert tile(page, "BASIC") == before_basic + 1
     finally:
         _delete_by_email(admin_page, address)
-
-
-@pytest.mark.issue("ISS-577")
-def test_the_create_user_password_field_has_a_show_hide_toggle(page, shot):
-    """ISS-577 — the "Create New User" modal's Password field must offer a
-
-    show/hide toggle, the same affordance ISS-338 established for
-    /settings/profile's password fields. Today `admin/page.tsx` imports no
-    `Eye`/`EyeOff` icon at all and the field is hardcoded `type="password"`
-    with no toggle button anywhere in the modal. No user is created — the
-    dialog is opened and closed without submitting.
-    """
-    open_admin(page)
-
-    with shot("add-user-dialog-password-toggle", 'When I click "Add user"'):
-        page.click(L.ADD_USER)
-        expect(page.get_by_text("Create New User")).to_be_visible()
-
-    password_field = page.locator('input[type="password"]')
-    expect(password_field).to_be_visible()
-    sibling_button = password_field.locator("xpath=following-sibling::button[1]")
-    expect(sibling_button).to_be_visible()
 
 
 def _delete_by_email(admin_page, address: str) -> None:
@@ -421,71 +398,44 @@ def test_deleting_a_user_removes_them(page, shot, disposable_user):
     assert tile(page, "TOTAL USERS") == before - 1
 
 
-BREAK_GLASS_REFUSAL = "local break-glass account and cannot be reset here"
-
-
 @pytest.mark.scenario("S-11-17")
 @pytest.mark.destructive
 def test_an_admin_resets_another_users_password_to_a_temporary_one(page, shot, disposable_user):
     """Scenario: An admin resets another user's password to a temporary one
 
-    NARROWED. The reset endpoint only acts on accounts whose password it owns.
-    A user created here comes back `auth_provider: "local"` and the endpoint
-    refuses it:
-
-        "This is a local break-glass account and cannot be reset here. Its
-         password is changed from the account's own profile settings, or
-         through the break-glass runbook."
-
-    So the `requires_new_password_at_next_login` branch — and the
-    NEW_PASSWORD_REQUIRED challenge it produces in 01-auth — cannot be reached
-    with any account this suite can create. What IS assertable, and what this
-    asserts, is the refusal itself: an admin cannot reset a password the
-    application does not own, and is not handed a working credential for
-    someone else's account either way.
+    The body is empty, as the admin screen sends it: the admin supplies no
+    password and is shown none (`ResetPasswordRequest`, Phase 3 Decision 6).
+    Cognito sets a temporary one and the user chooses their own at next
+    sign-in, so the answer is the status and nothing else.
     """
     user = disposable_user(tier="basic")
 
-    with shot("temporary-reset", "When I reset without marking it permanent"):
+    with shot("temporary-reset", "When I reset another user's password"):
         page.goto("/admin")
         expect(page.get_by_text(L.HEADING)).to_be_visible()
         result = api.full(
-            page,
-            "POST",
-            f"/api/admin/users/{user['id']}/reset-password",
-            {"new_password": "flowin-e2e-temporary-1"},
+            page, "POST", f"/api/admin/users/{user['id']}/reset-password", {}
         )
 
-    if result["status"] == 200:
-        body = json.loads(result["body"])
-        assert body.get("requires_new_password_at_next_login") is True, (
-            f"a default reset did not require a new password at next login: {body}"
-        )
-        return
-
-    assert result["status"] in (400, 403, 409), result["body"][:200]
-    assert BREAK_GLASS_REFUSAL in result["body"], (
-        f"the reset was refused for another reason: {result['body'][:200]}"
+    assert result["status"] == 200, result["body"][:200]
+    assert json.loads(result["body"]) == {"status": "temporary_password_set"}, (
+        f"the reset answered more than its status — no credential may come back: "
+        f"{result['body'][:200]}"
     )
-    # The refusal must not leak a credential either.
-    assert "flowin-e2e-temporary-1" not in result["body"]
 
 
 @pytest.mark.scenario("S-11-18")
 @pytest.mark.destructive
-def test_a_permanent_reset_skips_the_challenge_but_is_knowable(page, shot, disposable_user):
-    """Scenario: A permanent reset skips the challenge but is knowable
+def test_a_reset_that_names_a_password_is_refused(page, shot, disposable_user):
+    """Scenario: A reset that names a password is refused
 
-    Same limit as S-11-17: the endpoint refuses an account whose password it
-    does not own, so the trade-off this scenario records — convenience for the
-    admin, at the cost of the admin knowing a live credential — cannot be
-    exercised here. The refusal is asserted instead, and it must not depend on
-    `permanent`: a flag that changed WHETHER the refusal happens would be a
-    bypass.
+    There is no admin-chosen or permanent reset any more. A body carrying
+    `new_password` or `permanent` is a 422, not a silently ignored field, so no
+    caller can believe it set a password that was never used.
     """
     user = disposable_user(tier="basic")
 
-    with shot("permanent-reset", "When I reset with permanent=true"):
+    with shot("permanent-reset", "When I reset with a password and permanent=true"):
         page.goto("/admin")
         expect(page.get_by_text(L.HEADING)).to_be_visible()
         result = api.full(
@@ -495,18 +445,8 @@ def test_a_permanent_reset_skips_the_challenge_but_is_knowable(page, shot, dispo
             {"new_password": "flowin-e2e-permanent-1", "permanent": True},
         )
 
-    if result["status"] == 200:
-        body = json.loads(result["body"])
-        assert body.get("requires_new_password_at_next_login") is not True, (
-            f"a permanent reset still forces a challenge: {body}"
-        )
-        return
-
-    assert result["status"] in (400, 403, 409), result["body"][:200]
-    assert BREAK_GLASS_REFUSAL in result["body"], (
-        "`permanent=true` changed WHY the reset was refused — the flag must not "
-        f"affect whether it is allowed at all: {result['body'][:200]}"
-    )
+    assert result["status"] == 422, result["body"][:200]
+    assert "extra_forbidden" in result["body"], result["body"][:200]
 
 
 @pytest.mark.scenario("S-11-19")
@@ -560,7 +500,7 @@ def test_changing_another_users_tier_takes_effect(page, shot, disposable_user, b
     """
     from framework.locators import home_catalog as HOME
 
-    user = disposable_user(tier="basic")
+    user = disposable_user(tier="basic", signs_in=True)
     open_admin(page)
     row = page.locator(L.row(user["email"])).first
     expect(row).to_be_visible()

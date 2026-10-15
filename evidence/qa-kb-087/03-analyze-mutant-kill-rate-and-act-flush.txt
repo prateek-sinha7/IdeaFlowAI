@@ -1,0 +1,21 @@
+# 3-analyzer QA-KB-087, 2026-10-02 11:15 CEST. Kill rate of the saved-constitution mutant (AccountSettingsMutant: the Constitution load forgets setLoadedValue(loaded), AccountSettings.tsx:635).
+# 'N failed' = the guard case CAUGHT the mutant; 'N passed' = the mutant SURVIVED.
+# f1 = saved constitution 'saved rules', negative assertion right after findByRole.  f2 = same + 'await act(async () => {})' before the assertion.  d2 = f2's case on the REAL component.
+
+## f1, serial x10
+  10 1 failed | 3 skipped (4)
+
+## f1_mutant_nonempty, 16 processes at once
+  16 1 failed | 3 skipped (4)
+
+## f2_mutant_nonempty_act, 16 processes at once
+  16 1 failed | 3 skipped (4)
+
+## d2_nonempty_act, 16 processes at once
+  16 1 passed | 3 skipped (4)
+
+## Aggregate over this analysis session (every run after the files were renamed to a1_..h1_; counts read from the terminal output of each run)
+f1 (no flush)        : 62 runs, mutant caught 59, mutant SURVIVED 3  (1 in the second sequential run_all.sh, 1 of 8 in the first 8-way run, 1 of 16 in the first 16-way run; the two parallel ones ran under self-inflicted load, the sequential one under whatever else was running on the machine)
+f2 (await act flush) : 40 runs, mutant caught 40, survived 0           (8-way 8/8, 16-way 16/16, 16-way 16/16)
+d2 (f2 on the real component): 32 runs, 32 passed, 0 false reds        (16-way twice)
+Reading (INFERRED mechanism, measured effect): findByRole resolves on the textarea's DOM mutation, RTL then waits one setTimeout(0); the parent's useEffect that calls onUnsavedChange(true) is a passive effect that React flushes on its own schedule, so under load the negative assertion can run before a late `true` call. An explicit act flush removes the race.

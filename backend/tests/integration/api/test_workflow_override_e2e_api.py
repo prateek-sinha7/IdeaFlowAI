@@ -42,10 +42,8 @@ def api():
     app.include_router(uw_router)
     state = {"user": _FakeUser("owner")}
     app.dependency_overrides[get_current_user] = lambda: state["user"]
-    # POST /api/user-workflows depends on get_current_principal (its entitlement
-    # gate reads the token's cognito:groups — Cognito-only auth migration,
-    # Decision 3), so overriding get_current_user alone left the save 401. Same
-    # override as tests/integration/api/test_user_workflows_api.py.
+    # POST and PATCH /api/user-workflows depend on get_current_principal
+    # (user_workflows.py create/update); without this every save answers 401.
     app.dependency_overrides[get_current_principal] = lambda: (
         state["user"],
         principal_for(state["user"]),
@@ -73,7 +71,7 @@ def _step(iid: str):
 
 
 def _save_override(client, *, steps, name="My Deck"):
-    return client.post(
+    resp = client.post(
         "/api/user-workflows",
         json={
             "name": name,
@@ -83,6 +81,9 @@ def _save_override(client, *, steps, name="My Deck"):
             "overrides_pipeline_type": "ppt",
         },
     )
+    # No test may pass on a save that never happened (ISS-947).
+    assert resp.status_code == 201, resp.text
+    return resp
 
 
 def test_saving_an_override_then_reading_ppt_returns_my_steps(api):
@@ -116,6 +117,7 @@ def test_workflow_level_fields_still_come_from_the_file(api):
     _save_override(client, steps=[_step("mine")])
     after = client.get("/api/workflows/ppt").json()
 
+    assert after["is_overridden"] is True
     assert (
         after["deliverable"]
         == before["deliverable"]
@@ -175,6 +177,7 @@ def test_saving_twice_updates_one_row(api):
 def test_another_users_override_is_invisible(api):
     client, state = api
     _save_override(client, steps=[_step("mine")])
+    assert client.get("/api/workflows/ppt").json()["is_overridden"] is True
 
     state["user"] = _FakeUser("someone-else")
     theirs = client.get("/api/workflows/ppt").json()

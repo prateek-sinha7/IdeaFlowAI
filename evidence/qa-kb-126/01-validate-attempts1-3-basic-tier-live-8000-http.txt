@@ -1,0 +1,7 @@
+Live :8000, 2026-10-09, caller basic@velocity.ai (GET /api/auth/me tier=basic), cold login per attempt.
+POST /api/user-workflows base_pipeline_type=ppt, agent_ids=[ppt-brief-analyst], no overrides_pipeline_type,
+manifest.steps[0]: tools.exec=true, gates=[security,approval], validators=[code_test]
+ attempt1: 201 id=dcf9bbb3-9f0c-4088-a032-4038835ebc05 stored base=ppt overrides=null exec=true gates=[security,approval]; control base=custom -> 403 "requires Pro or higher"; row DELETEd 204
+ attempt2: 201 id=e5cef010-2c6e-49ef-afa6-1405d6692e6c same; control 403; DELETE 204
+ attempt3: 201 id=18f10486-14cc-41a6-a3ac-ddfd62a63a70 same; control 403; DELETE 204
+Launch not driven (costs a run); launch compile at trust=db shown in evidence/qa-kb-100/analysis-05 W5; code: user_workflows.py:744 gates can_run_pipeline on body.base_pipeline_type.

@@ -1,0 +1,301 @@
+QA-KB-007 / ISS-135 -- 5-fixer evidence, 2026-10-01
+
+== Change: backend/agents/authz.py:659-669 (append_event_at_or_after, except IntegrityError branch) ==
+                if self._session is not None:
+                    self._session.rollback()
+                tail = await self._max_event_seq(run_id)
+                if tail < attempt_seq:
+                    raise
+                attempt_seq = tail + 1
+                # ISS-135: the row moves, so its stored payload seq moves with it. A COPY,
+                # never the caller's dict: that is the live frame, and on exhaustion it must
+                # keep the seq the caller stamped (persist() returns None => no re-stamp).
+                if isinstance(payload_json, dict) and "seq" in payload_json:
+                    payload_json = {**payload_json, "seq": attempt_seq}
+
+== Pre-fix baseline (observed before the edit) ==
+$ cd backend && .venv/bin/python -m pytest tests/integration/repositories/test_run_events_payload_seq_db.py -q
+XFAIL test_store_retry_restamps_payload_seq - ISS-135 unfixed
+XFAIL test_execute_wrapper_stored_payload_seq_matches_row - ISS-135 unfixed
+2 xfailed, 1 warning in 1.79s
+$ cd backend && .venv/bin/python -m pytest tests/integration/repositories/test_run_events_db.py -q
+9 passed, 1 warning in 1.42s
+
+== Post-fix (re-run now) ==
+$ cd backend && .venv/bin/python -m pytest tests/integration/repositories/test_run_events_payload_seq_db.py -v
+tests/integration/repositories/test_run_events_payload_seq_db.py::test_store_retry_restamps_payload_seq FAILED [ 50%]
+tests/integration/repositories/test_run_events_payload_seq_db.py::test_execute_wrapper_stored_payload_seq_matches_row FAILED [100%]
+[XPASS(strict)] ISS-135 unfixed
+[XPASS(strict)] ISS-135 unfixed
+FAILED tests/integration/repositories/test_run_events_payload_seq_db.py::test_store_retry_restamps_payload_seq
+FAILED tests/integration/repositories/test_run_events_payload_seq_db.py::test_execute_wrapper_stored_payload_seq_matches_row
+========================= 2 failed, 1 warning in 1.59s =========================
+$ cd backend && .venv/bin/python -m pytest tests/integration/repositories/test_run_events_db.py -q
+9 passed, 1 warning in 1.17s
+
+== Card constraint checks (scratch, in-memory SQLite, injected session) ==
+$ cd backend && PYTHONPATH=. .venv/bin/python qa_kb_007_fix_checks.py
+1 copy:      landed 2 stored (2, {'seq': 2, 'x': 'y'}) caller dict {'seq': 1, 'x': 'y'}
+2 two-hop:   landed 4 stored (4, {'seq': 4}) tail probes 2
+3 guard:     raised True rows 1 caller dict {'seq': 5}
+4 exhausted: raised True stored b None caller dict {'seq': 1}
+5 no-seq:    landed 2 stored (2, {'pipeline_run_id': 'run-1', 'reason': 'user'}) caller dict {'pipeline_run_id': 'run-1', 'reason': 'user'}
+ALL 5 CHECKS PASSED
+
+== Script ==
+"""QA-KB-007 / ISS-135 fix: observe the card's four constraints on the patched
+append_event_at_or_after (in-memory SQLite, injected session, offline)."""
+
+import asyncio
+import json
+
+from sqlalchemy import create_engine, text
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
+
+from agents.authz import ScopedStore
+from app.models.database import Base
+from app.models.workflow import WorkflowRun
+
+
+def fresh_session():
+    eng = create_engine(
+        "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
+    )
+    Base.metadata.create_all(bind=eng)
+    s = sessionmaker(bind=eng, autocommit=False, autoflush=False)()
+    s.add(WorkflowRun(id="run-1", user_id="alice", title="t", type="prototype",
+                      status="running", input="idea", owner_id="alice",
+                      workspace_id="ws-1"))
+    s.commit()
+    return s
+
+
+def stored(s, event_id):
+    s.expire_all()
+    r = s.execute(text("SELECT seq, payload_json FROM run_events WHERE event_id = :e"),
+                  {"e": event_id}).one_or_none()
+    if r is None:
+        return None
+    p = json.loads(r[1]) if isinstance(r[1], str) else r[1]
+    return r[0], p
+
+
+async def main():
+    # 1. Copy, never mutate: the caller's dict keeps its requested seq.
+    s = fresh_session()
+    st = ScopedStore(owner_id="alice", workspace_id="ws-1", session=s)
+    await st.append_event("run-1", 1, "a", "t", {"seq": 1})
+    frame = {"seq": 1, "x": "y"}
+    landed = await st.append_event_at_or_after("run-1", 1, "b", "t", frame)
+    print("1 copy:      landed", landed, "stored", stored(s, "b"), "caller dict", frame)
+    assert landed == 2 and stored(s, "b") == (2, {"seq": 2, "x": "y"})
+    assert frame == {"seq": 1, "x": "y"}
+
+    # 2. Every hop: stale first tail probe forces 2 hops; landed 4, stored 4.
+    s = fresh_session()
+    st = ScopedStore(owner_id="alice", workspace_id="ws-1", session=s)
+    for n in (1, 2, 3):
+        await st.append_event("run-1", n, f"e{n}", "t", {"seq": n})
+    real, calls = st._max_event_seq, []
+
+    async def stale_once(run_id):
+        calls.append(run_id)
+        return 1 if len(calls) == 1 else await real(run_id)
+
+    st._max_event_seq = stale_once
+    landed = await st.append_event_at_or_after("run-1", 1, "z", "t", {"seq": 1})
+    print("2 two-hop:   landed", landed, "stored", stored(s, "z"), "tail probes", len(calls))
+    assert landed == 4 and stored(s, "z") == (4, {"seq": 4}) and len(calls) == 2
+
+    # 3. Guard first: a non-seq rejection (duplicate event_id, tail < attempt)
+    #    re-raises untouched, nothing written, caller dict unchanged.
+    s = fresh_session()
+    st = ScopedStore(owner_id="alice", workspace_id="ws-1", session=s)
+    await st.append_event("run-1", 1, "a", "t", {"seq": 1})
+    frame = {"seq": 5}
+    try:
+        await st.append_event_at_or_after("run-1", 5, "a", "t", frame)
+        raised = False
+    except IntegrityError:
+        raised = True
+    s.rollback()
+    n = s.execute(text("SELECT count(*) FROM run_events")).scalar()
+    print("3 guard:     raised", raised, "rows", n, "caller dict", frame)
+    assert raised and n == 1 and frame == {"seq": 5}
+
+    # 4. Exhaustion: re-raises, caller dict keeps its stamped seq.
+    s = fresh_session()
+    st = ScopedStore(owner_id="alice", workspace_id="ws-1", session=s)
+    await st.append_event("run-1", 1, "a", "t", {"seq": 1})
+    frame = {"seq": 1}
+    try:
+        await st.append_event_at_or_after("run-1", 1, "b", "t", frame, _max_attempts=1)
+        raised = False
+    except IntegrityError:
+        raised = True
+    s.rollback()
+    print("4 exhausted: raised", raised, "stored b", stored(s, "b"), "caller dict", frame)
+    assert raised and stored(s, "b") is None and frame == {"seq": 1}
+
+    # 5. No seq key: payload stored identical, never gains a seq.
+    s = fresh_session()
+    st = ScopedStore(owner_id="alice", workspace_id="ws-1", session=s)
+    await st.append_event("run-1", 1, "a", "t", {"seq": 1})
+    marker = {"pipeline_run_id": "run-1", "reason": "user"}
+    landed = await st.append_event_at_or_after("run-1", 1, "c", "pipeline_cancelled", marker)
+    print("5 no-seq:    landed", landed, "stored", stored(s, "c"), "caller dict", marker)
+    assert landed == 2 and stored(s, "c") == (2, {"pipeline_run_id": "run-1", "reason": "user"})
+
+    print("ALL 5 CHECKS PASSED")
+
+
+asyncio.run(main())
+
+== Goldens (tests/contract/agents/test_characterization_*.py, one file per run, post-fix) ==
+test_characterization_app_builder.py: 2 failed, 3 warnings in 15.44s
+test_characterization_ppt.py: 2 passed, 3 warnings in 6.95s
+test_characterization_prototype_feature_revision.py: 4 passed, 5 warnings in 94.86s (0:01:34)
+test_characterization_prototype_large_revision.py: 2 passed, 3 warnings in 40.60s
+test_characterization_prototype_revision.py: 2 passed, 3 warnings in 14.39s
+test_characterization_prototype.py: 2 passed, 3 warnings in 41.25s (run before logging to file)
+Total: 12 passed / 2 failed (14 tests in 6 files). psycopg lines in the 5 logged runs: 0
+
+app_builder failures are a deliverable/final_output diff, not seq: golden carries a '.family.lock' file block (len 120), run emits none (len 88):
+53:E       AssertionError: app_builder.txt: deliverable bytes diverged from the committed golden (len now=88, golden=120). This is the SAFE-01 byte-identity tripwire: if the change is intentional (e.g. the sanctioned [0C] byte change), regenerate with SNAPSHOT
+705:E       AssertionError: app_builder normalized event stream diverged from the committed golden (dropped/reordered event or lost required key). Regenerate intentionally with SNAPSHOT_UPDATE=1 (SAFE-02).
+'.family.lock' is excluded from deliverables by committed, unmodified code:
+32:# no-ops on Windows (fcntl is None there). The family lock MUST hold on both
+68:        ".family.lock",  # revision-family lock file (family_lock_path) — engine plumbing
+
+== Independence probe: is the ISS-135 branch reached during the app_builder golden? ==
+$ PYTHONPATH=<scratchpad>:. .venv/bin/python -m pytest tests/contract/agents/test_characterization_app_builder.py -q -p kb007_probe
+KB007-PROBE installed=True append_event_at_or_after_calls=200 append_event_IntegrityErrors=0
+=> append_event raised zero IntegrityErrors, so the except-IntegrityError branch (authz.py:653-669) never ran; the 2 failures cannot come from this change.
+
+== Probe plugin ==
+"""Scratch pytest plugin: count ScopedStore.append_event_at_or_after calls and the
+IntegrityErrors append_event raises. The ISS-135 lines only run after such an
+IntegrityError inside append_event_at_or_after. Imports are lazy (runtest_setup)."""
+
+import os
+
+import pytest
+
+_c = {"aoa": 0, "integrity": 0, "installed": False}
+_OUT = os.path.join(os.path.dirname(__file__), "kb007_probe.out")
+
+
+@pytest.hookimpl(tryfirst=True)
+def pytest_runtest_setup(item):
+    if _c["installed"]:
+        return
+    from sqlalchemy.exc import IntegrityError
+
+    from agents.authz import ScopedStore
+
+    orig_aoa, orig_ae = ScopedStore.append_event_at_or_after, ScopedStore.append_event
+
+    async def aoa(self, *a, **k):
+        _c["aoa"] += 1
+        return await orig_aoa(self, *a, **k)
+
+    async def ae(self, *a, **k):
+        try:
+            return await orig_ae(self, *a, **k)
+        except IntegrityError:
+            _c["integrity"] += 1
+            raise
+
+    ScopedStore.append_event_at_or_after = aoa
+    ScopedStore.append_event = ae
+    _c["installed"] = True
+
+
+def pytest_sessionfinish(session, exitstatus):
+    with open(_OUT, "w") as fh:
+        fh.write(
+            f"KB007-PROBE installed={_c['installed']} "
+            f"append_event_at_or_after_calls={_c['aoa']} "
+            f"append_event_IntegrityErrors={_c['integrity']}\n"
+        )
+
+== lint-imports (cd backend && .venv/bin/lint-imports), shared working tree ==
+kernel imports only capability ports (scaffold) BROKEN
+agents.workflows must not import the execution kernel or the web layer KEPT
+agents.capabilities must not import the execution kernel or the web layer BROKEN
+agents.runtime must not import the execution kernel or the web layer KEPT
+shipped code must not import the build-time tooling package KEPT
+Contracts: 3 kept, 2 broken.
+Broken edges (none involves agents.authz; the ISS-135 hunk adds no import):
+-   agents.execution_engine.engine -> agents.execution_engine.kernel_services (l.5798)
+-   agents.execution_engine.engine -> app.api.launch_context (l.4565, l.4578, l.4975, l.15620)
+-   agents.execution_engine.engine -> app.api.runs (l.3565)
+-   agents.capabilities.prototype_ui_extract -> app.agents.tools.html_extract (l.333)
+grep -c authz in lint-imports output: 0
+
+== Regression-guard gap (carded separately): mutants the repo tests do NOT catch ==
+Mutant A re-stamps the caller's dict in place; mutant B re-stamps a copy on the first hop only.
+Source untouched: each mutant is swapped in by a scratch pytest plugin (kb007_mutant.py, below).
+$ KB007_MUTANT=A pytest tests/integration/repositories/test_run_events_payload_seq_db.py --runxfail -p kb007_mutant
+2 passed, 1 warning in 1.10s
+$ scratch constraint checks with mutant A installed
+AssertionError
+1 copy:      landed 2 stored (2, {'seq': 2, 'x': 'y'}) caller dict {'seq': 2, 'x': 'y'}
+$ KB007_MUTANT=B pytest tests/integration/repositories/test_run_events_payload_seq_db.py --runxfail -p kb007_mutant
+2 passed, 1 warning in 1.11s
+$ scratch constraint checks with mutant B installed
+AssertionError
+1 copy:      landed 2 stored (2, {'seq': 2, 'x': 'y'}) caller dict {'seq': 1, 'x': 'y'}
+2 two-hop:   landed 4 stored (4, {'seq': 2}) tail probes 2
+=> both mutants pass the repo file, each fails a card constraint (A: check 1, caller dict mutated; B: check 2, stored 2 vs landed 4).
+
+== Mutant plugin ==
+"""Scratch pytest plugin + script: swap in a MUTANT append_event_at_or_after
+(source untouched) to see whether the repo tests guard the ISS-135 constraints.
+KB007_MUTANT=A  re-stamps the caller's dict IN PLACE (violates copy-not-mutate)
+KB007_MUTANT=B  re-stamps a copy on the FIRST hop only (violates every-hop)"""
+
+import os
+
+import pytest
+
+
+def _mutant(kind):
+    async def at_or_after(self, run_id, seq, event_id, type, payload_json, _max_attempts=8):
+        from sqlalchemy.exc import IntegrityError
+
+        attempt_seq, last, restamped = int(seq), None, False
+        for _ in range(max(1, _max_attempts)):
+            try:
+                await self.append_event(run_id, attempt_seq, event_id, type, payload_json)
+                return attempt_seq
+            except IntegrityError as rejected:
+                last = rejected
+                if self._session is not None:
+                    self._session.rollback()
+                tail = await self._max_event_seq(run_id)
+                if tail < attempt_seq:
+                    raise
+                attempt_seq = tail + 1
+                if isinstance(payload_json, dict) and "seq" in payload_json:
+                    if kind == "A":
+                        payload_json["seq"] = attempt_seq
+                    elif not restamped:
+                        payload_json = {**payload_json, "seq": attempt_seq}
+                        restamped = True
+        raise last
+
+    return at_or_after
+
+
+def install(kind):
+    from agents.authz import ScopedStore
+
+    ScopedStore.append_event_at_or_after = _mutant(kind)
+
+
+@pytest.hookimpl(tryfirst=True)
+def pytest_runtest_setup(item):
+    install(os.environ["KB007_MUTANT"])

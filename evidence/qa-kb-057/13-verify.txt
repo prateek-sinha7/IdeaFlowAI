@@ -1,0 +1,2 @@
+verify 2026-10-07: 10 XPASS(strict) observed (8 + 2); xfail markers removed; re-run plain green: guard_api 8 passed, audit_api 2 passed.
+regression test_rest_run_launch_api.py: 4 failed/20 passed/1 xfailed - same 4 as fix-phase evidence 12 (run_commands.py unmodified vs HEAD). lint-imports: 3 kept 2 broken (agents.capabilities.prototype_ui_extract, unrelated). /docs 200.

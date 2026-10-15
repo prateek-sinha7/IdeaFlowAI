@@ -1,0 +1,6 @@
+# QA-KB-119 analysis: ruling out the other injected-session endpoint (runs.py:1497-1503, GET /artifacts) on the same run, 2026-10-09
+# Only 3 sites build ScopedStore(session=db): run_stream.py:647 (get_run only), runs.py:1502 (artifacts), runs.py:1552 (events).
+/artifacts                         status=200 bytes=    76108 t=   148ms items=193
+/artifacts?include=content         status=200 bytes=  5782219 t=   142ms items=193
+/family                            status=200 bytes=     3501 t=   118ms items=8
+# Reading: artifacts is bounded by the per-run ref count (193), 5.8 MB / 142 ms with content. Not a sibling for this run.

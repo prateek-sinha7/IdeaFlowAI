@@ -1,4 +1,5 @@
 import { http } from "./http";
+import type { RunArtifactsResponse } from "@/lib/api";
 
 export interface WorkflowRun {
   id: string;
@@ -37,26 +38,8 @@ export interface RunFamily {
   members: FamilyMember[];
 }
 
-export interface ArtifactNode {
-  id: string;
-  kind: string;
-  producer_step: string;
-  producer_agent: string;
-  task_id: string;
-  content_hash: string;
-  version: number;
-  visibility: string;
-  location: string;
-  parents: string[];
-  derived_from: string[];
-  children: string[];
-  content?: string;
-}
-
-export interface RunArtifactsResponse {
-  workflow_id: string;
-  artifacts: ArtifactNode[];
-}
+// ISS-077: one declaration of the wire shape, in @/lib/api — never a second copy here.
+export type { ArtifactNode, RunArtifactsResponse } from "@/lib/api";
 
 export interface ChainContext {
   workflow_id: string;

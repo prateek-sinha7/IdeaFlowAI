@@ -162,6 +162,26 @@ async def test_get_review_response_returns_none_before_submission(
 
 
 # ---------------------------------------------------------------------------
+# Run-end eviction (forget_run)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.issue("ISS-868")
+@pytest.mark.asyncio
+async def test_forget_run_evicts_review_responses(store: ArtifactStore) -> None:
+    """ISS-868 / QA-KB-068 — forget_run must drop review:{run_id}:* responses too."""
+    await store.set_review_response("run-1:agent-a:0", approved=False)
+    await store.set_review_response("run-2:agent-a:0", approved=True)
+    await store.set_review_response(
+        "run-10:agent-a:0", approved=True
+    )  # prefix lookalike
+    store.forget_run("run-1")
+    assert await store.get_review_response("run-1:agent-a:0") is None
+    assert await store.get_review_response("run-2:agent-a:0") is not None
+    assert await store.get_review_response("run-10:agent-a:0") is not None
+
+
+# ---------------------------------------------------------------------------
 # Singleton accessor
 # ---------------------------------------------------------------------------
 

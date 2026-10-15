@@ -1,0 +1,73 @@
+/**
+ * ISS-372 / ISS-921 (QA-KB-015) — the unsaved-work sources that
+ * AccountSettings.iss372.test.tsx does not reach: the model pick (ISS-372), and
+ * the two false prompts a Constitution term would inherit from the tab guard's
+ * comparison (ISS-921): a draft saved with surrounding whitespace (Save stores it
+ * trimmed) and a draft the user already threw away with "Discard".
+ */
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+
+vi.mock("@/lib/api", () => ({
+  authedFetch: (input: string, init?: RequestInit) => fetch(input, init),
+  getConstitution: () => Promise.resolve({ content: "" }),
+  getToken: () => "test-token",
+  getMe: () => Promise.resolve({ id: "u1", email: "user@example.com", tier: "pro" }),
+  getPreferences: () =>
+    Promise.resolve({
+      preferred_model: null,
+      available_models: [{ id: "model-one", name: "Model One", description: "d", tier: "fast" }],
+    }),
+  getCapabilities: () => Promise.resolve({ model_catalog: [] }),
+  changePassword: vi.fn(),
+  updatePreferences: vi.fn(),
+}));
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn(), replace: vi.fn(), prefetch: vi.fn() }) }));
+
+import { AccountSettings, type SettingsSection } from "./AccountSettings";
+
+beforeEach(() => {
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => ({}) }));
+});
+afterEach(() => vi.unstubAllGlobals());
+
+function renderOn(section: SettingsSection) {
+  const onUnsavedChange = vi.fn();
+  render(<AccountSettings onBack={vi.fn()} initialSection={section} onUnsavedChange={onUnsavedChange} />);
+  return { onUnsavedChange, user: userEvent.setup() };
+}
+
+describe("ISS-372 — an unsaved model pick is unsaved work", () => {
+  it("picking a model is dirty, picking the saved one back is clean", async () => {
+    const { onUnsavedChange, user } = renderOn("model");
+    const select = await screen.findByRole("combobox", { name: "Select model" });
+    await user.selectOptions(select, "model-one");
+    expect(onUnsavedChange).toHaveBeenLastCalledWith(true);
+    await user.selectOptions(select, "");
+    expect(onUnsavedChange).toHaveBeenLastCalledWith(false);
+  });
+});
+
+describe("ISS-921 — a saved or discarded Constitution draft is not unsaved work", () => {
+  async function typeDraft(text: string) {
+    const ctx = renderOn("constitution");
+    await ctx.user.type(await screen.findByRole("textbox", { name: "Constitution content" }), text);
+    expect(ctx.onUnsavedChange).toHaveBeenLastCalledWith(true);
+    return ctx;
+  }
+
+  it("a draft saved with surrounding whitespace is clean", async () => {
+    const { onUnsavedChange, user } = await typeDraft("  house rules  ");
+    await user.click(screen.getByRole("button", { name: "Save constitution" }));
+    await screen.findByText(/Constitution saved/);
+    expect(onUnsavedChange).toHaveBeenLastCalledWith(false);
+  });
+
+  it("a draft thrown away with Discard is clean", async () => {
+    const { onUnsavedChange, user } = await typeDraft("house rules");
+    await user.click(screen.getByText("Profile"));
+    await user.click(await screen.findByRole("button", { name: "Discard" }));
+    expect(onUnsavedChange).toHaveBeenLastCalledWith(false);
+  });
+});

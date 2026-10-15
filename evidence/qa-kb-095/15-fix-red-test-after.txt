@@ -1,0 +1,13 @@
+# 15 — fix, ISS-1072 red test AFTER the fix (2026-10-07, 5-fixer, cwd backend/, .venv/bin/python 3.13.14)
+# XPASS(strict) is the pass signal; the xfail marker is left for the 6-verifier.
+
+$ python -m pytest tests/integration/api/test_sandbox_ref_scoped_endpoints_api.py -q -rfEX
+=================================== FAILURES ===================================
+_____________ test_empty_husk_sandbox_with_ref_is_expired_not_400 ______________
+[XPASS(strict)] ISS-1072 unfixed
+=========================== short test summary info ============================
+FAILED tests/integration/api/test_sandbox_ref_scoped_endpoints_api.py::test_empty_husk_sandbox_with_ref_is_expired_not_400
+1 failed, 10 passed, 1 xfailed in 4.96s
+
+$ python -m pytest tests/integration/api/test_sandbox_ref_scoped_endpoints_api.py::test_empty_husk_sandbox_with_ref_is_expired_not_400 --runxfail -q
+1 passed in 1.11s

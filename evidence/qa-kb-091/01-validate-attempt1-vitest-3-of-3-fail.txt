@@ -1,0 +1,8 @@
+     × shell cancelled 92ms
+     × shell failed 14ms
+     × shell diverted 11ms
+TestingLibraryElementError: Unable to find an element with the text: No deliverable was saved for this version. This could be because the text is broken up by multiple elements. In this case, you can provide a function for your text matcher to make your matcher more flexible.
+                This run was cancelled
+TestingLibraryElementError: Unable to find an element with the text: No deliverable was saved for this version. This could be because the text is broken up by multiple elements. In this case, you can provide a function for your text matcher to make your matcher more flexible.
+TestingLibraryElementError: Unable to find an element with the text: No deliverable was saved for this version. This could be because the text is broken up by multiple elements. In this case, you can provide a function for your text matcher to make your matcher more flexible.
+                This run did not complete successfully

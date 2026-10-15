@@ -1,0 +1,53 @@
+# QA-KB-096 / FIX-760 — after the fix, one vitest file per run, 2026-10-08 (HEAD f225a7952 + working tree)
+
+=== src/components/preview/SandboxPdfPreview.resolve.test.tsx
+     × ISS-1073: reads the resolved .chain/ path at v2, not the declared root path 30ms
+     × ISS-1073: sends no file request and shows the fallback when v1 holds no PDF 10ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+Error: Expect test to fail
+ Test Files  1 failed (1)
+      Tests  2 failed (2)
+
+=== src/components/preview/SandboxPdfPreview.test.tsx
+ Test Files  1 passed (1)
+      Tests  2 passed (2)
+
+=== src/components/preview/SandboxPdfPreview.ref.test.tsx
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+
+=== src/components/preview/PreviewPanel.pdfDeliverable.test.tsx
+ Test Files  1 passed (1)
+      Tests  3 passed (3)
+
+=== src/components/preview/PreviewPanel.pinSurvival.test.tsx
+ Test Files  1 passed (1)
+      Tests  2 passed | 1 expected fail (3)
+
+=== src/components/preview/PreviewPanel.refSurfaces.test.tsx
+ Test Files  1 passed (1)
+      Tests  4 passed (4)
+
+=== src/components/preview/PreviewPanel.versionRunInput.test.tsx
+ Test Files  1 passed (1)
+      Tests  2 passed (2)
+
+=== src/components/preview/RunHeader.test.tsx
+ Test Files  1 passed (1)
+      Tests  14 passed (14)
+
+=== src/lib/api.resolveRunDeliverableChainAtRef.test.ts
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+
+=== tsc --noEmit (whole project): error count, and any in SandboxPdfPreview*
+13
+(none in SandboxPdfPreview*)
+
+=== eslint --max-warnings 0 on the three edited files + the resolve test
+  32:5  error  Error: Calling setState synchronously within an effect can trigger cascading renders
+✖ 1 problem (1 error, 0 warnings)
+
+=== eslint on HEAD's SandboxPdfPreview.tsx (baseline, via stdin)
+  26:5  error  Error: Calling setState synchronously within an effect can trigger cascading renders
+✖ 1 problem (1 error, 0 warnings)

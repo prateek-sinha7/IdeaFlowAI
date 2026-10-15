@@ -1,0 +1,65 @@
+# QA-KB-059 fix: the FINAL iss919 test file run against four IdeaInputPage variants, aliased from a scratch config outside the repo
+# (IIP_TARGET=<variant> vitest --run --config <scratch>/vitest.scratch.config.ts; relative imports in each copy rewritten to @/components/workflow/...)
+#   before  = IdeaInputPage.tsx as committed (identical at 91a0b4279 and 0b5223f4c; no uncommitted hunks before this fix)
+#   fixed   = this fix
+#   mutantA = Save workflow and Advanced gated on overrideLoad !== 'ready' (the triage sketch's success-only flag on every consumer)
+#   mutantB = .catch writes 'ready' (a settle flag that does not tell failure apart, the .finally shape)
+# mutantA passes all of T1-T4: the 4-test file as handed over passed on that broken fix; the two 'rejected' controls catch it
+
+--- mutant diffs vs fixed
+2005c2005
+<                       disabled={locked || overrideLoad === "loading" || pipelineAgents.length === 0 || (isMigrationMeta && !migrationChoice)}
+---
+>                       disabled={locked || overrideLoad !== "ready" || pipelineAgents.length === 0 || (isMigrationMeta && !migrationChoice)}
+2225c2225
+<             disabled={overrideLoad === "loading"}
+---
+>             disabled={overrideLoad !== "ready"}
+1361c1361
+<           setOverrideLoad("failed");
+---
+>           setOverrideLoad("ready");
+
+== before: Tests  2 failed | 3 passed | 4 expected fail (9)
+  ✓ QA-KB-059 scratch: IdeaInputPage while GET /api/workflows/user_stories is PENDING > ISS-919 T1 both Save buttons should be disabled (red today = defect observed) 116ms
+  ✓ QA-KB-059 scratch: IdeaInputPage while GET /api/workflows/user_stories is PENDING > ISS-919 T2 clicking Save as my version while pending sends the library roster as an override UPSERT 41ms
+  ✓ QA-KB-059 scratch: the FAILED-fetch window (adjacent state) > ISS-984 T3 a rejected GET leaves Save as my version enabled and shows no error 79ms
+  ✓ QA-KB-059 scratch: an edit made in the window vs the late overlay (Advanced trigger) > ISS-983 T4 the Advanced trigger is disabled while the detail is pending and enabled once it lands 36ms
+  ✓ QA-KB-059 controls: once the detail has settled > resolved with no override: Save as my version, Save workflow and Advanced are enabled 22ms
+  × QA-KB-059 controls: once the detail has settled > rejected (503): Save as my version disabled with a reason, Save workflow and Advanced enabled 22ms
+  × QA-KB-059 controls: once the detail has settled > rejected (404, the migration shape): Save as my version disabled with a reason, Save workflow and Advanced enabled 20ms
+  ✓ QA-KB-059 controls: once the detail has settled > empty library and steps []: both Save buttons stay disabled (the length === 0 term) 21ms
+  ✓ QA-KB-059 controls: once the detail has settled > no workflowId: nothing to fetch, Save workflow and Advanced enabled 13ms
+
+== fixed: Tests  4 failed | 5 passed (9)
+  × QA-KB-059 scratch: IdeaInputPage while GET /api/workflows/user_stories is PENDING > ISS-919 T1 both Save buttons should be disabled (red today = defect observed) 116ms
+  × QA-KB-059 scratch: IdeaInputPage while GET /api/workflows/user_stories is PENDING > ISS-919 T2 clicking Save as my version while pending sends the library roster as an override UPSERT 37ms
+  × QA-KB-059 scratch: the FAILED-fetch window (adjacent state) > ISS-984 T3 a rejected GET leaves Save as my version enabled and shows no error 80ms
+  × QA-KB-059 scratch: an edit made in the window vs the late overlay (Advanced trigger) > ISS-983 T4 the Advanced trigger is disabled while the detail is pending and enabled once it lands 42ms
+  ✓ QA-KB-059 controls: once the detail has settled > resolved with no override: Save as my version, Save workflow and Advanced are enabled 28ms
+  ✓ QA-KB-059 controls: once the detail has settled > rejected (503): Save as my version disabled with a reason, Save workflow and Advanced enabled 27ms
+  ✓ QA-KB-059 controls: once the detail has settled > rejected (404, the migration shape): Save as my version disabled with a reason, Save workflow and Advanced enabled 29ms
+  ✓ QA-KB-059 controls: once the detail has settled > empty library and steps []: both Save buttons stay disabled (the length === 0 term) 28ms
+  ✓ QA-KB-059 controls: once the detail has settled > no workflowId: nothing to fetch, Save workflow and Advanced enabled 12ms
+
+== mutantA: Tests  6 failed | 3 passed (9)
+  × QA-KB-059 scratch: IdeaInputPage while GET /api/workflows/user_stories is PENDING > ISS-919 T1 both Save buttons should be disabled (red today = defect observed) 115ms
+  × QA-KB-059 scratch: IdeaInputPage while GET /api/workflows/user_stories is PENDING > ISS-919 T2 clicking Save as my version while pending sends the library roster as an override UPSERT 36ms
+  × QA-KB-059 scratch: the FAILED-fetch window (adjacent state) > ISS-984 T3 a rejected GET leaves Save as my version enabled and shows no error 79ms
+  × QA-KB-059 scratch: an edit made in the window vs the late overlay (Advanced trigger) > ISS-983 T4 the Advanced trigger is disabled while the detail is pending and enabled once it lands 44ms
+  ✓ QA-KB-059 controls: once the detail has settled > resolved with no override: Save as my version, Save workflow and Advanced are enabled 30ms
+  × QA-KB-059 controls: once the detail has settled > rejected (503): Save as my version disabled with a reason, Save workflow and Advanced enabled 1015ms
+  × QA-KB-059 controls: once the detail has settled > rejected (404, the migration shape): Save as my version disabled with a reason, Save workflow and Advanced enabled 1009ms
+  ✓ QA-KB-059 controls: once the detail has settled > empty library and steps []: both Save buttons stay disabled (the length === 0 term) 24ms
+  ✓ QA-KB-059 controls: once the detail has settled > no workflowId: nothing to fetch, Save workflow and Advanced enabled 22ms
+
+== mutantB: Tests  5 failed | 3 passed | 1 expected fail (9)
+  × QA-KB-059 scratch: IdeaInputPage while GET /api/workflows/user_stories is PENDING > ISS-919 T1 both Save buttons should be disabled (red today = defect observed) 118ms
+  × QA-KB-059 scratch: IdeaInputPage while GET /api/workflows/user_stories is PENDING > ISS-919 T2 clicking Save as my version while pending sends the library roster as an override UPSERT 37ms
+  ✓ QA-KB-059 scratch: the FAILED-fetch window (adjacent state) > ISS-984 T3 a rejected GET leaves Save as my version enabled and shows no error 82ms
+  × QA-KB-059 scratch: an edit made in the window vs the late overlay (Advanced trigger) > ISS-983 T4 the Advanced trigger is disabled while the detail is pending and enabled once it lands 40ms
+  ✓ QA-KB-059 controls: once the detail has settled > resolved with no override: Save as my version, Save workflow and Advanced are enabled 29ms
+  × QA-KB-059 controls: once the detail has settled > rejected (503): Save as my version disabled with a reason, Save workflow and Advanced enabled 25ms
+  × QA-KB-059 controls: once the detail has settled > rejected (404, the migration shape): Save as my version disabled with a reason, Save workflow and Advanced enabled 27ms
+  ✓ QA-KB-059 controls: once the detail has settled > empty library and steps []: both Save buttons stay disabled (the length === 0 term) 27ms
+  ✓ QA-KB-059 controls: once the detail has settled > no workflowId: nothing to fetch, Save workflow and Advanced enabled 13ms

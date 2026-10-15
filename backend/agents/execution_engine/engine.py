@@ -201,12 +201,25 @@ _CREDENTIAL_AGENT_ERROR = (
     "The model could not be reached — a provider credential or permission problem "
     "(the run's cloud session may have expired)."
 )
+# QA-KB-121: the provider rejected the API key itself. The launch preflight checks
+# only the key's expiry, so a revoked key first shows up here: name the key and
+# the remedy rather than a cloud session.
+_INVALID_KEY_AGENT_ERROR = (
+    "The model could not be reached — the provider rejected its API key (invalid, "
+    "revoked or expired). Rotate the key (Bedrock: AWS_BEARER_TOKEN_BEDROCK) and "
+    "restart the backend."
+)
 _UNAVAILABLE_AGENT_ERROR = "The model service was temporarily unavailable."
 _TIMEOUT_AGENT_ERROR = "The model did not respond in time."
 # A fresh call can succeed where these failed (fan-out retries a worker on them);
 # any other category is deterministic and fails at once.
 TRANSIENT_AGENT_ERRORS: frozenset[str] = frozenset(
     {_THROTTLED_AGENT_ERROR, _UNAVAILABLE_AGENT_ERROR, _TIMEOUT_AGENT_ERROR}
+)
+# Every later step would call the same provider with the same credential, so any
+# of these stops the run at the failing step (FIX-657).
+_CREDENTIAL_AGENT_ERRORS: frozenset[str] = frozenset(
+    {_CREDENTIAL_AGENT_ERROR, _INVALID_KEY_AGENT_ERROR}
 )
 
 
@@ -228,6 +241,13 @@ _AGENT_ERROR_CATEGORIES: tuple[tuple[tuple[str, ...], str], ...] = (
         "The request was too large for the model — the agent's context grew past the limit.",
     ),
     (("throttl", "rate limit", "too many requests"), _THROTTLED_AGENT_ERROR),
+    # QA-KB-121: above the credential row, whose "accessdenied" also matches a
+    # rejected key (first match wins). Matched on the message, not the code:
+    # botocore reports it as AccessDeniedException, AccessDenied or a bare 403.
+    (
+        ("api key invalid", "invalid api key", "api key is invalid"),
+        _INVALID_KEY_AGENT_ERROR,
+    ),
     # Widened after run 54da544c: an expired STS session says "The security token
     # included in the request is invalid" — which matched NONE of the original
     # needles, so a pure credential failure rendered as the generic message and
@@ -383,9 +403,10 @@ class CommitInSandboxResult:
 class Payload:
     """Return value of :func:`build_flat_payload`.
 
-    ``allowlist``           — The frozenset of exactly three repository-relative
-                              paths that were force-staged (Requirement 4 AC 11).
-                              Matches the output of ``payload_allowlist(output_basename)``.
+    ``allowlist``           — The frozenset of repository-relative paths that were
+                              force-staged (Requirement 4 AC 11):
+                              ``payload_allowlist(output_basename)`` less an output or
+                              text form that was not written (ISS-1159).
     ``built``               — True iff the payload files were written into the
                               staging directory (even if the output was not materializable).
     ``materialized``        — True iff the output file was actually copied into
@@ -660,20 +681,27 @@ async def commit_in_sandbox(
         # Empty diff → scan_for_secret("") returns None (no block) → conservative.
         # The scan is still mandatory; it just has no content to flag.
 
-    # For binary-staged files that produce "Binary files differ" in the text diff,
-    # collect their raw bytes so the binary scanner can inspect them.
+    # Collect the raw bytes of the staged files git considers BINARY, so the binary
+    # scanner can inspect them. ``--numstat`` prints ``-\t-\t<path>`` for exactly
+    # those files — decided per file. (Testing the WHOLE diff for "Binary files"
+    # sent every staged text file to the binary scanner as soon as one binary was
+    # staged, which refused a plain-text logs.jsonl beside a PDF.)
     try:
-        _binary_names_out = _ws._git(  # type: ignore[attr-defined]
-            "diff", "--cached", "--name-only", "--diff-filter=d"
+        _numstat_out = _ws._git(  # type: ignore[attr-defined]
+            "-c",
+            "core.quotePath=false",
+            "diff",
+            "--cached",
+            "--numstat",
+            "--diff-filter=d",
         )
-        for _bname in (_binary_names_out or "").splitlines():
-            _bname = _bname.strip()
+        for _line in (_numstat_out or "").splitlines():
+            _parts = _line.split("\t", 2)
+            if len(_parts) != 3 or _parts[0] != "-" or _parts[1] != "-":
+                continue  # a text entry — covered by the text scan of staged_diff
+            _bname = _parts[2].strip()
             if not _bname:
                 continue
-            # Only read files whose diff hunk contains "Binary files differ" — a
-            # cheap proxy for "git considered this entry binary".
-            if "Binary files" not in staged_diff:
-                break  # fast-exit when no binary entries in the whole diff
             _candidate = sandbox.root / _bname
             try:
                 _raw = _candidate.read_bytes()
@@ -1496,12 +1524,24 @@ def build_flat_payload(run_id: str, ectx: "ExecutionContext") -> "Payload":
         and _deliv_strategy == "streamed_text"
         and not (sandbox.root / _output_basename).is_file()
     ):
-        # Empty stream is not a claim — mirrors the bundle's `count > 0` rule
-        # above; an empty string would otherwise silently materialize as a
-        # zero-byte "completed" file and mint a tag.
-        _raw_streamed = getattr(ectx, "last_streamed", "") or ""
-        if _raw_streamed:
-            _streamed_text = _raw_streamed
+        # Materialize the RESOLVER's output, not the raw stream (ISS-791/979/980):
+        # the same unwrap / prose-strip / declared-format chain final_output gets,
+        # so the payload cannot drift from the deliverable by hand-copy.
+        # Empty AFTER the transforms is not a claim — mirrors the bundle's
+        # `count > 0` rule above; an empty string would otherwise silently
+        # materialize as a "completed" file and mint a tag.
+        try:
+            _resolved = _CAPABILITY_REGISTRY.resolve(
+                "deliverable", "streamed_text"
+            ).resolve(ectx)
+            if _resolved:
+                _streamed_text = _resolved
+        except Exception:  # noqa: BLE001 — best-effort, falls back to unmaterialized
+            logger.warning(
+                "build_flat_payload: streamed_text resolve failed for run=%s",
+                run_id,
+                exc_info=True,
+            )
 
     # ── ppt: carousel-sanitized deck from ectx.last_streamed (B4 fix) ───────
     # `strategy: ppt` resolves identically to `streamed_text` but applies the
@@ -1621,7 +1661,7 @@ def build_flat_payload(run_id: str, ectx: "ExecutionContext") -> "Payload":
                     len(_bundle_text),
                 )
             elif _streamed_text is not None:
-                # streamed_text — the declared output IS ectx.last_streamed (S8).
+                # streamed_text — the declared output IS the resolved stream (S8).
                 (_staging_abs / _output_basename).write_text(
                     _streamed_text, encoding="utf-8"
                 )
@@ -1658,6 +1698,10 @@ def build_flat_payload(run_id: str, ectx: "ExecutionContext") -> "Payload":
                 run_id,
                 exc_info=True,
             )
+    # Not materialized (absent, empty stream, or the copy raised): not written, so not
+    # staged, so stage_exact never names a missing file (ISS-1159).
+    if _output_basename and not _materialized:
+        _allowlist = _allowlist - {f".chain/{_output_basename}"}
 
     # ── Copy the binary deliverable's text form beside it ────────────────────
     if _text_basename:
@@ -4013,6 +4057,40 @@ class ExecutionEngine:
             return []
         return fragments
 
+    @staticmethod
+    def _dispatch_order(validation, agents: list, compiled) -> list:
+        """The order the dispatch loop walks the steps in (ADR-0004 ordering seam).
+
+        The resolver's DAG unless it breaks a declared ``depends_on`` edge or leaves an
+        edge's endpoint unplaced — then the compiler's order. Resume computes its offset
+        over this same list, so the two can never disagree on what index N means.
+        """
+        dag_order = validation.dag or list(agents)
+        declared_edges = [
+            (s.agent_id, dep)
+            for s in compiled.steps
+            for dep in (getattr(s, "depends_on", None) or [])
+        ]
+        if not declared_edges:
+            return dag_order
+        pos = {getattr(a, "id", None): i for i, a in enumerate(dag_order)}
+        # A declared edge is violated when the resolver placed the DEPENDENCY after the
+        # step that depends on it. Edges naming an agent the resolver never placed (a
+        # custom-agent template with no contracts) are skipped here and covered by the
+        # fallback below.
+        violated = any(
+            dep in pos and child in pos and pos[dep] > pos[child]
+            for child, dep in declared_edges
+        )
+        # An edge whose endpoints the resolver never ordered at all means the DAG is
+        # not a usable ordering for this plan — take the compiler's.
+        unplaced = any(
+            dep not in pos or child not in pos for child, dep in declared_edges
+        )
+        if violated or unplaced:
+            return list(agents)  # already topo-sorted by the compiler
+        return dag_order
+
     def _specs_from_plan(self, steps: list) -> list:
         """Load each step's AgentSpec, overlaying the composer's display_name (FIX-266)
         and the step's declared ``produces``/``consumes`` (R-29).
@@ -4601,10 +4679,12 @@ class ExecutionEngine:
         # agent (not just the first, which gets it inline) can read it. Never-raising.
         try:
             from agents.execution_engine.user_prompt import (
+                write_run_id_to_sandbox,
                 write_user_prompt_to_sandbox,
             )
 
             write_user_prompt_to_sandbox(sandbox, user_message)
+            write_run_id_to_sandbox(sandbox, pipeline_run_id)
         except Exception:  # noqa: BLE001
             logger.warning(
                 "user-prompt seed failed for run %s", pipeline_run_id, exc_info=True
@@ -4768,7 +4848,7 @@ class ExecutionEngine:
         # an offset. The wave_scheduler strategy reads ``is_resuming`` to enable its
         # mid-wave worker filter (a completed wave/worker is not re-invoked). False for
         # every normal run (the mid-wave filter is dormant — byte/event-identical).
-        ectx.is_resuming = _is_resume
+        ectx.is_resuming = _resume_from > 0
         # T16 (R-12, R-14, R-20, F-06): the run's topic slug, computed ONCE here from
         # the user's run input and reused by every step — never recomputed per step,
         # or two steps (the preamble's filename vs. the artifact-guarantee check)
@@ -4997,25 +5077,17 @@ class ExecutionEngine:
         # A workflow that extracts its uploads itself (a step granted the declared
         # ``file_extract`` tool set) must not also receive the wizard's inlined
         # document text: with every page in its prompt the first agent does the
-        # whole workflow on its own. Strip a document's text ONLY when
-        # .uploads/manifest.json lists that file — a document that never reached
-        # the sandbox has its inline text as the run's only copy, so it is kept
-        # (and prepare_brief_for_uploads logs a WARNING). The listing maps each
-        # header to a stored name with run_files' sanitize + de-duplicate rule as
-        # it applies to an EMPTY manifest. A reused sandbox (admitted chain root,
-        # or .uploads/ seeded from another run) already holds names: run_files
-        # then stores a new same-named upload under a "-N" name while the listing
-        # points at the older file. .uploads/manifest.json is the authoritative
-        # list there.
+        # whole workflow on its own. The files are in .uploads/, so keep only names.
         if any("file_extract" in (s.tools.tool_sets or []) for s in compiled.steps):
             from agents.execution_engine.user_prompt import (
-                strip_attachments_if_uploaded,
+                strip_inline_attachments,
+                write_user_prompt_to_sandbox,
             )
-            from app.agents.sandbox import stored_upload_namer
 
-            user_message = strip_attachments_if_uploaded(
-                sandbox, user_message, name_for=stored_upload_namer()
-            )
+            _stripped = strip_inline_attachments(user_message)
+            if _stripped != user_message:
+                user_message = _stripped
+                write_user_prompt_to_sandbox(sandbox, user_message)
         # ── Roster seam (ADR-0003, refined by ADR-0008) ───────────────────────────
         # The plan FILLS IN the roster; it never overrules a caller that has one.
         # ``not agents`` is the load-bearing discriminator: rebuilding whenever the
@@ -5039,6 +5111,14 @@ class ExecutionEngine:
         _plan_ids = {s.agent_id for s in compiled.steps}
         _roster_is_partial = bool(agents) and {a.id for a in agents} < _plan_ids
         if compiled.steps and (not agents or _roster_is_partial):
+            if _roster_is_partial:  # `not agents` is the normal path; never log it
+                logger.info(
+                    "roster expanded from plan: run=%s pipeline=%s requested=%s plan=%s",
+                    pipeline_run_id,
+                    pipeline_type,
+                    [a.id for a in agents],
+                    [s.agent_id for s in compiled.steps],
+                )
             agents = self._specs_from_plan(compiled.steps)
         # ── EMP-01 (22-04): apply user-composed per-step selections onto the plan ──
         # A saved/custom workflow may carry a compact per-step selections map
@@ -5277,33 +5357,7 @@ class ExecutionEngine:
         # mulesoft_to_springboot to manifest order. Now the resolver's DAG is kept
         # whenever it ALREADY satisfies every declared edge, so adding a
         # `depends_on:` that the contracts imply anyway is a no-op.
-        _dag_order = validation.dag or list(agents)
-        _declared_edges = [
-            (s.agent_id, dep)
-            for s in compiled.steps
-            for dep in (getattr(s, "depends_on", None) or [])
-        ]
-        if not _declared_edges:
-            ordered_agents = _dag_order
-        else:
-            _pos = {getattr(a, "id", None): i for i, a in enumerate(_dag_order)}
-            # A declared edge is violated when the resolver placed the DEPENDENCY
-            # after the step that depends on it. Edges naming an agent the resolver
-            # never placed (a custom-agent template with no contracts) are skipped
-            # here and covered by the fallback below.
-            _violated = any(
-                dep in _pos and child in _pos and _pos[dep] > _pos[child]
-                for child, dep in _declared_edges
-            )
-            # An edge whose endpoints the resolver never ordered at all means the
-            # DAG is not a usable ordering for this plan — take the compiler's.
-            _unplaced = any(
-                dep not in _pos or child not in _pos for child, dep in _declared_edges
-            )
-            if _violated or _unplaced:
-                ordered_agents = list(agents)  # already topo-sorted by the compiler
-            else:
-                ordered_agents = _dag_order
+        ordered_agents = self._dispatch_order(validation, agents, compiled)
 
         # (The CompiledWorkflow was compiled at run entry above — before the revision
         # setup — so the in-place-edit revision behavior keys off the declared
@@ -5923,8 +5977,9 @@ class ExecutionEngine:
         # re-authorization is intentionally NOT enforced here. This is D-03's
         # SPEC-locked first-exec memory: the first exec step prompts for approval,
         # subsequent exec steps in the same run do NOT re-prompt. The compiler's
-        # engineer-trust ceiling (a user/db manifest can never provision the exec
-        # workspace) + the run-level approval model bound the blast radius, so this
+        # trust ceiling (a user manifest can never provision the exec workspace, and
+        # a saved row compiles at db only for a caller who may run the Composer,
+        # ISS-1114) + the run-level approval model bound the blast radius, so this
         # run-scoped grant is by-design, not a default-deny break.
         _plan_grants_exec = any(
             bool(getattr(getattr(s, "tools", None), "exec", False))
@@ -6521,12 +6576,29 @@ class ExecutionEngine:
                         total=len(ordered_agents),
                         results=results,
                     )
+                elif getattr(step, "mechanical", None):
+                    # ISS-684: a code step kind with no branch above FAILS the run,
+                    # naming the step and the kind. Falling through to the step's
+                    # default strategy (single_shot) ran a billed model on an empty
+                    # prompt. A new kind needs its own branch here.
+                    _mech_error = f"Code step kind {step.mechanical!r} has no engine dispatch branch"
+                    logger.error("step %s: %s", spec.id, _mech_error)
+                    yield {
+                        "type": "agent_error",
+                        "data": {
+                            "agent_id": spec.id,
+                            "error": _mech_error,
+                            "recoverable": False,
+                        },
+                    }
+                    raise StepRaised(spec.id, _mech_error)
                 else:
                     strategy = _registry.resolve("strategy", strategy_name)
                 # RESUME-02 (D-10): the SINGLE per-step retry/reuse wrapper. Dormant
                 # (byte/event-identical) unless the step declares retry.max_attempts > 0.
                 _terminated = False
                 _credential_failed_id: str | None = None
+                _credential_error: str | None = None
                 async for event in self._guarded_step(
                     step, ectx, strategy, spec.id, pipeline_run_id
                 ):
@@ -6538,9 +6610,10 @@ class ExecutionEngine:
                             _failed_agent_ids.add(_failed_id)
                         if (
                             event.get("data", {}).get("error")
-                            == _CREDENTIAL_AGENT_ERROR
+                            in _CREDENTIAL_AGENT_ERRORS
                         ):
                             _credential_failed_id = _failed_id or spec.id
+                            _credential_error = event["data"]["error"]
                     # ── ISS-091: a TERMINAL event arriving through the stream ends
                     # the RUN, not just the step. The inline review gate's reject
                     # handler (_run_agent :4458) cancels the run and returns — but a
@@ -6585,7 +6658,7 @@ class ExecutionEngine:
                             "agents_completed": cursor,
                             "agents_total": len(ordered_agents),
                             "agents_failed": [_credential_failed_id],
-                            "error": _CREDENTIAL_AGENT_ERROR,
+                            "error": _credential_error,
                             "timestamp": _now(),
                         },
                     }
@@ -9868,6 +9941,10 @@ class ExecutionEngine:
                     step_tools=getattr(
                         getattr(ectx, "current_step", None), "tools", None
                     ),
+                    # step_produces (ISS-1156): off the SAME overlaid spec the
+                    # single_file readback guard and the typed artifact write
+                    # below read, so the factory's prompt guard cannot disagree.
+                    step_produces=list(getattr(spec, "produces", None) or []),
                     workflow_name=pipeline_type,
                     # Only the FINAL step may be named by a single_file deliverable —
                     # its declared name and the per-instance artifact convention are
@@ -10075,6 +10152,18 @@ class ExecutionEngine:
                         len(getattr(_delivery, "staged", []) or []),
                         _delivery.est_tokens,
                     )
+
+                # ISS-683: the single_file deliverable as it was BEFORE this step, so the
+                # readback below only replaces the output of a step that changed the file.
+                _pre_step_deliverable = None
+                try:
+                    _pd = getattr(ectx, "deliverable", None)
+                    if getattr(_pd, "strategy", None) == "single_file":
+                        _pre_step_deliverable = sandbox.read(
+                            getattr(_pd, "name", None) or "prototype.html"
+                        )
+                except Exception:  # noqa: BLE001 — a read failure must not abort the step
+                    _pre_step_deliverable = None
 
                 output_chunks: list[str] = []
                 _reply_from = 0
@@ -10684,7 +10773,12 @@ class ExecutionEngine:
                 ):
                     _deliv_name = getattr(_deliv, "name", None) or "prototype.html"
                     file_from_disk = sandbox.read(_deliv_name)
-                    if file_from_disk and len(file_from_disk) > len(output):
+                    if (
+                        file_from_disk
+                        and file_from_disk
+                        != _pre_step_deliverable  # ISS-683: this step changed it
+                        and len(file_from_disk) > len(output)
+                    ):
                         logger.info(
                             "Agent %s: using sandbox %s (%d chars) instead of text output (%d chars)",
                             spec.id,
@@ -13051,9 +13145,9 @@ class ExecutionEngine:
         owner_id = wr.owner_id or wr.user_id or f"anon:{wr.session_id or wr.id}"
         try:
             store = ScopedStore(owner_id=owner_id, workspace_id=wr.workspace_id)
-            # Any persisted step state ⇒ resumable. read_events(after_seq=0) returns the
-            # whole durable tail; a single row is enough evidence.
-            if await store.read_events(wr.id, after_seq=0):
+            # Any persisted step state ⇒ resumable. A single row is enough evidence, so
+            # probe the bounded max(seq) aggregate, not the whole durable log (ISS-873).
+            if (await store._max_event_seq(wr.id)) > 0:
                 return True
             if await store.tree(wr.id):
                 return True
@@ -13093,11 +13187,9 @@ class ExecutionEngine:
         for the tail, then
         :meth:`agents.authz.ScopedStore.append_event_at_or_after`, which
         re-appends past a racing writer (bounded, 8 attempts) instead of dropping
-        the row. NOT ``append_event_next_seq``: that allocator re-reads EVERY row
-        of the run per attempt to derive one integer (the local corpus holds a
-        36k-row run), which is the same cost that rules it out for the engine
-        sink. The marker mints a fresh ``event_id`` per call, so it never needs
-        that method's ``(run_id, event_id)`` idempotent no-op. A rejection no
+        the row. NOT ``append_event_next_seq``: the marker mints a fresh
+        ``event_id`` per call, so it never needs that method's
+        ``(run_id, event_id)`` idempotent no-op. A rejection no
         retry can resolve (no durable substrate, a None recovered workspace)
         surfaces out of the allocator and degrades through the best-effort
         except below — the marker is audit-only, but nothing is ever swallowed
@@ -14961,7 +15053,12 @@ class ExecutionEngine:
                 if plan_content is None:
                     continue
                 parser = _CAPABILITY_REGISTRY.resolve("task_parser", parser_name)
-                tasks = parser.parse(plan_content)
+                tasks = task_identity.parse_step_tasks(
+                    parser,
+                    plan_content,
+                    sandbox=getattr(getattr(ectx, "runner", None), "sandbox", None),
+                    target=getattr(task_source, "target", None),
+                )
                 if not tasks:
                     continue
                 upstream_hash = self._compute_upstream_context_hash(step, ectx)
@@ -14989,7 +15086,12 @@ class ExecutionEngine:
                         "restore_nothing": False,
                         "boundary_task_id": current_keys[p - 1],
                     }
-            except Exception:  # noqa: BLE001 — fail-safe: default global-max (never wrong-restore)
+            except Exception as exc:  # noqa: BLE001 — fail-safe: default global-max (never wrong-restore)
+                logger.warning(
+                    "resume: cumulative boundary for step %s failed (%s) — global-max restore",
+                    agent_id,
+                    exc,
+                )
                 boundaries.pop(agent_id, None)
                 continue
         return boundaries
@@ -15037,13 +15139,22 @@ class ExecutionEngine:
                 # Waves default to the STRUCTURED json_tasks parser (heading_tasks lacks
                 # depends_on/conflict_keys) — mirror the strategy's _DEFAULT_PARSER.
                 parser_name = getattr(task_source, "parser", None) or "json_tasks"
+                # A custom_path step reads its tasks from task_source.path, never from
+                # the source_step reply it may also declare: no allow-set (fail-safe KEEP).
+                if getattr(task_source, "kind", None) == "custom_path":
+                    continue
                 if not source_step:
                     continue
                 plan_content = self._latest_typed_content(ectx, source_step)
                 if plan_content is None:
                     continue
                 parser = _CAPABILITY_REGISTRY.resolve("task_parser", parser_name)
-                tasks = parser.parse(plan_content)
+                tasks = task_identity.parse_step_tasks(
+                    parser,
+                    plan_content,
+                    sandbox=getattr(getattr(ectx, "runner", None), "sandbox", None),
+                    target=getattr(task_source, "target", None),
+                )
                 if not tasks:
                     continue
                 upstream_hash = self._compute_upstream_context_hash(step, ectx)
@@ -15056,13 +15167,18 @@ class ExecutionEngine:
                     )
                     for i, t in enumerate(tasks)
                 }
-            except Exception:  # noqa: BLE001 — fail-safe: leave the step out → restore all (keep)
+            except Exception as exc:  # noqa: BLE001 — fail-safe: leave the step out → restore all (keep)
+                logger.warning(
+                    "resume: wave orphan allow-set for step %s failed (%s) — orphan gate off",
+                    agent_id,
+                    exc,
+                )
                 allowsets.pop(agent_id, None)
                 continue
         return allowsets
 
     async def _first_incomplete_step(
-        self, ectx: ExecutionContext, ordered_agents: list, compiled
+        self, ectx: ExecutionContext, ordered_agents: list, compiled, *, sandbox=None
     ) -> int:
         """Return the index of the FIRST step that is NOT yet complete (D-07).
 
@@ -15090,6 +15206,10 @@ class ExecutionEngine:
         occurrence. Documented v1 limitation, not solved here.
         """
         store = getattr(ectx, "scoped_store", None)
+        # ISS-685: the task_loop total below parses the task file the strategy parsed.
+        # _compute_resume_offset passes ``sandbox`` because its temp ctx has no runner.
+        if sandbox is None:
+            sandbox = getattr(getattr(ectx, "runner", None), "sandbox", None)
 
         # Durable run_events (for terminal step events) + the produced-artifact set.
         completed_step_events: set[str] = set()
@@ -15277,7 +15397,17 @@ class ExecutionEngine:
                     parser = _CAPABILITY_REGISTRY.resolve("task_parser", parser_name)
                     # max(...,1) mirrors task_loop.run's 0-task → run-once fallback, so
                     # a genuinely-complete 0-task build still classifies complete.
-                    expected_total = max(len(parser.parse(plan_content)), 1)
+                    expected_total = max(
+                        len(
+                            task_identity.parse_step_tasks(
+                                parser,
+                                plan_content,
+                                sandbox=sandbox,
+                                target=getattr(task_source, "target", None),
+                            )
+                        ),
+                        1,
+                    )
                     # DISTINCT task_ids only — the fix-loop re-persists the same task_id,
                     # so counting rows/versions would over-count (Pitfall 7).
                     distinct_done = len(
@@ -15288,7 +15418,12 @@ class ExecutionEngine:
                             and getattr(r, "task_id", None) is not None
                         }
                     )
-                except Exception:  # noqa: BLE001 — underivable total ⇒ re-run (never skip)
+                except Exception as exc:  # noqa: BLE001 — underivable total ⇒ re-run (never skip)
+                    logger.warning(
+                        "resume: task total for step %s underivable (%s) — re-entering it",
+                        agent_id,
+                        exc,
+                    )
                     return i
                 if distinct_done >= expected_total:
                     continue
@@ -15511,6 +15646,69 @@ class ExecutionEngine:
         except Exception as _cl_exc:  # noqa: BLE001 — cleanup is best-effort
             logger.warning("resume_run(%s): bridge cleanup failed: %s", run_id, _cl_exc)
 
+    async def _fail_resume(
+        self, run_id: str, reason: str, live_queue: "asyncio.Queue | None" = None
+    ) -> None:
+        """End a resume attempt that cannot run, or died before its terminal, VISIBLY.
+
+        ISS-1103: the resume tier's one failure channel. ``resume_run`` and
+        ``_replay_clarify_run`` used to leave through a WARNING and a bare ``return``, and
+        ``_drive_resumed_stream`` swallowed whatever ``_execute_impl`` raised, so the
+        attempt left no reason, no terminal event and no live frame, and a restart
+        auto-resume left the row ``running`` with no driver (ISS-1119). Same shape as the
+        in-engine failure branches (``StepRaised`` & co.): ONE durable ``pipeline_failed``
+        carrying the reason (``_reconcile_terminal_status`` derives ``.error`` from it),
+        the state machine's ``failed`` transition (it persists ``workflow_runs.status``;
+        the restart drivers have no app wrapper), and the frame on the live queue. Never
+        raises — a resume failure must not crash startup. Keyed on run_id only (SC-001).
+        """
+        logger.error("resume(%s) failed: %s", run_id, reason)
+        data: dict = {"pipeline_run_id": run_id, "error": reason, "timestamp": _now()}
+        try:
+            from app.models.database import SessionLocal
+            from app.models.workflow import WorkflowRun
+
+            db = SessionLocal()
+            try:
+                wr = db.query(WorkflowRun).filter(WorkflowRun.id == run_id).first()
+                owner_id = wr and (
+                    wr.owner_id or wr.user_id or f"anon:{wr.session_id or run_id}"
+                )
+                row_workspace_id = wr and wr.workspace_id
+            finally:
+                db.close()
+            if owner_id:
+                # The marker's principal + recovered workspace (_stamp_resume_marker);
+                # the row's own workspace when no durable row exists yet to recover from.
+                store = ScopedStore(
+                    owner_id=owner_id,
+                    workspace_id=(await self._recover_workspace_id(owner_id, run_id))
+                    or row_workspace_id,
+                )
+                data["seq"] = (await store._max_event_seq(run_id)) + 1
+                data["event_id"] = str(uuid.uuid4())
+                data["seq"] = await store.append_event_at_or_after(
+                    run_id, data["seq"], data["event_id"], "pipeline_failed", data
+                )
+        except Exception as exc:  # noqa: BLE001 — the status + live frame still go out
+            logger.warning(
+                "resume(%s): durable pipeline_failed append failed: %s", run_id, exc
+            )
+        try:
+            self._state_machine.transition(run_id, "failed")
+        except Exception as exc:  # noqa: BLE001 — already terminal: status persisted then
+            logger.warning("resume(%s): failed transition refused: %s", run_id, exc)
+        if live_queue is None and self._resume_register_queue is not None:
+            try:
+                live_queue = self._resume_register_queue(run_id)
+            except Exception:  # noqa: BLE001 — live push is best-effort
+                live_queue = None
+        if live_queue is not None:
+            try:
+                live_queue.put_nowait({"type": "pipeline_failed", "data": data})
+            except Exception:  # noqa: BLE001 — live push is best-effort
+                pass
+
     def _resolve_resume_cancel_event(self, run_id: str) -> "asyncio.Event | None":
         """Resolve this run's cooperative cancel Event via the injected hook (ISS-084).
 
@@ -15544,10 +15742,10 @@ class ExecutionEngine:
         The run's identity (pipeline type, user brief, owner, session) is read from the
         durable ``workflow_runs`` row. The resumed events flow through the SAME seq/
         event_id durable sink as a fresh run (so a reconnecting client replays them via
-        the 12-03 ``after_seq`` branch). Best-effort: a missing/cross-owner row or a
-        compile failure logs and returns (the run stays in its prior state — a later
-        manual retry is still possible). Cross-process locks are OUT of scope (N8 v1,
-        T-12-03-CROSSNODE).
+        the 12-03 ``after_seq`` branch). A missing row or a compile failure is recorded
+        through ``_fail_resume`` (one ``pipeline_failed``, the run ``failed`` — ISS-1103)
+        and returns; a later manual retry is still possible. Cross-process locks are OUT
+        of scope (N8 v1, T-12-03-CROSSNODE).
         """
         from app.models.database import SessionLocal
         from app.models.workflow import WorkflowRun
@@ -15559,6 +15757,7 @@ class ExecutionEngine:
                 logger.warning(
                     "resume_run(%s): no workflow_runs row — skipping", run_id
                 )
+                await self._fail_resume(run_id, "Resume failed: no workflow_runs row")
                 # WR-01: drop the task entry registered at the create_task site.
                 self._fire_resume_cleanup(run_id)
                 return
@@ -15606,10 +15805,6 @@ class ExecutionEngine:
         finally:
             db.close()
 
-        # A resume is a new attempt over durable state. Drop only this run's stale
-        # process-local terminal state; durable rows and events remain authoritative.
-        self._state_machine.forget_run(run_id)
-
         # ── Migration 0040: a run launched from a Composer manifest must resume as
         # THAT workflow. Before this, the registry branch below rebuilt the roster
         # from `get_pipeline_agents("custom")` — the GENERIC custom pipeline
@@ -15621,16 +15816,19 @@ class ExecutionEngine:
         if isinstance(run_manifest, dict) and run_manifest.get("steps"):
             try:
                 from agents.capabilities.registry import CapabilityRegistry, discover
-                from agents.workflows.compiler import WorkflowCompiler
+                from agents.execution_engine.overrides import compile_with_baseline
                 from agents.workflows.manifest import build_manifest_from_dict
 
                 _mf = dict(run_manifest)
                 _trust = _mf.pop("_trust", "user") or "user"
+                # ISS-1118/ISS-1129: an override row's run admits what launch admitted.
+                _overrides = _mf.pop("_overrides", None)
                 discover()
-                resumed_compiled = WorkflowCompiler().compile(
+                resumed_compiled = compile_with_baseline(
                     build_manifest_from_dict(_mf, f"run:{run_id}"),
                     CapabilityRegistry(),
                     trust=_trust,
+                    overrides=_overrides,
                 )
             except Exception as exc:  # noqa: BLE001 — refuse a WRONG resume
                 # Fail closed: substituting the generic roster is strictly worse
@@ -15641,6 +15839,11 @@ class ExecutionEngine:
                     "refusing to resume with a substitute roster",
                     run_id,
                     exc,
+                )
+                await self._fail_resume(
+                    run_id,
+                    "Resume refused: the workflow this run was launched with no "
+                    f"longer compiles ({exc})",
                 )
                 self._fire_resume_cleanup(run_id)
                 return
@@ -15690,10 +15893,13 @@ class ExecutionEngine:
                 agents = get_pipeline_agents(resolve_alias(pipeline_type))
         except Exception as exc:  # noqa: BLE001 — unknown pipeline → cannot resume
             logger.warning("resume_run(%s): cannot resolve agents (%s)", run_id, exc)
+            await self._fail_resume(
+                run_id, f"Resume failed: cannot resolve the run's agents ({exc})"
+            )
             # WR-01: drop the task entry registered at the create_task site.
             self._fire_resume_cleanup(run_id)
             return
-        if not agents:
+        if not agents or resumed_compiled is None:
             # ── Roster seam (twin of the execute() roster seam at ~line 1473): the
             # compiled plan is the single source of the run's agent roster. For a
             # composed workflow (steps are instances of an agent template, e.g.
@@ -15701,17 +15907,33 @@ class ExecutionEngine:
             # static membership and returns `[]` above — that alone doesn't mean
             # there's nothing to resume, so fall back to the compiled plan before
             # giving up.
+            # ISS-950: a registry roster that is a STRICT SUBSET of the plan is partial
+            # too (prototype_v2_revision: 1 of 3), so complete it by the execute()
+            # seam's rule. The offset counts plan steps; a partial roster logged
+            # "offset 1/1" and "all steps complete" with steps still to run.
             try:
-                compiled = compile_for_run(pipeline_type)
+                plan_steps = compile_for_run(pipeline_type).steps
             except Exception as exc:  # noqa: BLE001 — cannot compile → cannot resume
-                logger.warning("resume_run(%s): cannot compile plan (%s)", run_id, exc)
-                self._fire_resume_cleanup(run_id)
-                return
-            if compiled.steps:
-                agents = self._specs_from_plan(compiled.steps)
+                if not agents:
+                    logger.warning(
+                        "resume_run(%s): cannot compile plan (%s)", run_id, exc
+                    )
+                    await self._fail_resume(
+                        run_id, f"Resume failed: cannot compile the run's plan ({exc})"
+                    )
+                    self._fire_resume_cleanup(run_id)
+                    return
+                plan_steps = []  # no plan: a registry roster resumes as it stands
+            if plan_steps and (
+                not agents or {a.id for a in agents} < {s.agent_id for s in plan_steps}
+            ):
+                agents = self._specs_from_plan(plan_steps)
         if not agents:
             logger.warning(
                 "resume_run(%s): empty agent list — nothing to resume", run_id
+            )
+            await self._fail_resume(
+                run_id, "Resume failed: the run has no agents to resume"
             )
             # WR-01: drop the task entry registered at the create_task site.
             self._fire_resume_cleanup(run_id)
@@ -15761,8 +15983,7 @@ class ExecutionEngine:
             owner_id = user_id or f"anon:{session_id or run_id}"
             workspace_id = await self._recover_workspace_id(owner_id, run_id)
             tail_store = ScopedStore(owner_id=owner_id, workspace_id=workspace_id)
-            existing = await tail_store.read_events(run_id, after_seq=0)
-            start = max((r.seq for r in existing), default=0) + 1
+            start = (await tail_store._max_event_seq(run_id)) + 1
         except Exception as exc:  # noqa: BLE001 — no durable tail → start=1 (offline)
             logger.debug(
                 "resume_run(%s): durable-tail read failed (%s) → seeding seq at 1",
@@ -15910,6 +16131,12 @@ class ExecutionEngine:
                 current_run_id=run_id,
             ).run_log_path
         )
+        # ISS-1103: a stream that already ended the run gets no synthesized second
+        # terminal from the swallow below (FIX-669: one pipeline_failed per attempt).
+        _terminal_seen = False
+        # ISS-1125: the last generic ``error`` frame's text — the reason recorded when
+        # the stream ends WITHOUT raising and without a terminal (the else below).
+        _stream_error = None
         try:
             async for event in self._execute_impl(
                 agents=agents,
@@ -15947,10 +16174,19 @@ class ExecutionEngine:
                 # the terminal entry BEFORE step 4 copies the file into ``.chain/``.
                 _run_trace=_resume_trace,
             ):
+                if event.get("type") in (
+                    "pipeline_failed",
+                    "pipeline_complete",
+                    "pipeline_cancelled",
+                    "pipeline_diverted",
+                ):
+                    _terminal_seen = True
                 data = event.get("data")
                 if not isinstance(data, dict):
                     data = {}
                     event["data"] = data
+                if event.get("type") == "error":
+                    _stream_error = data.get("error")
                 seq = next_seq
                 next_seq += 1
                 event_id = str(uuid.uuid4())
@@ -16013,6 +16249,20 @@ class ExecutionEngine:
                             pass
         except Exception as exc:  # noqa: BLE001 — a resume failure must not crash startup
             logger.warning("resumed-stream drive(%s) failed mid-drive: %s", run_id, exc)
+            # ISS-1103: swallowed, not silent — record it before the finally's sentinel.
+            if not _terminal_seen:
+                await self._fail_resume(run_id, f"Resume failed: {exc}", live_queue)
+        else:
+            # ISS-1125: a stream can also END without raising and without a terminal —
+            # the workflow_unsatisfiable exit yields an ``error`` frame and returns — and
+            # nothing else would end that attempt. Recorded the same way, before the
+            # finally's sentinel and output persist.
+            if not _terminal_seen:
+                await self._fail_resume(
+                    run_id,
+                    f"Resume failed: {_stream_error or 'the run ended without a terminal event'}",
+                    live_queue,
+                )
         finally:
             # L6-fix2: flush deltas buffered when the stream ended (or was abandoned
             # mid-drive), mirroring the execute() wrapper's finally — a cancelled or
@@ -16093,6 +16343,7 @@ class ExecutionEngine:
                 logger.warning(
                     "_replay_clarify_run(%s): no workflow_runs row — skipping", run_id
                 )
+                await self._fail_resume(run_id, "Resume failed: no workflow_runs row")
                 self._fire_resume_cleanup(run_id)
                 return
             pipeline_type = wr.type
@@ -16124,16 +16375,19 @@ class ExecutionEngine:
         if isinstance(run_manifest, dict) and run_manifest.get("steps"):
             try:
                 from agents.capabilities.registry import CapabilityRegistry, discover
-                from agents.workflows.compiler import WorkflowCompiler
+                from agents.execution_engine.overrides import compile_with_baseline
                 from agents.workflows.manifest import build_manifest_from_dict
 
                 _mf = dict(run_manifest)
                 _trust = _mf.pop("_trust", "user") or "user"
+                # ISS-1118/ISS-1129: an override row's run admits what launch admitted.
+                _overrides = _mf.pop("_overrides", None)
                 discover()
-                resumed_compiled = WorkflowCompiler().compile(
+                resumed_compiled = compile_with_baseline(
                     build_manifest_from_dict(_mf, f"run:{run_id}"),
                     CapabilityRegistry(),
                     trust=_trust,
+                    overrides=_overrides,
                 )
             except Exception as exc:  # noqa: BLE001 — refuse a WRONG replay
                 # Fail closed: substituting the generic roster is strictly worse than
@@ -16144,6 +16398,11 @@ class ExecutionEngine:
                     "(%s) — refusing to replay with a substitute roster",
                     run_id,
                     exc,
+                )
+                await self._fail_resume(
+                    run_id,
+                    "Resume refused: the workflow this run was launched with no "
+                    f"longer compiles ({exc})",
                 )
                 self._fire_resume_cleanup(run_id)
                 return
@@ -16163,27 +16422,42 @@ class ExecutionEngine:
             logger.warning(
                 "_replay_clarify_run(%s): cannot resolve agents (%s)", run_id, exc
             )
+            await self._fail_resume(
+                run_id, f"Resume failed: cannot resolve the run's agents ({exc})"
+            )
             self._fire_resume_cleanup(run_id)
             return
-        if not agents and resumed_compiled is None:
+        if resumed_compiled is None:
             # ── Roster seam (twin of resume_run's ~10818): the registry has no static
             # membership for some custom-workflow types — fall back to the compiled
             # plan before giving up. Scoped to resumed_compiled is None ONLY: a
             # DB-manifest replay's roster IS the compiled plan already, so it must
             # never fall through to the generic compile_for_run(pipeline_type) roster.
+            # ISS-950: a partial registry roster (a strict subset of the plan) is
+            # completed too, by the same rule as resume_run's seam.
             try:
-                compiled = compile_for_run(pipeline_type)
+                plan_steps = compile_for_run(pipeline_type).steps
             except Exception as exc:  # noqa: BLE001 — cannot compile → cannot replay
-                logger.warning(
-                    "_replay_clarify_run(%s): cannot compile plan (%s)", run_id, exc
-                )
-                self._fire_resume_cleanup(run_id)
-                return
-            if compiled.steps:
-                agents = self._specs_from_plan(compiled.steps)
+                if not agents:
+                    logger.warning(
+                        "_replay_clarify_run(%s): cannot compile plan (%s)", run_id, exc
+                    )
+                    await self._fail_resume(
+                        run_id, f"Resume failed: cannot compile the run's plan ({exc})"
+                    )
+                    self._fire_resume_cleanup(run_id)
+                    return
+                plan_steps = []  # no plan: a registry roster replays as it stands
+            if plan_steps and (
+                not agents or {a.id for a in agents} < {s.agent_id for s in plan_steps}
+            ):
+                agents = self._specs_from_plan(plan_steps)
         if not agents:
             logger.warning(
                 "_replay_clarify_run(%s): empty agent list — nothing to replay", run_id
+            )
+            await self._fail_resume(
+                run_id, "Resume failed: the run has no agents to resume"
             )
             self._fire_resume_cleanup(run_id)
             return
@@ -16231,8 +16505,7 @@ class ExecutionEngine:
         try:
             _tail_ws = await self._recover_workspace_id(owner_id, run_id)
             tail_store = ScopedStore(owner_id=owner_id, workspace_id=_tail_ws)
-            existing = await tail_store.read_events(run_id, after_seq=0)
-            start = max((r.seq for r in existing), default=0) + 1
+            start = (await tail_store._max_event_seq(run_id)) + 1
         except Exception as exc:  # noqa: BLE001 — no durable tail → start=1 (offline)
             logger.debug(
                 "_replay_clarify_run(%s): durable-tail read failed (%s) → seq 1",
@@ -16332,8 +16605,19 @@ class ExecutionEngine:
             from agents.execution_engine.resolver import WorkflowResolver  # noqa: F401
 
             validation = self._resolver.validate(agents)
-            ordered_agents = validation.dag or list(agents)
-            return await self._first_incomplete_step(tmp, ordered_agents, compiled)
+            # The SAME ordering the dispatch loop uses: the offset is an index into it,
+            # so a different order here resumes at the wrong step.
+            ordered_agents = self._dispatch_order(validation, agents, compiled)
+            # ISS-685: tmp has no runner, so pass the run's sandbox (built as resume_run
+            # builds it; RunSandbox.__init__ does no I/O) for the task_loop total.
+            return await self._first_incomplete_step(
+                tmp,
+                ordered_agents,
+                compiled,
+                sandbox=RunSandbox(
+                    user_id or "anon", _resolve_root_id(run_id, owner_id)
+                ),
+            )
         except Exception as exc:  # noqa: BLE001 — cannot derive offset → re-drive from 0
             logger.warning(
                 "resume_run(%s): offset computation failed (%s) → resuming from 0",

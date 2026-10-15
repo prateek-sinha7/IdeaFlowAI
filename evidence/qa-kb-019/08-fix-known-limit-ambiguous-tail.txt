@@ -1,0 +1,7 @@
+# Known limit: one batch holding a name and another name ending in ", <that name>" (in-band format is ambiguous). pre = HEAD 024c03ef8, post = working tree.
+files [a.txt, "x, a.txt"] remove a.txt (want [Attached: x, a.txt])
+   pre="[Attached: x, a.txt]"  post="[Attached: a.txt, x]"
+files ["x, a.txt", a.txt] remove a.txt (want [Attached: x, a.txt])
+   pre="[Attached: x, a.txt]"  post="[Attached: x, a.txt]"
+files ["a.txt, y", a.txt] remove a.txt (want [Attached: a.txt, y])
+   pre="[Attached: y, a.txt]"  post="[Attached: a.txt, y]"

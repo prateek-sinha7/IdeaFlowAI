@@ -5,6 +5,8 @@ import { SandboxPdfPreview } from "./SandboxPdfPreview";
 const getRunSandboxFileBlob = vi.fn();
 vi.mock("@/lib/api", () => ({
   getToken: () => "tok",
+  // ISS-1073 — the preview resolves the declared name at the ref first; here the tree holds it at the root.
+  resolveRunDeliverable: async (_t: string, _r: string, path: string, ref?: string) => ({ path, ref }),
   getRunSandboxFileBlob: (...args: unknown[]) => getRunSandboxFileBlob(...args),
 }));
 
@@ -16,7 +18,8 @@ describe("SandboxPdfPreview", () => {
     render(<SandboxPdfPreview runId="run-1" path="Backlog.pdf" fallback={<p>md</p>} />);
     const frame = await screen.findByTestId("sandbox-pdf-preview");
     expect(frame.getAttribute("src")).toBe("blob:pdf");
-    expect(getRunSandboxFileBlob).toHaveBeenCalledWith("tok", "run-1", "Backlog.pdf");
+    // ISS-973: the read now carries the member's ref slot; none given = the live tree.
+    expect(getRunSandboxFileBlob).toHaveBeenCalledWith("tok", "run-1", "Backlog.pdf", undefined);
     expect(created[0].type).toBe("application/pdf");
   });
 

@@ -1,0 +1,18 @@
+# QA-KB-104 analysis 05: sibling check, the cross-workflow TRIGGER door mints a run of a file pipeline named by a user-authored manifest with no can_run_pipeline (HEAD c9c4c630a + working tree, 2026-10-08T19:28Z)
+# cmd: cd backend && PYTHONDONTWRITEBYTECODE=1 DATABASE_URL=sqlite:///:memory: .venv/bin/python -m pytest ../evidence/qa-kb-104/analysis-plugins/test_probe_sync_entitlement.py -c pyproject.toml --rootdir=. -p no:cacheprovider -q -s -W ignore -k 'probe_E'
+# probe, not a product test; app.api.run_commands._launch_run_core is STUBBED, so no WorkflowRun is minted and nothing runs. The real parts: the save-time compile (trust=db) and KernelServices.run_trigger_workflow up to the mint call.
+
+
+[E] basic POST row (base ppt) whose gate has `trigger: workflow, target: app_builder` -> 201 
+    can_run_pipeline(basic, app_builder) = False
+    run_trigger_workflow(workflow_ref='app_builder') -> reached _launch_run_core=True pipeline_type='app_builder' user={'id': 'owner'} owner_id_override='owner'  (no tier / principal anywhere on this path)
+.
+[E] basic POST row (base ppt) whose gate has `trigger: workflow, target: sample_subagents_parallel` -> 201 
+    can_run_pipeline(basic, sample_subagents_parallel) = False
+    run_trigger_workflow(workflow_ref='sample_subagents_parallel') -> reached _launch_run_core=True pipeline_type='sample_subagents_parallel' user={'id': 'owner'} owner_id_override='owner'  (no tier / principal anywhere on this path)
+.
+[E] basic POST row (base ppt) whose gate has `trigger: workflow, target: custom` -> 201 
+    can_run_pipeline(basic, custom) = False
+    run_trigger_workflow(workflow_ref='custom') -> reached _launch_run_core=True pipeline_type='custom' user={'id': 'owner'} owner_id_override='owner'  (no tier / principal anywhere on this path)
+.
+3 passed, 10 deselected in 0.90s

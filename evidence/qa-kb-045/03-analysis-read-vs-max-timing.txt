@@ -1,0 +1,11 @@
+# cmd (cwd backend/, READ-ONLY: only ScopedStore.read_events / ._max_event_seq on session=None => real _run_bounded path, 10 s StoreTimeout bound): .venv/bin/python ../evidence/qa-kb-045/analysis-probe-read-timing.py
+# run: 2026-10-01 21:06 tree=feat/user-stories-v2 (idle local box, local Postgres)
+evt=authz.store_call_slow method=read_events run_id=3976f8ce-6d5b-49cf-bf0c-f70eb278028f duration_s=4.75
+evt=authz.store_call_slow method=read_events run_id=78e185fb-c032-4154-8552-774781b6e5df duration_s=5.49
+evt=authz.store_call_slow method=read_events run_id=2867387c-6b67-4b79-88ad-09fbffe9b884 duration_s=5.14
+evt=authz.store_call_slow method=read_events run_id=9b6f1bfb-a587-4a4f-931d-78d9e1f351e7 duration_s=2.09
+StoreTimeout bound (s): 10.0
+run=3976f8ce... rows_in_db=136890  read_events+max:   4.95s  [rows=136890 start=220390]   _max_event_seq+1: 0.0467s  start=220390  same=True
+run=78e185fb... rows_in_db=107409  read_events+max:   6.18s  [rows=107409 start=107410]   _max_event_seq+1: 0.0266s  start=107410  same=True
+run=2867387c... rows_in_db=68374   read_events+max:   5.45s  [rows=68374 start=68375]   _max_event_seq+1: 0.0219s  start=68375  same=True
+run=9b6f1bfb... rows_in_db=37354   read_events+max:   2.22s  [rows=37354 start=37355]   _max_event_seq+1: 0.0267s  start=37355  same=True

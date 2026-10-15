@@ -1,0 +1,5 @@
+3/3 cold python processes (backend/.venv/bin/python), 2026-10-02:
+set_review_response('run-x:agent-a:0', approved=False); set_review_response('run-y:agent-a:0', approved=True); forget_run('run-x')
+get_review_response('run-x:agent-a:0') -> {'approved': False, 'edited_content': None, 'action': 'reject', 'instructions': None}   (expected None)
+get_review_response('run-y:agent-a:0') -> {'approved': True, ...}  (correctly survives)
+Code: backend/agents/artifact_store/store.py:211-226 forget_run scans only self._resume_events for review keys; _questionnaire_responses only popped by bare run_id.

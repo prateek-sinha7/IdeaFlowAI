@@ -1,0 +1,61 @@
+"""Scratch probe (NOT in the repo): QA-KB-083 / ISS-937.
+
+Mount the real settings router; make the DB column say `pro` while the verified
+token's cognito:groups say `basic`; PUT/GET the preferences. A gate that reads
+effective_tier(user, principal) must refuse the premium model; a gate that reads
+users.tier lets it through.
+"""
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
+
+from agents.capabilities.model_catalog import ModelCatalog
+from app.api.settings import router as settings_router
+from app.core.dependencies import get_current_principal, get_current_user
+from app.core.entitlements import group_for_tier
+from app.models.database import Base, get_db
+from app.models.user import User
+from tests.fakes.principal import principal_for
+
+PREMIUM = "eu.anthropic.claude-opus-4-6-v1"
+entry = ModelCatalog().get(PREMIUM)
+print("catalog entry:", PREMIUM, "cost_class =", entry.cost_class)
+
+eng = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+Base.metadata.create_all(bind=eng)
+Session = sessionmaker(bind=eng, autoflush=False, autocommit=False)
+
+
+def run(column_tier: str, groups_tier: str):
+    s = Session()
+    s.query(User).delete()
+    u = User(id="u1", email="u1@example.com", tier=column_tier, cognito_sub="sub-u1")
+    s.add(u)
+    s.commit()
+    app = FastAPI()
+    app.include_router(settings_router)
+    app.dependency_overrides[get_current_user] = lambda: u
+    app.dependency_overrides[get_current_principal] = lambda: (
+        u,
+        principal_for(u, groups=[group_for_tier(groups_tier)]),
+    )
+
+    def override_db():
+        yield s
+
+    app.dependency_overrides[get_db] = override_db
+    c = TestClient(app)
+    g = c.get("/api/settings/preferences")
+    flags = {m["id"]: m["allowed"] for m in g.json()["available_models"]}
+    p = c.put("/api/settings/preferences", json={"preferred_model": PREMIUM})
+    s.expire_all()
+    stored = s.query(User).filter(User.id == "u1").one().preferred_model
+    s.close()
+    return g.status_code, flags[PREMIUM], p.status_code, stored
+
+
+for col, grp in [("pro", "basic"), ("basic", "pro"), ("basic", "basic"), ("pro", "pro")]:
+    gs, allowed, ps, stored = run(col, grp)
+    print(f"column={col:5} token_groups={grp:5} -> GET {gs} allowed[{PREMIUM}]={allowed!s:5} | PUT premium -> {ps} stored={stored}")

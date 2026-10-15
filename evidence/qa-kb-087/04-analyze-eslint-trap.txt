@@ -1,0 +1,19 @@
+# 3-analyzer QA-KB-087, 2026-10-02 11:15 CEST. eslint (frontend/eslint.config.mjs, @typescript-eslint/no-unused-vars = error repo-wide, incl. tests).
+# Variants are linted through stdin with --stdin-filename, so no repo file is edited.
+
+## 1. baseline: the official file as it is today
+$ npx eslint src/components/settings/AccountSettings.iss372.test.tsx
+exit=0
+
+## 2. the minimal fix as the BUGS.md sketch words it: delete :83, flip it.fails -> it, LEAVE the waitFor import
+$ sed '83d' src/components/settings/AccountSettings.iss372.test.tsx | sed 's/it\.fails(/it(/' | npx eslint --stdin --stdin-filename src/components/settings/AccountSettings.iss372.test.tsx
+
+/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/frontend/src/components/settings/AccountSettings.iss372.test.tsx
+  9:26  error  'waitFor' is defined but never used. Allowed unused vars must match /^_/u  @typescript-eslint/no-unused-vars
+
+✖ 1 problem (1 error, 0 warnings)
+
+exit=1
+
+## 3. the same edit plus dropping waitFor from the :9 import
+exit=0

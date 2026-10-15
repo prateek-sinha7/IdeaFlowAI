@@ -1,0 +1,6 @@
+# QA-KB-098 fix-06: the fixed node with NO Chromium reachable (simulates the backend-offline CI job, which installs none: .github/workflows/ci.yml:727 installs it in the frontend job only)
+# HEAD 7adb69a3f + working tree, 2026-10-08 14:31:59. playwright_session.py:350 launches the bundled chromium, so an empty PLAYWRIGHT_BROWSERS_PATH makes the launch fail the way a bare runner does.
+$ PLAYWRIGHT_BROWSERS_PATH=<empty scratch dir> .venv/bin/python -m pytest '<file>::...::test_revision_browser_dir_writer_driven' -q -p no:cacheprovider -rs
+SKIPPED [1] tests/agents/test_per_run_paths_v3.py:432: Chromium unavailable in this environment: browser unavailable — Chromium unavailable: BrowserType.launch: Executable doesn't exist at /private/tmp/claude-502/-Users-bilala-Developer-Projects-VELOCITY-AI-worktrees-feat-user-stories-v2/2d1a1575-310a-48fd-8155-2763a084604d/scratchpad/qa-kb-098-fix/no-browsers/chromium_headless_shell-1223/chrome-h
+1 skipped, 2 warnings in 1.49s
+exit=0

@@ -228,6 +228,9 @@ async def test_test_agent_counts_its_tokens_through_the_usage_sink() -> None:
         )
 
     assert len(collected) == 1, f"the model call was not counted: {collected}"
+    # input_tokens is the UNCACHED portion: usage_from_metadata (the canonical
+    # backend-root normaliser) subtracts cache_read from the raw 9412, so
+    # 9412 - 7000 = 2412, with the cache split reported alongside.
     assert collected[0] == {
         "input_tokens": 2412,
         "output_tokens": 388,

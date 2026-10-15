@@ -1,0 +1,70 @@
+PART A - Analytics pipeline=prototype selects type IN ('prototype','prototype_revision')
+Q1 select r.type, count(*), sum(case when r.status='completed' then 1 else 0 end) as completed from workflow_runs r join users u on u.id = r.user_id where u.email = 'admin@velocity.ai' and r.type in ('prototype', 'prototype_revision') group by r.type order by r.type
+(type, runs, completed) -> each distinct type becomes ONE row in By Pipeline Type
+   ('prototype_revision', 6, 2)
+   => 1 row(s) in the filtered breakdown; label of each = PIPELINE_LABELS[normalizeType(type)] = 'Prototype' -> 'PROTOTYPE'
+
+Q1b select coalesce(r.model_id,'(null)'), count(*) from workflow_runs r join users u on u.id = r.user_id where u.email = 'admin@velocity.ai' and r.type in ('prototype', 'prototype_revision') group by 1 order by 2 desc
+(run-row model_id, runs) for the same filter. The model <select> renders only when the filtered summary lists MORE than one model
+(AnalyticsPage.tsx:425 availableModelIds.length > 1); the By Model panel also merges per-agent model ids from agent_outputs, which this
+column does not show, so this is a lower bound on the model count, not the count itself
+   ('(null)', 6)
+
+Q1c select left(r.id,8), r.status, r.agent_outputs from workflow_runs r join users u on u.id = r.user_id where u.email = 'admin@velocity.ai' and r.type in ('prototype', 'prototype_revision') order by r.created_at
+(run id8, status, distinct per-agent model_id values found in agent_outputs): the model <select> lists these, minus 'unknown'
+   ('4eb1a2ea', 'cancelled', ['eu.anthropic.claude-haiku-4-5-20251001-v1:0'])
+   ('97b49f98', 'failed', ['eu.anthropic.claude-haiku-4-5-20251001-v1:0'])
+   ('8f36b400', 'completed', ['eu.anthropic.claude-haiku-4-5-20251001-v1:0'])
+   ('4f3ebe40', 'completed', ['eu.anthropic.claude-haiku-4-5-20251001-v1:0'])
+   ('14327554', 'cancelled', ['eu.anthropic.claude-haiku-4-5-20251001-v1:0'])
+   ('b7bdf6a3', 'failed', ['eu.anthropic.claude-haiku-4-5-20251001-v1:0'])
+   => 1 distinct model id(s) across the filtered runs: ['eu.anthropic.claude-haiku-4-5-20251001-v1:0']
+   => AnalyticsPage.tsx:425 renders the model <select> only for MORE than one, so ISS-289 skips at test_analytics.py:392-393 once the parser works
+
+Q2 select r.type, count(*) from workflow_runs r join users u on u.id = r.user_id where u.email = 'admin@velocity.ai' group by r.type order by 2 desc, 1
+(admin's whole history, by type: what the UNFILTERED breakdown has one row for)
+   ('prototype_v2', 16)
+   ('ex_A1_loop', 14)
+   ('backlog', 9)
+   ('backlog_revision', 7)
+   ('ex_A2_branch', 6)
+   ('prototype_revision', 6)
+   ('prototype_v2_feature_revision', 3)
+   ('prototype_v2_revision', 2)
+   ('user_stories_v2', 2)
+   ('ex_A3_c_dutch', 1)
+   ('ex_A4_human_divert', 1)
+   ('ex_A4_human_gate', 1)
+   ('prototype_large_revision', 1)
+   ('user_stories', 1)
+   => PIPELINE_LABELS has no key for prototype_v2, prototype_v2_revision (normalizes to prototype_v2), backlog, user_stories_v2:
+      those rows show the raw id uppercased (PROTOTYPE_V2 ...), which is also why S-10-12's  text.count('PROTOTYPE') > 1  is true today
+
+PART B - completed runs whose type renders through the first-party PrototypePreview
+Q3 select left(r.id,8), r.type, r.status, coalesce(r.deliverable_filename,''), coalesce(r.deliverable_mimetype,''), left(coalesce(r.parent_run_id,''),8), r.created_at::date from workflow_runs r join users u on u.id = r.user_id where u.email = 'admin@velocity.ai' and r.status = 'completed' and r.type = any(('prototype', 'prototype_revision', 'prototype_large_revision', 'prototype_feature_revision', 'prototype_v2_revision', 'prototype_v2_feature_revision')) order by r.created_at desc
+(id8, type, status, deliverable_filename, deliverable_mimetype, parent8, created)
+   ('6014bc97', 'prototype_v2_feature_revision', 'completed', 'prototype.html', 'text/html', 'dc60f462', datetime.date(2026, 10, 1))
+   ('dc60f462', 'prototype_v2_feature_revision', 'completed', 'prototype.html', 'text/html', '463e6c0b', datetime.date(2026, 10, 1))
+   ('86e6bcf8', 'prototype_v2_revision', 'completed', 'prototype.html', 'text/html', '463e6c0b', datetime.date(2026, 10, 1))
+   ('659c1a22', 'prototype_v2_feature_revision', 'completed', 'prototype.html', 'text/html', '6b5dfccd', datetime.date(2026, 10, 1))
+   ('6b5dfccd', 'prototype_v2_revision', 'completed', 'prototype.html', 'text/html', 'e692039a', datetime.date(2026, 10, 1))
+   ('4f3ebe40', 'prototype_revision', 'completed', 'prototype.html', 'text/html', '87e02c32', datetime.date(2026, 9, 28))
+   ('8f36b400', 'prototype_revision', 'completed', 'prototype.html', 'text/html', '87e02c32', datetime.date(2026, 9, 28))
+   => 7 completed run(s) of those six types; NONE is a v1 `prototype`, all are revision members of prototype_v2 families
+
+Q4 select left(r.id,8), r.type, r.status, coalesce(r.deliverable_filename,''), coalesce(r.deliverable_mimetype,'') from workflow_runs r join users u on u.id = r.user_id where u.email = 'admin@velocity.ai' and r.status = 'completed' and r.type = 'prototype_v2' order by r.created_at desc limit 3
+(plain prototype_v2, completed: newest 3; its type is in neither routing list above)
+   ('0f62f7bc', 'prototype_v2', 'completed', 'prototype.html', 'text/html')
+   ('9b6f1bfb', 'prototype_v2', 'completed', 'prototype.html', 'text/html')
+   ('87e02c32', 'prototype_v2', 'completed', 'prototype.html', 'text/html')
+
+PART C - the locator regex (framework/locators/analytics.py:125-128), replayed offline
+(1) recorded capture/35, the 19 By Pipeline Type rows (label first). TRUE counts: APP BUILDER 3, PROTOTYPE 12, CUSTOM 24, ... PROTOTYPE 8
+    parse -> {'PROTOTYPE': 3.0, 'CUSTOM': 12.0, 'MULESOFT MIGRATION': 3.0, 'PPT_V2': 3.0, 'PRESENTATION': 8.0} ...  (16 labels read; 19 rows, the last never read)
+    => 'PROTOTYPE' reads 3.0 (APP BUILDER's count): each count is paired with the label of the NEXT row; the last row is never read
+    true rows: 19, summing to 221; parsed: 16 labels, summing to 171
+    CUSTOM's true count (24) among the parsed values: False; '.NET MIGRATION' among the parsed labels: False  (a label that does not start with A-Z never matches [A-Z][A-Z0-9 ._&-]{2,40})
+
+(2) today, filter=Prototype -> one prototype_revision row:   {}   <- .get('PROTOTYPE') is None -> 'Prototype not found in the By Pipeline Type breakdown'
+(3) when a v1 `prototype` run existed (two rows, one label): {'PROTOTYPE': 12.0}   <- truthy, only because the label repeats (D-11)
+(4) if D-11 were fixed (one merged row):                      {}   <- None again

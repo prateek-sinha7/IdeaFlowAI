@@ -1,0 +1,53 @@
+# QA-KB-101 analysis, 2026-10-08. Blast radius: every tracked place that hand-copies a catalog display_name. Read-only git grep.
+# HEAD: 7adb69a3f
+
+## A. The one source and the one route it travels (all callers of the label go through these)
+backend/app/api/workflows.py:398:                display_name=(manifest.display_name if manifest else None),
+frontend/src/components/catalog/HomeLaunchGrid.tsx:296:            const label     = row.display_name ?? getWorkflowLabel(row.id);
+tests/integration/e2e/framework/locators/home_catalog.py:13:COMING_SOON_SECTION = 'summary:has(h3:text-is("Coming Soon"))'
+tests/integration/e2e/framework/locators/home_catalog.py:14:EXAMPLES_SECTION = 'summary:has(h3:text-is("Engine examples"))'
+tests/integration/e2e/framework/locators/home_catalog.py:31:    `text-is` and not `has-text`: "Pitch an idea" is a prefix of "Pitch an idea
+tests/integration/e2e/framework/locators/home_catalog.py:35:    return f'button:has(h2:text-is("{title}"))'
+
+## B. Backend (pre-rename text, no suffix) - 1 executable site
+backend/tests/integration/api/test_workflows_api.py:217:            "prototype": "Build an interactive prototype",
+backend/tests/integration/api/test_workflows_api.py:218:            "ppt": "Pitch an idea",
+(manifests, for reference:)
+backend/agents/workflows/ppt/workflow.yaml:22:display_name: "Pitch an idea (Fast)"
+backend/agents/workflows/ppt_v2/workflow.yaml:42:display_name: "Pitch an idea (Depth)"
+backend/agents/workflows/prototype/workflow.yaml:5:display_name: "Build an interactive prototype (Fast)"
+backend/agents/workflows/prototype_v2/workflow.yaml:16:display_name: "Prototype from documents (Depth)"
+
+## C. Live e2e (tests/integration/e2e) - pins '(Detailed)', manifests now say '(Depth)' - 3 executable sites
+tests/integration/e2e/framework/locators/home_catalog.py:53:    "Pitch an idea (Detailed)",
+tests/integration/e2e/suites/02_home_catalog/test_home_catalog.py:135:        ("basic", "Pitch an idea (Detailed)", None),
+tests/integration/e2e/suites/25_pipeline_smoke/test_pipeline_smoke.py:38:PPT_V2 = ("Pitch an idea (Detailed)", "presentation.html", r"PPT|PRESENTATION|Pitch")
+
+## D. Screens specs (tests/integration/screens) - '(Detailed)' / '(v2)' text in the narrative twins of those suites
+tests/integration/screens/02-home-catalog.feature.md:47:| Pitch an idea (Detailed) | Executive-grade deck, delivered as a rendered HTML deck and a real editable PowerPoint file. | ~4 agents · ~8m |
+tests/integration/screens/02-home-catalog.feature.md:214:  and "Pitch an idea (v2)". Anchor on the heading element or use an exact match.
+tests/integration/screens/12-shell-nav.feature.md:19:| Running-pipeline badge | `button` `<Workflow> <done>/<total>` | e.g. `Pitch an idea (Detailed) 0/4`; only while a run is live |
+tests/integration/screens/15-overlays.feature.md:92:    And I click "Inspect Pitch an idea (Detailed) details"
+tests/integration/screens/17-theme-and-tiers.feature.md:65:| Pitch an idea (Detailed) | Pro | — | — |
+tests/integration/screens/25-pipeline-smoke.feature.md:19:| `ppt_v2` | Pitch an idea (Detailed) | `single_file` | `presentation.html` |
+tests/integration/screens/25-pipeline-smoke.feature.md:90:    Given the catalogue card "Pitch an idea (Detailed)"
+
+## E. Frontend mocked-API fixture - pre-rename labels, but self-consistent (its own consumer selects by the same mock label), so it cannot go red
+frontend/e2e/fixtures/mockApi.ts:113:  { id: "prototype", display_name: "Build an interactive prototype", description: "Navigable, high-fidelity HTML prototype from a brief or story set.", user_launch
+frontend/e2e/fixtures/mockApi.ts:115:  { id: "ppt", display_name: "Pitch an idea", description: "Executive-grade deck with charts, data, and a clear narrative.", user_launchable: true, step_count: 3 }
+frontend/e2e/tests/ts-b.selection.spec.ts:26:    await dashboard.selectWorkflow("Pitch an idea");
+frontend/e2e/tests/ts-b.selection.spec.ts:32:    await dashboard.selectWorkflow("Build an interactive prototype");
+
+## F. CreationHub.tsx hard-codes the same pre-rename labels, but no production file imports it (only tests mock it)
+frontend/src/components/home/CreationHub.tsx:18:  { id: "ppt",          type: "ppt",          label: "Pitch an idea",                  subtitle: "Executive-grad
+frontend/src/components/home/CreationHub.tsx:19:  { id: "prototype",    type: "prototype",    label: "Build an interactive prototype", subtitle: "Navigable, hig
+importers outside *.test.*: 0
+
+## G. tests/integration/capture/*.json - recorded observations; no test reads them as goldens
+readers of integration/capture outside the capture folder itself: 1
+  the one hit is an error-message string, not a comparison: tests/integration/e2e/suites/24_api_contract/test_api_contract.py:116  "Regenerate with `python3 tests/integration/capture/_api.py --json` in ..."
+  (the captures hold the pre-rename 'Pitch an idea (v2)' text from an older walk of the app; nothing compares them with the live catalog)
+
+## H. Served-catalog rows the e2e LAUNCHABLE_TITLES list does not name (analysis-02 lists the served catalog)
+e2e list claim (home_catalog.py:48-50): 'The full launchable set ... Derived from user_launchable: true AND is_beta: false'
+served user_launchable and not beta, absent from that list: backlog 'Write backlog from prototype and documents'; prototype_v2 'Prototype from documents (Depth)'; ex_playwright_smoke_test 'Browser check'

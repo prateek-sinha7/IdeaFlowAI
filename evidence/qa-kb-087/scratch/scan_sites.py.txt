@@ -1,0 +1,25 @@
+import json, re
+from pathlib import Path
+ANSI = re.compile("\x1b\\[[0-9;]*m")
+rows = [json.loads(l) for l in open("scan_results.jsonl")]
+MIR = Path("scan/frontend")
+for r in rows:
+    fails = [c for c in r["mirror"].get("cases", []) if c["status"] == "failed"]
+    if not fails: continue
+    f = MIR / r["file"]
+    lines = f.read_text().split("\n")
+    print("\n###", r["file"].replace("src/components/", "").replace("src/", ""))
+    for c in fails:
+        msg = ANSI.sub("", c["msg"])
+        m = None
+        for l in msg.split("\n"):
+            m = re.search(r"/scan/frontend/(src/[^\s:()]+\.test\.tsx?):(\d+):(\d+)", l)
+            if m: break
+        title = c["name"].split(" > ")[-1][:70]
+        if m:
+            ln = int(m.group(2))
+            code = lines[ln-1].strip()[:130] if ln-1 < len(lines) else "?"
+            print("  - %s\n      fails at :%d  %s" % (title, ln, code))
+        else:
+            first = msg.split("\n")[0][:110]
+            print("  - %s\n      (no test-file frame) %s" % (title, first))

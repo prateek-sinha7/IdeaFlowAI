@@ -4,7 +4,7 @@ Covers Requirement 9 acceptance criteria.  One test area:
 
 1. Deliverable and list_files exclusions (Requirement 9)
    - .git/, .gitignore, and skills/ are NOT in serialize_sandbox_deliverable
-   - .git/, .gitignore, and skills/ are NOT in list_files
+   - .git/, .gitignore, and skills/ ARE in list_files (the Workspace shows every file)
    NOTE: comprehensive byte-equivalence coverage for these exclusions already
    lives in test_sandbox_deliverable.py.  This module adds the cross-cutting
    "both exclusion lists are independent" assertion that Requirement 9 AC 4
@@ -66,7 +66,7 @@ class TestExclusionIndependence:
 
     b) A real-git integration smoke-test: after git_init_sandbox() the sandbox
        has a real .git/ directory and .gitignore file on disk.  Both must be
-       absent from the deliverable AND from list_files — proving the exclusions
+       absent from the deliverable yet present in list_files — proving both rules
        hold against filesystem state written by the real git toolchain, not just
        manually seeded test files.
     """
@@ -74,7 +74,7 @@ class TestExclusionIndependence:
     def test_all_three_exclusions_hold_on_both_deliverable_and_listing(
         self, tmp_path: Path
     ) -> None:
-        """Combined: .git/, .gitignore, skills/ absent from BOTH deliverable and listing.
+        """Combined: .git/, .gitignore, skills/ absent from the deliverable, present in the listing.
 
         Requirement 9 AC 4: "The deliverable walk and list_files are two separate
         lists — excluding from one does NOT exclude from the other."  This test
@@ -125,6 +125,7 @@ class TestExclusionIndependence:
         paths = {f["path"] for f in files}
 
         assert "prototype.html" in paths, "list_files must include prototype.html"
+        # The listing shows every file; only the deliverable excludes these.
         assert ".git/config" in paths
         assert ".gitignore" in paths
         assert "skills/writing/SKILL.md" in paths
@@ -132,7 +133,7 @@ class TestExclusionIndependence:
 
     def test_git_init_sandbox_exclusions_on_real_git_repo(self, tmp_path: Path) -> None:
         """Integration smoke: after real git_init_sandbox, .git/ and .gitignore
-        are absent from BOTH the deliverable and list_files.
+        are absent from the deliverable and present in list_files.
 
         This verifies the exclusion guards hold against filesystem state produced
         by the actual git toolchain — not just manually planted test files.
@@ -192,7 +193,7 @@ class TestExclusionIndependence:
         ), ".gitignore must not appear in deliverable after git_init_sandbox"
         assert count_sandbox_deliverables(sandbox.root) == 1
 
-        # ── list_files must not include .git/ or .gitignore ──────────────
+        # ── list_files shows .git/ and .gitignore like every other file ───
         files, _ = sandbox.list_files()
         paths = {f["path"] for f in files}
 

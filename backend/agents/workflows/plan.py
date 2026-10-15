@@ -468,11 +468,11 @@ class Step:
     strategy: str = "single_shot"  # Q8/Q9 — capability name
     # A10 (STABILIZATION.md): a step's mechanical, NO-MODEL execution kind. ``None``
     # (every existing step) means "run through ``strategy`` as usual" — dormant,
-    # byte-identical. ``"publish"`` (the only value the compiler accepts today) means
-    # "skip the model/strategy dispatch entirely and run the deterministic
-    # ``agents.capabilities.publish_step.publish_draft`` copy instead" — the engine
-    # hook that reads this is a separate proposal (this module only declares + the
-    # compiler only validates/materializes the field, per INV-5).
+    # byte-identical. A kind in ``compiler._ALLOWED_MECHANICAL_KINDS`` (``"publish"``
+    # and its siblings) means "skip the model/strategy dispatch entirely and run that
+    # kind's deterministic adapter instead" — the engine picks the adapter by an
+    # explicit per-kind branch and FAILS a kind it has no branch for (ISS-684). This
+    # module only declares + the compiler only validates/materializes the field (INV-5).
     #
     # Deliberately a SIBLING field to ``strategy``, not a repurposed ``strategy``
     # value: the ``strategy`` name is validated against the self-registering
@@ -485,7 +485,7 @@ class Step:
     # (INV-12: no dual/parallel mechanism). ``mechanical`` is validated as a plain
     # closed set (``_ALLOWED_MECHANICAL_KINDS``) entirely inside compiler.py, with
     # zero registry involvement — self-contained in the files this step-kind owns.
-    mechanical: str | None = None  # A10 — "publish" | None
+    mechanical: str | None = None  # A10 — an _ALLOWED_MECHANICAL_KINDS kind | None
     gates: list[str] = field(default_factory=list)  # §9 — gate capability names
     hooks: list[str] = field(
         default_factory=list

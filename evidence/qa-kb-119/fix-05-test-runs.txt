@@ -1,0 +1,42 @@
+# QA-KB-119 fix 05: test runs after the change, one file per run, 2026-10-09T14:52Z, worktree feat/stale-bug-fixes
+# backend cmd: cd backend && .venv/bin/python -m pytest <file> -q -p no:cacheprovider -rxX -W ignore
+# frontend cmd: cd frontend && npx vitest run <file>
+
+## backend/tests/integration/api/test_iss1155_run_events_paging.py
+[XPASS(strict)] ISS-1155 unfixed
+[XPASS(strict)] ISS-1155 unfixed
+2 failed in 1.63s
+
+## backend/tests/integration/api/test_runs_api_events_api.py
+7 passed in 1.52s
+
+## frontend/src/lib/api.test.ts
+ Test Files  1 passed (1)
+      Tests  13 passed (13)
+
+## frontend/src/hooks/useRunChat.test.ts
+ Test Files  1 passed (1)
+      Tests  26 passed | 1 expected fail (27)
+
+## Before the source edits (observed earlier in the same session, same commands, 2026-10-09 ~14:40Z)
+backend/tests/integration/api/test_iss1155_run_events_paging.py: XFAIL x2 (test_bare_events_call_is_a_bounded_page, test_limit_param_is_honoured), "2 xfailed, 3 warnings in 1.89s"
+backend/tests/integration/api/test_runs_api_events_api.py: "7 passed, 3 warnings in 1.40s"
+frontend/src/lib/api.test.ts with the 3 new ISS-1155 cases and the OLD getRunEvents: "Tests  1 failed | 12 passed (13)",
+  x concatenates every page in order until has_more is false: "AssertionError: expected [ 1, 2 ] to deeply equal [ 1, 2, 3 ]"
+  (the other two new cases, no has_more and the {} catch-all, pass on both sides: they guard the loop's exit, not the bug)
+frontend/src/lib/api.test.ts before the new cases were added: "Tests  10 passed (10)"
+
+## Ad-hoc probe of the card's other test-writer bullets (not in the tree)
+evidence/qa-kb-119/fix-plugins/probe_iss1155_walk_test.py, copied for the run to backend/tests/integration/api/ (it imports the
+fixtures of test_runs_api_events_api.py) and deleted afterwards: "3 passed, 3 warnings in 1.86s"
+  - 6,000 rows walked with after=<next_after>&limit=5000: seq 1..6000 exactly once, 2 requests; past the end: [] with
+    has_more false and next_after == after; a last page that is exactly full: has_more false; bare call: 1,000 rows
+  - limit=0, limit=5001, limit=-1 and after=-1 each answer 422
+  - another owner's rows on the same run_id never appear; a cross-owner caller still gets 404
+
+## After tightening the getRunEvents loop exit (next_after must be a number greater than the cursor), 2026-10-09 ~15:05Z
+frontend/src/lib/api.test.ts: "Tests  13 passed (13)"; frontend/src/hooks/useRunChat.test.ts: "Tests  26 passed | 1 expected fail (27)"
+eslint src/lib/api.ts src/lib/api.test.ts: clean; tsc --noEmit: 13 errors, none in api.ts or api.test.ts (same 13 as before)
+evidence/qa-kb-119/fix-plugins/getRunEvents_guard.scratch.test.ts (copied to frontend/src/lib/ for the run, then deleted): "Tests  4 passed (4)"
+  - has_more true with next_after == after: one request; NaN cursor with the {} catch-all: one request;
+    has_more true with no next_after: one request; the first request asks for after=<afterSeq>&limit=5000

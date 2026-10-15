@@ -90,12 +90,12 @@ def _cleanup_pipeline(pipeline_run_id: str) -> None:
 
     A3. Popping ``_PIPELINE_QUEUES`` is only half of "this run is no longer live":
     an SSE client that attached while the entry existed is parked in
-    ``run_stream._iter_sse_frames`` at ``await live_queue.get()`` (``run_stream.py:197``)
+    ``run_stream._iter_sse_frames`` at ``await live_queue.get()``
     holding a direct reference to the queue OBJECT, so the dict pop does not reach it.
-    Of the twelve paths that reach this function, only three (the launch driver's
-    ``finally`` at ``run_commands.py:2185-2186``, the revision driver's at ``:2488-2489``,
-    and ``engine._drive_resumed_stream``'s at ``engine.py:7823+7830``) send the ``None``
-    sentinel first; the nine resume/re-arm paths that reach it through
+    Of the twelve paths that reach this function, only three (the ``finally`` of the
+    launch driver ``_drive_launch_to_queue``, of the revision driver
+    ``_drive_revision_to_queue``, and of ``engine._drive_resumed_stream``) send the
+    ``None`` sentinel first; the nine resume/re-arm paths that reach it through
     ``engine._fire_resume_cleanup`` do not, and their attached client hangs until the
     socket drops. Sending the sentinel HERE makes "stop tracking this run" and "release
     its readers" one atomic operation instead of two things every caller must remember.
@@ -157,8 +157,9 @@ def _is_run_live(run_id: str) -> bool:
 
     The authoritative signal is the DRIVER TASK, because every one of the seven
     registration sites registers the queue and the task with NO ``await`` between them
-    (run_commands.py :399/:421, :991/:1003, :1204/:1216, :1775/:1796, :2383/:2395;
-    engine.py :5372/:5388, :5440/:5457) -- so on a single-threaded event loop a
+    (run_commands.py ``resume_run_endpoint``, ``_dispose_concierge_proposal``,
+    ``post_message``, ``_launch_run_core``, ``create_revision``; both resume branches
+    of engine.py ``restore_non_terminal_runs``) -- so on a single-threaded event loop a
     registered queue is never observable without its task. And every driver's cleanup
     (``_cleanup_pipeline`` / the engine's injected ``_fire_resume_cleanup``) runs INSIDE
     the driver, i.e. strictly before its task transitions to ``done()``. A ``done()``
@@ -170,14 +171,15 @@ def _is_run_live(run_id: str) -> bool:
     the heal additionally releases any client already blocked on the orphaned queue.
 
     Fail-safe: anything we cannot PROVE is finished is reported LIVE. A task object with
-    no callable ``done`` (``tests/unit/test_rest_resume.py:260`` seeds a bare ``object()``
-    sentinel and expects the overlap mutex to still return 409) and a ``done()`` that
-    raises both take the live branch -- never self-heal something whose state is unknown.
+    no callable ``done`` (``tests/integration/api/test_rest_resume_api.py``'s
+    ``test_resume_already_running_409`` seeds a bare ``object()`` sentinel and expects
+    the overlap mutex to still return 409) and a ``done()`` that raises both take the
+    live branch -- never self-heal something whose state is unknown.
 
     SC-001: keyed on ``run_id`` only. No workflow name, no pipeline type.
     Synchronous by contract: ``resume_run_endpoint``'s double-POST atomicity argument
-    (run_commands.py:346) requires NO ``await`` between the overlap mutex and the
-    registration that closes it. Do not make this a coroutine.
+    (the "Ordering pin" in its docstring) requires NO ``await`` between the overlap mutex
+    and the registration that closes it. Do not make this a coroutine.
     """
     task = _PIPELINE_TASKS.get(run_id)
     if task is not None:
@@ -193,8 +195,8 @@ def _is_run_live(run_id: str) -> bool:
             return True
 
     # Not live. Self-heal any surviving registration. Evidence is the QUEUE or TASK entry
-    # only -- NOT _CANCEL_EVENTS: ``launch_run`` registers the cancel event at :1734
-    # before the queue at :1775, so a lone cancel-event entry is a legitimate mid-launch
+    # only -- NOT _CANCEL_EVENTS: ``_launch_run_core`` registers the cancel event before
+    # the queue, so a lone cancel-event entry is a legitimate mid-launch
     # state, not staleness. ``_cleanup_pipeline`` pops all three, which is correct once a
     # queue/task entry has proven the run dead.
     if run_id in _PIPELINE_QUEUES or run_id in _PIPELINE_TASKS:
@@ -604,6 +606,146 @@ def _validate_model_overrides(
     return None
 
 
+def _model_entitlement_error(
+    tier: str,
+    *,
+    model_overrides: Any = None,
+    selections: Any = None,
+    manifest: Any = None,
+) -> tuple[int, str] | None:
+    """The tier gate for every user-supplied model id (QA-KB-017: ISS-398/934/935).
+
+    A model id reaches a run through three request shapes: the ``model_overrides``
+    map, ``selections[agent].model`` (what the Canvas Model lever sends), and a
+    manifest's ``model`` policies — the workflow default and every step's, nested
+    ``subagents.steps`` included, each with its ``fallback`` list. The checks above
+    look at the first two against the catalog only and nothing looks at the third,
+    so none of them could tell a basic account from a pro one.
+
+    Every id is asked two questions, in order:
+      * known — a known, user-allowed catalog id, else ``(422, msg)``. Redundant
+        where a catalog check already ran; load-bearing for a manifest's
+        workflow-level model and a Case 3 launch's body map, which the resolver
+        trusts unchecked (``model_policy.py`` tiers 4 and 1), so an uncatalogued
+        id would otherwise also slip past the tier question;
+      * entitled — ``can_use_model(tier, id)``, else ``(403, reason)``.
+
+    ``tier`` is ``effective_tier(user, principal)`` (ADR-0013) and has no default,
+    so a missed caller cannot skip the gate. Malformed shapes are skipped; the
+    shape validators own those errors. ``None`` when every id passes.
+    """
+    from agents.capabilities.model_catalog import ModelCatalog
+    from app.core.entitlements import can_use_model
+
+    model_ids: list = []
+    if isinstance(model_overrides, dict):
+        model_ids.extend(model_overrides.values())
+    if isinstance(selections, dict):
+        model_ids.extend(
+            s.get("model") for s in selections.values() if isinstance(s, dict)
+        )
+
+    def _walk(node: Any) -> None:
+        # A manifest, a step or a subagents block: any may carry a ``model`` policy;
+        # child steps sit under ``steps``, a step's own children under ``subagents``.
+        if not isinstance(node, dict):
+            return
+        policy = node.get("model")
+        if isinstance(policy, dict):
+            model_ids.append(policy.get("model"))
+            if isinstance(policy.get("fallback"), list):
+                model_ids.extend(policy["fallback"])
+        steps = node.get("steps")
+        for step in steps if isinstance(steps, list) else []:
+            _walk(step)
+        _walk(node.get("subagents"))
+
+    _walk(manifest)
+    catalog = ModelCatalog()
+    for model_id in model_ids:
+        if model_id is None or model_id == "":
+            continue  # unset: the resolver falls through to the next tier
+        if not isinstance(model_id, str) or not catalog.is_allowed(model_id):
+            return 422, f"model {model_id!r} is not an allowed model"
+        allowed, reason = can_use_model(tier, model_id)
+        if not allowed:
+            return 403, reason
+    return None
+
+
+def _trigger_entitlement_error(tier: str, manifest: Any) -> tuple[int, str] | None:
+    """The tier gate for every pipeline a manifest's conditional gates can start (ISS-1131).
+
+    A ``route.outcomes`` entry with ``trigger: workflow`` names a workflow that
+    ``run_trigger_workflow`` mints mid-run, where no principal (so no tier) is in
+    scope. The target is a static string, so it is checked here instead, at each
+    door where the manifest arrives with a principal: create, PATCH and
+    sync-from-file before storing, launch and resume before driving. A target the
+    trigger resolves as a file pipeline (``_is_file_backed_workflow``, the same
+    predicate) must be one ``tier`` may run, else ``(403, reason)``; ``self`` and a
+    saved ``user_workflow_id`` are not pipeline names and pass. Walked like
+    ``_model_entitlement_error``: the compiler flattens ``subagents`` children into
+    the plan, so a nested route fires like a top-level one. ``None`` when all pass.
+    """
+    from agents.execution_engine.kernel_services import _is_file_backed_workflow
+    from app.core.entitlements import can_run_pipeline
+
+    targets: list = []
+
+    def _walk(node: Any) -> None:
+        if not isinstance(node, dict):
+            return
+        route = node.get("route")
+        outcomes = route.get("outcomes") if isinstance(route, dict) else None
+        for outcome in outcomes.values() if isinstance(outcomes, dict) else []:
+            if isinstance(outcome, dict) and outcome.get("trigger") == "workflow":
+                targets.append(outcome.get("target"))
+        steps = node.get("steps")
+        for step in steps if isinstance(steps, list) else []:
+            _walk(step)
+        _walk(node.get("subagents"))
+
+    _walk(manifest)
+    for target in targets:
+        if isinstance(target, str) and _is_file_backed_workflow(target):
+            allowed, reason = can_run_pipeline(tier, target)
+            if not allowed:
+                return 403, f"conditional gate triggers {target!r}: {reason}"
+    return None
+
+
+def _saved_row_trust(tier: str) -> str:
+    """The compile trust of a saved, non-override manifest row for this caller (ISS-1114).
+
+    ``trust="db"`` (ADR-0039) is the Composer's privilege: exec, spawn_subagents, the
+    engineer-only gates and hooks, raised Limits and every tool pack. The Composer is
+    enterprise-only because its base pipeline is ``custom``, but a row's
+    ``base_pipeline_type`` is a label its author picks, so the trust is decided here
+    from the caller's EFFECTIVE tier instead: ``db`` only when that tier may run
+    ``custom``, else ``user``. Save (POST and PATCH), launch by id and resume all ask
+    this one question, so a row saves iff it launches.
+    """
+    from app.core.entitlements import can_run_pipeline
+
+    return "db" if can_run_pipeline(tier, "custom")[0] else "user"
+
+
+def _parent_run_trust(db: Session, run_id: str) -> str:
+    """The most trust a saved row started by run ``run_id``'s trigger may get (ISS-1164).
+
+    ``run_trigger_workflow`` has no principal, so it cannot ask ``_saved_row_trust``.
+    The run that fires it was launched by one, and launch by id persisted the answer as
+    ``manifest_json["_trust"]``: the child is held to it. A run with none (a file
+    pipeline, an override merge, a triggered child) gives ``user``, as resume reads a
+    missing ``_trust``.
+    """
+    # ponytail: no walk up parent_run_id, so a second trigger hop always gets "user";
+    # walk the chain to the first persisted _trust if privileged multi-hop chains matter.
+    run = db.get(WorkflowRun, run_id)
+    manifest = run.manifest_json if run is not None else None
+    return (manifest.get("_trust") if isinstance(manifest, dict) else None) or "user"
+
+
 def _validate_images(
     images: Any, *, effective_model_ids: set[str] | None = None
 ) -> str | None:
@@ -735,6 +877,27 @@ def _revalidate_selections_trust_user(
     except CompilerError as exc:
         return f"Rejected persisted selection: {exc}"
     return None
+
+
+def _own_plan_roster(pipeline_type: str) -> set[str]:
+    """ISS-687: every agent id of ``pipeline_type``'s own compiled plan, when that plan
+    has ``custom-agent:<instance_id>`` steps; the empty set for any other pipeline.
+
+    Those ids have no AGENT.md, so ``allowed_custom_agent_ids`` can never hold them,
+    and it must not be widened to (KAN-75). An ``agent_ids`` list EQUAL to this set
+    names exactly the steps the compiled plan already runs: launch drops it and takes
+    the plan as the roster, and save (save == launch, ISS-976) accepts it. Any other
+    list still meets the allow-list, so an edited roster is rejected rather than run
+    as the full plan. Empty for every registered-agent pipeline (no change there).
+    """
+    from agents.execution_engine.engine import compile_for_run
+    from agents.workflows.artifacts import CUSTOM_AGENT_PREFIX
+
+    try:
+        ids = {step.agent_id for step in compile_for_run(pipeline_type).steps}
+    except Exception:  # noqa: BLE001 — no manifest / malformed: nothing to recognise
+        return set()
+    return ids if any(aid.startswith(CUSTOM_AGENT_PREFIX) for aid in ids) else set()
 
 
 def _get_db() -> Session:
@@ -896,11 +1059,10 @@ def _resolve_owned_parent_run_id(
 ) -> Optional[str]:
     """Return ``candidate_id`` iff it names a WorkflowRun OWNED by ``user_id``.
 
-    Both parent-link ingress sites — the ``run_pipeline``
-    ``source_workflow_run_id`` link (``_handle_workflow_execution`` :1688) and
-    the ``run_revision`` row-creation ``parent_run_id`` link
-    (``_handle_revision_execution`` :2247) — route their parent linkage through
-    this single ownership-checked resolver (POR §3).
+    Parent-link ingress: the launch path's ``source_workflow_run_id`` link
+    (``_launch_run_core``) routes its parent linkage through this single
+    ownership-checked resolver (POR §3); the REST revision path (``create_revision``)
+    applies the same ``user_id`` owner filter inline when it loads the parent.
 
     Why ownership, not mere existence: ``parent_run_id`` is an enforced FK
     (migration 0013), so a stale/foreign id would abort run creation — the old
@@ -909,7 +1071,7 @@ def _resolve_owned_parent_run_id(
     (``runs.py`` ``/family`` + server-computed ``root_run_id``) follows
     ``parent_run_id`` edges, so a persisted foreign parent would leak another
     owner's run metadata into the family response. Engine ``assert_owns``
-    (``engine.py:4455``) already gates content reads; this gates the persisted
+    (``ScopedStore.assert_owns``) already gates content reads; this gates the persisted
     ROW linkage so the two defenses compose.
 
     Keyed on ``WorkflowRun.user_id`` — the Phase-13 CR-01 ownership precedent —

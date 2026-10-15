@@ -1,0 +1,46 @@
+# QA-KB-051 analyzer: every tools/knowledge script that can run without writing, under Python 3.9.6 (/usr/bin/python3), real tree, 2026-10-02 03:37 CEST
+# Purpose: show the newline= kwarg at build_context.py:431 is the ONLY 3.10+ dependency found; nothing else in the pipeline fails on 3.9.
+
+## validate_links.py  (the stage the failing run never reaches)
+Card filenames checked: 1698
+Card cross-refs checked: 4667
+Total local links checked: 18406
+Resolved: 18406
+Broken: 0
+exit=0
+
+## status.py
+
+                             found    expected   verdict
+cards                         1698        1698   OK
+architecture cards              37          37   OK
+source files covered           957         960   STALE
+INDEX.md entries              1698        1698   OK
+CONTEXT.md cards              1698        1698   OK
+exit=1  (1 = something stale: source files covered / domain prose, unrelated to this bug)
+
+## normalize_card_ids.py --check
+Cards loaded:      1698
+IDs to rename:     0
+Files to rename:   0
+adr -> doc merges: 0
+
+ERRORS (7):
+exit=1  (7 pre-existing duplicate-id errors, identical under 3.13; unrelated to this bug)
+
+## apply_summaries.py --check
+no batch directory: /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/.knowledge/.stage/summaries
+exit=1
+
+## build_context.py on an UNCHANGED tree: returns at :430 before the :431 write, so 3.9 passes
+Wrote /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/.knowledge/CONTEXT.md (unchanged)
+exit=0
+
+## build_architecture.py --check  (stage 1 of the FULL rebuild; report only, writes nothing)
+  WARNING: only 0/576 frontend files resolved any import edge. Expected far more -- the extractor likely failed to map paths (a symlinked source tree does this). Treat the graph as suspect.
+
+Modules produced: 37
+Files assigned:   960/960
+Modules with hand-authored prose preserved: 35
+--check: nothing written.
+exit=0

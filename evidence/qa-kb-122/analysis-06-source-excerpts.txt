@@ -1,0 +1,413 @@
+
+== backend/app/api/admin.py:173-194  (CreateUserRequest: extra=forbid, no password field)
+  173  class CreateUserRequest(BaseModel):
+  174      """Body for admin-driven user creation.
+  175  
+  176      NO PASSWORD FIELD (Phase 3, Decision 6). The prior schema carried
+  177      ``password: str`` and the handler set it as a PERMANENT Cognito password —
+  178      meaning an admin always knew a live credential for someone else's account
+  179      (``MERGE_NOTES.md`` §4). Creation is now invitation-only:
+  180      ``core.cognito_admin.invite_user`` calls ``AdminCreateUser`` with
+  181      ``DesiredDeliveryMediums=[EMAIL]`` and a Cognito-generated TEMPORARY
+  182      password that only ever reaches the recipient's inbox. Removing the field
+  183      from the schema — not just from the handler's use of it — is deliberate:
+  184      a client that still POSTs a ``password`` gets a 422 from Pydantic's extra-
+  185      field rejection, not a silently-ignored value, so no caller can believe
+  186      they set a password that was never actually used (mass-assignment
+  187      hardening, Phase 3 item 8).
+  188      """
+  189  
+  190      model_config = {"extra": "forbid"}
+  191  
+  192      email: CanonicalEmail
+  193      tier: str = "basic"
+  194      is_admin: bool = False
+
+== backend/app/api/admin.py:197-205  (ResetPasswordRequest: extra=forbid, no fields at all)
+  197  class ResetPasswordRequest(BaseModel):
+  198      """Body for an admin-driven password reset.
+  199  
+  200      This endpoint issues a TEMPORARY password, forcing the user through the
+  201      NEW_PASSWORD_REQUIRED challenge on next sign-in so they choose their own
+  202      credential that no admin knows. No password is supplied by the admin.
+  203      """
+  204  
+  205      model_config = ConfigDict(extra="forbid")
+
+== backend/app/api/admin.py:553-555  (reset-password answers {status: temporary_password_set})
+  553      )
+  554  
+  555      return {"status": "temporary_password_set"}
+
+== frontend/src/app/admin/page.tsx:694-708  (create modal: no password input, button reads Send Invitation)
+  694                  {/* Invitation-only creation (Cognito migration Phase 3, Decision
+  695                      6): there is no password field. A temporary password is
+  696                      generated and emailed directly to the new account -- this
+  697                      admin panel never sees or sets it. */}
+  698                  <p className="text-[11px] text-ink-500 leading-relaxed bg-surface-warm rounded-[var(--radius-button)] px-3 py-2.5">
+  699                    This creates an invitation. The new user receives a temporary
+  700                    password by email and sets their own password on first sign-in.
+  701                  </p>
+  702                  <Button
+  703                    onClick={handleCreateUser}
+  704                    disabled={creating || !EMAIL_PATTERN.test(newEmail)}
+  705                    className="w-full mt-1"
+  706                  >
+  707                    {creating ? "Sending invite..." : "Send Invitation"}
+  708                  </Button>
+
+== frontend/src/lib/api.ts:2113-2123  (adminResetUserPassword posts an empty object)
+ 2113  
+ 2114  export async function adminResetUserPassword(
+ 2115    token: string,
+ 2116    userId: string,
+ 2117  ): Promise<AdminPasswordResetResponse> {
+ 2118    return request<AdminPasswordResetResponse>(
+ 2119      `/api/admin/users/${userId}/reset-password`,
+ 2120      {
+ 2121        method: "POST",
+ 2122        headers: authHeaders(token),
+ 2123        body: JSON.stringify({}),
+
+== backend/app/core/cognito_admin.py:292-299  (invite_user signature (no way to pass a password through the API))
+  292  def invite_user(
+  293      email: str,
+  294      *,
+  295      tier: str,
+  296      is_admin: bool,
+  297      temporary_password: str | None = None,
+  298  ) -> CreatedUser:
+  299      """Create a pool user by INVITATION. Never sets a permanent password.
+
+== backend/app/core/cognito.py:419-423  (AdminCreateUser is asked to deliver the invitation by EMAIL)
+  419      if temporary_password:
+  420          kwargs["TemporaryPassword"] = temporary_password
+  421      if desired_delivery_mediums:
+  422          kwargs["DesiredDeliveryMediums"] = desired_delivery_mediums
+  423      return _client().admin_create_user(**kwargs)
+
+== tests/integration/e2e/conftest.py:429-462  (disposable_user: the POST body and the returned credential)
+  429      invariant and `resolve_principal` then refuses EVERY admin credential,
+  430      including freshly minted ones — the whole suite stops authenticating and the
+  431      only way back is a direct database write. That is D-31, and it cost this
+  432      suite a two-hour outage.
+  433  
+  434      Yields a factory: `make(tier="hexaware")` -> `{"id", "email", "password"}`.
+  435      """
+  436      from framework import api as _api
+  437  
+  438      admin = page_as("admin")
+  439      admin.goto("/dashboard")
+  440      created: list[str] = []
+  441  
+  442      def make(tier: str = "basic", *, email: str | None = None) -> dict:
+  443          address = email or f"e2e-{uuid.uuid4().hex[:12]}@velocity.ai"
+  444          result = _api.full(
+  445              admin,
+  446              "POST",
+  447              "/api/admin/users",
+  448              {
+  449                  "email": address,
+  450                  "password": accounts.PASSWORD,
+  451                  "tier": tier,
+  452                  "is_admin": False,
+  453              },
+  454          )
+  455          assert result["status"] == 201, (
+  456              f"creating a disposable user answered {result['status']}: "
+  457              f"{result['body'][:200]}"
+  458          )
+  459          row = json.loads(result["body"])
+  460          created.append(row["id"])
+  461          return {"id": row["id"], "email": address, "password": accounts.PASSWORD}
+  462  
+
+== tests/integration/e2e/suites/24_api_contract/test_api_contract.py:335-347  (S-24-12 re-types the same body inline)
+  335      with shot("create-201", "When an admin POSTs to /api/admin/users"):
+  336          page.goto("/dashboard")
+  337          address = f"e2e-{uuid.uuid4().hex[:12]}@velocity.ai"
+  338          result = api.full(
+  339              disposable_user.admin_page,
+  340              "POST",
+  341              "/api/admin/users",
+  342              {
+  343                  "email": address,
+  344                  "password": accounts.PASSWORD,
+  345                  "tier": "basic",
+  346                  "is_admin": False,
+  347              },
+
+== tests/integration/e2e/suites/24_api_contract/test_api_contract.py:657-669  (S-24-25 pins the listing as hiding .uploads/ and .logs/)
+  657  def test_the_reserved_subtrees_are_never_listed(page, shot):
+  658      """Scenario: The reserved subtrees are never listed
+  659  
+  660      The listing is the complete description of what `/sandbox/file` will serve.
+  661      """
+  662      run_id = my_run_id(page)
+  663  
+  664      with shot("reserved-subtrees", "When I read the workspace listing"):
+  665          body = sandbox_of(page, run_id)
+  666  
+  667      leaked = [f["path"] for f in body["files"] if f["path"].startswith((".uploads/", ".logs/"))]
+  668      assert not leaked, f"reserved subtrees appear in the listing: {leaked}"
+  669  
+
+== tests/integration/e2e/suites/11_admin/test_admin.py:346-353  (S-11-15 fills a password input and clicks /create/)
+  346              expect(page.get_by_text("Create New User")).to_be_visible()
+  347  
+  348          with shot("user-created", 'And I create a disposable user at tier "basic"'):
+  349              page.fill('input[type="email"]', address)
+  350              page.fill('input[type="password"]', accounts.PASSWORD)
+  351              page.locator('select[name="new-user-tier"]').select_option("basic")
+  352              page.get_by_role("button", name=re.compile(r"create", re.I)).last.click()
+  353              expect(page.locator(L.row(address)).first).to_be_visible(timeout=20000)
+
+== tests/integration/e2e/suites/11_admin/test_admin.py:453-466  (S-11-17 posts new_password and expects requires_new_password_at_next_login)
+  453              page,
+  454              "POST",
+  455              f"/api/admin/users/{user['id']}/reset-password",
+  456              {"new_password": "flowin-e2e-temporary-1"},
+  457          )
+  458  
+  459      if result["status"] == 200:
+  460          body = json.loads(result["body"])
+  461          assert body.get("requires_new_password_at_next_login") is True, (
+  462              f"a default reset did not require a new password at next login: {body}"
+  463          )
+  464          return
+  465  
+  466      assert result["status"] in (400, 403, 409), result["body"][:200]
+
+== tests/integration/e2e/suites/11_admin/test_admin.py:492-507  (S-11-18 posts permanent=true and expects the break-glass refusal text)
+  492              page,
+  493              "POST",
+  494              f"/api/admin/users/{user['id']}/reset-password",
+  495              {"new_password": "flowin-e2e-permanent-1", "permanent": True},
+  496          )
+  497  
+  498      if result["status"] == 200:
+  499          body = json.loads(result["body"])
+  500          assert body.get("requires_new_password_at_next_login") is not True, (
+  501              f"a permanent reset still forces a challenge: {body}"
+  502          )
+  503          return
+  504  
+  505      assert result["status"] in (400, 403, 409), result["body"][:200]
+  506      assert BREAK_GLASS_REFUSAL in result["body"], (
+  507          "`permanent=true` changed WHY the reset was refused — the flag must not "
+
+== tests/integration/e2e/suites/11_admin/test_admin.py:585-592  (S-11-20 signs in as the disposable user with its password)
+  585      try:
+  586          with shot("pro-catalog", "And signing in as that user offers the pro catalog"):
+  587              theirs.goto("/login")
+  588              theirs.fill(AUTH.EMAIL, user["email"])
+  589              theirs.fill(AUTH.PASSWORD, user["password"])
+  590              theirs.click(AUTH.SIGN_IN)
+  591              theirs.wait_for_url("**/dashboard", timeout=settings.LOGIN_TIMEOUT_MS)
+  592              expect(theirs.get_by_text(HOME.HEADING)).to_be_visible()
+
+== tests/integration/e2e/suites/12_shell_nav/test_shell_nav.py:201-216  (S-12-11 signs in as the disposable user)
+  201      user = disposable_user(tier="basic")
+  202      context = browser.new_context(
+  203          base_url=settings.BASE_URL,
+  204          viewport=settings.VIEWPORT,
+  205          device_scale_factor=pytestconfig.getoption("--dpi"),
+  206          reduced_motion="reduce",
+  207      )
+  208      page = context.new_page()
+  209      shot.retarget(page)
+  210  
+  211      try:
+  212          page.goto("/login")
+  213          page.fill(AUTH.EMAIL, user["email"])
+  214          page.fill(AUTH.PASSWORD, user["password"])
+  215          page.click(AUTH.SIGN_IN)
+  216          page.wait_for_url("**/dashboard", timeout=settings.LOGIN_TIMEOUT_MS)
+
+== tests/integration/e2e/suites/10_analytics/test_analytics.py:270-285  (S-10-13 signs in as the disposable user)
+  270      user = disposable_user(tier="basic")
+  271      context = browser.new_context(
+  272          base_url=settings.BASE_URL,
+  273          viewport=settings.VIEWPORT,
+  274          device_scale_factor=pytestconfig.getoption("--dpi"),
+  275          reduced_motion="reduce",
+  276      )
+  277      page = context.new_page()
+  278  
+  279      try:
+  280          with shot("empty-analytics", 'When a user with no runs cold-loads "/analytics"'):
+  281              page.goto("/login")
+  282              page.fill(AUTH.EMAIL, user["email"])
+  283              page.fill(AUTH.PASSWORD, user["password"])
+  284              page.click(AUTH.SIGN_IN)
+  285              page.wait_for_url("**/dashboard", timeout=settings.LOGIN_TIMEOUT_MS)
+
+== tests/integration/e2e/suites/17_theme_and_tiers/test_theme_and_tiers.py:281-296  (S-17-09 signs in as the disposable user)
+  281      user = disposable_user(tier="hexaware")
+  282      context = browser.new_context(
+  283          base_url=settings.BASE_URL,
+  284          viewport=settings.VIEWPORT,
+  285          device_scale_factor=pytestconfig.getoption("--dpi"),
+  286          reduced_motion="reduce",
+  287      )
+  288      page = context.new_page()
+  289  
+  290      try:
+  291          with shot("hexaware-signs-in", 'Given a user on the "hexaware" tier'):
+  292              page.goto("/login")
+  293              page.fill(AUTH.EMAIL, user["email"])
+  294              page.fill(AUTH.PASSWORD, user["password"])
+  295              page.click(AUTH.SIGN_IN)
+  296              page.wait_for_url("**/dashboard", timeout=settings.LOGIN_TIMEOUT_MS)
+
+== tests/integration/e2e/framework/locators/home_catalog.py:48-55  (LAUNCHABLE_TITLES carries (Detailed))
+   48  # The full launchable set, as the catalog shows it. Derived from
+   49  # `user_launchable: true AND is_beta: false` in the workflow manifests, which is
+   50  # exactly what HomeLaunchGrid renders outside the Coming Soon group.
+   51  LAUNCHABLE_TITLES = [
+   52      "Pitch an idea (Fast)",
+   53      "Pitch an idea (Detailed)",
+   54      "Build an interactive prototype (Fast)",
+   55      "Build an end-to-end application",
+
+== backend/agents/workflows/ppt_v2/workflow.yaml:42-42  (the manifest label is (Depth))
+   42  display_name: "Pitch an idea (Depth)"
+
+== tests/integration/e2e/framework/locators/composer.py:52-52  (AGENT_SUBTABS carries Hooks)
+   52  AGENT_SUBTABS = ["Overview", "Skills", "Hooks", "Tools", "Config"]
+
+== frontend/src/components/workflow/composer/CanvasConfigRail.tsx:555-575  (caption is '<kind.label> · step n of m'; tabs are Overview/Skills/Data/Tools/Config)
+  555            />
+  556            <p className="truncate font-serif text-[11px] text-ink-300">
+  557              {kind.label} · step {index + 1} of {total}
+  558              {kind.key === "code" && agent.mechanical ? ` · ${friendlyName(agent.mechanical)}` : ""}
+  559            </p>
+  560          </div>
+  561        </div>
+  562  
+  563        {/* Same 4-tab inspector as the library agent drawer (AgentCapabilitiesModal). */}
+  564        <Tabs
+  565          className="mt-4"
+  566          active={activeTab}
+  567          onChange={(id) => setActiveTab(id as typeof activeTab)}
+  568          tabs={[
+  569            { id: "overview", label: "Overview" },
+  570            { id: "skills", label: "Skills" },
+  571            { id: "data", label: "Data" },
+  572            { id: "tools", label: "Tools" },
+  573            { id: "config", label: "Config" },
+  574          ]}
+  575        />
+
+== frontend/src/components/workflow/composer/stepKind.ts:20-20  (the plain agent kind label is AI agent)
+   20    return { key: "agent", label: "AI agent", Icon: Bot };
+
+== frontend/src/components/workflow/composer/CanvasConfigRail.dataTab.test.tsx:44-47  (the unit twin pins Data and the ABSENCE of Hooks)
+   44      renderRail();
+   45      expect(screen.getByRole("tab", { name: "Data" })).toBeInTheDocument();
+   46      expect(screen.queryByRole("tab", { name: "Hooks" })).toBeNull();
+   47    });
+
+== tests/integration/e2e/suites/06_run_history/test_run_history_pagination.py:186-217  (ISS-213: the assertion is shown >= extra_beyond_page_one)
+  186  @pytest.mark.issue("ISS-213")
+  187  @pytest.mark.xfail(reason="ISS-213 unfixed", strict=True)
+  188  def test_a_type_chips_count_reflects_the_true_account_total(page, shot):
+  189      """ISS-213 — a type-filter chip's count must reflect the account's true
+  190      per-type total, not just how many of that type sit inside the loaded
+  191      50-row window. (This account's first page happens to include at least one
+  192      run of every bucket, so the chip never fully vanishes here — but every
+  193      bucket is still severely undercounted, which is the card's primary claim.)"""
+  194      import json as _json
+  195  
+  196      open_history(page)
+  197  
+  198      older_runs = []
+  199      for offset in range(50, 300, 100):
+  200          res = api.full(page, "GET", f"/api/runs?limit=100&offset={offset}")
+  201          batch = _json.loads(res["body"])
+  202          if not batch:
+  203              break
+  204          older_runs.extend(batch)
+  205      assert older_runs, "account does not exceed the first page; test needs re-basing"
+  206  
+  207      from collections import Counter
+  208  
+  209      true_counts = Counter(_bucket_of(r["type"]) for r in older_runs)
+  210      label, param = max(L.TYPE_PARAMS.items(), key=lambda kv: true_counts[kv[1]])
+  211      extra_beyond_page_one = true_counts[param]
+  212      assert extra_beyond_page_one > 0, "no type has any hits beyond the first page; test needs re-basing"
+  213  
+  214      with shot("chip-undercount", f'When I read the "{label}" filter chip'):
+  215          shown = L.chip_count(page, label)
+  216  
+  217      assert shown >= extra_beyond_page_one, (
+
+== frontend/src/components/history/WorkflowHistory.tsx:1192-1206  (per-type chips are built from the loaded families only, on purpose (ISS-219 option 2))
+ 1192    const sections = bucketAndSortFamilies(visibleFamilies, sortKey);
+ 1193    const typeGroups = ["all", "user_stories", "ppt", "prototype", "app_builder", "custom"];
+ 1194    // ISS-198 + ISS-213: the "All" chip now shows the true total (totalRuns) from
+ 1195    // the server response, matching the header. Per-type chips still reflect the
+ 1196    // loaded families (family card counts, not raw run counts) — this is option 2
+ 1197    // from ISS-219: chips are in "family card" units, the header/All chip is in
+ 1198    // "total runs" units. The tension is documented in ISS-219; a future change
+ 1199    // can tighten the per-type counts once the backend grows per-bucket aggregates.
+ 1200    const typeCounts: Record<string, number> = { all: totalRuns };
+ 1201    families.forEach((g) => {
+ 1202      // Count the FAMILY once under its filter bucket (one of the 4 frameworks,
+ 1203      // or "custom" for every non-framework type — see filterBucketFor).
+ 1204      const base = filterBucketFor(g.root.type);
+ 1205      typeCounts[base] = (typeCounts[base] || 0) + 1;
+ 1206    });
+
+== tests/integration/e2e/suites/05_saved_workflows/test_iss228_launch_panel_override_binding.py:31-38  (pinned saved-workflow id + strict xfail)
+   31  from playwright.sync_api import expect
+   32  
+   33  PROTO_ID = "656ca387-e69c-474d-b7ff-5fd9eb017cc0"
+   34  PROTO_NAME = "My prototype"
+   35  
+   36  
+   37  @pytest.mark.issue("ISS-228")
+   38  @pytest.mark.xfail(reason="ISS-228 unfixed", strict=True)
+
+== tests/integration/e2e/suites/07_run_detail/test_iss802_steps_agent_artifacts_duplicate_request.py:62-76  (counts every URL containing /api/runs/{id}/artifacts)
+   62      page.wait_for_timeout(500)
+   63  
+   64      requests: list[str] = []
+   65      page.on("request", lambda req: requests.append(req.url))
+   66  
+   67      page.goto(f"/runs/{run_id}/steps/{agent_id}")
+   68      expect(page.locator(L.HEADER)).to_be_visible()
+   69      page.wait_for_timeout(1500)
+   70  
+   71      artifact_calls = [u for u in requests if f"/api/runs/{run_id}/artifacts" in u]
+   72  
+   73      assert len(artifact_calls) <= 1, (
+   74          "opening an agent's Steps detail pane should fetch "
+   75          f"/api/runs/{run_id}/artifacts once, saw {len(artifact_calls)}: {artifact_calls}"
+   76      )
+
+== frontend/src/components/preview/PreviewPanel.tsx:614-623  (the second, different artifacts read (kind=clarifications))
+  614  // QA-KB-066 / ISS-1006 / ISS-1008 — a run's persisted clarify rounds, the same
+  615  // fetch + parse the History detail view makes. Best-effort: a failed read is
+  616  // "no rounds", never a throw into the preview surface.
+  617  async function loadRunClarifications(token: string, runId: string) {
+  618    try {
+  619      const resp = await getRunArtifacts(token, runId, { kind: "clarifications", includeContent: true });
+  620      return parseClarificationArtifacts(resp.artifacts);
+  621    } catch {
+  622      return [];
+  623    }
+
+== git: the unit-tier twin of S-24-25 was renamed and inverted in f9df3737c
+58:-    def test_the_reserved_subtrees_are_never_listed(self, env):
+59:+    def test_every_file_is_listed_reserved_and_git_metadata_included(self, env):
+85:-    def test_the_reserved_subtrees_are_not_readable_either(self, env, path):
+86:+    def test_a_listed_reserved_file_is_readable(self, env, path):
+
+== git: 87903ab3b states the intent of the rename
+The prototype v2 and backlog revision workflows are no longer user-launchable
+(user_launchable: false, is_beta: true): a revision starts from a finished run's
+chat, never from the catalog. "Pitch an idea" and "Prototype from documents" say
+(Depth) instead of (Detailed), and prototype v2 and its revisions use the same
+Layout icon as the main prototype pipeline.
+

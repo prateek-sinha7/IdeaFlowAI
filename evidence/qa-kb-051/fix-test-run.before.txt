@@ -1,0 +1,15 @@
+x                                                                        [100%]
+=============================== warnings summary ===============================
+app/core/config.py:94
+  /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/app/core/config.py:94: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+    class Settings(BaseSettings):
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+XFAIL tests/unit/test_knowledge_build_context_py39.py::test_build_context_runs_under_python39 - BUG-127 unfixed
+1 xfailed, 1 warning in 5.38s
+Traceback (most recent call last):
+  File "<stdin>", line 5, in <module>
+  File "/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/tools/knowledge/build_context.py", line 431, in main
+    OUT_PATH.write_text(body, encoding='utf-8', newline='\n')
+TypeError: write_text() got an unexpected keyword argument 'newline'

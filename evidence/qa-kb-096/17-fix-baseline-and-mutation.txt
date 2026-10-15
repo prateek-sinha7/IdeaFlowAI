@@ -1,0 +1,47 @@
+# QA-KB-096 / FIX-760 — baseline (HEAD f225a7952 component) and mutation runs, 2026-10-08
+# Temp copies under src/components/preview/zz1073*.tsx, deleted after this run. One vitest file per run.
+
+=== zz1073base.SandboxPdfPreview.resolve.test.tsx
+ Test Files  1 passed (1)
+      Tests  2 expected fail (2)
+
+=== zz1073base.SandboxPdfPreview.ref.test.tsx
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+
+=== zz1073base.SandboxPdfPreview.test.tsx
+ Test Files  1 passed (1)
+      Tests  2 passed (2)
+
+=== zz1073mut.SandboxPdfPreview.resolve.test.tsx
+     × ISS-1073: reads the resolved .chain/ path at v2, not the declared root path 33ms
+     × ISS-1073: sends no file request and shows the fallback when v1 holds no PDF 11ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+Error: Expect test to fail
+ Test Files  1 failed (1)
+      Tests  2 failed (2)
+
+=== zz1073mut.SandboxPdfPreview.ref.test.tsx
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+
+# --- after adding the resolver-ref assertion to SandboxPdfPreview.resolve.test.tsx test 1 ---
+
+=== zz1073base.SandboxPdfPreview.resolve.test.tsx
+ Test Files  1 passed (1)
+      Tests  2 expected fail (2)
+
+=== zz1073mut.SandboxPdfPreview.resolve.test.tsx
+     × ISS-1073: sends no file request and shows the fallback when v1 holds no PDF 10ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+Error: Expect test to fail
+ Test Files  1 failed (1)
+      Tests  1 failed | 1 expected fail (2)
+
+=== SandboxPdfPreview.resolve.test.tsx
+     × ISS-1073: reads the resolved .chain/ path at v2, not the declared root path 34ms
+     × ISS-1073: sends no file request and shows the fallback when v1 holds no PDF 10ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+Error: Expect test to fail
+ Test Files  1 failed (1)
+      Tests  2 failed (2)

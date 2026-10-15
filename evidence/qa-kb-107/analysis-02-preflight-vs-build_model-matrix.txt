@@ -1,0 +1,10 @@
+# analysis-02: preflight_check_provider vs build_model, offline (constructors replaced by recorders)
+# run at: 2026-10-09T00:54Z
+# every row carries an EXPIRED AWS_BEARER_TOKEN_BEDROCK (issued 2h ago, 60 s TTL)
+1 override on,  Bedrock configured            (the reported bug) preflight=REFUSE build_model=ChatOllama             DIVERGE: refused, but the run would use ChatOllama and never touch Bedrock
+2 override off, Bedrock configured            (control)          preflight=REFUSE build_model=ChatBedrockConverse    correct refusal (the run would use the expired token)
+3 override off, ANTHROPIC key set             (existing mirror)  preflight=allow  build_model=ChatAnthropic          allowed
+4 override on,  ANTHROPIC key set             (masked by rung 3) preflight=allow  build_model=ChatOllama             allowed
+5 override off, Bedrock unconfigured, MISTRAL (sibling: Mistral rung) preflight=REFUSE build_model=ChatMistralAI          DIVERGE: refused, but the run would use ChatMistralAI and never touch Bedrock
+6 override off, Bedrock unconfigured, nothing (control)          preflight=REFUSE build_model=ModelConfigurationError refused; build_model would fail too (no provider configured)
+7 override on,  Bedrock unconfigured, MISTRAL                    preflight=REFUSE build_model=ChatOllama             DIVERGE: refused, but the run would use ChatOllama and never touch Bedrock

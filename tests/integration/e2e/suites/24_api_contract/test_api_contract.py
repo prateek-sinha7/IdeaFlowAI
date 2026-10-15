@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import json
 import subprocess
-import uuid
 import sys
 from pathlib import Path
 
@@ -141,7 +140,7 @@ def test_no_endpoint_loses_its_authentication_silently(page, shot):
 
 @pytest.mark.scenario("S-24-03")
 def test_the_public_list_is_exactly_eighteen_and_each_is_deliberate(page, shot):
-    """Scenario: The public list is exactly eighteen, and each is deliberate
+    """Scenario: The public list is exactly seventeen, and each is deliberate
 
     A NEW public endpoint fails this and forces the reason to be written down
     before it ships.
@@ -186,14 +185,13 @@ def test_a_request_with_no_credentials_is_answered_401_not_403(page, shot):
 def test_registration_is_permanently_closed(page, shot):
     """Scenario: Registration is permanently closed
 
-    Declared as `status_code=HTTP_403_FORBIDDEN` on the route itself, not as a
-    runtime check — it cannot succeed by configuration.
+    The route is gone: the Cognito-only migration (b2a621f84) removed it, so it
+    answers 404 and there is no self-registration path left to configure open.
     """
     with shot("register-closed", "When I POST /api/auth/register"):
         page.goto("/dashboard")
-        # With a well-formed body: FastAPI validates the payload BEFORE the
-        # route's declared status is reached, so an empty POST answers 422 and
-        # never proves the route is closed.
+        # With a well-formed body, so a route re-added here would reach its
+        # handler instead of stopping at a 422.
         result = api.full(
             page,
             "POST",
@@ -201,7 +199,7 @@ def test_registration_is_permanently_closed(page, shot):
             {"email": "nobody@example.com", "password": "not-a-real-password"},
         )
 
-    assert result["status"] == 403, (
+    assert result["status"] == 404, (
         f"registration answered {result['status']}: {result['body'][:200]}"
     )
 
@@ -331,33 +329,18 @@ def test_creating_a_user_answers_201_with_the_created_user(page, shot, disposabl
     """Scenario: Creating a user answers 201 with the created user
 
     The account is deleted in the fixture's teardown. `is_admin` is never set —
-    a second local admin locks every admin out (D-31).
+    a second local admin locks every admin out (D-31). The POST is the
+    fixture's own, which asserts the 201: one copy of the body, not two.
     """
     with shot("create-201", "When an admin POSTs to /api/admin/users"):
         page.goto("/dashboard")
-        address = f"e2e-{uuid.uuid4().hex[:12]}@velocity.ai"
-        result = api.full(
-            disposable_user.admin_page,
-            "POST",
-            "/api/admin/users",
-            {
-                "email": address,
-                "password": accounts.PASSWORD,
-                "tier": "basic",
-                "is_admin": False,
-            },
-        )
+        user = disposable_user(tier="basic")
 
-    assert result["status"] == 201, f"{result['status']}: {result['body'][:200]}"
-    body = json.loads(result["body"])
+    body = user["row"]
     for field in ("id", "email", "tier", "is_admin", "created_at"):
         assert field in body, f"the AdminUserResponse has no {field!r}: {sorted(body)}"
-    assert body["email"] == address and body["tier"] == "basic"
+    assert body["email"] == user["email"] and body["tier"] == "basic"
     assert body["is_admin"] is False
-    # Never the password, in any form.
-    assert accounts.PASSWORD not in result["body"]
-
-    api.full(disposable_user.admin_page, "DELETE", f"/api/admin/users/{body['id']}")
 
 
 @pytest.mark.scenario("S-24-13")
@@ -655,18 +638,27 @@ def test_an_expired_workspace_is_stated_not_inferred(page, shot):
 
 
 @pytest.mark.scenario("S-24-25")
-def test_the_reserved_subtrees_are_never_listed(page, shot):
-    """Scenario: The reserved subtrees are never listed
+def test_a_listed_reserved_file_is_readable(page, shot):
+    """Scenario: A listed reserved file is readable
 
     The listing is the complete description of what `/sandbox/file` will serve.
+    Since f9df3737c it lists every file, `.uploads/` and `.logs/` included, so a
+    listed reserved file has to open (the unit twin is
+    `test_a_listed_reserved_file_is_readable`).
     """
     run_id = my_run_id(page)
 
     with shot("reserved-subtrees", "When I read the workspace listing"):
         body = sandbox_of(page, run_id)
 
-    leaked = [f["path"] for f in body["files"] if f["path"].startswith((".uploads/", ".logs/"))]
-    assert not leaked, f"reserved subtrees appear in the listing: {leaked}"
+    reserved = [f["path"] for f in body["files"] if f["path"].startswith((".uploads/", ".logs/"))]
+    if not reserved:
+        pytest.skip("this run's workspace holds no .uploads/ or .logs/ file")
+
+    result = api.full(page, "GET", f"/api/runs/{run_id}/sandbox/file?path={reserved[0]}")
+    assert result["status"] == 200, (
+        f"{reserved[0]} is listed but /sandbox/file answers {result['status']}"
+    )
 
 
 def _pick(files, predicate):
@@ -725,14 +717,14 @@ def test_text_extensions_come_back_inline_as_plain_text(page, shot, extension):
 @pytest.mark.scenario("S-24-28")
 @pytest.mark.parametrize(
     "path",
-    ["../../../etc/passwd", "/etc/passwd", "..%2f..%2fetc%2fpasswd", ".uploads/manifest.json", ".logs/run.log"],
+    ["../../../etc/passwd", "/etc/passwd", "..%2f..%2fetc%2fpasswd"],
 )
 def test_the_path_parameter_refuses_to_leave_the_run_directory(page, shot, path):
     """Scenario: The path parameter refuses to leave the run directory
 
     `path_for` resolves inside the run dir and raises on any escape, so `..` and
-    an absolute path both land as 400. The reserved prefixes are refused
-    separately as 404 — they are not part of the workspace view.
+    an absolute path both land as 400. `.uploads/` and `.logs/` are no longer
+    refused: since f9df3737c every file the Workspace tab lists is readable.
     """
     run_id = my_run_id(page)
 

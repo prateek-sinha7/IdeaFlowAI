@@ -1,0 +1,31 @@
+QA-KB-030 analyze 2026-10-01 - offline (no network, no live DB, no live LLM). Python: backend/.venv/bin/python (3.13).
+Run from backend/. Scripts edit NO source: the PROPOSED rows set TaskLoopStrategy.runs_agent_inline=False in-process only.
+
+### 1. seam check:  cd backend && .venv/bin/python ../evidence/qa-kb-030/02-analyze-seam-check.py
+LOG agents.execution_engine.engine: declared 'human' gate on step build-agent skipped — inline review gate already covers this agent (WR-02 dedupe)
+== 1. what the kernel reads off each resolved strategy (engine._strategy_runs_agent_inline)
+  single_shot     declared=<undeclared>  kernel_reads=True
+  task_loop       declared=<undeclared>  kernel_reads=True
+  parallel_group  declared=<undeclared>  kernel_reads=True
+  fanout_batch    declared=False         kernel_reads=False
+  wave_scheduler  declared=False         kernel_reads=False
+
+== 2. the inline-gate predicate as _run_agent sees it (invocation scope)
+  step-boundary read   _should_gate(spec, ectx)                       = True
+  task_loop invocation _should_gate(spec, ectx, invocation_gated=False) = False   <- task_loop.py:360 passes invocation_gated=False => inline gate NEVER fires
+
+== 3. declared gates:[human] on a ticked task_loop step, post-step _evaluate_gates
+  [CURRENT  (task_loop undeclared => True)] runs_agent_inline_read=True inline_gated=True -> declared human gate evaluated 0x
+  [PROPOSED (task_loop.runs_agent_inline = False)] runs_agent_inline_read=False inline_gated=False -> declared human gate evaluated 1x
+
+### 2. pre-step before-human:  cd backend && .venv/bin/python ../evidence/qa-kb-030/03-analyze-seam-check-pre-step.py
+  [CURRENT ] gate=before-human phase=pre  inline_gated=True -> evaluated 0x
+  [CURRENT ] gate=human        phase=post inline_gated=True -> evaluated 0x
+  [PROPOSED] gate=before-human phase=pre  inline_gated=False -> evaluated 1x
+  [PROPOSED] gate=human        phase=post inline_gated=False -> evaluated 1x
+
+### 3. real engine, scripted model, hermetic SQLite (DB write-degrade tracebacks filtered out):
+###    cd backend && QA_SCRATCH=$(mktemp -d) .venv/bin/python ../evidence/qa-kb-030/04-analyze-run-drive.py
+hermetic DB: sqlite:///<scratch>/qa_kb_030_run.db
+[CURRENT  - TaskLoopStrategy undeclared] review gates opened for sc001-build: 0  (all opened=[])  tasks=[(1, 2), (2, 2)]  pipeline_complete=True  errors=0
+[PROPOSED - runs_agent_inline = False ] review gates opened for sc001-build: 1  (all opened=['sc001-build'])  tasks=[(1, 2), (2, 2)]  pipeline_complete=True  errors=0

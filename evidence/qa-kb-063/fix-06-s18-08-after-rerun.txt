@@ -1,0 +1,8 @@
+      1  Then the exchange appears twice                             0.0s  ok
+     PASS  1 shot  43.3s
+.                                                                        [100%]         report  /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/tests/integration/test-runs/2026-10-07T18-30-qa-kb-063-fix-after-s18-08-rerun/0-report.html
+
+==================================== PASSES ====================================
+=========================== short test summary info ============================
+PASSED suites/18_chat_lane/test_chat_lane.py::test_the_clarification_exchange_is_not_duplicated[chromium]
+1 passed in 46.50s

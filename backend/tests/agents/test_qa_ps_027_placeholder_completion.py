@@ -153,7 +153,10 @@ def _prototype_placeholder_scripts(agent_id: str) -> list[_ScriptedTurn]:
                     ),
                 ],
                 usage=(15, 8),
-            )
+            ),
+            # ISS-860: text-only wrap-up turn. _next_turn replays turns[-1], so
+            # ending on the tool-call turn loops to GraphRecursionError.
+            _ScriptedTurn(texts=["Task complete."], usage=(5, 3)),
         ]
     if agent_id == "prototype-validate":
         # single_file's branch-3 fallback reads ctx.last_streamed — whichever
@@ -193,6 +196,29 @@ async def test_native_prototype_pipeline_placeholder_output_not_marked_completed
         "writing prototype.html still publishes 'completed' (QA-PS-027 / "
         "ISS-761)"
     )
+
+
+@pytest.mark.asyncio
+@pytest.mark.issue("ISS-860")
+async def test_iss761_fixture_models_clean_task_completion(monkeypatch) -> None:
+    """ISS-860 — the ISS-761 fixture must model a CLEAN report_task_complete:
+    prototype-build must not loop to GraphRecursionError and be marked failed."""
+    from app.core.config import settings
+
+    # Cap the runaway loop so the pre-fix run goes red in seconds, not 2500 steps.
+    monkeypatch.setattr(settings, "AGENT_RECURSION_LIMIT", 60)
+    _sm._scripts_for = _prototype_placeholder_scripts
+    try:
+        with patch.object(engine_mod, "finalize_terminal_run", _clean_finalizer()):
+            events = await _drive("prototype")
+    finally:
+        _sm._scripts_for = _orig_scripts_for
+
+    data = _pipeline_complete(events)
+    assert not data.get(
+        "agents_failed"
+    ), f"prototype-build was marked failed: {data.get('agents_failed')}"
+    assert not [e for e in events if e.get("type") == "agent_error"]
 
 
 # ---------------------------------------------------------------------------

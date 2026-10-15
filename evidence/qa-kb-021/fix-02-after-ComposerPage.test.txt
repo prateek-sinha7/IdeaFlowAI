@@ -1,0 +1,30 @@
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - ESM syntax in a file loaded as CommonJS (vitest.config.ts:1:1). Use a `.mjs` extension or set `"type": "module"` in the closest package.json
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+
+ RUN  v4.1.11 /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/frontend
+
+stdout | src/components/workflow/composer/ComposerPage.test.tsx > ComposerPage — save keeps top-level manifest keys it does not model > a re-saved workflow keeps its capabilities block (ISS-875)
+[wf] 7. ComposerPage mount {
+  workflowType: 'user_stories',
+  initialManifestSteps: 1,
+  initialAgentIds: 6,
+  libraryLoaded: 6,
+  source: 'manifest'
+}
+
+ ❯ src/components/workflow/composer/ComposerPage.test.tsx (16 tests | 1 failed) 2657ms
+     × a re-saved workflow keeps its capabilities block (ISS-875) 76ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/components/workflow/composer/ComposerPage.test.tsx > ComposerPage — save keeps top-level manifest keys it does not model > a re-saved workflow keeps its capabilities block (ISS-875)
+Error: Expect test to fail
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 15 passed (16)
+   Start at  21:19:33
+   Duration  4.64s (transform 597ms, setup 69ms, import 1.26s, tests 2.66s, environment 539ms)
+

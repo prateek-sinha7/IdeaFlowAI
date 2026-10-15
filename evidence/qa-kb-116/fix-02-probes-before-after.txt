@@ -1,0 +1,1011 @@
+# QA-KB-116 fix stage: the analyzer's offline probes (evidence/qa-kb-116/analysis-plugins/), run from frontend/ with --config ../evidence/qa-kb-116/analysis-plugins/vitest.probe.config.ts
+# [today] tests assert the DEFECT, so after the fix they are expected to FAIL; it.fails contracts C1/C2 are expected to report 'Expect test to fail'; controls P2/P4/P6/C3/U2/U5 must stay green.
+
+## agentLabels.probe.test.ts BEFORE the fix
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - ESM syntax in a file loaded as CommonJS (../evidence/qa-kb-116/analysis-plugins/vitest.probe.config.ts:8:1). Use a `.mjs` extension or set `"type": "module"` in the closest package.json
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+
+ RUN  v4.1.11 /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/frontend
+
+stdout | ../evidence/qa-kb-116/analysis-plugins/agentLabels.probe.test.ts > QA-KB-116 probe: agent labels built by agentsFromManifest > [today] P1 admin's enabled user_stories override: every row's name is the raw agent id
+[P1] agentsFromManifest(admin user_stories override):
+  domain-analyst | name="domain-analyst" | role="Market & Persona Research" | icon="🧩" | est=60s
+  epic-architect | name="epic-architect" | role="Epic & Story Composition" | icon="🧩" | est=60s
+  story-estimator | name="story-estimator" | role="Effort & Dependency Mapping" | icon="🧩" | est=60s
+  nfr-specialist | name="nfr-specialist" | role="Performance, Security & Compliance" | icon="🧩" | est=60s
+  backlog-reviewer | name="backlog-reviewer" | role="Backlog Validation & Gap Analysis" | icon="🧩" | est=60s
+  backlog-compiler | name="backlog-compiler" | role="Final Backlog Synthesis" | icon="🧩" | est=60s
+[P1] the payload's compiled step names (what the label should be): [
+  'Domain Discovery Agent',
+  'Backlog Architecture Agent',
+  'Estimation Agent',
+  'Quality Requirements Agent',
+  'Quality Review Agent',
+  'Delivery Compilation Agent'
+]
+[P1] manifest_steps[].name (what manifestStepToAgent reads): [ null, null, null, null, null, null ]
+
+stdout | ../evidence/qa-kb-116/analysis-plugins/agentLabels.probe.test.ts > QA-KB-116 probe: agent labels built by agentsFromManifest > [today] P2 the pre-1e329e47b formula on the same payload gives the real names
+[P2] old `st.name || compiled?.name || id`: [
+  'Domain Discovery Agent',
+  'Backlog Architecture Agent',
+  'Estimation Agent',
+  'Quality Requirements Agent',
+  'Quality Review Agent',
+  'Delivery Compilation Agent'
+]
+
+stdout | ../evidence/qa-kb-116/analysis-plugins/agentLabels.probe.test.ts > QA-KB-116 probe: agent labels built by agentsFromManifest > [today] P3 est. duration / icon / description of the override rows are placeholders, not the library's
+[P3] override roster: 6 rows, total est 360s => "~6m"
+[P3] library roster : 6 rows, total est 35s => "~35s"
+[P3] override row0 description: "Market & Persona Research" | library row0 description: "Researches your idea, identifies the target market, users, and key personas."
+
+stdout | ../evidence/qa-kb-116/analysis-plugins/agentLabels.probe.test.ts > QA-KB-116 probe: agent labels built by agentsFromManifest > [control] P4 the five other manifest->AgentDef sites pass a library lookup and get real names
+[P4] manifestStepsToAgents(raw, libraryLookup):
+  domain-analyst | name="Domain Discovery Agent" | role="Market & Persona Research" | icon="🔍" | est=5s
+  epic-architect | name="Backlog Architecture Agent" | role="Epic & Story Composition" | icon="🏗️" | est=10s
+  story-estimator | name="Estimation Agent" | role="Effort & Dependency Mapping" | icon="🎯" | est=5s
+  nfr-specialist | name="Quality Requirements Agent" | role="Performance, Security & Compliance" | icon="⚡" | est=5s
+  backlog-reviewer | name="Quality Review Agent" | role="Backlog Validation & Gap Analysis" | icon="✅" | est=4s
+  backlog-compiler | name="Delivery Compilation Agent" | role="Final Backlog Synthesis" | icon="📦" | est=6s
+
+stdout | ../evidence/qa-kb-116/analysis-plugins/agentLabels.probe.test.ts > QA-KB-116 probe: agent labels built by agentsFromManifest > [today] P5 LaunchWizard: ppt_v2 plan with NO override still renders raw ids after mergePlanWithLibrary
+[P5] ppt_v2: plan rows=4, library roster (agentMatchesPipelineType) rows=2  => plan wins merge: true
+[P5] mergePlanWithLibrary(plan, library):
+  ppt-brief-analyst | name="ppt-brief-analyst" | role="Slide Plan & Content Architecture" | icon="🧩" | est=60s
+  ppt-composer | name="ppt-composer" | role="HTML Deck Construction" | icon="🧩" | est=60s
+  ppt-deck-qa-v2 | name="ppt-deck-qa-v2" | role="Deck Landing and Structural Validation" | icon="🧩" | est=60s
+  ppt-code-generator | name="ppt-code-generator" | role="Deck to PowerPoint Transcription" | icon="🧩" | est=60s
+[P5] library names for the same ids: [
+  'Presentation Strategist Agent',
+  'Deck Engineer Agent',
+  'Deck QA Agent',
+  'PPTX Code Generator'
+]
+
+stdout | ../evidence/qa-kb-116/analysis-plugins/agentLabels.probe.test.ts > QA-KB-116 probe: agent labels built by agentsFromManifest > [today] P6 LaunchWizard: ppt / prototype / prototype_v2 plan rows, no override
+[P6] ppt: plan=3 library=3 planWinsMerge=false; shown names=["Presentation Strategist Agent","Deck Engineer Agent","Deck QA Agent"]
+[P6] prototype: plan=5 library=5 planWinsMerge=false; shown names=["Spec Writer Agent","Task Planner Agent","Spec Kit Analyzer","Build Agent","Validation Agent"]
+[P6] prototype_v2: plan=11 library=0 planWinsMerge=true; shown names=["Reading Planner","Readers","Synthesizer","Clarify","Answer Integrator","Analyst","Architect","Builders","Assemble","Validator","Presenter"]
+
+stdout | ../evidence/qa-kb-116/analysis-plugins/agentLabels.probe.test.ts > QA-KB-116 probe: agent labels built by agentsFromManifest > [today] P7 LaunchWizard: admin's enabled ppt / prototype / ppt_v2 overrides, rows go straight to pipelineAgents
+[P7] ppt override roster names: ["ppt-brief-analyst","ppt-composer","ppt-validator"]
+[P7] prototype override roster names: ["prototype-specify","prototype-plan","prototype-analyze","prototype-build","prototype-validate"]
+[P7] ppt_v2 override roster names: ["ppt-brief-analyst","ppt-composer","ppt-deck-qa-v2","ppt-code-generator"]
+
+stdout | ../evidence/qa-kb-116/analysis-plugins/agentLabels.probe.test.ts > QA-KB-116 probe: agent labels built by agentsFromManifest > [control] C3 a custom-agent step with an explicit manifest name keeps it (must stay green)
+[C3] prototype_v2 names: ["Reading Planner","Readers","Synthesizer","Clarify","Answer Integrator","Analyst","Architect","Builders","Assemble","Validator","Presenter"]
+
+ ✓ ../evidence/qa-kb-116/analysis-plugins/agentLabels.probe.test.ts > QA-KB-116 probe: agent labels built by agentsFromManifest > [today] P1 admin's enabled user_stories override: every row's name is the raw agent id 2ms
+ ✓ ../evidence/qa-kb-116/analysis-plugins/agentLabels.probe.test.ts > QA-KB-116 probe: agent labels built by agentsFromManifest > [today] P2 the pre-1e329e47b formula on the same payload gives the real names 0ms
+ ✓ ../evidence/qa-kb-116/analysis-plugins/agentLabels.probe.test.ts > QA-KB-116 probe: agent labels built by agentsFromManifest > [today] P3 est. duration / icon / description of the override rows are placeholders, not the library's 0ms
+ ✓ ../evidence/qa-kb-116/analysis-plugins/agentLabels.probe.test.ts > QA-KB-116 probe: agent labels built by agentsFromManifest > [control] P4 the five other manifest->AgentDef sites pass a library lookup and get real names 0ms
+ ✓ ../evidence/qa-kb-116/analysis-plugins/agentLabels.probe.test.ts > QA-KB-116 probe: agent labels built by agentsFromManifest > [today] P5 LaunchWizard: ppt_v2 plan with NO override still renders raw ids after mergePlanWithLibrary 1ms
+ ✓ ../evidence/qa-kb-116/analysis-plugins/agentLabels.probe.test.ts > QA-KB-116 probe: agent labels built by agentsFromManifest > [today] P6 LaunchWizard: ppt / prototype / prototype_v2 plan rows, no override 2ms
+ ✓ ../evidence/qa-kb-116/analysis-plugins/agentLabels.probe.test.ts > QA-KB-116 probe: agent labels built by agentsFromManifest > [today] P7 LaunchWizard: admin's enabled ppt / prototype / ppt_v2 overrides, rows go straight to pipelineAgents 1ms
+ ✓ ../evidence/qa-kb-116/analysis-plugins/agentLabels.probe.test.ts > QA-KB-116 probe: agent labels built by agentsFromManifest > [contract, RED today] C1 an override row of a built-in step is labelled with the agent's display name 4ms
+ ✓ ../evidence/qa-kb-116/analysis-plugins/agentLabels.probe.test.ts > QA-KB-116 probe: agent labels built by agentsFromManifest > [contract, RED today] C2 a plan row of a built-in step reaches the roster with the library name (ppt_v2, no override) 1ms
+ ✓ ../evidence/qa-kb-116/analysis-plugins/agentLabels.probe.test.ts > QA-KB-116 probe: agent labels built by agentsFromManifest > [control] C3 a custom-agent step with an explicit manifest name keeps it (must stay green) 1ms
+
+ Test Files  1 passed (1)
+      Tests  8 passed | 2 expected fail (10)
+   Start at  17:21:00
+   Duration  1.88s (transform 497ms, setup 94ms, import 986ms, tests 16ms, environment 667ms)
+
+
+## agentLabels.probe.test.ts AFTER the fix
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - ESM syntax in a file loaded as CommonJS (../evidence/qa-kb-116/analysis-plugins/vitest.probe.config.ts:8:1). Use a `.mjs` extension or set `"type": "module"` in the closest package.json
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+
+ RUN  v4.1.11 /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/frontend
+
+stdout | ../evidence/qa-kb-116/analysis-plugins/agentLabels.probe.test.ts > QA-KB-116 probe: agent labels built by agentsFromManifest > [today] P1 admin's enabled user_stories override: every row's name is the raw agent id
+[P1] agentsFromManifest(admin user_stories override):
+  domain-analyst | name="Domain Discovery Agent" | role="Market & Persona Research" | icon="🧩" | est=0s
+  epic-architect | name="Backlog Architecture Agent" | role="Epic & Story Composition" | icon="🧩" | est=0s
+  story-estimator | name="Estimation Agent" | role="Effort & Dependency Mapping" | icon="🧩" | est=0s
+  nfr-specialist | name="Quality Requirements Agent" | role="Performance, Security & Compliance" | icon="🧩" | est=0s
+  backlog-reviewer | name="Quality Review Agent" | role="Backlog Validation & Gap Analysis" | icon="🧩" | est=0s
+  backlog-compiler | name="Delivery Compilation Agent" | role="Final Backlog Synthesis" | icon="🧩" | est=0s
+[P1] the payload's compiled step names (what the label should be): [
+  'Domain Discovery Agent',
+  'Backlog Architecture Agent',
+  'Estimation Agent',
+  'Quality Requirements Agent',
+  'Quality Review Agent',
+  'Delivery Compilation Agent'
+]
+[P1] manifest_steps[].name (what manifestStepToAgent reads): [ null, null, null, null, null, null ]
+
+stdout | ../evidence/qa-kb-116/analysis-plugins/agentLabels.probe.test.ts > QA-KB-116 probe: agent labels built by agentsFromManifest > [today] P2 the pre-1e329e47b formula on the same payload gives the real names
+[P2] old `st.name || compiled?.name || id`: [
+  'Domain Discovery Agent',
+  'Backlog Architecture Agent',
+  'Estimation Agent',
+  'Quality Requirements Agent',
+  'Quality Review Agent',
+  'Delivery Compilation Agent'
+]
+
+stdout | ../evidence/qa-kb-116/analysis-plugins/agentLabels.probe.test.ts > QA-KB-116 probe: agent labels built by agentsFromManifest > [today] P3 est. duration / icon / description of the override rows are placeholders, not the library's
+[P3] override roster: 6 rows, total est 0s => "~0s"
+[P3] library roster : 6 rows, total est 35s => "~35s"
+[P3] override row0 description: "Market & Persona Research" | library row0 description: "Researches your idea, identifies the target market, users, and key personas."
+
+stdout | ../evidence/qa-kb-116/analysis-plugins/agentLabels.probe.test.ts > QA-KB-116 probe: agent labels built by agentsFromManifest > [control] P4 the five other manifest->AgentDef sites pass a library lookup and get real names
+[P4] manifestStepsToAgents(raw, libraryLookup):
+  domain-analyst | name="Domain Discovery Agent" | role="Market & Persona Research" | icon="🔍" | est=5s
+  epic-architect | name="Backlog Architecture Agent" | role="Epic & Story Composition" | icon="🏗️" | est=10s
+  story-estimator | name="Estimation Agent" | role="Effort & Dependency Mapping" | icon="🎯" | est=5s
+  nfr-specialist | name="Quality Requirements Agent" | role="Performance, Security & Compliance" | icon="⚡" | est=5s
+  backlog-reviewer | name="Quality Review Agent" | role="Backlog Validation & Gap Analysis" | icon="✅" | est=4s
+  backlog-compiler | name="Delivery Compilation Agent" | role="Final Backlog Synthesis" | icon="📦" | est=6s
+
+stdout | ../evidence/qa-kb-116/analysis-plugins/agentLabels.probe.test.ts > QA-KB-116 probe: agent labels built by agentsFromManifest > [today] P5 LaunchWizard: ppt_v2 plan with NO override still renders raw ids after mergePlanWithLibrary
+[P5] ppt_v2: plan rows=4, library roster (agentMatchesPipelineType) rows=2  => plan wins merge: true
+[P5] mergePlanWithLibrary(plan, library):
+  ppt-brief-analyst | name="Presentation Strategist Agent" | role="Slide Plan & Content Architecture" | icon="🧩" | est=8s
+  ppt-composer | name="Deck Engineer Agent" | role="HTML Deck Construction" | icon="🧩" | est=30s
+  ppt-deck-qa-v2 | name="Deck QA Agent" | role="Deck Landing and Structural Validation" | icon="🧩" | est=12s
+  ppt-code-generator | name="PPTX Code Generator" | role="Deck to PowerPoint Transcription" | icon="🧩" | est=25s
+[P5] library names for the same ids: [
+  'Presentation Strategist Agent',
+  'Deck Engineer Agent',
+  'Deck QA Agent',
+  'PPTX Code Generator'
+]
+
+stdout | ../evidence/qa-kb-116/analysis-plugins/agentLabels.probe.test.ts > QA-KB-116 probe: agent labels built by agentsFromManifest > [today] P6 LaunchWizard: ppt / prototype / prototype_v2 plan rows, no override
+[P6] ppt: plan=3 library=3 planWinsMerge=false; shown names=["Presentation Strategist Agent","Deck Engineer Agent","Deck QA Agent"]
+[P6] prototype: plan=5 library=5 planWinsMerge=false; shown names=["Spec Writer Agent","Task Planner Agent","Spec Kit Analyzer","Build Agent","Validation Agent"]
+[P6] prototype_v2: plan=11 library=0 planWinsMerge=true; shown names=["Reading Planner","Readers","Synthesizer","Clarify","Answer Integrator","Analyst","Architect","Builders","Assemble","Validator","Presenter"]
+
+stdout | ../evidence/qa-kb-116/analysis-plugins/agentLabels.probe.test.ts > QA-KB-116 probe: agent labels built by agentsFromManifest > [today] P7 LaunchWizard: admin's enabled ppt / prototype / ppt_v2 overrides, rows go straight to pipelineAgents
+[P7] ppt override roster names: ["Presentation Strategist Agent","Deck Engineer Agent","Deck QA Agent"]
+
+stdout | ../evidence/qa-kb-116/analysis-plugins/agentLabels.probe.test.ts > QA-KB-116 probe: agent labels built by agentsFromManifest > [control] C3 a custom-agent step with an explicit manifest name keeps it (must stay green)
+[C3] prototype_v2 names: ["Reading Planner","Readers","Synthesizer","Clarify","Answer Integrator","Analyst","Architect","Builders","Assemble","Validator","Presenter"]
+
+ × ../evidence/qa-kb-116/analysis-plugins/agentLabels.probe.test.ts > QA-KB-116 probe: agent labels built by agentsFromManifest > [today] P1 admin's enabled user_stories override: every row's name is the raw agent id 7ms
+   → expected [ 'Domain Discovery Agent', …(5) ] to deeply equal [ 'domain-analyst', …(5) ]
+ ✓ ../evidence/qa-kb-116/analysis-plugins/agentLabels.probe.test.ts > QA-KB-116 probe: agent labels built by agentsFromManifest > [today] P2 the pre-1e329e47b formula on the same payload gives the real names 1ms
+ × ../evidence/qa-kb-116/analysis-plugins/agentLabels.probe.test.ts > QA-KB-116 probe: agent labels built by agentsFromManifest > [today] P3 est. duration / icon / description of the override rows are placeholders, not the library's 1ms
+   → expected false to be true // Object.is equality
+ ✓ ../evidence/qa-kb-116/analysis-plugins/agentLabels.probe.test.ts > QA-KB-116 probe: agent labels built by agentsFromManifest > [control] P4 the five other manifest->AgentDef sites pass a library lookup and get real names 0ms
+ × ../evidence/qa-kb-116/analysis-plugins/agentLabels.probe.test.ts > QA-KB-116 probe: agent labels built by agentsFromManifest > [today] P5 LaunchWizard: ppt_v2 plan with NO override still renders raw ids after mergePlanWithLibrary 2ms
+   → expected [ …(4) ] to deeply equal [ 'ppt-brief-analyst', …(3) ]
+ ✓ ../evidence/qa-kb-116/analysis-plugins/agentLabels.probe.test.ts > QA-KB-116 probe: agent labels built by agentsFromManifest > [today] P6 LaunchWizard: ppt / prototype / prototype_v2 plan rows, no override 2ms
+ × ../evidence/qa-kb-116/analysis-plugins/agentLabels.probe.test.ts > QA-KB-116 probe: agent labels built by agentsFromManifest > [today] P7 LaunchWizard: admin's enabled ppt / prototype / ppt_v2 overrides, rows go straight to pipelineAgents 1ms
+   → expected false to be true // Object.is equality
+ × ../evidence/qa-kb-116/analysis-plugins/agentLabels.probe.test.ts > QA-KB-116 probe: agent labels built by agentsFromManifest > [contract, RED today] C1 an override row of a built-in step is labelled with the agent's display name 0ms
+   → Expect test to fail
+ × ../evidence/qa-kb-116/analysis-plugins/agentLabels.probe.test.ts > QA-KB-116 probe: agent labels built by agentsFromManifest > [contract, RED today] C2 a plan row of a built-in step reaches the roster with the library name (ppt_v2, no override) 1ms
+   → Expect test to fail
+ ✓ ../evidence/qa-kb-116/analysis-plugins/agentLabels.probe.test.ts > QA-KB-116 probe: agent labels built by agentsFromManifest > [control] C3 a custom-agent step with an explicit manifest name keeps it (must stay green) 1ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 6 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  ../evidence/qa-kb-116/analysis-plugins/agentLabels.probe.test.ts > QA-KB-116 probe: agent labels built by agentsFromManifest > [today] P1 admin's enabled user_stories override: every row's name is the raw agent id
+AssertionError: expected [ 'Domain Discovery Agent', …(5) ] to deeply equal [ 'domain-analyst', …(5) ]
+
+- Expected
++ Received
+
+  [
+-   "domain-analyst",
+-   "epic-architect",
+-   "story-estimator",
+-   "nfr-specialist",
+-   "backlog-reviewer",
+-   "backlog-compiler",
++   "Domain Discovery Agent",
++   "Backlog Architecture Agent",
++   "Estimation Agent",
++   "Quality Requirements Agent",
++   "Quality Review Agent",
++   "Delivery Compilation Agent",
+  ]
+
+ ❯ ../evidence/qa-kb-116/analysis-plugins/agentLabels.probe.test.ts:33:39
+     31|     console.log("[P1] the payload's compiled step names (what the labe…
+     32|     console.log("[P1] manifest_steps[].name (what manifestStepToAgent …
+     33|     expect(agents.map((a) => a.name)).toEqual(agents.map((a) => a.id));
+       |                                       ^
+     34|     expect(agents.map((a) => a.name)).toEqual([
+     35|       "domain-analyst", "epic-architect", "story-estimator", "nfr-spec…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/6]⎯
+
+ FAIL  ../evidence/qa-kb-116/analysis-plugins/agentLabels.probe.test.ts > QA-KB-116 probe: agent labels built by agentsFromManifest > [today] P3 est. duration / icon / description of the override rows are placeholders, not the library's
+AssertionError: expected false to be true // Object.is equality
+
+- Expected
++ Received
+
+- true
++ false
+
+ ❯ ../evidence/qa-kb-116/analysis-plugins/agentLabels.probe.test.ts:61:62
+     59|     console.log(`[P3] library roster : ${lib.length} rows, total est $…
+     60|     console.log("[P3] override row0 description:", JSON.stringify(agen…
+     61|     expect(agents.every((a) => a.estimated_duration === 60)).toBe(true…
+       |                                                              ^
+     62|     expect(agents.every((a) => a.icon === "\u{1F9E9}")).toBe(true);
+     63|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/6]⎯
+
+ FAIL  ../evidence/qa-kb-116/analysis-plugins/agentLabels.probe.test.ts > QA-KB-116 probe: agent labels built by agentsFromManifest > [today] P5 LaunchWizard: ppt_v2 plan with NO override still renders raw ids after mergePlanWithLibrary
+AssertionError: expected [ …(4) ] to deeply equal [ 'ppt-brief-analyst', …(3) ]
+
+- Expected
++ Received
+
+  [
+-   "ppt-brief-analyst",
+-   "ppt-composer",
+-   "ppt-deck-qa-v2",
+-   "ppt-code-generator",
++   "Presentation Strategist Agent",
++   "Deck Engineer Agent",
++   "Deck QA Agent",
++   "PPTX Code Generator",
+  ]
+
+ ❯ ../evidence/qa-kb-116/analysis-plugins/agentLabels.probe.test.ts:85:39
+     83|     console.log("[P5] mergePlanWithLibrary(plan, library):\n  " + rows…
+     84|     console.log("[P5] library names for the same ids:", merged.map((m)…
+     85|     expect(merged.map((a) => a.name)).toEqual(merged.map((a) => a.id));
+       |                                       ^
+     86|   });
+     87|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/6]⎯
+
+ FAIL  ../evidence/qa-kb-116/analysis-plugins/agentLabels.probe.test.ts > QA-KB-116 probe: agent labels built by agentsFromManifest > [today] P7 LaunchWizard: admin's enabled ppt / prototype / ppt_v2 overrides, rows go straight to pipelineAgents
+AssertionError: expected false to be true // Object.is equality
+
+- Expected
++ Received
+
+- true
++ false
+
+ ❯ ../evidence/qa-kb-116/analysis-plugins/agentLabels.probe.test.ts:105:84
+    103|       const names = agentsFromManifest(d, wid).agents.map((a) => a.nam…
+    104|       console.log(`[P7] ${wid} override roster names:`, JSON.stringify…
+    105|       expect(names.every((n, i) => n === agentsFromManifest(d, wid).ag…
+       |                                                                                    ^
+    106|     }
+    107|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/6]⎯
+
+ FAIL  ../evidence/qa-kb-116/analysis-plugins/agentLabels.probe.test.ts > QA-KB-116 probe: agent labels built by agentsFromManifest > [contract, RED today] C1 an override row of a built-in step is labelled with the agent's display name
+ FAIL  ../evidence/qa-kb-116/analysis-plugins/agentLabels.probe.test.ts > QA-KB-116 probe: agent labels built by agentsFromManifest > [contract, RED today] C2 a plan row of a built-in step reaches the roster with the library name (ppt_v2, no override)
+Error: Expect test to fail
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/6]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  6 failed | 4 passed (10)
+   Start at  17:23:04
+   Duration  1.44s (transform 452ms, setup 55ms, import 811ms, tests 17ms, environment 435ms)
+
+
+## uiRoster.probe.test.tsx AFTER the fix
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - ESM syntax in a file loaded as CommonJS (../evidence/qa-kb-116/analysis-plugins/vitest.probe.config.ts:8:1). Use a `.mjs` extension or set `"type": "module"` in the closest package.json
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+
+ RUN  v4.1.11 /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/frontend
+
+stdout | ../evidence/qa-kb-116/analysis-plugins/uiRoster.probe.test.tsx > QA-KB-116 UI probe: the Review gates checklist as rendered > [today] U1 IdeaInputPage /create/user-stories, admin payload (enabled override): rows are raw ids, pill ~6m
+[wf] 4. roster for user_stories { fromLibrary: 6, fromManifest: 0, using: 'library' }
+[wf] 1. fetched user_stories {
+  compiledSteps: 6,
+  manifestSteps: 6,
+  stepsWithGates: [],
+  stepsWithRoute: []
+}
+[wf] 2. manifest selections (gates the canvas reads) {}
+[wf] 3. manifest agents [
+  { id: 'domain-analyst', name: undefined, route: null },
+  { id: 'epic-architect', name: undefined, route: null },
+  { id: 'story-estimator', name: undefined, route: null },
+  { id: 'nfr-specialist', name: undefined, route: null },
+  { id: 'backlog-reviewer', name: undefined, route: null },
+  { id: 'backlog-compiler', name: undefined, route: null }
+]
+[wf] 3b. route targets normalised to node ids []
+
+stdout | ../evidence/qa-kb-116/analysis-plugins/uiRoster.probe.test.tsx > QA-KB-116 UI probe: the Review gates checklist as rendered > [today] U1 IdeaInputPage /create/user-stories, admin payload (enabled override): rows are raw ids, pill ~6m
+[wf] 4. roster for user_stories { fromLibrary: 6, fromManifest: 6, using: 'library' }
+
+stdout | ../evidence/qa-kb-116/analysis-plugins/uiRoster.probe.test.tsx > QA-KB-116 UI probe: the Review gates checklist as rendered > [control] U2 IdeaInputPage /create/user-stories, pro payload (no override): rows are the agents' names
+[wf] 4. roster for user_stories { fromLibrary: 6, fromManifest: 0, using: 'library' }
+[wf] 1. fetched user_stories {
+  compiledSteps: 6,
+  manifestSteps: 6,
+  stepsWithGates: [],
+  stepsWithRoute: []
+}
+[wf] 2. manifest selections (gates the canvas reads) {}
+[wf] 3. manifest agents [
+  { id: 'domain-analyst', name: undefined, route: null },
+  { id: 'epic-architect', name: undefined, route: null },
+  { id: 'story-estimator', name: undefined, route: null },
+  { id: 'nfr-specialist', name: undefined, route: null },
+  { id: 'backlog-reviewer', name: undefined, route: null },
+  { id: 'backlog-compiler', name: undefined, route: null }
+]
+[wf] 3b. route targets normalised to node ids []
+
+stdout | ../evidence/qa-kb-116/analysis-plugins/uiRoster.probe.test.tsx > QA-KB-116 UI probe: the Review gates checklist as rendered > [control] U2 IdeaInputPage /create/user-stories, pro payload (no override): rows are the agents' names
+[wf] 4. roster for user_stories { fromLibrary: 6, fromManifest: 6, using: 'library' }
+
+stdout | ../evidence/qa-kb-116/analysis-plugins/uiRoster.probe.test.tsx > QA-KB-116 UI probe: the Review gates checklist as rendered > [control] U2 IdeaInputPage /create/user-stories, pro payload (no override): rows are the agents' names
+[U2] Review gates rows: ["Domain Discovery Agent","Backlog Architecture Agent","Estimation Agent","Quality Requirements Agent","Quality Review Agent","Delivery Compilation Agent"]
+[U2] Advanced pill: "Advanced6 agents · ~35s"
+
+ × ../evidence/qa-kb-116/analysis-plugins/uiRoster.probe.test.tsx > QA-KB-116 UI probe: the Review gates checklist as rendered > [today] U1 IdeaInputPage /create/user-stories, admin payload (enabled override): rows are raw ids, pill ~6m 1047ms
+   → expected 'Domain Discovery Agent | Backlog Arch…' to contain 'domain-analyst'
+
+Ignored nodes: comments, script, style
+<html>
+  <head />
+  <body>
+    <div>
+      <div
+        class="flex h-full flex-col overflow-y-auto bg-surface-paper"
+      >
+        <header
+          class="sticky top-0 z-20 border-b border-line-border bg-surface-paper/95 backdrop-blur"
+        >
+          <div
+            class="mx-auto flex max-w-5xl items-center gap-3 px-6 py-3.5"
+          >
+            <button
+              aria-label="Back to dashboard"
+              class="flex items-center justify-center rounded-[var(--radius-button)] p-1.5 text-ink-500 transition-colors hover:bg-surface-white hover:text-ink-900"
+              type="button"
+            >
+              <svg
+                aria-hidden="true"
+                class="lucide lucide-arrow-left h-4 w-4"
+                fill="none"
+                height="24"
+                stroke="currentColor"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                viewBox="0 0 24 24"
+                width="24"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <path
+                  d="m12 19-7-7 7-7"
+                />
+                <path
+                  d="M19 12H5"
+                />
+              </svg>
+            </button>
+          </div>
+        </header>
+        <div
+          class="flex flex-col items-center px-4 sm:px-6 py-10 max-w-5xl mx-auto w-full"
+        >
+          <div
+            class="w-full mb-6"
+            style="opacity: 1; transform: none;"
+          >
+            <p
+              class="text-[10px] font-semibold text-ink-400 uppercase tracking-[0.15em] mb-3"
+            >
+              Generate product requirements
+            </p>
+            <h1
+              class="text-[32px] font-normal italic text-ink-900 leading-tight tracking-tight mb-2"
+              style="font-family: var(--font-fraunces);"
+            >
+              Provide the brief
+            </h1>
+            <p
+              class="text-[13px] text-ink-500 leading-relaxed max-w-xl"
+            >
+              Turn an idea or brief into a Jira-ready backlog — epics, stories, and Gherkin acceptance criteria.
+            </p>
+          </div>
+          <div
+            class="w-full"
+            style="opacity: 1; transform: none;"
+          >
+            <div
+              class="rounded-2xl bg-surface-white shadow-sm border border-line-control/80 overflow-hidden"
+            >
+              <textarea
+                aria-label="Brief description"
+                class="w-full resize-none bg-transparent text-[14px] text-ink-900 placeholder-ink-400 px-5 pt-5 pb-3 focus:outline-none min-h-[130px] max-h-[260px] leading-relaxed"
+                name="brief"
+                placeholder="e.g. Generate epics and stories for a refunds workflow with multi-currency support."
+                rows="5"
+              />
+              <div
+                class="flex items-center justify-between px-4 py-3 border-t border-line-divider"
+              >
+                <div
+                  class="flex items-center gap-1"
+                >
+                  <input
+                    accept=".pdf,.docx,.xlsx,.pptx,.txt,.md,.csv,.json,.html,.htm,image/png,image/jpeg,image/webp,image/gif"
+                    class="hidden"
+                    multiple=""
+                    type="file"
+                  />
+                  <button
+                    class="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[11px] text-ink-400 hover:text-ink-700 hover:bg-surface-warm transition-all border border-transparent hover:border-line-control"
+                  >
+                    <svg
+                      aria-hidden="true"
+                      class="lucide lucide-paperclip h-3.5 w-3.5"
+                      fill="none"
+                      height="24"
+                      stroke="currentColor"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      stroke-width="2"
+                      viewBox="0 0 24 24"
+                      width="24"
+                      xmlns="http://www.w3.org/2000/svg"
+                    >
+                      <path
+                        d="m16 6-8.414 8.586a2 2 0 0 0 2.829 2.829l8.414-8.586a4 4 0 1 0-5.657-5.657l-8.379 8.551a6 6 0 1 0 8.485 8.485l8.379-8.551"
+                      />
+                    </svg>
+                     + Attach file
+                  </button>
+                </div>
+                <div
+                  class="flex items-center gap-2"
+                >
+                  <button
+                    class="flex items-center gap-1.5 rounded-xl border border-line-control px-4 py-2.5 text-[12px] font-medium text-ink-600 hover:bg-surface-warm transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                    title="Save this composition as a reusable workflow"
+                  >
+                    <svg
+                      aria-hidden="true"
+                      class="lucide lucide-save h-3.5 w-3.5"
+                      fill="none"
+                      height="24"
+                      stroke="currentColor"...
+stdout | ../evidence/qa-kb-116/analysis-plugins/uiRoster.probe.test.tsx > QA-KB-116 UI probe: the Review gates checklist as rendered > [today] U3 LaunchWizard ppt_v2, pro payload (NO override): rows are raw ids
+[U3] Review gates rows: ["Presentation Strategist Agent","Deck Engineer Agent","Deck QA Agent","PPTX Code Generator"]
+[U3] popup roster names: Presentation Strategist Agent | Deck Engineer Agent | Deck QA Agent | PPTX Code Generator
+
+stdout | ../evidence/qa-kb-116/analysis-plugins/uiRoster.probe.test.tsx > QA-KB-116 UI probe: the Review gates checklist as rendered > [today] U4 LaunchWizard ppt_v2, admin payload (enabled override): rows are raw ids
+[U4] Review gates rows: ["Presentation Strategist Agent","Deck Engineer Agent","Deck QA Agent","PPTX Code Generator"]
+
+stdout | ../evidence/qa-kb-116/analysis-plugins/uiRoster.probe.test.tsx > QA-KB-116 UI probe: the Review gates checklist as rendered > [control] U5 LaunchWizard ppt, pro payload (no override): rows are the agents' names
+[U5] Review gates rows: ["Presentation Strategist Agent","Deck Engineer Agent","Deck QA Agent"]
+
+ ✓ ../evidence/qa-kb-116/analysis-plugins/uiRoster.probe.test.tsx > QA-KB-116 UI probe: the Review gates checklist as rendered > [control] U2 IdeaInputPage /create/user-stories, pro payload (no override): rows are the agents' names 106ms
+ × ../evidence/qa-kb-116/analysis-plugins/uiRoster.probe.test.tsx > QA-KB-116 UI probe: the Review gates checklist as rendered > [today] U3 LaunchWizard ppt_v2, pro payload (NO override): rows are raw ids 36ms
+   → expected [ …(4) ] to deeply equal [ 'ppt-brief-analyst', …(3) ]
+ × ../evidence/qa-kb-116/analysis-plugins/uiRoster.probe.test.tsx > QA-KB-116 UI probe: the Review gates checklist as rendered > [today] U4 LaunchWizard ppt_v2, admin payload (enabled override): rows are raw ids 28ms
+   → expected [ …(4) ] to deeply equal [ 'ppt-brief-analyst', …(3) ]
+ ✓ ../evidence/qa-kb-116/analysis-plugins/uiRoster.probe.test.tsx > QA-KB-116 UI probe: the Review gates checklist as rendered > [control] U5 LaunchWizard ppt, pro payload (no override): rows are the agents' names 27ms
+ × ../evidence/qa-kb-116/analysis-plugins/uiRoster.probe.test.tsx > QA-KB-116 UI probe: the Review gates checklist as rendered > [today] U6 LaunchWizard ppt, admin payload (enabled override): rows are raw ids 1011ms
+   → expected 'Presentation Strategist Agent | Deck …' to contain 'ppt-brief-analyst'
+
+Ignored nodes: comments, script, style
+<html>
+  <head />
+  <body>
+    <div>
+      <div
+        class="min-h-screen bg-surface-paper"
+      >
+        <header
+          class="sticky top-0 z-20 border-b border-line-border bg-surface-paper/95 backdrop-blur"
+        >
+          <div
+            class="mx-auto flex max-w-5xl items-center gap-3 px-6 py-3.5"
+          >
+            <button
+              aria-label="Back to dashboard"
+              class="flex items-center justify-center rounded-[var(--radius-button)] p-1.5 text-ink-500 transition-colors hover:bg-surface-white hover:text-ink-900"
+              type="button"
+            >
+              <svg
+                aria-hidden="true"
+                class="lucide lucide-arrow-left h-4 w-4"
+                fill="none"
+                height="24"
+                stroke="currentColor"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                viewBox="0 0 24 24"
+                width="24"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <path
+                  d="m12 19-7-7 7-7"
+                />
+                <path
+                  d="M19 12H5"
+                />
+              </svg>
+            </button>
+            <div>
+              <p
+                class="text-[10px] font-semibold uppercase tracking-[0.18em] text-ink-400"
+              >
+                New presentation
+              </p>
+              <h1
+                class="font-serif text-[15px] font-normal italic text-ink-900"
+              >
+                Configure your presentation
+              </h1>
+            </div>
+          </div>
+        </header>
+        <main
+          class="mx-auto max-w-5xl space-y-8 px-6 py-8 pb-16"
+        >
+          <section>
+            <div
+              class="flex items-start gap-3"
+            >
+              <div>
+                <h2
+                  class="text-[14px] font-semibold text-ink-900"
+                >
+                  Describe your presentation
+                </h2>
+              </div>
+            </div>
+            <div
+              class="mt-3 rounded-[var(--radius-card)] border border-line-border bg-surface-white"
+            >
+              <textarea
+                aria-label="Brief"
+                class="w-full resize-none rounded-[var(--radius-card)] bg-transparent px-5 py-4 text-[14px] leading-relaxed text-ink-900 placeholder:text-ink-400 focus:outline-none"
+                name="brief"
+                placeholder="e.g. A pitch deck for our Series A fundraise — $5M ask, B2B SaaS, 10 slides for investors."
+                rows="5"
+              />
+              <div
+                class="flex items-center gap-1 border-t border-line-divider px-4 py-2.5"
+              >
+                <input
+                  accept=".pdf,.docx,.xlsx,.pptx,.txt,.md,.csv,.json,.html,.htm,image/png,image/jpeg,image/webp,image/gif"
+                  class="hidden"
+                  multiple=""
+                  type="file"
+                />
+                <button
+                  class="flex items-center gap-1.5 rounded-[var(--radius-button)] border border-transparent px-2.5 py-1.5 text-[11px] text-ink-400 transition-all hover:border-line-border hover:bg-surface-warm hover:text-ink-700"
+                >
+                  <svg
+                    aria-hidden="true"
+                    class="lucide lucide-paperclip h-3.5 w-3.5"
+                    fill="none"
+                    height="24"
+                    stroke="currentColor"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="2"
+                    viewBox="0 0 24 24"
+                    width="24"
+                    xmlns="http://www.w3.org/2000/svg"
+                  >
+                    <path
+                      d="m16 6-8.414 8.586a2 2 0 0 0 2.829 2.829l8.414-8.586a4 4 0 1 0-5.657-5.657l-8.379 8.551a6 6 0 1 0 8.485 8.485l8.379-8.551"
+                    />
+                  </svg>
+                   + Attach file
+                </button>
+              </div>
+            </div>
+          </section>
+          <button
+            class="flex items-center gap-2 text-[12px] text-ink-400 transition-colors hover:text-ink-700 disabled:cursor-not-allowed disabled:opacity-30"
+            type="button"
+          >
+            <svg
+              aria-hidden="true"
+              class="lucide lucide-settings2 lucide-settings-2 h-3.5 w-3.5"
+              fill="none"
+              height="24"
+              stroke="currentColor"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              viewBox="0 0 24 24"
+              width="24"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path
+                d="M14 17H5"
+              />
+              <path
+                d="M19 7h-9"
+              />
+              <circle
+                cx="17"
+                cy=[32...
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 4 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  ../evidence/qa-kb-116/analysis-plugins/uiRoster.probe.test.tsx > QA-KB-116 UI probe: the Review gates checklist as rendered > [today] U1 IdeaInputPage /create/user-stories, admin payload (enabled override): rows are raw ids, pill ~6m
+AssertionError: expected 'Domain Discovery Agent | Backlog Arch…' to contain 'domain-analyst'
+
+Ignored nodes: comments, script, style
+<html>
+  <head />
+  <body>
+    <div>
+      <div
+        class="flex h-full flex-col overflow-y-auto bg-surface-paper"
+      >
+        <header
+          class="sticky top-0 z-20 border-b border-line-border bg-surface-paper/95 backdrop-blur"
+        >
+          <div
+            class="mx-auto flex max-w-5xl items-center gap-3 px-6 py-3.5"
+          >
+            <button
+              aria-label="Back to dashboard"
+              class="flex items-center justify-center rounded-[var(--radius-button)] p-1.5 text-ink-500 transition-colors hover:bg-surface-white hover:text-ink-900"
+              type="button"
+            >
+              <svg
+                aria-hidden="true"
+                class="lucide lucide-arrow-left h-4 w-4"
+                fill="none"
+                height="24"
+                stroke="currentColor"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                viewBox="0 0 24 24"
+                width="24"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <path
+                  d="m12 19-7-7 7-7"
+                />
+                <path
+                  d="M19 12H5"
+                />
+              </svg>
+            </button>
+          </div>
+        </header>
+        <div
+          class="flex flex-col items-center px-4 sm:px-6 py-10 max-w-5xl mx-auto w-full"
+        >
+          <div
+            class="w-full mb-6"
+            style="opacity: 1; transform: none;"
+          >
+            <p
+              class="text-[10px] font-semibold text-ink-400 uppercase tracking-[0.15em] mb-3"
+            >
+              Generate product requirements
+            </p>
+            <h1
+              class="text-[32px] font-normal italic text-ink-900 leading-tight tracking-tight mb-2"
+              style="font-family: var(--font-fraunces);"
+            >
+              Provide the brief
+            </h1>
+            <p
+              class="text-[13px] text-ink-500 leading-relaxed max-w-xl"
+            >
+              Turn an idea or brief into a Jira-ready backlog — epics, stories, and Gherkin acceptance criteria.
+            </p>
+          </div>
+          <div
+            class="w-full"
+            style="opacity: 1; transform: none;"
+          >
+            <div
+              class="rounded-2xl bg-surface-white shadow-sm border border-line-control/80 overflow-hidden"
+            >
+              <textarea
+                aria-label="Brief description"
+                class="w-full resize-none bg-transparent text-[14px] text-ink-900 placeholder-ink-400 px-5 pt-5 pb-3 focus:outline-none min-h-[130px] max-h-[260px] leading-relaxed"
+                name="brief"
+                placeholder="e.g. Generate epics and stories for a refunds workflow with multi-currency support."
+                rows="5"
+              />
+              <div
+                class="flex items-center justify-between px-4 py-3 border-t border-line-divider"
+              >
+                <div
+                  class="flex items-center gap-1"
+                >
+                  <input
+                    accept=".pdf,.docx,.xlsx,.pptx,.txt,.md,.csv,.json,.html,.htm,image/png,image/jpeg,image/webp,image/gif"
+                    class="hidden"
+                    multiple=""
+                    type="file"
+                  />
+                  <button
+                    class="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[11px] text-ink-400 hover:text-ink-700 hover:bg-surface-warm transition-all border border-transparent hover:border-line-control"
+                  >
+                    <svg
+                      aria-hidden="true"
+                      class="lucide lucide-paperclip h-3.5 w-3.5"
+                      fill="none"
+                      height="24"
+                      stroke="currentColor"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      stroke-width="2"
+                      viewBox="0 0 24 24"
+                      width="24"
+                      xmlns="http://www.w3.org/2000/svg"
+                    >
+                      <path
+                        d="m16 6-8.414 8.586a2 2 0 0 0 2.829 2.829l8.414-8.586a4 4 0 1 0-5.657-5.657l-8.379 8.551a6 6 0 1 0 8.485 8.485l8.379-8.551"
+                      />
+                    </svg>
+                     + Attach file
+                  </button>
+                </div>
+                <div
+                  class="flex items-center gap-2"
+                >
+                  <button
+                    class="flex items-center gap-1.5 rounded-xl border border-line-control px-4 py-2.5 text-[12px] font-medium text-ink-600 hover:bg-surface-warm transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                    title="Save this composition as a reusable workflow"
+                  >
+                    <svg
+                      aria-hidden="true"
+                      class="lucide lucide-save h-3.5 w-3.5"
+                      fill="none"
+                      height="24"
+                      stroke="currentColor"...
+
+Expected: "domain-analyst"
+Received: "Domain Discovery Agent | Backlog Architecture Agent | Estimation Agent | Quality Requirements Agent | Quality Review Agent | Delivery Compilation Agent"
+
+ ❯ ../evidence/qa-kb-116/analysis-plugins/uiRoster.probe.test.tsx:81:79
+     79|     const user = userEvent.setup();
+     80|     renderWithProviders(<IdeaInputPage workflowType="user_stories" wor…
+     81|     await waitFor(() => expect(screen.getByTestId("popup-names").textC…
+       |                                                                               ^
+     82|     const rows = await reviewGateRows(user);
+     83|     console.log("[U1] Review gates rows:", JSON.stringify(rows));
+ ❯ runWithExpensiveErrorDiagnosticsDisabled node_modules/@testing-library/dom/dist/config.js:47:12
+ ❯ checkCallback node_modules/@testing-library/dom/dist/wait-for.js:124:77
+ ❯ Timeout.checkRealTimersCallback node_modules/@testing-library/dom/dist/wait-for.js:118:16
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/4]⎯
+
+ FAIL  ../evidence/qa-kb-116/analysis-plugins/uiRoster.probe.test.tsx > QA-KB-116 UI probe: the Review gates checklist as rendered > [today] U3 LaunchWizard ppt_v2, pro payload (NO override): rows are raw ids
+AssertionError: expected [ …(4) ] to deeply equal [ 'ppt-brief-analyst', …(3) ]
+
+- Expected
++ Received
+
+  [
+-   "ppt-brief-analyst",
+-   "ppt-composer",
+-   "ppt-deck-qa-v2",
+-   "ppt-code-generator",
++   "Presentation Strategist Agent",
++   "Deck Engineer Agent",
++   "Deck QA Agent",
++   "PPTX Code Generator",
+  ]
+
+ ❯ ../evidence/qa-kb-116/analysis-plugins/uiRoster.probe.test.tsx:109:18
+    107|     console.log("[U3] Review gates rows:", JSON.stringify(rows));
+    108|     console.log("[U3] popup roster names:", screen.getByTestId("popup-…
+    109|     expect(rows).toEqual(["ppt-brief-analyst", "ppt-composer", "ppt-de…
+       |                  ^
+    110|   });
+    111|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/4]⎯
+
+ FAIL  ../evidence/qa-kb-116/analysis-plugins/uiRoster.probe.test.tsx > QA-KB-116 UI probe: the Review gates checklist as rendered > [today] U4 LaunchWizard ppt_v2, admin payload (enabled override): rows are raw ids
+AssertionError: expected [ …(4) ] to deeply equal [ 'ppt-brief-analyst', …(3) ]
+
+- Expected
++ Received
+
+  [
+-   "ppt-brief-analyst",
+-   "ppt-composer",
+-   "ppt-deck-qa-v2",
+-   "ppt-code-generator",
++   "Presentation Strategist Agent",
++   "Deck Engineer Agent",
++   "Deck QA Agent",
++   "PPTX Code Generator",
+  ]
+
+ ❯ ../evidence/qa-kb-116/analysis-plugins/uiRoster.probe.test.tsx:119:18
+    117|     const rows = await reviewGateRows(user);
+    118|     console.log("[U4] Review gates rows:", JSON.stringify(rows));
+    119|     expect(rows).toEqual(["ppt-brief-analyst", "ppt-composer", "ppt-de…
+       |                  ^
+    120|   });
+    121|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/4]⎯
+
+ FAIL  ../evidence/qa-kb-116/analysis-plugins/uiRoster.probe.test.tsx > QA-KB-116 UI probe: the Review gates checklist as rendered > [today] U6 LaunchWizard ppt, admin payload (enabled override): rows are raw ids
+AssertionError: expected 'Presentation Strategist Agent | Deck …' to contain 'ppt-brief-analyst'
+
+Ignored nodes: comments, script, style
+<html>
+  <head />
+  <body>
+    <div>
+      <div
+        class="min-h-screen bg-surface-paper"
+      >
+        <header
+          class="sticky top-0 z-20 border-b border-line-border bg-surface-paper/95 backdrop-blur"
+        >
+          <div
+            class="mx-auto flex max-w-5xl items-center gap-3 px-6 py-3.5"
+          >
+            <button
+              aria-label="Back to dashboard"
+              class="flex items-center justify-center rounded-[var(--radius-button)] p-1.5 text-ink-500 transition-colors hover:bg-surface-white hover:text-ink-900"
+              type="button"
+            >
+              <svg
+                aria-hidden="true"
+                class="lucide lucide-arrow-left h-4 w-4"
+                fill="none"
+                height="24"
+                stroke="currentColor"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                viewBox="0 0 24 24"
+                width="24"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <path
+                  d="m12 19-7-7 7-7"
+                />
+                <path
+                  d="M19 12H5"
+                />
+              </svg>
+            </button>
+            <div>
+              <p
+                class="text-[10px] font-semibold uppercase tracking-[0.18em] text-ink-400"
+              >
+                New presentation
+              </p>
+              <h1
+                class="font-serif text-[15px] font-normal italic text-ink-900"
+              >
+                Configure your presentation
+              </h1>
+            </div>
+          </div>
+        </header>
+        <main
+          class="mx-auto max-w-5xl space-y-8 px-6 py-8 pb-16"
+        >
+          <section>
+            <div
+              class="flex items-start gap-3"
+            >
+              <div>
+                <h2
+                  class="text-[14px] font-semibold text-ink-900"
+                >
+                  Describe your presentation
+                </h2>
+              </div>
+            </div>
+            <div
+              class="mt-3 rounded-[var(--radius-card)] border border-line-border bg-surface-white"
+            >
+              <textarea
+                aria-label="Brief"
+                class="w-full resize-none rounded-[var(--radius-card)] bg-transparent px-5 py-4 text-[14px] leading-relaxed text-ink-900 placeholder:text-ink-400 focus:outline-none"
+                name="brief"
+                placeholder="e.g. A pitch deck for our Series A fundraise — $5M ask, B2B SaaS, 10 slides for investors."
+                rows="5"
+              />
+              <div
+                class="flex items-center gap-1 border-t border-line-divider px-4 py-2.5"
+              >
+                <input
+                  accept=".pdf,.docx,.xlsx,.pptx,.txt,.md,.csv,.json,.html,.htm,image/png,image/jpeg,image/webp,image/gif"
+                  class="hidden"
+                  multiple=""
+                  type="file"
+                />
+                <button
+                  class="flex items-center gap-1.5 rounded-[var(--radius-button)] border border-transparent px-2.5 py-1.5 text-[11px] text-ink-400 transition-all hover:border-line-border hover:bg-surface-warm hover:text-ink-700"
+                >
+                  <svg
+                    aria-hidden="true"
+                    class="lucide lucide-paperclip h-3.5 w-3.5"
+                    fill="none"
+                    height="24"
+                    stroke="currentColor"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="2"
+                    viewBox="0 0 24 24"
+                    width="24"
+                    xmlns="http://www.w3.org/2000/svg"
+                  >
+                    <path
+                      d="m16 6-8.414 8.586a2 2 0 0 0 2.829 2.829l8.414-8.586a4 4 0 1 0-5.657-5.657l-8.379 8.551a6 6 0 1 0 8.485 8.485l8.379-8.551"
+                    />
+                  </svg>
+                   + Attach file
+                </button>
+              </div>
+            </div>
+          </section>
+          <button
+            class="flex items-center gap-2 text-[12px] text-ink-400 transition-colors hover:text-ink-700 disabled:cursor-not-allowed disabled:opacity-30"
+            type="button"
+          >
+            <svg
+              aria-hidden="true"
+              class="lucide lucide-settings2 lucide-settings-2 h-3.5 w-3.5"
+              fill="none"
+              height="24"
+              stroke="currentColor"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              viewBox="0 0 24 24"
+              width="24"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path
+                d="M14 17H5"
+              />
+              <path
+                d="M19 7h-9"
+              />
+              <circle
+                cx="17"
+                cy=[32...
+
+Expected: "ppt-brief-analyst"
+Received: "Presentation Strategist Agent | Deck Engineer Agent | Deck QA Agent"
+
+ ❯ ../evidence/qa-kb-116/analysis-plugins/uiRoster.probe.test.tsx:136:79
+    134|     const user = userEvent.setup();
+    135|     renderWithProviders(<LaunchWizard initialMode="ppt" />, { preloade…
+    136|     await waitFor(() => expect(screen.getByTestId("popup-names").textC…
+       |                                                                               ^
+    137|     const rows = await reviewGateRows(user);
+    138|     console.log("[U6] Review gates rows:", JSON.stringify(rows));
+ ❯ runWithExpensiveErrorDiagnosticsDisabled node_modules/@testing-library/dom/dist/config.js:47:12
+ ❯ checkCallback node_modules/@testing-library/dom/dist/wait-for.js:124:77
+ ❯ Timeout.checkRealTimersCallback node_modules/@testing-library/dom/dist/wait-for.js:118:16
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/4]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  4 failed | 2 passed (6)
+   Start at  17:23:19
+   Duration  3.78s (transform 274ms, setup 81ms, import 682ms, tests 2.26s, environment 653ms)
+

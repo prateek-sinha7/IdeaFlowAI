@@ -1,0 +1,23 @@
+# QA-KB-045 fix probe: degrade guards + ISS-873 exactness + ISS-874 old-vs-new equivalence
+# Script: evidence/qa-kb-045/fix-probe-degrade-and-equivalence.py (in-memory SQLite; DATABASE_URL pinned to SQLite before any app import)
+# Command: cd backend && .venv/bin/python ../evidence/qa-kb-045/fix-probe-degrade-and-equivalence.py
+# Run: 2026-10-01 21:36 CEST, working tree of feat/user-stories-v2 on 024c03ef8 with the QA-KB-045 fix applied
+
+PASS  degrade resume_run [RuntimeError]               raised=None start_seq=1
+PASS  degrade _replay_clarify_run [RuntimeError]      raised=None start_seq=1
+PASS  degrade _is_resumable_in_flight [RuntimeError]  raised=None result=False
+PASS  degrade resume_run [StoreTimeout]               raised=None start_seq=1
+PASS  degrade _replay_clarify_run [StoreTimeout]      raised=None start_seq=1
+PASS  degrade _is_resumable_in_flight [StoreTimeout]  raised=None result=False
+PASS  ISS-873 scope=own                               result=True old_form=True new_form=True
+PASS  ISS-873 scope=other                             result=False old_form=False new_form=False
+PASS  ISS-873 scope=none                              result=False old_form=False new_form=False
+PASS  ISS-874 S1_empty                                old=[(True, 1)] new=[(True, 1)] rows_equal=True
+PASS  ISS-874 S2_tail3                                old=[(True, 4)] new=[(True, 4)] rows_equal=True
+PASS  ISS-874 S3_replay_existing                      old=[(False, 2)] new=[(False, 2)] rows_equal=True
+PASS  ISS-874 S4_same_event_id_other_owner            old=[(True, 4)] new=[(True, 4)] rows_equal=True
+PASS  ISS-874 S5_same_event_id_other_ws               old=[(True, 4)] new=[(True, 4)] rows_equal=True
+PASS  ISS-874 S6_higher_seq_other_scope               old=[(True, 4), (False, 4), (True, 5)] new=[(True, 4), (False, 4), (True, 5)] rows_equal=True
+PASS  ISS-874 S7_sessionless_store                    old=[(True, 4), (False, 4)] new=[(True, 4), (False, 4)] rows_equal=True
+PASS  ISS-874 S8_duplicate_event_id_race              old=[(False, 4)] new=[(False, 4)] rows_equal=True
+17/17 checks passed

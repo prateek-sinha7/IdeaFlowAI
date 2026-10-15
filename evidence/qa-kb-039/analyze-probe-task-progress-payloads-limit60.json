@@ -1,0 +1,312 @@
+{
+  "variant": "limit60",
+  "status": "degraded",
+  "published_status": "degraded",
+  "agents_failed": [
+    "prototype-build"
+  ],
+  "agents_completed": 4,
+  "degraded_reason": "deliverable is the agent narrating why it could not do the work, not the requested output (matched \"i don't have access\" in 528 characters)",
+  "agent_error_events": [
+    {
+      "agent_id": "prototype-build",
+      "recoverable": true
+    }
+  ],
+  "event_type_counts": {
+    "workflow_validated": 1,
+    "planner_start": 1,
+    "planner_complete": 1,
+    "gate_status": 1,
+    "pipeline_start": 1,
+    "agent_start": 5,
+    "agent_input": 5,
+    "agent_skills": 5,
+    "agent_chunk": 25,
+    "agent_complete": 4,
+    "task_loop_progress": 1,
+    "tool_call": 19,
+    "tool_result": 19,
+    "task_progress": 19,
+    "agent_error": 1,
+    "pipeline_complete": 1
+  },
+  "task_progress_payloads": [
+    {
+      "agent_id": "prototype-build",
+      "pipeline_run_id": "harness-prototype-03845c07",
+      "completed_tasks": [
+        {
+          "number": 1,
+          "title": "Shell",
+          "summary": "blocked"
+        }
+      ],
+      "completed_count": 1,
+      "timestamp": "2026-10-01T19:14:39.799825+00:00",
+      "seq": 29,
+      "event_id": "27ec118f-f488-4cbe-97bf-279ecbb146e1"
+    },
+    {
+      "agent_id": "prototype-build",
+      "pipeline_run_id": "harness-prototype-03845c07",
+      "completed_tasks": [
+        {
+          "number": 1,
+          "title": "Shell",
+          "summary": "blocked"
+        },
+        {
+          "number": 1,
+          "title": "Shell",
+          "summary": "blocked"
+        }
+      ],
+      "completed_count": 2,
+      "timestamp": "2026-10-01T19:14:39.874505+00:00",
+      "seq": 33,
+      "event_id": "43ea4a47-9dd0-487b-9fb2-9d60e0ba6b9c"
+    },
+    {
+      "agent_id": "prototype-build",
+      "pipeline_run_id": "harness-prototype-03845c07",
+      "completed_tasks": [
+        {
+          "number": 1,
+          "title": "Shell",
+          "summary": "blocked"
+        },
+        {
+          "number": 1,
+          "title": "Shell",
+          "summary": "blocked"
+        },
+        {
+          "number": 1,
+          "title": "Shell",
+          "summary": "blocked"
+        }
+      ],
+      "completed_count": 3,
+      "timestamp": "2026-10-01T19:14:39.932434+00:00",
+      "seq": 37,
+      "event_id": "83e09772-3f1c-42e3-b920-beda5c79a035"
+    },
+    {
+      "agent_id": "prototype-build",
+      "pipeline_run_id": "harness-prototype-03845c07",
+      "completed_tasks": [
+        {
+          "number": 1,
+          "title": "Shell",
+          "summary": "blocked"
+        },
+        {
+          "number": 1,
+          "title": "Shell",
+          "summary": "blocked"
+        },
+        {
+          "number": 1,
+          "title": "Shell",
+          "summary": "blocked"
+        },
+        {
+          "number": 1,
+          "title": "Shell",
+          "summary": "blocked"
+        },
+        {
+          "number": 1,
+          "title": "Shell",
+          "summary": "blocked"
+        },
+        {
+          "number": 1,
+          "title": "Shell",
+          "summary": "blocked"
+        },
+        {
+          "number": 1,
+          "title": "Shell",
+          "summary": "blocked"
+        },
+        {
+          "number": 1,
+          "title": "Shell",
+          "summary": "blocked"
+        },
+        {
+          "number": 1,
+          "title": "Shell",
+          "summary": "blocked"
+        },
+        {
+          "number": 1,
+          "title": "Shell",
+          "summary": "blocked"
+        },
+        {
+          "number": 1,
+          "title": "Shell",
+          "summary": "blocked"
+        },
+        {
+          "number": 1,
+          "title": "Shell",
+          "summary": "blocked"
+        },
+        {
+          "number": 1,
+          "title": "Shell",
+          "summary": "blocked"
+        },
+        {
+          "number": 1,
+          "title": "Shell",
+          "summary": "blocked"
+        },
+        {
+          "number": 1,
+          "title": "Shell",
+          "summary": "blocked"
+        },
+        {
+          "number": 1,
+          "title": "Shell",
+          "summary": "blocked"
+        },
+        {
+          "number": 1,
+          "title": "Shell",
+          "summary": "blocked"
+        },
+        {
+          "number": 1,
+          "title": "Shell",
+          "summary": "blocked"
+        }
+      ],
+      "completed_count": 18,
+      "timestamp": "2026-10-01T19:14:41.526146+00:00",
+      "seq": 97,
+      "event_id": "d2bb384e-9a4d-4404-8f4b-9f45346f1767"
+    },
+    {
+      "agent_id": "prototype-build",
+      "pipeline_run_id": "harness-prototype-03845c07",
+      "completed_tasks": [
+        {
+          "number": 1,
+          "title": "Shell",
+          "summary": "blocked"
+        },
+        {
+          "number": 1,
+          "title": "Shell",
+          "summary": "blocked"
+        },
+        {
+          "number": 1,
+          "title": "Shell",
+          "summary": "blocked"
+        },
+        {
+          "number": 1,
+          "title": "Shell",
+          "summary": "blocked"
+        },
+        {
+          "number": 1,
+          "title": "Shell",
+          "summary": "blocked"
+        },
+        {
+          "number": 1,
+          "title": "Shell",
+          "summary": "blocked"
+        },
+        {
+          "number": 1,
+          "title": "Shell",
+          "summary": "blocked"
+        },
+        {
+          "number": 1,
+          "title": "Shell",
+          "summary": "blocked"
+        },
+        {
+          "number": 1,
+          "title": "Shell",
+          "summary": "blocked"
+        },
+        {
+          "number": 1,
+          "title": "Shell",
+          "summary": "blocked"
+        },
+        {
+          "number": 1,
+          "title": "Shell",
+          "summary": "blocked"
+        },
+        {
+          "number": 1,
+          "title": "Shell",
+          "summary": "blocked"
+        },
+        {
+          "number": 1,
+          "title": "Shell",
+          "summary": "blocked"
+        },
+        {
+          "number": 1,
+          "title": "Shell",
+          "summary": "blocked"
+        },
+        {
+          "number": 1,
+          "title": "Shell",
+          "summary": "blocked"
+        },
+        {
+          "number": 1,
+          "title": "Shell",
+          "summary": "blocked"
+        },
+        {
+          "number": 1,
+          "title": "Shell",
+          "summary": "blocked"
+        },
+        {
+          "number": 1,
+          "title": "Shell",
+          "summary": "blocked"
+        },
+        {
+          "number": 1,
+          "title": "Shell",
+          "summary": "blocked"
+        }
+      ],
+      "completed_count": 19,
+      "timestamp": "2026-10-01T19:14:41.609598+00:00",
+      "seq": 101,
+      "event_id": "a259f4e6-55eb-46f6-a7ef-b76bebe29f2d"
+    }
+  ],
+  "task_loop_progress_payloads": [
+    {
+      "agent_id": "prototype-build",
+      "pipeline_run_id": "harness-prototype-03845c07",
+      "task_number": 1,
+      "total_tasks": 1,
+      "timestamp": "2026-10-01T19:14:39Z",
+      "seq": 22,
+      "event_id": "1d7c38eb-fbe2-4eba-b70e-f5e4cf0f4e9c"
+    }
+  ]
+}

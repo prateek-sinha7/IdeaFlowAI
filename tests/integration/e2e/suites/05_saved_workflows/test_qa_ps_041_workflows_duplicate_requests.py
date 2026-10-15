@@ -60,7 +60,6 @@ def test_workflows_list_fetches_user_workflows_once_and_no_run_history(page):
 
 
 @pytest.mark.issue("ISS-813")
-@pytest.mark.xfail(reason="ISS-813 unfixed", strict=True)
 def test_workflow_detail_view_fetches_the_row_once(page):
     """ISS-813 — a cold load of `/workflows/{id}` must fetch
     `GET /api/user-workflows/{id}` exactly once."""
@@ -78,7 +77,6 @@ def test_workflow_detail_view_fetches_the_row_once(page):
 
 
 @pytest.mark.issue("ISS-813")
-@pytest.mark.xfail(reason="ISS-813 unfixed", strict=True)
 def test_workflow_edit_view_fetches_the_row_once(page):
     """ISS-813 — a cold load of `/workflows/{id}/edit` must fetch
     `GET /api/user-workflows/{id}` exactly once, the same no-dedupe shape as

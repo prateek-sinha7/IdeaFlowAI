@@ -1,0 +1,27 @@
+A1_real__old                                               1 failed | 2 passed (3)  AssertionError: expected 'const handlePreviewPanelTabSelect = u…' not to contain 'router.push'
+A1_real__anchor-only                                       3 passed (3)             
+A1_real__fixed                                             3 passed (3)             
+A2_router_push_injected_into_handler__old                  1 failed | 2 passed (3)  AssertionError: expected 'const handlePreviewPanelTabSelect = u…' not to contain 'router.push'
+A2_router_push_injected_into_handler__anchor-only          1 failed | 2 passed (3)  AssertionError: expected 'const handlePreviewPanelTabSelect = u…' not to contain 'router.push'
+A2_router_push_injected_into_handler__fixed                1 failed | 2 passed (3)  AssertionError: expected 'const handlePreviewPanelTabSelect = u…' not to contain 'router.push'
+A3_new_dep_added_to_handler__old                           1 failed | 2 passed (3)  AssertionError: expected 'const handlePreviewPanelTabSelect = u…' not to contain 'router.push'
+A3_new_dep_added_to_handler__anchor-only                   3 passed (3)             
+A3_new_dep_added_to_handler__fixed                         3 passed (3)             
+A4_handler_deps_list_dropped__old                          1 failed | 2 passed (3)  AssertionError: expected 'const handlePreviewPanelTabSelect = u…' not to contain 'router.push'
+A4_handler_deps_list_dropped__anchor-only                  1 failed | 2 passed (3)  AssertionError: expected 'const handlePreviewPanelTabSelect = u…' not to contain 'router.push'
+A4_handler_deps_list_dropped__fixed                        1 failed | 2 passed (3)  AssertionError: expected [ 'useCallback(', 'useCallback(' ] to have a length of 1 but got 2
+B1_real__old                                               1 passed (1)             
+B1_real__anchor-only                                       1 passed (1)             
+B1_real__fixed                                             1 passed (1)             
+B2_deps_changed__old                                       1 passed (1)             
+B2_deps_changed__anchor-only                               1 passed (1)             
+B2_deps_changed__fixed                                     1 passed (1)             
+B3_guard_removed__old                                      1 failed (1)             AssertionError: expected false to be true // Object.is equality
+B3_guard_removed__anchor-only                              1 failed (1)             AssertionError: expected false to be true // Object.is equality
+B3_guard_removed__fixed                                    1 failed (1)             AssertionError: expected false to be true // Object.is equality
+B4_guard_removed_and_deps_changed__old                     1 passed (1)             
+B4_guard_removed_and_deps_changed__anchor-only             1 failed (1)             AssertionError: expected false to be true // Object.is equality
+B4_guard_removed_and_deps_changed__fixed                   1 failed (1)             AssertionError: expected false to be true // Object.is equality
+B5_guard_removed_and_deps_list_dropped__old                1 passed (1)             
+B5_guard_removed_and_deps_list_dropped__anchor-only        1 failed (1)             AssertionError: expected false to be true // Object.is equality
+B5_guard_removed_and_deps_list_dropped__fixed              1 failed (1)             AssertionError: expected [ 'useEffect(', 'useEffect(' ] to have a length of 1 but got 2

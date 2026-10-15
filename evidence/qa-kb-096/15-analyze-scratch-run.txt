@@ -1,0 +1,35 @@
+# QA-KB-096 analysis, 2026-10-07 — scratch render of the REAL PreviewPanel + RunHeader + SandboxPdfPreview + api.ts (only global fetch is faked)
+# Tests  15 passed (15). Family fixture = what GET /api/runs/78e185fb.../family returned (evidence 11), verbatim. Listings = the Backlog.* entries per tag from evidence 11/12.
+# The fake file endpoint is run_files.py:1165-1178: the path is read EXACTLY at the ref (404 when absent) or from the working tree with no ref.
+# PROBE A-C: the page's own requests for three members. D, H: the pinned twin (pinnedVersion). G: deep links to other tabs. E: the shared resolver, real api.ts.
+# PROBE F1-F4: a scratch PROTOTYPE of the proposed fix (SandboxPdfPreview resolving via resolveRunDeliverable first), defined in the test file only - NOT application source.
+
+PROBE A (v2 own page) sandbox/file requests: ["/api/runs/80054fbc-71cc-42de-adeb-ae2db82eb2f2/sandbox/file?path=Backlog.pdf&ref=v2"]
+PROBE A listings requested: ["/api/runs/80054fbc-71cc-42de-adeb-ae2db82eb2f2/sandbox?ref=v2"]
+PROBE A fallback text: "Backlog.pdf could not be loaded. It can be downloaded from the Files tab."
+PROBE A header Download disabled: false
+PROBE B (v1 own page) sandbox/file requests: ["/api/runs/78e185fb-c032-4154-8552-774781b6e5df/sandbox/file?path=Backlog.pdf&ref=v1"]
+PROBE B listings requested: ["/api/runs/78e185fb-c032-4154-8552-774781b6e5df/sandbox?ref=v1"]
+PROBE B header Download disabled: true
+PROBE C (v8 own page, newest) sandbox/file requests: ["/api/runs/b40eabd0-d7e2-4bc2-bc42-99ef6a147bff/sandbox/file?path=Backlog.pdf"]
+PROBE C header Download disabled: false
+PROBE D (pinned v2) sandbox/file requests: ["/api/runs/78e185fb-c032-4154-8552-774781b6e5df/sandbox/file?path=Backlog.pdf&ref=v1","/api/runs/80054fbc-71cc-42de-adeb-ae2db82eb2f2/sandbox/file?path=.chain%2FBacklog.pdf&ref=v2"]
+PROBE D listings requested: ["/api/runs/78e185fb-c032-4154-8552-774781b6e5df/sandbox?ref=v1","/api/runs/78e185fb-c032-4154-8552-774781b6e5df/sandbox?ref=v2","/api/runs/80054fbc-71cc-42de-adeb-ae2db82eb2f2/sandbox?ref=v2"]
+PROBE D PDF frame rendered: false
+PROBE D card text: "This deliverable (application/pdf) can be downloaded from the Files tab."
+PROBE D Download button in card: "Download Backlog.pdf"
+PROBE G [steps (deepLinkTarget thinking)] sandbox/file requests: ["/api/runs/80054fbc-71cc-42de-adeb-ae2db82eb2f2/sandbox/file?path=Backlog.pdf&ref=v2"] | preview frame/fallback present: false
+PROBE G [workspace (deepLinkTarget workspace)] sandbox/file requests: ["/api/runs/80054fbc-71cc-42de-adeb-ae2db82eb2f2/sandbox/file?path=Backlog.pdf&ref=v2"] | preview frame/fallback present: false
+PROBE G [audit (deepLinkTarget audit)] sandbox/file requests: ["/api/runs/80054fbc-71cc-42de-adeb-ae2db82eb2f2/sandbox/file?path=Backlog.pdf&ref=v2"] | preview frame/fallback present: false
+PROBE G [files (deepLinkTarget files)] sandbox/file requests: ["/api/runs/80054fbc-71cc-42de-adeb-ae2db82eb2f2/sandbox/file?path=Backlog.pdf&ref=v2"] | preview frame/fallback present: false
+PROBE G [files (initialTab files)] sandbox/file requests: ["/api/runs/80054fbc-71cc-42de-adeb-ae2db82eb2f2/sandbox/file?path=Backlog.pdf&ref=v2"] | preview frame/fallback present: true
+PROBE H (pinned v1) sandbox/file requests: ["/api/runs/78e185fb-c032-4154-8552-774781b6e5df/sandbox/file?path=Backlog.pdf&ref=v1"]
+PROBE H listings requested: ["/api/runs/78e185fb-c032-4154-8552-774781b6e5df/sandbox?ref=v1"]
+PROBE H still shows 'Loading v1' after 700ms: true | Deliverable-ready card: false | header Download disabled: true
+PROBE E resolve(v2): {"path":".chain/Backlog.pdf","ref":"v2"}
+PROBE E resolve(v1): null
+PROBE E resolve(live): {"path":"Backlog.pdf","ref":null}
+PROBE F1 (v2) requests: ["/api/runs/80054fbc-71cc-42de-adeb-ae2db82eb2f2/sandbox?ref=v2","/api/runs/80054fbc-71cc-42de-adeb-ae2db82eb2f2/sandbox/file?path=.chain%2FBacklog.pdf&ref=v2"]
+PROBE F2 (v1) requests: ["/api/runs/78e185fb-c032-4154-8552-774781b6e5df/sandbox?ref=v1"]
+PROBE F3 (live) requests: ["/api/runs/b40eabd0-d7e2-4bc2-bc42-99ef6a147bff/sandbox","/api/runs/b40eabd0-d7e2-4bc2-bc42-99ef6a147bff/sandbox/file?path=Backlog.pdf"]
+PROBE F4 (null ref) requests: []

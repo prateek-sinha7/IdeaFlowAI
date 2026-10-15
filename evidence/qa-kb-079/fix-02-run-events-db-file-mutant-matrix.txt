@@ -1,0 +1,14 @@
+# QA-KB-079 fix-phase mutant matrix for tests/integration/repositories/test_run_events_db.py, 2026-10-07 19:19
+# baseline (no plugin):
+baseline summary=[10 passed, 1 warning in 1.22s] failed=[] psycopg_mentions=0
+KB079 mutant=R append_event_calls=15 tail_probes=3 real_hops=3
+mutant=R summary=[10 passed, 1 warning in 1.09s] failed=[] psycopg_mentions=0
+KB079 mutant=T append_event_calls=0 tail_probes=0 real_hops=0
+mutant=T summary=[1 failed, 9 passed, 1 warning in 1.36s] failed=[test_resume_driver_restamps_live_frame_and_stored_payload_after_a_collision ] psycopg_mentions=0
+KB079 mutant=U append_event_calls=0 tail_probes=0 real_hops=0
+mutant=U summary=[1 failed, 9 passed, 1 warning in 1.32s] failed=[test_execute_restamps_seq_onto_the_frame_it_yields ] psycopg_mentions=0
+KB079 mutant=H append_event_calls=15 tail_probes=3 real_hops=3
+mutant=H summary=[1 failed, 9 passed, 1 warning in 1.25s] failed=[test_resume_driver_restamps_live_frame_and_stored_payload_after_a_collision ] psycopg_mentions=0
+KB079 mutant=A append_event_calls=15 tail_probes=3 real_hops=3
+mutant=A summary=[10 passed, 1 warning in 1.22s] failed=[] psycopg_mentions=0
+# done

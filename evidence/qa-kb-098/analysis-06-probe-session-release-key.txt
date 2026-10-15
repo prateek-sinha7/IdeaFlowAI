@@ -1,0 +1,8 @@
+# QA-KB-098 analysis 06: PROBE - session registry key vs the engine's exit-time release for a revision
+# HEAD 165c40316, 2026-10-07T23:19Z; script evidence/qa-kb-098/analysis-plugins/kb098_release_key_probe.py; no browser launched
+
+run_id_from_sandbox(root sandbox)     = 'root-aaa'
+run_id_from_sandbox(revision sandbox) = 'root-aaa'   (revision's logical id is 'revision-bbb')
+_SESSIONS keys after the revision's tool call: ['root-aaa']
+_SESSIONS keys after engine-style release(revision id): ['root-aaa']   <- session SURVIVES
+_SESSIONS keys after release(root id):                  []

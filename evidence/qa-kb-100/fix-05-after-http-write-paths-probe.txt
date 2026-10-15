@@ -1,0 +1,44 @@
+# QA-KB-100 fix 05: the analyzer's HTTP write-path probe (analysis-05) re-run AFTER the fix, unchanged, as a BASIC-tier caller (d284eb258 + working tree, 2026-10-08T12:37Z)
+# cmd: cd backend && PYTHONDONTWRITEBYTECODE=1 DATABASE_URL=sqlite:///:memory: .venv/bin/python -m pytest ../evidence/qa-kb-100/analysis-plugins/test_probe_http_override_trust.py -c pyproject.toml --rootdir=. -p no:cacheprovider -q -s -W ignore
+# expected after the fix: W1-W4 answer 422 (ISS-1112); W5 is ISS-1114's non-override shape, NOT part of this fix, so it still answers 201.
+
+caller tier: basic
+[W0] POST Composer row (base_pipeline_type=custom, no override) as BASIC -> 403
+[W1] POST override insert, exec grant + gates security,approval + validators code_test -> 422
+     served/launched plan steps: ['ppt-brief-analyst: exec=False spawn=False gates=[] validators=[]', 'ppt-composer: exec=False spawn=False gates=[] validators=[]', 'ppt-validator: exec=False spawn=False gates=[] validators=[]']
+     GET /api/workflows/ppt -> is_overridden=False steps.gates=[[], [], []] manifest_steps.gates=[[], [], []]
+[W2] POST override UPSERT (same built-in), spawn_subagents grant -> 422
+     plan: ['ppt-brief-analyst: exec=False spawn=False gates=[] validators=[]', 'ppt-composer: exec=False spawn=False gates=[] validators=[]', 'ppt-validator: exec=False spawn=False gates=[] validators=[]']
+F
+caller tier: basic
+[W5] POST manifest-backed row, base_pipeline_type=ppt, NO overrides_pipeline_type, exec step -> 201
+     stored: base_pipeline_type=ppt overrides_pipeline_type=None manifest.steps[0].tools.exec=True gates=['security', 'approval']
+     launch Case 3 compile (trust=db): ["custom-agent:mine: exec=True spawn=False gates=['security', 'approval'] validators=['code_test']"]
+     launch tier gate keys on pipeline_type='ppt' -> can_run_pipeline(basic, ppt)=True ; (basic, custom)=False
+.
+=================================== FAILURES ===================================
+_____________________ test_probe_write_paths_as_basic_tier _____________________
+api = (<starlette.testclient.TestClient object at 0x109c1b8c0>, {'user': <test_probe_http_override_trust._FakeUser object at 0x109c1b770>}, <sqlalchemy.orm.session.Session object at 0x109c1aba0>)
+    def test_probe_write_paths_as_basic_tier(api):
+        client, state, session = api
+        print()
+        print("caller tier:", state["user"].tier)
+    
+        # --- tier asymmetry: the Composer (base `custom`) is enterprise-only; an override of ppt is not
+        r = _post(client, [_step("c")], base="custom", over=None, name="Composer")
+        print(f"[W0] POST Composer row (base_pipeline_type=custom, no override) as BASIC -> {r.status_code}")
+    
+        # --- W1: POST insert
+        r = _post(client, [copy.deepcopy(EXEC)])
+        print(f"[W1] POST override insert, exec grant + gates security,approval + validators code_test -> {r.status_code}")
+        row = find_override(session, state["user"], "ppt")
+        plan = _overridden_plan(compile_for_run("ppt"), row)
+        print("     served/launched plan steps:", _eff(plan))
+        d = client.get("/api/workflows/ppt").json()
+        print(f"     GET /api/workflows/ppt -> is_overridden={d['is_overridden']} steps.gates={[s['gates'] for s in d['steps']]} "
+              f"manifest_steps.gates={[s.get('gates') for s in (d['manifest_steps'] or [])]}")
+    
+        # --- W2: POST upsert (second save of the same built-in) with spawn_subagents
+        r = _post(client, [copy.deepcopy(SPAWN)])
+        print(f"[W2] POST override UPSERT (same built-in), spawn_subagents grant -> {r.status_code}")
+        session.expire_all()

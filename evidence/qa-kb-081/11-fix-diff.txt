@@ -1,0 +1,107 @@
+diff --git a/frontend/src/components/workflow/LaunchWizard.tsx b/frontend/src/components/workflow/LaunchWizard.tsx
+index 42fa4728d..0105f70de 100644
+--- a/frontend/src/components/workflow/LaunchWizard.tsx
++++ b/frontend/src/components/workflow/LaunchWizard.tsx
+@@ -248,6 +248,11 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
+   const [webTemplates, setWebTemplates] = useState<PrototypeTemplate[]>([]);
+   const [deckTemplates, setDeckTemplates] = useState<PPTTemplate[]>([]);
+   const [systems, setSystems] = useState<DesignSystemListItem[]>([]);
++  // ISS-909: `systems` alone reads "loading", "failed" and "loaded, none" all as `[]`,
++  // so the DS step pulsed for good. Same idiom as `overrideLoad`; Retry bumps the attempt.
++  const [systemsLoad, setSystemsLoad] = useState<"loading" | "ready" | "failed">("loading");
++  const [systemsError, setSystemsError] = useState<string | null>(null);
++  const [systemsAttempt, setSystemsAttempt] = useState(0);
+   const [loadError, setLoadError] = useState<string | null>(null);
+ 
+   // ── Selection state. Template is per-mode (the toggle preserves nothing:
+@@ -692,7 +697,8 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
+         .then((t) => { if (!cancelled) setDeckTemplates(t); })
+         .catch((err: Error) => {
+           if (cancelled) return;
+-          if (err.message.startsWith("401")) { handleSessionExpiry(); }
++          if (err.message.startsWith("401")) { handleSessionExpiry(); return; }
++          setLoadError(err.message);
+         });
+     }
+ 
+@@ -702,6 +708,7 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
+   // The design-system registry keeps its own once-per-mount effect: both
+   // families read it (ISS-828), and re-running it on a family toggle would
+   // re-fire FIX-103's auto-select over a selection the user had cleared.
++  // ISS-909: the DS step's Retry (`systemsAttempt`) is its only other trigger.
+   useEffect(() => {
+     if (!authChecked) return;
+     const token = getToken();
+@@ -712,6 +719,7 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
+       .then((s) => {
+         if (!cancelled) {
+           setSystems(s);
++          setSystemsLoad("ready");
+           // FIX-103: Auto-select "Design System Inspired by Apple" on a fresh
+           // prototype launch. Only fires when no DS has been selected yet (null)
+           // so draft-restored selections and user choices are never overwritten.
+@@ -723,10 +731,14 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
+           });
+         }
+       })
+-      .catch(() => { /* non-fatal — the picker stays empty */ });
++      .catch((err: Error) => {
++        if (cancelled) return;
++        setSystemsError(err.message);
++        setSystemsLoad("failed");
++      });
+ 
+     return () => { cancelled = true; };
+-  }, [authChecked, router]);
++  }, [authChecked, router, systemsAttempt]);
+ 
+   // Mirror speech transcript into the brief textarea (same pattern as the pages).
+   useEffect(() => {
+@@ -1395,15 +1407,40 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
+             deckSelectedCustomTemplateId={isDeck && customTemplateBody ? selectedTemplateId : null}
+             dsSlot={
+               dsVisible ? (
+-                systems.length === 0 ? (
++                systemsLoad === "loading" ? (
+                   <div className="h-48 animate-pulse rounded-[var(--radius-card)] bg-surface-white/60" />
+                 ) : (
+-                  <DesignSystemPicker
+-                    systems={systems}
+-                    selectedId={selectedDsId}
+-                    onSelect={handleSelectBuiltInDs}
+-                    onSelectCustom={handleSelectCustomDs}
+-                  />
++                  <>
++                    {/* ISS-909: a failed or empty registry says so, with a Retry; the picker stays
++                        mounted under it so "Upload custom" can still satisfy the DS gate. */}
++                    {(systemsLoad === "failed" || systems.length === 0) && (
++                      <div
++                        role={systemsLoad === "failed" ? "alert" : undefined}
++                        className={`mb-3 flex items-center justify-between gap-3 rounded-[var(--radius-card)] border px-5 py-4 text-[13px] ${
++                          systemsLoad === "failed"
++                            ? "border-[var(--status-failed-border)] bg-[var(--status-failed-fill)] text-status-failed"
++                            : "border-dashed border-line-control bg-surface-warm text-ink-500"
++                        }`}
++                      >
++                        {systemsLoad === "failed"
++                          ? `Couldn't load design systems: ${systemsError}`
++                          : "No design systems are available."}
++                        <button
++                          type="button"
++                          onClick={() => { setSystemsLoad("loading"); setSystemsAttempt((n) => n + 1); }}
++                          className="flex-shrink-0 rounded-[var(--radius-button)] border border-line-control bg-surface-white px-3 py-1.5 text-[11px] font-medium text-ink-700 transition-all hover:border-brand hover:text-brand"
++                        >
++                          Retry
++                        </button>
++                      </div>
++                    )}
++                    <DesignSystemPicker
++                      systems={systems}
++                      selectedId={selectedDsId}
++                      onSelect={handleSelectBuiltInDs}
++                      onSelectCustom={handleSelectCustomDs}
++                    />
++                  </>
+                 )
+               ) : (
+                 <StepNote>This deck template doesn&apos;t require a design system — the template supplies its own theme.</StepNote>

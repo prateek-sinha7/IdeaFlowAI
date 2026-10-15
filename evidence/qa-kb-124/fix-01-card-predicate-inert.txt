@@ -1,0 +1,91 @@
+# QA-KB-124 fix stage, 2026-10-09: the predicate ISS-1156 proposes is inert on the live path
+# tree: 753c0bd91 (feat/stale-bug-fixes) + uncommitted work of other sessions
+# The card's exact predicate was applied TEMPORARILY to backend/agents/factory.py (diff below),
+# both checks were run, and the edit was then reverted. Nothing of it remains in the tree.
+
+## 1. The temporary edit (the card's 'Where the fix belongs' item 1, verbatim)
+diff --git a/backend/agents/factory.py b/backend/agents/factory.py
+index d45d4fda4..3b260f17d 100644
+--- a/backend/agents/factory.py
++++ b/backend/agents/factory.py
+@@ -724,7 +724,9 @@ def _compose_system_prompt(
+         # which the conditional gate can't read route_decision from). A
+         # write-less step's own prompt (already in `parts` via ctx.step_prompt)
+         # is its complete instruction; nothing else to append here.
+-        if has_write_access:
++        if has_write_access and "route_decision" not in (
++            getattr(spec, "produces", None) or []
++        ):
+             parts.append(
+                 f"## How to deliver\n\nCall `write_file` with path `{filename}`. "
+                 "Its content is your answer — never this instruction."
+
+## 2. The test-writer's unit test with that edit: XPASS(strict) -> reported FAILED, i.e. 'fixed'
+# cmd: cd backend && .venv/bin/python -m pytest tests/unit/agents/test_decision_step_no_delivery_block.py -q -p no:cacheprovider -rX
+[XPASS(strict)] ISS-1156 unfixed
+1 failed, 1 passed, 1 warning in 1.43s
+
+## 3. The analyzer's own offline harness (real engine + real factory) with the SAME edit: still broken
+# cmd: cd backend && PYTHONPATH=. .venv/bin/python ../evidence/qa-kb-124/analysis-03-offline-repro.py
+pipeline_start created_at lookup failed ((builtins.Exception) offline harness
+pipeline_start created_at lookup failed ((builtins.Exception) offline harness
+===== scenario 1: BUILT-IN plan (tool-free steps, greeting pasted)
+check.context_message  : '\n--- Output from Greet (A user-defined workflow agent) ---\nHello team!'
+check 'How to deliver' : False
+check system_prompt end: 'greeting does not contain a joke, respond with exactly:\n{"decision": "retry"}\n\n\nEarlier steps produced:\n- Greet → greet-build-me-a-thing-for-managing-tasks.md\nRead the files you need before you start.'
+check.context_message  : '\n--- Output from Greet (A user-defined workflow agent) ---\nHello team!'
+check 'How to deliver' : False
+check system_prompt end: 'greeting does not contain a joke, respond with exactly:\n{"decision": "retry"}\n\n\nEarlier steps produced:\n- Greet → greet-build-me-a-thing-for-managing-tasks.md\nRead the files you need before you start.'
+pipeline_complete {}
+===== scenario 2: admin's SAVED OVERRIDE (read/write granted, consumes/produces dropped)
+check.context_message  : ''
+check 'How to deliver' : True
+check system_prompt end: '-tasks.md\nRead the files you need before you start.\n\n## How to deliver\n\nCall `write_file` with path `check-build-me-a-thing-for-managing-tasks.md`. Its content is your answer — never this instruction.'
+  tool_call read_file {"file_path": "/greet-build-me-a-thing-for-managing-tasks.md"}
+  tool_result read_file "     1\tHello team!"
+  tool_call write_file {"file_path": "/check-build-me-a-thing-for-managing-tasks.md", "content": "{\"decision\": \"retry\"}"}
+  tool_result write_file "Updated file /check-build-me-a-thing-for-managing-tasks.md"
+gate_blocked {"step": "custom-agent:check", "gate": "conditional", "reason": "no matching route outcome and no default_next"}
+pipeline_failed {"error": "Check's conditional gate had nowhere to route: no matching outcome and no default_next."}
+
+## 4. Why: the factory never sees the step's produces (code, current working tree line numbers)
+# engine.py carries another session's uncommitted ISS-1159 edit (+5 lines above line 1700), so engine.py
+# numbers here are about 5 higher than at HEAD 753c0bd91.
+-- the engine overlays the compiled step's produces onto ITS OWN spec objects only:
+   engine.py:                 overlay["name"] = s.display_name
+   engine.py:             if getattr(s, "produces", None):
+   engine.py:                 overlay["produces"] = list(s.produces)
+   engine.py:             if getattr(s, "consumes", None):
+   engine.py:                 overlay["consumes"] = list(s.consumes)
+   engine.py:             base = load_agent_spec(s.agent_id)
+   engine.py:             specs.append(dataclasses.replace(base, **overlay) if overlay else base)
+-- but it hands the factory only the id (engine.py:9955-9957):
+   engine.py:                 agent = create_runner(
+   engine.py:                     spec.id,
+   engine.py:                     ctx,
+-- and create_runner reloads the spec from that id (factory.py:350):
+   factory.py:     spec = load_agent_spec(agent_id)
+-- for a synthetic id the loader returns the custom-agent template with the id swapped (loader.py:163-167):
+   loader.py:     if ":" in agent_id:
+   loader.py:         base, _, _instance = agent_id.partition(":")
+   loader.py:         base_spec = load_agent_spec(base)
+   loader.py:         spec = replace(base_spec, id=agent_id)
+   loader.py:         _SPEC_CACHE[agent_id] = spec
+-- whose frontmatter declares no produces (agents/prompts/custom-agent/AGENT.md:1-11):
+   AGENT.md: ---
+   AGENT.md: id: custom-agent
+   AGENT.md: name: Custom Agent
+   AGENT.md: role: A user-defined workflow agent
+   AGENT.md: pipeline_type: custom
+   AGENT.md: order: 10
+   AGENT.md: max_tokens: 4000
+   AGENT.md: template: true
+   AGENT.md: icon: "🧩"
+   AGENT.md: prompt_policy: body_only
+   AGENT.md: ---
+-- AgentContext (factory.py:30-157) has no produces field; the engine's ctx (engine.py:9749-9870) threads
+   step_injects / step_skills / step_prompt / step_tools off ectx.current_step, never produces.
+-- so _compose_system_prompt (factory.py:727 'if has_write_access:') gets spec.produces == [] for every
+   custom-agent step at run time, and a predicate on spec.produces can never fire there.
+-- direct check:
+   load_agent_spec("custom-agent:check").produces = []

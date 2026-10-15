@@ -1,0 +1,29 @@
+@@ -1831,16 +1846,24 @@ export default function DashboardPage({
+           // reviewGateData is deliberately NOT cleared in the store: that half
+           // is already masked by the gate branch's `&& isPipelineRunning`.
+           if (frameRunId) runStore.update(frameRunId, { questionnaireData: null });
+-          setReviewGateData(null);
+-          setQuestionnaireData(null);
+-          setActivePipelineRunId(null);
++          // ISS-676: !isForeignFrame only means THIS tab launched the run. The
++          // page-level slots below belong to the run on screen, so a background
++          // run's terminal frame must leave them alone.
++          const isBackgroundFrame = isForeignRunFrame(frameRunId, trackedRunIdRef.current);
++          if (!isBackgroundFrame) {
++            setReviewGateData(null);
++            setQuestionnaireData(null);
++            setActivePipelineRunId(null);
++          }
+           if (msg.type === "pipeline_cancelled") {
+             // Rescued from the unreachable switch arm this commit deletes
+             // below (ISS-139) — this is the first time these two calls ever
+             // execute on the live path.
+             const cancelledId = frameRunId ?? trackedRunIdRef.current;
+             if (cancelledId) {
+-              setLastCancelledRunId(cancelledId);
++              // ISS-927: handleResumeRun ranks this slot first, so a background
++              // cancel must not point "Run again" away from the run on screen.
++              if (!isBackgroundFrame) setLastCancelledRunId(cancelledId);
+               detachRunRef.current?.(cancelledId);
+             }
+             // ISS-143: clear this run from AppHeader's "N Running" pill immediately

@@ -1,0 +1,26 @@
+# QA-KB-106 fix phase — env block: the app cannot sign anyone in (captured 2026-10-09T01:41Z = 03:41 local; folder names and ps times below are local)
+
+$ curl -X POST http://localhost:8000/api/auth/login -d {"email":"admin@velocity.ai",...}
+HTTP 500
+
+# backend on :8000: reloader 83513 (uvicorn --reload since Oct 8 16:25). Its worker reloaded at 03:20:07 (pid 23367)
+# and again at 03:32:42 (pid 40015) after another lane's backend .py edits; login has failed on every fresh worker since.
+  PID  PPID STARTED                      COMMAND
+83513     1 Thu Oct  8 16:25:17 2026     /opt/homebrew/Cellar/python@3.13/3.13.14/Frameworks/Python.framework/Versions/3.13/Resources/Python.app/Contents/MacOS/
+
+# /private/tmp/velocity-8000.log — app frame and cause
+10270:  File "/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/app/api/auth.py", line 342, in login
+10272:  File "/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/app/core/cognito.py", line 276, in admin_initiate_auth
+10273:    return _client().admin_initiate_auth(
+9958:botocore.errorfactory.InvalidGrantException: An error occurred (InvalidGrantException) when calling the CreateToken operation: Invalid refresh token provided
+10354:botocore.exceptions.TokenRetrievalError: Error when retrieving token from sso: Token has expired and refresh failed
+
+# credential source: [default] profile is AWS SSO; cache last written:
+1:[default]
+2-sso_session = velocity-auth-aws
+Oct 9 01:31 782928ae4ecc05fc0b513c1c790a645a8e5f3838.json
+Sep 24 14:38 835f0c08dc0d8cdfabb0ecb0dfe5335576fa9819.json
+
+# e2e after the fix: conftest sign-in fails before the test body
+tests/integration/test-runs/2026-10-09T03-27-local/0-report.html: conftest.py:85 expect(page).to_have_url(/dashboard) -> stays on /login, alert 'An unexpected error occurred. Please try again.'
+# e2e before the fix (red observed): tests/integration/test-runs/2026-10-09T03-17-local/0-report.html — 3 XFAIL at expect(page.get_by_text(text)).to_be_visible(), locator resolved to <div id="nextjs__container_errors_desc"> (hidden)

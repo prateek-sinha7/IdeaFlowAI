@@ -1,0 +1,19 @@
+#!/bin/bash
+# Runs each scratch variant once, ANSI stripped. Offline vitest; the repo is never written.
+cd "$(dirname "$0")"
+VT=/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/frontend/node_modules/.bin/vitest
+echo "# QA-KB-087 5-fixer probe for ISS-1039 / ISS-1040, $(date '+%Y-%m-%d %H:%M:%S %Z'), repo HEAD $(git -C /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2 rev-parse --short HEAD)"
+echo "# *_head_marker_off_real = HEAD test, it.fails -> it only, real component  (red for the wrong reason, the cards' claim)"
+echo "# *_fixed_real           = HEAD test + the card's fix, real component        (must pass)"
+echo "# *_fixed_mutant         = same test, component with the Copy-failed feedback removed (must fail at the behavioural assertion)"
+run() {
+  echo; echo "### $1"
+  $VT run --config vitest.config.mts "$1" --reporter=verbose ${2:+-t "$2"} 2>&1 | sed 's/\x1b\[[0-9;]*m//g' \
+    | grep -E "^ (✓|×|↓)|^   →|Tests |Error:|TypeError|❯ [a-z0-9_]+\.test\.tsx:[0-9]+:[0-9]+" | grep -v "^$" | head -14
+}
+run lib_head_marker_off_real
+run lib_fixed_real
+run lib_fixed_mutant
+run int_head_marker_off_real "copy now"
+run int_fixed_real
+run int_fixed_mutant "copy now"

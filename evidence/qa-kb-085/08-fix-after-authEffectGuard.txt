@@ -1,0 +1,14 @@
+$ cd frontend && npx vitest --run "src/app/[...view]/authEffectGuard.iss844.source.test.ts"   # AFTER the fix, re-run 2026-10-07 20:08:45 with the concurrent ISS-1026 page.tsx:3483 edit present in the tree
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - ESM syntax in a file loaded as CommonJS (vitest.config.ts:1:1). Use a `.mjs` extension or set `"type": "module"` in the closest package.json
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+
+ RUN  v4.1.11 /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/frontend
+
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  20:08:45
+   Duration  601ms (transform 21ms, setup 51ms, import 9ms, tests 3ms, environment 439ms)
+
+exit=0

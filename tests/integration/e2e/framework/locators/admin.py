@@ -18,6 +18,11 @@ LOGOUT = 'button:text-is("Logout")'
 ADD_USER = 'button:text-is("Add user")'
 SEARCH = 'input[name="admin-user-search"]'
 
+# The create dialog is invitation-only (b2a621f84): email, plan and the admin
+# checkbox, no password input.
+CREATE_DIALOG = "Create New User"
+SEND_INVITATION = "Send Invitation"
+
 TILES = ["TOTAL USERS", "BASIC", "PRO", "ENTERPRISE", "ADMINS"]
 
 

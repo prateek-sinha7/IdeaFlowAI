@@ -1,0 +1,16 @@
+# EXPERIMENT: kb097_harness_reset plugin = _ResumeHarness.make_engine() sets state_machine._MACHINE=None before building the engine (instance B = new process). 4 tests, then test_cancel_stops_resumed_run_db.py, then the whole test_restart_resume_db.py (one file each)
+## 4 tests
+WARNING  agents.execution_engine.kernel_services:kernel_services.py:754 update_wave_run_merge_state(step=sample-wave-worker) failed: 'ScopedStore' object has no attribute '_acquire'
+WARNING  agents.execution_engine.kernel_services:kernel_services.py:754 update_wave_run_merge_state(step=sample-wave-worker) failed: 'ScopedStore' object has no attribute '_acquire'
+ERROR    agents.execution_engine.engine:engine.py:2603 finalize_terminal_run: create_run_ref FAILED run=rh-7be4e4d2 (run_id must be a UUID (hex digits and hyphens only): 'rh-7be4e4d2')
+tests/integration/agents/test_restart_resume_db.py::test_failed_run_resumes_skips_completed_tasks
+FAILED tests/integration/agents/test_restart_resume_db.py::test_resume_dispatch_carries_rehydrated_planning_context
+1 failed, 3 passed, 5 warnings in 6.17s
+## tests/integration/agents/test_cancel_stops_resumed_run_db.py
+5 passed, 3 warnings in 3.03s
+## whole tests/integration/agents/test_restart_resume_db.py
+WARNING  agents.execution_engine.kernel_services:kernel_services.py:754 update_wave_run_merge_state(step=sample-wave-worker) failed: 'ScopedStore' object has no attribute '_acquire'
+WARNING  agents.execution_engine.kernel_services:kernel_services.py:754 update_wave_run_merge_state(step=sample-wave-worker) failed: 'ScopedStore' object has no attribute '_acquire'
+ERROR    agents.execution_engine.engine:engine.py:2603 finalize_terminal_run: create_run_ref FAILED run=rh-eabd3012 (run_id must be a UUID (hex digits and hyphens only): 'rh-eabd3012')
+FAILED tests/integration/agents/test_restart_resume_db.py::test_resume_dispatch_carries_rehydrated_planning_context
+1 failed, 84 passed, 17 warnings in 18.62s

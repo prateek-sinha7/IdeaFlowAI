@@ -119,7 +119,7 @@ def test_dispatchable_count_is_13() -> None:
             f"{broken} references agents with no AGENT.md and cannot run; "
             "if it now has them, that is a real change — update this list"
         )
-    # Parametrized coverage = 30 dispatchable.
+    # Parametrized coverage = 34 dispatchable.
     assert len(_PARAMS) == 34
 
 

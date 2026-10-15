@@ -270,6 +270,27 @@ class TestTrustFlags:
         assert screen_plan[0]["user_allowed"] is True
         assert screen_plan[0]["description"]
 
+    def test_task_parsers_declare_their_default_target(self, authed_client):
+        # ISS-686: the composer seeds a parser's target from
+        # config_schema.properties.target.default, so the file-reading parsers
+        # declare their own file there; heading_tasks reads the reply and has none.
+        body = authed_client.get("/api/capabilities").json()
+        by_name = {
+            e["name"]: e for e in body["capabilities"] if e["kind"] == "task_parser"
+        }
+
+        def default_target(name: str):
+            return (
+                by_name[name]["config_schema"]
+                .get("properties", {})
+                .get("target", {})
+                .get("default")
+            )
+
+        assert default_target("json_tasks") == "build/tasks.json"
+        assert default_target("screen_plan") == "build/screens.json"
+        assert default_target("heading_tasks") is None
+
 
 # ---------------------------------------------------------------------------
 # Additive events (API-03 / T-08-08-parity) — new event TYPES need no transport

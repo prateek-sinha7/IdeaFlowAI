@@ -154,7 +154,26 @@ export function agentsFromManifest(
       children: a.children ? a.children.map(decorate) : undefined,
     };
   };
-  const agents: AgentDef[] = manifestStepsToAgents(raw).map(decorate);
+  // ISS-1157: without a lookup the converter names a built-in step by its agent
+  // id and gives it the composer's 60 s blank-agent estimate. A built-in step
+  // rarely declares a `name`; the compiled step carries the display name (an
+  // explicit manifest `name` still wins inside the converter).
+  const fromCompiled = (id: string): AgentDef | undefined => {
+    const c = detail.steps.find((s) => s.agent_id === id);
+    if (!c) return undefined;
+    return {
+      id,
+      name: c.name || id,
+      role: c.role,
+      description: c.role,
+      pipeline_type: pipelineType,
+      order: c.order,
+      icon: "",
+      estimated_duration: 0,
+      has_skill: false,
+    };
+  };
+  const agents: AgentDef[] = manifestStepsToAgents(raw, fromCompiled).map(decorate);
 
   return {
     agents,

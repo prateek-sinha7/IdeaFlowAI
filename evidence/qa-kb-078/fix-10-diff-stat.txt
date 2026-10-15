@@ -1,0 +1,5 @@
+ .../golden/app_builder.events.json                 |   2 +-
+ .../agents/characterization/golden/app_builder.txt |   4 -
+ .../golden/app_builder.wsframes.json               |   2 +-
+ .../golden/sample_subagents_parallel.events.json   | 102 +++++++++++++++++----
+ 4 files changed, 86 insertions(+), 24 deletions(-)

@@ -27,7 +27,10 @@ def _write_od_context_to_sandbox(sandbox: object, od_context: dict) -> None:
     - ``.context/design/design-system.md``  — design-system token body
     - ``.context/design/craft.md``          — concatenated craft rules (may be empty)
     - ``.context/design/template/SKILL.md`` — template skill body (if present)
-    - ``.context/design/template/<path>``   — seed + reference files from template_files
+    - ``.context/design/template/<path>``   — the template's files (example.html,
+      assets/template.html, references/*.md, …) from template_files
+    - ``.context/design/<name>``            — the design system's tokens.css /
+      components.html from ds_files
 
     Best-effort, never-raising: a write failure logs a warning and continues.
     The writer attribute is probed via duck-typing so harness paths (where
@@ -71,10 +74,15 @@ def _write_od_context_to_sandbox(sandbox: object, od_context: dict) -> None:
     if template_body:
         _safe_write(".context/design/template/SKILL.md", template_body)
 
-    # template_files: seed (assets/template.html) + references/*.md
+    # template_files: example.html, assets/template.html, references/*.md, …
     for rel, content in (od_context.get("template_files") or {}).items():
         if content:
             _safe_write(f".context/design/template/{rel}", content)
+
+    # ds_files: the design system's tokens.css / components.html, beside its body
+    for name, content in (od_context.get("ds_files") or {}).items():
+        if content:
+            _safe_write(f".context/design/{name}", content)
 
 
 def context_already_present(sandbox: object) -> bool:
@@ -197,6 +205,12 @@ def rebuild_od_context_from_sandbox(sandbox: object) -> dict | None:
         except Exception:  # noqa: BLE001
             pass  # best-effort; missing template_files degrades to inline inject
 
+    ds_files = {
+        name: body
+        for name in ("tokens.css", "components.html")
+        if (body := reader(f".context/design/{name}"))
+    }
+
     od_context: dict = {
         "template_id": selections.get("template_id"),
         "ds_id": selections.get("ds_id"),
@@ -208,5 +222,6 @@ def rebuild_od_context_from_sandbox(sandbox: object) -> dict | None:
         "craft_block": craft_block,
         "template_body": template_body,
         "template_files": template_files,
+        "ds_files": ds_files,
     }
     return od_context

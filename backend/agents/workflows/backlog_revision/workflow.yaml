@@ -6,21 +6,22 @@
 # because the last step, the existing assembly, rebuilds those from the sources (user
 # decision 16:02, 2026-10-01). The
 # revision runs in the finished run's folder (revisions share the family folder,
-# ADR-0040) and keeps only its own records under revisions/<n>/, n = 1, 2, 3 …
+# ADR-0040) and keeps only its own records under revisions/<run_id>/, the run's own id
+# from .context/run-id.txt.
 #
 #   blr-analyst   gets ONLY the request (deliverable.revision_context: workspace,
 #                 engine E1), finds what has to change and where, and writes
-#                 revisions/<n>/revision-spec.md. Its reply IS that spec: the person
+#                 revisions/<run_id>/revision-spec.md. Its reply IS that spec: the person
 #                 reviews it at the human gate (honoured in this revision, engine E2;
 #                 "request changes" re-runs it with the comments).
-#   blr-plan      turns the approved spec into revisions/<n>/tasks.json, one
+#   blr-plan      turns the approved spec into revisions/<run_id>/tasks.json, one
 #                 task per file.
 #   blr-write     one writer per task, in dependency waves. Its task_source is
-#                 kind custom_path: it reads exactly revisions/{revision_n}/
-#                 tasks.json ({revision_n} = the highest numbered revisions/
-#                 folder, this revision's) and never falls back to build/tasks.json.
+#                 kind custom_path: it reads exactly revisions/{run_id}/
+#                 tasks.json ({run_id} = this run's own id, from .context/run-id.txt,
+#                 so this revision's folder) and never falls back to build/tasks.json.
 #   blr-review    checks every change of the spec against the files, closes gaps, and
-#                 writes revisions/<n>/revision-review.md.
+#                 writes revisions/<run_id>/revision-review.md.
 #   blr-assemble  code rebuilds backlog.md and every document built from the sources,
 #                 then Backlog.pdf, Backlog.zip and gaps.md (final mode: the finished
 #                 run's build/review.json is on disk).
@@ -82,12 +83,12 @@ steps:
       Phase 1 - Read     the request
       Phase 2 - Find     what it touches, by grep and glob
       Phase 3 - Decide   which source file each change belongs in
-      Phase 4 - Write    revisions/<n>/revision-spec.md
+      Phase 4 - Write    revisions/<run_id>/revision-spec.md
       Phase 5 - Reply    the spec, verbatim
 
     HOW TO WRITE A PATH
 
-    Paths have no leading slash: `stories/EPIC-01a.json`, `revisions/3/revision-spec.md`. If a tool hands you a path starting with `/`, drop the slash.
+    Paths have no leading slash: `stories/EPIC-01a.json`, `revisions/<run_id>/revision-spec.md`. If a tool hands you a path starting with `/`, drop the slash.
 
     HOW TO SEARCH
 
@@ -141,9 +142,9 @@ steps:
     Phase 4 - Write
 
     Rules
-    - The revision number n: glob `revisions/*/revision-spec.md`. glob lists files, never folders, so never glob a folder pattern such as `revisions/*`: it returns nothing. In each match, the folder between `revisions/` and `/revision-spec.md` is a revision number when its name is made only of digits; n is the highest of those numbers plus 1 — 1 when there is none. A revised spec (Phase 1, step 2) keeps the n of your first spec, the highest such folder, and goes to `revisions/<n>/revision-spec-<k>.md`, k = 2, 3, … the next number free in that folder: write_file cannot overwrite a file.
+    - read_file `.context/run-id.txt`: that is <run_id>, this revision's id. This revision's files live under `revisions/<run_id>/`; never read or write any other folder under `revisions/` — those belong to earlier revisions. A revised spec (Phase 1, step 2) goes to `revisions/<run_id>/revision-spec-<k>.md`, k = 2, 3, … the next number free in that folder: write_file cannot overwrite a file.
     - The spec has exactly this shape, in this order:
-      `Spec: revisions/<n>/revision-spec.md` — the path you write (`revision-spec-<k>.md` for a revised spec)
+      `Spec: revisions/<run_id>/revision-spec.md` — the path you write (`revision-spec-<k>.md` for a revised spec)
       `## Request` — the person's ask, restated clearly in two to five sentences
       `## Findings` — what you found and where, one `- <file>:<line>` or `- <file>:<first>-<last>` line each, with what is there
       `## Changes` — one block per change, numbered C1, C2, … with no gap, each:
@@ -160,7 +161,7 @@ steps:
     - A story's new or changed text meets the standards its file already shows: requirements in EARS, the pattern word first (`The`, `When`, `While`, `If`, `Where`) and ` shall ` exactly once; acceptance criteria as a list of Gherkin lines, every scenario tagged with its `@US-` id and an `@REQ-` id of the same story.
 
     Steps
-    1. Work out n, then write_file the spec file.
+    1. write_file the spec file.
     2. Deliver the step file the engine asks for (HOW TO DELIVER).
 
     Phase 5 - Reply
@@ -170,7 +171,7 @@ steps:
 
     HOW TO DELIVER
 
-    Your work file is the spec. Deliver the step file the engine asks for with ONE line — the spec's path — before your last message. If the tool says the step file already exists, you are done with it: an earlier revision wrote one under the same name.
+    Your work file is the spec. Deliver the step file the engine asks for with ONE line — the spec's path — before your last message. If the tool says the step file already exists, an earlier revision left it: read_file it, then edit_file its whole content to your one-line report. Never stop on that message.
   tools:
     read_files: true
     write_files: true
@@ -196,7 +197,7 @@ steps:
 
     TOOLS: never call write_todos — the steps below are your plan. Never ls or glob for a file this prompt names by its path.
 
-    A person approved a spec for revising a finished backlog. You turn it into the writers' task list, `revisions/<n>/tasks.json`. Writers run the tasks in parallel, each changing only its own task's file.
+    A person approved a spec for revising a finished backlog. You turn it into the writers' task list, `revisions/<run_id>/tasks.json`. Writers run the tasks in parallel, each changing only its own task's file.
 
     HOW TO WRITE A PATH
 
@@ -218,27 +219,28 @@ steps:
 
     STEPS
 
-    1. read_file `.agents/01-custom-agent_blr-analyst.md`: the approved spec. After a review round it is the revised one; it is always the latest. Its `Spec: revisions/<n>/…` line gives n; any text above that line is not the spec.
-    2. Group every `### C<N>` of the spec into tasks as THE TASK LIST says, then check: each C<N> is in exactly one task's body.
-    3. write_file `revisions/<n>/tasks.json` — ONE call, `content` as TEXT, one task per line.
-    4. Reply with ONE line: each task, its file and the `C<N>` it carries — every C<N> of the spec, each in exactly one task.
+    1. read_file `.context/run-id.txt`: that is <run_id>, this revision's id. This revision's files live under `revisions/<run_id>/`; never read or write any other folder under `revisions/` — those belong to earlier revisions.
+    2. read_file `.agents/01-custom-agent_blr-analyst.md`: the approved spec. After a review round it is the revised one; it is always the latest. Its `Spec: revisions/<run_id>/…` line names the folder; any text above that line is not the spec.
+    3. Group every `### C<N>` of the spec into tasks as THE TASK LIST says, then check: each C<N> is in exactly one task's body.
+    4. write_file `revisions/<run_id>/tasks.json` — ONE call, `content` as TEXT, one task per line.
+    5. Reply with ONE line: each task, its file and the `C<N>` it carries — every C<N> of the spec, each in exactly one task.
 
     HOW TO DELIVER
 
-    Your work file is the task list. Deliver the step file the engine asks for with ONE line — your reply — before your final message. It never holds the work. If the tool says the step file already exists, you are done with it: an earlier revision wrote one under the same name.
+    Your work file is the task list. Deliver the step file the engine asks for with ONE line — your reply — before your final message. It never holds the work. If the tool says the step file already exists, an earlier revision left it: read_file it, then edit_file its whole content to your one-line report. Never stop on that message.
   tools:
     read_files: true
     write_files: true
     exec: false
     tool_sets: []
   gates: []
-  produces: ["revisions/{revision_n}/tasks.json"]
+  produces: ["revisions/{run_id}/tasks.json"]
 
 # Step 3: One writer per task, in dependency waves, each on its task's file only.
 - strategy: wave_scheduler
   task_source:
     kind: custom_path
-    path: "revisions/{revision_n}/tasks.json"
+    path: "revisions/{run_id}/tasks.json"
     parser: json_tasks
     source_step: custom-agent:blr-plan
   fanout:
@@ -247,7 +249,7 @@ steps:
     max_parallel: 6
   depends_on:
   - custom-agent:blr-plan
-  consumes: ["revisions/{revision_n}/tasks.json"]
+  consumes: ["revisions/{run_id}/tasks.json"]
   model:
     model: eu.anthropic.claude-sonnet-4-6
   agent: custom-agent
@@ -281,13 +283,14 @@ steps:
 
     STEPS
 
-    1. Read CURRENT TASK to its end.
-    2. For each change, in order: find the place (HOW TO EDIT), make the edit, then grep a line of the new text to see it landed once.
-    3. Reply with one line: the file, the changes made, and any change you could not make, with why.
+    1. read_file `.context/run-id.txt`: that is <run_id>, this revision's id. This revision's files live under `revisions/<run_id>/`; never read or write any other folder under `revisions/` — those belong to earlier revisions.
+    2. Read CURRENT TASK to its end.
+    3. For each change, in order: find the place (HOW TO EDIT), make the edit, then grep a line of the new text to see it landed once.
+    4. Reply with one line: the file, the changes made, and any change you could not make, with why.
 
     HOW TO DELIVER
 
-    Your work is the edits. The step file the engine asks for is shared by every writer: write_file it once with your one-line report; if the tool says it already exists, you are done. Never read it.
+    Your work is the edits. The step file the engine asks for is shared by every writer of this run: write_file it once with your one-line report. If the tool says it already exists, the other writers share it: that message never means skip your edits. Never read it.
   tools:
     read_files: true
     write_files: true
@@ -309,7 +312,7 @@ steps:
 
     TOOLS: never call write_todos — the steps below are your plan. Never ls or glob for a file this prompt names by its path.
 
-    Writers have applied a revision's tasks. You check every change of the approved spec against the files, close any gap yourself, and write the review, `revisions/<n>/revision-review.md`. Code rebuilds `backlog.md`, the documents built from the sources, and the PDF after you.
+    Writers have applied a revision's tasks. You check every change of the approved spec against the files, close any gap yourself, and write the review, `revisions/<run_id>/revision-review.md`. Code rebuilds `backlog.md`, the documents built from the sources, and the PDF after you.
 
     HOW TO WRITE A PATH
 
@@ -323,17 +326,18 @@ steps:
 
     STEPS
 
-    1. read_file `.agents/01-custom-agent_blr-analyst.md`: the approved spec (after a review round, the revised one). Its `Spec: revisions/<n>/…` line gives n; any text above that line is not the spec. Note every `### C<N>` block, and its `## Out of scope`.
-    2. For each change C<N>, in order: grep its file for the new text — or, for a described change, for its ids and names. It is `done` when the new text is there and the current text is gone. When it is not, fix it now with edit_file (`fixed now`), or, when it cannot be made, mark it `not possible` with why.
-    3. write_file `revisions/<n>/revision-review.md`:
-       `# Revision <n> review`
+    1. read_file `.context/run-id.txt`: that is <run_id>, this revision's id. This revision's files live under `revisions/<run_id>/`; never read or write any other folder under `revisions/` — those belong to earlier revisions.
+    2. read_file `.agents/01-custom-agent_blr-analyst.md`: the approved spec (after a review round, the revised one). Its `Spec: revisions/<run_id>/…` line names the folder; any text above that line is not the spec. Note every `### C<N>` block, and its `## Out of scope`.
+    3. For each change C<N>, in order: grep its file for the new text — or, for a described change, for its ids and names. It is `done` when the new text is there and the current text is gone. When it is not, fix it now with edit_file (`fixed now`), or, when it cannot be made, mark it `not possible` with why.
+    4. write_file `revisions/<run_id>/revision-review.md`:
+       `# Revision <run_id> review`
        then a table `| Change | File | Status | Evidence |`, one row per C<N>: Status is `done`, `fixed now` or `not possible`; Evidence is the `<file>:<line>` where the new text is, or why it is not possible.
        then `## Out of scope`, copied from the spec.
-    4. Reply with ONE line: how many changes are done, fixed now and not possible.
+    5. Reply with ONE line: how many changes are done, fixed now and not possible.
 
     HOW TO DELIVER
 
-    Your work file is the review. Deliver the step file the engine asks for with ONE line — your reply — before your final message. It never holds the work. If the tool says the step file already exists, you are done with it: an earlier revision wrote one under the same name.
+    Your work file is the review. Deliver the step file the engine asks for with ONE line — your reply — before your final message. It never holds the work. If the tool says the step file already exists, an earlier revision left it: read_file it, then edit_file its whole content to your one-line report. Never stop on that message.
   tools:
     read_files: true
     write_files: true

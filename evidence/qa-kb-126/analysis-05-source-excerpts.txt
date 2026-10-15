@@ -1,0 +1,153 @@
+# QA-KB-126 analysis 05: source excerpts, quoted with line numbers (HEAD facae452a, 2026-10-09T13:55Z); backend/ and frontend/ have no uncommitted change
+
+## The tier gate keys on the label the caller chose
+--- backend/app/api/user_workflows.py:727-732
+727:     # base_pipeline_type ∈ SUPPORTED_PIPELINE_TYPES (launch predicate).
+728:     if body.base_pipeline_type not in SUPPORTED_PIPELINE_TYPES:
+729:         raise HTTPException(
+730:             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+731:             detail=f"Unsupported base_pipeline_type: {body.base_pipeline_type!r}",
+732:         )
+--- backend/app/api/user_workflows.py:744-748
+744:     allowed, reason = can_run_pipeline(
+745:         effective_tier(current_user, principal), body.base_pipeline_type
+746:     )
+747:     if not allowed:
+748:         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=reason)
+--- backend/app/core/entitlements.py:11-16
+11:     "basic": {
+12:         "user_stories",
+13:         "user_stories_revision",
+14:         "ppt",
+15:         "ppt_v2",
+16:         "ppt_revision",
+--- backend/app/core/entitlements.py:67-67
+67:         "custom",
+--- backend/app/core/entitlements.py:112-124
+112: def can_run_pipeline(user_tier: str, pipeline_type: str) -> tuple[bool, str]:
+113:     """Return (allowed, reason). reason is empty string when allowed."""
+114:     allowed_pipelines = TIER_PIPELINES.get(user_tier, TIER_PIPELINES["basic"])
+115:     if pipeline_type in allowed_pipelines:
+116:         return True, ""
+117:     next_tier = UPGRADE_PATH.get(user_tier)
+118:     if next_tier:
+119:         next_label = TIER_LABELS[next_tier]
+120:         return (
+121:             False,
+122:             f"This pipeline requires {next_label} or higher. Upgrade your plan to unlock it.",
+123:         )
+124:     return False, "This pipeline is not available on your current plan."
+
+## The privilege comes from the compile trust, decided with no tier
+--- backend/agents/workflows/compiler.py:228-228
+228: _TRUSTED_SOURCES: frozenset[str] = frozenset({"file", "builtin", "db"})
+--- backend/agents/workflows/compiler.py:324-324
+324:         trusted = trust in _TRUSTED_SOURCES
+--- backend/agents/workflows/compiler.py:506-507
+506:         if trusted:
+507:             return
+--- backend/agents/workflows/compiler.py:1023-1042
+1023:         if not trusted:
+1024:             granted_priv: list[str] = []
+1025:             if step_grant.exec:
+1026:                 granted_priv.append("exec")
+1027:             if step_grant.network:
+1028:                 granted_priv.append("network")
+1029:             if step_grant.secrets:
+1030:                 granted_priv.append("secrets")
+1031:             # WR-01 fail-loud symmetry: spawn_subagents is engineer-only too — the
+1032:             # trust-conditional ceiling already collapses it OFF, but rejecting the
+1033:             # grant NAMES it instead of silently dropping it.
+1034:             if step_grant.spawn_subagents:
+1035:                 granted_priv.append("spawn_subagents")
+1036:             if granted_priv:
+1037:                 raise CompilerError(
+1038:                     f"step grant of {granted_priv!r} is not permitted for "
+1039:                     f"{trust!r}-trust manifests in {where} — "
+1040:                     f"exec/network/secrets/spawn_subagents are engineer-only "
+1041:                     f"(file/builtin trust)"
+1042:                 )
+--- backend/agents/workflows/permission_caps.py:75-75
+75: TRUSTED_TRUST_LEVELS: frozenset[str] = frozenset({"file", "builtin", "db"})
+--- backend/agents/workflows/permission_caps.py:80-91
+80:     "trusted": ToolPermissions(
+81:         read_files=True,
+82:         write_files=True,
+83:         exec=True,
+84:         spawn_subagents=True,
+85:         network=False,
+86:         git=True,   # Task 4.1 (Requirement 42): engine's own commit bypasses this cap
+87:                     # via commit_all() directly — no agent-callable git tool exists in
+88:                     # the capability registry. Flipped here in the same change as the
+89:                     # first declared git hook so the cap accurately reflects the engine's
+90:                     # new git-enabled sandbox posture (has_git=True global default).
+91:         tool_sets=[
+
+## The three sites that pick the trust of a saved row
+--- backend/app/api/user_workflows.py:119-121
+119:     try:
+120:         parsed = build_manifest_from_dict(raw, source_label)
+121:         _WORKFLOW_COMPILER.compile(parsed, _CAPABILITY_REGISTRY, trust="db")
+--- backend/app/api/run_commands.py:3374-3376
+3374:         _trust = (
+3375:             "user" if _inline or user_workflow_row.overrides_pipeline_type else "db"
+3376:         )
+--- backend/app/api/run_commands.py:3437-3438
+3437:         if not _inline:
+3438:             body.pipeline_type = user_workflow_row.base_pipeline_type
+--- backend/app/api/run_commands.py:3483-3483
+3483:     _require_tier_entitlement(current_user, principal, pipeline_type)
+--- backend/agents/execution_engine/kernel_services.py:1616-1616
+1616:                 row_trust = "user" if row.overrides_pipeline_type else "db"
+--- backend/agents/execution_engine/kernel_services.py:1685-1685
+1685:             user=SimpleNamespace(id=ectx.owner_id),
+
+## PATCH never calls the gate (the only can_run_pipeline calls in the module are create and sync)
+744:    allowed, reason = can_run_pipeline(
+1151:    allowed, reason = can_run_pipeline(
+--- backend/app/api/user_workflows.py:1078-1083
+1078:     if body.manifest is not None:
+1079:         # T36: a manifest edit replaces the column outright. An empty dict clears
+1080:         # it, mirroring the selections branch above.
+1081:         row.manifest_json = _validated_manifest(
+1082:             body.manifest, f"workflow:{row.id}", row.overrides_pipeline_type
+1083:         )
+
+## The persisted trust that resume reads
+--- backend/app/api/run_commands.py:3430-3431
+3430:         persisted_manifest = dict(raw_manifest)
+3431:         persisted_manifest["_trust"] = _trust
+--- backend/agents/execution_engine/engine.py:15698-15699
+15698:                 _mf = dict(run_manifest)
+15699:                 _trust = _mf.pop("_trust", "user") or "user"
+--- backend/agents/execution_engine/engine.py:16257-16258
+16257:                 _mf = dict(run_manifest)
+16258:                 _trust = _mf.pop("_trust", "user") or "user"
+
+## What exec=True provisions, and the premise that no longer holds
+--- backend/agents/execution_engine/engine.py:5910-5917
+5910:         # subsequent exec steps in the same run do NOT re-prompt. The compiler's
+5911:         # engineer-trust ceiling (a user/db manifest can never provision the exec
+5912:         # workspace) + the run-level approval model bound the blast radius, so this
+5913:         # run-scoped grant is by-design, not a default-deny break.
+5914:         _plan_grants_exec = any(
+5915:             bool(getattr(getattr(s, "tools", None), "exec", False))
+5916:             for s in (compiled.steps or [])
+5917:         )
+--- backend/app/agents/runtime/local.py:235-237
+235: DEFAULT_EXEC_PROFILE = _ExecProfile(
+236:     exec_allow=("python", "python3", "pytest", "ruff"),
+237:     exec_deny=(),
+--- backend/app/agents/runtime/local.py:477-480
+477:         still open sockets at runtime — ``policy.network=False`` + the no-net-capable
+478:         allow-list + the scrubbed env mitigate but do NOT hard-block egress. OS-level
+479:         network-namespace enforcement is the v2 ECS seam; exec is engineer-only +
+480:         ``security``-gated, so this residual is documented + accepted (per N3).
+
+## The comment that states the (now false) design premise for saved rows
+--- backend/app/api/run_commands.py:2523-2527
+2523:     # Not a new trust surface: the identical manifest can already be POSTed to
+2524:     # /api/user_workflows and then launched, so the same bytes were always reachable.
+2525:     # It compiles at trust="user" (STRICTER than the saved row's trust="db"), so the
+2526:     # compiler's own per-step capability checks — which reject exec/network/secrets
+2527:     # grants outright for a non-file manifest — remain the security boundary.

@@ -1,0 +1,10 @@
+# QA-KB-060 fix phase, 2026-10-07, branch feat/stale-bug-fixes @ 1281b4f18, BEFORE the fix
+# cwd: frontend/   cmd: npx vitest --run src/components/workflow/composer/ComposerPage.iss923.test.tsx --reporter=verbose
+ RUN  v4.1.11 /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/frontend
+ ✓ src/components/workflow/composer/ComposerPage.iss923.test.tsx > ComposerPage — Save workflow gated on the /edit seed (ISS-923) > ISS-923: Save workflow is disabled when an edit id was expected but no row arrived 207ms
+ ✓ src/components/workflow/composer/ComposerPage.iss923.test.tsx > ComposerPage — Save workflow gated on the /edit seed (ISS-923) > ISS-923: clicking Save workflow with no seeded row never POSTs a new workflow 230ms
+ ✓ src/components/workflow/composer/ComposerPage.iss923.test.tsx > ComposerPage — Save workflow gated on the /edit seed (ISS-923) > ISS-923: Save workflow is enabled once the row id arrives 137ms
+ Test Files  1 passed (1)
+      Tests  1 passed | 2 expected fail (3)
+   Start at  20:39:51
+   Duration  2.39s (transform 656ms, setup 65ms, import 1.16s, tests 576ms, environment 464ms)

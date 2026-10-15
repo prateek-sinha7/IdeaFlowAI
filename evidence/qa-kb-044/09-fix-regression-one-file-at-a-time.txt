@@ -1,0 +1,51 @@
+# QA-KB-044 fix evidence 09 - regression files, one vitest process per file, 2026-10-02 (5-fixer, FIX-709)
+# runner: scratchpad fixer2-regress.sh (after = real tree; before = scratch copy with PreviewPanel.tsx at HEAD 024c03ef8, preview/*.test.tsx only)
+# pdfDeliverable BEFORE red is a scratch-harness artifact: the test mocks './SandboxPdfPreview' while PreviewPanel imports '@/components/preview/SandboxPdfPreview' (two module ids outside src).
+# history/* tests import PreviewPanel via the @/ alias, so they have an AFTER run only. WorkflowHistory.tsx does not import PreviewPanel; its 1 failure is 'the row's Chain menu action reaches the chain panel' (Unable to find role=menuitem name /chain/i).
+
+## AFTER (real tree, fix applied)
+PreviewPanel.appBuilderSearch.test.tsx | exit=1 | Tests 1 failed (1) | 
+PreviewPanel.degraded.test.tsx | exit=0 | Tests 11 passed (11) | 
+PreviewPanel.genericDeliverable.test.tsx | exit=0 | Tests 13 passed (13) | 
+PreviewPanel.liveVersion.test.tsx | exit=0 | Tests 2 passed (2) | 
+PreviewPanel.loadingGap.test.tsx | exit=0 | Tests 2 passed (2) | 
+PreviewPanel.pdfDeliverable.test.tsx | exit=0 | Tests 3 passed (3) | 
+PreviewPanel.phantomFile.test.tsx | exit=0 | Tests 1 passed (1) | 
+PreviewPanel.pinSurvival.test.tsx | exit=0 | Tests 2 passed | 1 expected fail (3) | 
+PreviewPanel.refSurfaces.test.tsx | exit=0 | Tests 4 passed (4) | 
+PreviewPanel.revisionChip.test.tsx | exit=1 | Tests 2 passed (2) | Errors 2 errors
+PreviewPanel.sandboxRef.test.tsx | exit=0 | Tests 5 passed (5) | 
+PreviewPanel.test.tsx | exit=1 | Tests 1 failed | 18 passed (19) | Errors 8 errors
+PreviewPanel.themeRemount.test.tsx | exit=0 | Tests 3 passed (3) | 
+PreviewPanel.versionChip.test.tsx | exit=1 | Tests 5 failed (5) | Errors 5 errors
+PreviewPanel.versionRunInput.test.tsx | exit=0 | Tests 2 passed (2) | 
+PreviewPanel.workspaceDuringRun.test.tsx | exit=0 | Tests 1 passed (1) | 
+VersionSwitch.integration.test.tsx | exit=0 | Tests 10 passed (10) | 
+RunHeader.test.tsx | exit=0 | Tests 14 passed (14) | 
+RunDetailPage.iss395.test.tsx | exit=0 | Tests 1 passed (1) | 
+RunDetailPage.test.tsx | exit=0 | Tests 6 passed (6) | 
+WorkflowHistory.test.tsx | exit=1 | Tests 1 failed | 16 passed (17) | 
+
+## BEFORE (scratch, PreviewPanel.tsx at HEAD 024c03ef8)
+PreviewPanel.appBuilderSearch.test.tsx | exit=1 | Tests 1 failed (1) | 
+PreviewPanel.degraded.test.tsx | exit=0 | Tests 11 passed (11) | 
+PreviewPanel.genericDeliverable.test.tsx | exit=0 | Tests 13 passed (13) | 
+PreviewPanel.liveVersion.test.tsx | exit=0 | Tests 2 passed (2) | 
+PreviewPanel.loadingGap.test.tsx | exit=0 | Tests 2 passed (2) | 
+PreviewPanel.pdfDeliverable.test.tsx | exit=1 | Tests 1 failed | 2 passed (3) | 
+PreviewPanel.phantomFile.test.tsx | exit=0 | Tests 1 passed (1) | 
+PreviewPanel.pinSurvival.test.tsx | exit=0 | Tests 2 passed | 1 expected fail (3) | 
+PreviewPanel.refSurfaces.test.tsx | exit=0 | Tests 4 passed (4) | 
+PreviewPanel.revisionChip.test.tsx | exit=1 | Tests 2 passed (2) | Errors 2 errors
+PreviewPanel.sandboxRef.test.tsx | exit=0 | Tests 5 passed (5) | 
+PreviewPanel.test.tsx | exit=1 | Tests 1 failed | 18 passed (19) | Errors 8 errors
+PreviewPanel.themeRemount.test.tsx | exit=0 | Tests 3 passed (3) | 
+PreviewPanel.versionChip.test.tsx | exit=1 | Tests 5 failed (5) | Errors 5 errors
+PreviewPanel.versionRunInput.test.tsx | exit=0 | Tests 2 passed (2) | 
+PreviewPanel.workspaceDuringRun.test.tsx | exit=0 | Tests 1 passed (1) | 
+VersionSwitch.integration.test.tsx | exit=0 | Tests 10 passed (10) | 
+RunHeader.test.tsx | exit=0 | Tests 14 passed (14) | 
+
+## QA-KB-037's red test (same file, handleSelectVersion), for interference
+AFTER : PreviewPanel.staleVersionPick.test.tsx | Tests 3 expected fail (3)
+BEFORE: PreviewPanel.staleVersionPick.test.tsx | Tests 3 expected fail (3)

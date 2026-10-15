@@ -490,20 +490,27 @@ export class MockSse implements SeqSource {
     this.attachActivated = true;
     this.liveRuns = [makeRun({ id: this.runId, status: "running", type: "user_stories" }) as unknown as RawRun];
     // Nudge RunConnectionProvider.refreshLiveRuns() so it re-queries GET /api/runs
-    // and attaches the now-live run. Fire-and-forget: the durable tail means any
-    // frame already emitted is replayed on attach (no race).
-    this.page
-      .evaluate((runId) => {
-        // KAN-125: the provider only auto-attaches runs this tab launched
-        // (sessionStorage allow-list), so register the run as tab-owned first.
-        const key = "tab_launched_run_ids";
-        let ids: string[] = [];
-        try { ids = JSON.parse(sessionStorage.getItem(key) ?? "[]") as string[]; } catch { ids = []; }
-        if (!ids.includes(runId)) ids.push(runId);
-        sessionStorage.setItem(key, JSON.stringify(ids));
-        window.dispatchEvent(new Event("online"));
-      }, this.runId)
-      .catch(() => {});
+    // and attaches the now-live run. The durable tail means any frame already
+    // emitted is replayed on attach. Re-nudge until the stream attaches: a single
+    // nudge is lost if it lands before the provider's `online` listener is mounted
+    // (TS-CHAT-04 hung in beforeEach under CI load).
+    const nudge = (attempt: number) => {
+      if (this.everAttached || attempt >= 20 || this.page.isClosed()) return;
+      this.page
+        .evaluate((runId) => {
+          // KAN-125: the provider only auto-attaches runs this tab launched
+          // (sessionStorage allow-list), so register the run as tab-owned first.
+          const key = "tab_launched_run_ids";
+          let ids: string[] = [];
+          try { ids = JSON.parse(sessionStorage.getItem(key) ?? "[]") as string[]; } catch { ids = []; }
+          if (!ids.includes(runId)) ids.push(runId);
+          sessionStorage.setItem(key, JSON.stringify(ids));
+          window.dispatchEvent(new Event("online"));
+        }, this.runId)
+        .catch(() => {})
+        .finally(() => setTimeout(() => nudge(attempt + 1), 1000));
+    };
+    nudge(0);
   }
 
   /**

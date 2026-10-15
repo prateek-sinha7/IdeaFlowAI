@@ -1,0 +1,238 @@
+QA-KB-112 analysis evidence 02: the validate-bugs e2e run record for suite 09_settings (2026-10-09), copied here because the source dir is under /private/tmp and is ephemeral.
+Source dir: /private/tmp/claude-502/-Users-bilala-Developer-Projects-VELOCITY-AI-worktrees-feat-user-stories-v2/5bcc53cb-b19a-476a-8fd1-bfd80715e60a/scratchpad/e2e
+Stack under test: frontend http://localhost:3001 (log header line), tree = this worktree.
+
+====================================================================================================
+summary.txt (full run, one line per suite) -- the 09_settings line
+----------------------------------------------------------------------------------------------------
+09_settings rc=1 10 failed, 29 passed in 223.54s (0:03:43)
+
+====================================================================================================
+failed_ids.txt -- 09_settings nodes failed in the full run (10)
+----------------------------------------------------------------------------------------------------
+suites/09_settings/test_iss404_security_copy.py::test_security_unavailable_copy_does_not_claim_external_management[chromium]
+suites/09_settings/test_settings.py::test_a_saved_constitution_persists_across_a_reload[chromium]
+suites/09_settings/test_settings.py::test_an_environment_with_no_methods_says_so[chromium]
+suites/09_settings/test_settings.py::test_email_codes_are_a_toggle_not_a_wizard[chromium]
+suites/09_settings/test_settings.py::test_email_mfa_changes_the_account_recovery_story[chromium]
+suites/09_settings/test_settings.py::test_every_tab_is_addressable_by_url[chromium-tab-security]
+suites/09_settings/test_settings.py::test_mfa_is_unavailable_for_an_externally_managed_account[chromium]
+suites/09_settings/test_settings.py::test_security_is_a_tab_not_a_page[chromium]
+suites/09_settings/test_settings.py::test_security_lists_both_second_factor_methods[chromium]
+suites/09_settings/test_settings.py::test_the_authenticator_row_offers_no_control_at_all[chromium]
+
+====================================================================================================
+rerun/triage.txt -- the validator's triage rows for 09_settings (the '8 failures' of the bug entry)
+----------------------------------------------------------------------------------------------------
+09_settings | test_an_environment_with_no_methods_says_so[chromium] | AssertionError: Locator expected to be visible / Actual value: None / Error: element(s) not found
+09_settings | test_email_codes_are_a_toggle_not_a_wizard[chromium] | AssertionError: Locator expected to be visible / Actual value: None / Error: element(s) not found
+09_settings | test_email_mfa_changes_the_account_recovery_story[chromium] | AssertionError: Locator expected to be visible / Actual value: None / Error: element(s) not found
+09_settings | test_mfa_is_unavailable_for_an_externally_managed_account[chromium] | AssertionError: Locator expected to be visible / Actual value: None / Error: element(s) not found
+09_settings | test_security_is_a_tab_not_a_page[chromium] | AssertionError: Locator expected to be visible / Actual value: None / Error: element(s) not found
+09_settings | test_security_lists_both_second_factor_methods[chromium] | AssertionError: Locator expected to be visible / Actual value: None / Error: element(s) not found
+09_settings | test_the_authenticator_row_offers_no_control_at_all[chromium] | AssertionError: Locator expected to be visible / Actual value: None / Error: element(s) not found
+09_settings | test_every_tab_is_addressable_by_url[chromium-tab-security] | AssertionError: Locator expected to be visible / Actual value: None / Error: element(s) not found
+
+====================================================================================================
+first_errors.txt -- first error of each failing 09_settings node (all: the 'Account Settings' heading is never found)
+----------------------------------------------------------------------------------------------------
+09_settings | test_a_saved_constitution_persists_across_a_reload[chromium] | E           playwright._impl._errors.TimeoutError: Page.click: Timeout 30000ms exceeded. | E             - waiting for locator("button:has-text(\"Clear\")") | 
+09_settings | test_mfa_is_unavailable_for_an_externally_managed_account[chromium] | E       AssertionError: Locator expected to be visible | E         - Expect "to_be_visible" get_by_text("Account Settings").first with timeout 5000ms | E       Actual value: None
+09_settings | test_security_lists_both_second_factor_methods[chromium] | E       AssertionError: Locator expected to be visible | E         - Expect "to_be_visible" get_by_text("Account Settings").first with timeout 5000ms | E       Actual value: None
+09_settings | test_email_codes_are_a_toggle_not_a_wizard[chromium] | E       AssertionError: Locator expected to be visible | E         - Expect "to_be_visible" get_by_text("Account Settings").first with timeout 5000ms | E       Actual value: None
+09_settings | test_the_authenticator_row_offers_no_control_at_all[chromium] | E       AssertionError: Locator expected to be visible | E         - Expect "to_be_visible" get_by_text("Account Settings").first with timeout 5000ms | E       Actual value: None
+09_settings | test_an_environment_with_no_methods_says_so[chromium] | E       AssertionError: Locator expected to be visible | E         - Expect "to_be_visible" get_by_text("Account Settings").first with timeout 5000ms | E       Actual value: None
+09_settings | test_email_mfa_changes_the_account_recovery_story[chromium] | E       AssertionError: Locator expected to be visible | E         - Expect "to_be_visible" get_by_text("Account Settings").first with timeout 5000ms | E       Actual value: None
+09_settings | test_security_is_a_tab_not_a_page[chromium] | E       AssertionError: Locator expected to be visible | E         - Expect "to_be_visible" get_by_text("Account Settings").first with timeout 5000ms | E       Actual value: None
+09_settings | test_every_tab_is_addressable_by_url[chromium-tab-security] | E       AssertionError: Locator expected to be visible | E         - Expect "to_be_visible" get_by_text("Account Settings").first with timeout 5000ms | E       Actual value: None
+
+====================================================================================================
+rerun/09_settings.log lines 1-48 -- scenario-by-scenario result of the rerun (9 FAILED, 1 PASS)
+----------------------------------------------------------------------------------------------------
+
+  10 scenarios against http://localhost:3001
+  The first navigation can take a while — the dev server compiles on demand.
+
+  [1/10]  UNMARKED  ISS-404 — for a break-glass/local account, the MFA-unavailable message
+      1  When I cold-load "/settings/security"                       5.3s  FAILED
+     FAIL  1 shot  5.5s
+F
+  [2/10]  S-09-12  A saved constitution persists across a reload
+      1  When I enter an instruction and save it                     0.3s  ok
+      2  And I reload the page                                       0.5s  ok
+     PASS  2 shots  4.5s
+.
+  [3/10]  S-09-17  An environment with no methods says so
+      1  When I cold-load "/settings/security"                       5.3s  FAILED
+     FAIL  1 shot  5.4s
+F
+  [4/10]  S-09-15  Email codes are a toggle, not a wizard
+      1  When I cold-load "/settings/security"                       5.2s  FAILED
+     FAIL  1 shot  5.3s
+F
+  [5/10]  S-09-18  Email MFA changes the account-recovery story
+      1  When I cold-load "/settings/security"                       5.2s  FAILED
+     FAIL  1 shot  5.3s
+F
+  [6/10]  S-09-13  MFA is unavailable for an externally-managed account
+      1  When I cold-load "/settings/security"                       5.2s  FAILED
+     FAIL  1 shot  5.3s
+F
+  [7/10]  S-09-19  Security is a tab, not a page
+      1  When I cold-load "/settings/security"                       5.2s  FAILED
+     FAIL  1 shot  5.3s
+F
+  [8/10]  S-09-14  Security lists both second-factor methods
+      1  When I cold-load "/settings/security"                       5.2s  FAILED
+     FAIL  1 shot  5.3s
+F
+  [9/10]  S-09-16  The authenticator row offers no control at all
+      1  When I cold-load "/settings/security"                       5.2s  FAILED
+     FAIL  1 shot  5.4s
+F
+  [10/10]  S-09-01  Every tab is addressable by URL
+      1  When I cold-load "/settings/security"                       5.3s  FAILED
+     FAIL  1 shot  5.5s
+F                                                                        [100%]         report  /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/tests/integration/test-runs/2026-10-09T13-02-rerun3001-09-settings/0-report.html
+
+=================================== FAILURES ===================================
+_ test_security_unavailable_copy_does_not_claim_external_management[chromium] __
+
+====================================================================================================
+rerun/09_settings.log -- first FAILURES block (ISS-404 node): the page the browser actually shows, as an ARIA snapshot
+----------------------------------------------------------------------------------------------------
+=================================== FAILURES ===================================
+_ test_security_unavailable_copy_does_not_claim_external_management[chromium] __
+
+page = <Page url='http://localhost:3001/settings/security'>
+shot = <framework.shot.Shooter object at 0x1099fdad0>
+
+    @pytest.mark.issue("ISS-404")
+    def test_security_unavailable_copy_does_not_claim_external_management(page, shot):
+        """ISS-404 — for a break-glass/local account, the MFA-unavailable message
+        must not claim credentials are "managed outside the application": this
+        app's own database stores and rewrites that account's password.
+        """
+        with shot("iss404-security-copy", 'When I cold-load "/settings/security"'):
+            page.goto("/settings/security")
+>           expect(page.get_by_text(L.HEADING).first).to_be_visible()
+E           AssertionError: Locator expected to be visible
+E           Actual value: None
+E           Error: element(s) not found 
+E           Call log:
+E             - Expect "to_be_visible" get_by_text("Account Settings").first with timeout 5000ms
+E             - waiting for get_by_text("Account Settings").first
+E           
+E           Aria snapshot:
+E           - main:
+E             - heading "Two-factor authentication" [level=1]
+E             - paragraph: Admin access requires a second factor. Set up an authenticator app to continue.
+E             - heading "1. Add this account to your authenticator app" [level=2]
+E             - paragraph: Scan the setup link, or enter the key by hand if you cannot scan.
+E             - term: Account
+E             - definition: admin@velocity.ai
+E             - term: Setup key
+E             - definition: PKG5DLFSFGZ5IUHMK7P3MBYQGFYN7ZBOUXFY7TAWW534K3OEEYFQ
+E             - term: Setup link
+E             - definition: otpauth://totp/Flowin:admin@velocity.ai?secret=PKG5DLFSFGZ5IUHMK7P3MBYQGFYN7ZBOUXFY7TAWW534K3OEEYFQ&issuer=Flowin
+E             - paragraph: This key is shown once and is not stored. If you leave this page before finishing, start again.
+E             - heading "2. Enter the 6-digit code from your app" [level=2]
+E             - text: Verification code
+E             - textbox "Verification code"
+E             - button "Verify and enable" [disabled]
+E           - alert
+
+====================================================================================================
+rerun/09_settings.log -- second FAILURES block (S-09-17): a different setup key on the next cold-load
+----------------------------------------------------------------------------------------------------
+____________ test_an_environment_with_no_methods_says_so[chromium] _____________
+
+page = <Page url='http://localhost:3001/settings/security'>
+shot = <framework.shot.Shooter object at 0x109a70290>
+
+    @pytest.mark.scenario("S-09-17")
+    def test_an_environment_with_no_methods_says_so(page, shot):
+        """Scenario: An environment with no methods says so"""
+        with shot("security-no-methods", 'When I cold-load "/settings/security"'):
+>           open_settings(page, "/settings/security")
+
+suites/09_settings/test_settings.py:753: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+page = <Page url='http://localhost:3001/settings/security'>
+route = '/settings/security'
+
+    def open_settings(page, route: str = "/settings/profile") -> None:
+        page.goto(route)
+>       expect(page.get_by_text(L.HEADING).first).to_be_visible()
+E       AssertionError: Locator expected to be visible
+E       Actual value: None
+E       Error: element(s) not found 
+E       Call log:
+E         - Expect "to_be_visible" get_by_text("Account Settings").first with timeout 5000ms
+E         - waiting for get_by_text("Account Settings").first
+E       
+E       Aria snapshot:
+E       - main:
+E         - heading "Two-factor authentication" [level=1]
+E         - paragraph: Admin access requires a second factor. Set up an authenticator app to continue.
+E         - heading "1. Add this account to your authenticator app" [level=2]
+E         - paragraph: Scan the setup link, or enter the key by hand if you cannot scan.
+E         - term: Account
+E         - definition: admin@velocity.ai
+E         - term: Setup key
+E         - definition: BTN7KVTX2J4BCU5FY4PHOI3G3XISMMWEGYNWH26247TIZFXSSEPQ
+E         - term: Setup link
+E         - definition: otpauth://totp/Flowin:admin@velocity.ai?secret=BTN7KVTX2J4BCU5FY4PHOI3G3XISMMWEGYNWH26247TIZFXSSEPQ&issuer=Flowin
+E         - paragraph: This key is shown once and is not stored. If you leave this page before finishing, start again.
+
+====================================================================================================
+rerun/09_settings.log -- final line
+----------------------------------------------------------------------------------------------------
+9 failed, 1 passed in 60.56s (0:01:00)
+
+====================================================================================================
+09_settings.log (FULL run) lines 19-21 -- the ISS-799 'Security tab' node PASSES while the browser is on the enrolment page
+----------------------------------------------------------------------------------------------------
+  [5/39]  UNMARKED  ISS-799 — the Security tab's mount effect (`SecuritySection.tsx`)
+     PASS  0 shots  5.2s
+.
+
+====================================================================================================
+09_settings.log (FULL run) -- S-09-01 and S-09-02 rows (the security rows are the ones that matter)
+----------------------------------------------------------------------------------------------------
+  [7/39]  S-09-01  Every tab is addressable by URL
+      1  When I cold-load "/settings/profile"                        0.6s  ok
+     PASS  1 shot  1.5s
+  [8/39]  S-09-02  Clicking a tab pushes its URL
+      1  Given I am on "/settings/profile"                           0.5s  ok
+      2  When I click "tab-model"                                    0.1s  ok
+  [31/39]  S-09-01  Every tab is addressable by URL
+      1  When I cold-load "/settings/ai-model"                       0.6s  ok
+     PASS  1 shot  1.6s
+  [32/39]  S-09-02  Clicking a tab pushes its URL
+      1  Given I am on "/settings/profile"                           0.7s  ok
+      2  When I click "tab-limits"                                   0.2s  ok
+  [34/39]  S-09-01  Every tab is addressable by URL
+      1  When I cold-load "/settings/usage"                          0.5s  ok
+     PASS  1 shot  1.5s
+  [35/39]  S-09-02  Clicking a tab pushes its URL
+      1  Given I am on "/settings/profile"                           0.5s  ok
+      2  When I click "tab-constitution"                             0.1s  ok
+  [36/39]  S-09-01  Every tab is addressable by URL
+      1  When I cold-load "/settings/constitution"                   0.5s  ok
+     PASS  1 shot  1.4s
+  [37/39]  S-09-02  Clicking a tab pushes its URL
+      1  Given I am on "/settings/profile"                           0.4s  ok
+      2  When I click "tab-security"                                 0.2s  ok
+  [38/39]  S-09-01  Every tab is addressable by URL
+      1  When I cold-load "/settings/security"                       5.2s  FAILED
+     FAIL  1 shot  5.3s
+  [39/39]  S-09-02  Clicking a tab pushes its URL
+      1  Given I am on "/settings/profile"                           0.5s  ok
+      2  When I click "tab-profile"                                  0.0s  ok
+
+====================================================================================================
+09_settings.log (FULL run) -- final line
+----------------------------------------------------------------------------------------------------
+10 failed, 29 passed in 223.54s (0:03:43)

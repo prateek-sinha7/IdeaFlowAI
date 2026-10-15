@@ -1,0 +1,15 @@
+.venv/lib/python3.13/site-packages/starlette/testclient.py:53
+  /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/.venv/lib/python3.13/site-packages/starlette/testclient.py:53: DeprecationWarning: The anyio.abc.BlockingPortal alias is deprecated, use anyio.from_thread.BlockingPortal instead.
+    _PortalFactoryType = Callable[[], AbstractContextManager[anyio.abc.BlockingPortal]]
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/integration/api/test_duplicate_context_guard_api.py::TestDuplicateContextStripped::test_legacy_block_stripped_when_source_run_id_present
+FAILED tests/integration/api/test_duplicate_context_guard_api.py::TestDuplicateContextStripped::test_brief_preserved_after_strip
+FAILED tests/integration/api/test_duplicate_context_guard_api.py::TestDuplicateContextStripped::test_strip_audit_row_recorded
+FAILED tests/integration/api/test_duplicate_context_guard_api.py::TestDuplicateContextStripped::test_strip_audit_row_references_source_run
+FAILED tests/integration/api/test_duplicate_context_guard_api.py::TestLegacyBlockPreservedWithoutSourceId::test_legacy_block_not_stripped_without_source_run_id
+FAILED tests/integration/api/test_duplicate_context_guard_api.py::TestLegacyBlockPreservedWithoutSourceId::test_run_minted_with_legacy_block_intact
+FAILED tests/integration/api/test_duplicate_context_guard_api.py::TestSourceRunIdOnlyNoStrip::test_no_strip_without_legacy_block
+FAILED tests/integration/api/test_duplicate_context_guard_api.py::TestSourceRunIdOnlyNoStrip::test_v2_native_launch_content_unchanged
+8 failed, 3 warnings in 1.45s

@@ -1,0 +1,50 @@
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - ESM syntax in a file loaded as CommonJS (vitest.config.ts:1:1). Use a `.mjs` extension or set `"type": "module"` in the closest package.json
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+
+ RUN  v4.1.11 /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/frontend
+
+ ❯ src/components/results/AgentDetailPanel.waveWorkerStatus.test.tsx (29 tests | 2 failed) 541ms
+     × shows the member's own output, reasoning, input and context 38ms
+     × renders every section a step page renders 25ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/components/results/AgentDetailPanel.waveWorkerStatus.test.tsx > AgentDetailPanel — a wave member's page carries the same sections > shows the member's own output, reasoning, input and context
+AssertionError: expected 'Steps/Readers/Wave 1/1-crimson-s011-c…' to contain 'Full input prompt'
+
+Expected: "Full input prompt"
+Received: "Steps/Readers/Wave 1/1-crimson-s011-crimson-s01DoneWave 1 member of Readers42s · 31.4K tokReasoningTool calls1read_filefile_path: xokTask messageContext loaded from files in .context/ — see ‘Context received’ →56 charsAgent output0.1k charsshard 1-crimson-s01, 2 pages read, 4 files writtenContext received1 source fed inprompt.md0.1kThe kernel assembled these into this agent's prompt before it ran."
+
+ ❯ src/components/results/AgentDetailPanel.waveWorkerStatus.test.tsx:288:18
+    286|     expect(body).toContain("4 files written");        // its own outpu…
+    287|     expect(body).toContain("Reasoning");              // its own reaso…
+    288|     expect(body).toContain("Full input prompt");      // its own input…
+       |                  ^
+    289|     expect(body).toContain("Context received");       // its own conte…
+    290|     expect(body).toContain("prompt.md");              // that context …
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  src/components/results/AgentDetailPanel.waveWorkerStatus.test.tsx > AgentDetailPanel — a member page is the step page, every section > renders every section a step page renders
+AssertionError: missing section: Full input prompt: expected 'Steps/Readers/Wave 1/1-crimson-s011-c…' to contain 'Full input prompt'
+
+Expected: "Full input prompt"
+Received: "Steps/Readers/Wave 1/1-crimson-s011-crimson-s01DoneWave 1 member of Readers42s · 31.4K tokValidation passedReasoningAdvertised skills1file_extractAttached hooks1secret_scanbefore_writeTool calls1read_filefile_path: xokTask messageContext loaded from files in .context/ — see ‘Context received’ →36 charsAgent output0.1k charsshard 1-crimson-s01, 2 pages read, 4 files writtenContext received1 source fed inprompt.md0.1kThe kernel assembled these into this agent's prompt before it ran."
+
+ ❯ src/components/results/AgentDetailPanel.waveWorkerStatus.test.tsx:329:52
+    327|     for (const section of [
+    328|       "Reasoning", "Tool calls", "Full input prompt", "Agent output", …
+    329|     ]) expect(body, `missing section: ${section}`).toContain(section);
+       |                                                    ^
+    330|   });
+    331|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 27 passed (29)
+   Start at  21:12:12
+   Duration  2.38s (transform 349ms, setup 108ms, import 713ms, tests 541ms, environment 770ms)
+

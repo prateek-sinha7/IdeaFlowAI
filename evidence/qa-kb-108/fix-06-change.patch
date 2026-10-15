@@ -1,0 +1,340 @@
+diff --git a/backend/app/api/admin.py b/backend/app/api/admin.py
+index 7a2ff0982..3406cfa41 100644
+--- a/backend/app/api/admin.py
++++ b/backend/app/api/admin.py
+@@ -597,7 +597,10 @@ def disable_user(
+             status_code=status.HTTP_409_CONFLICT, detail="User is already disabled."
+         )
+ 
+-    cognito_admin.disable_user(user, db)
++    try:
++        cognito_admin.disable_user(user, db)
++    except Exception as exc:  # noqa: BLE001 - re-raised as HTTPException below
++        _raise_for(exc)
+     db.refresh(user)
+ 
+     auth_events.emit(
+@@ -709,7 +712,10 @@ def delete_user(
+         )
+ 
+     # Step 1-2: Disable the user (sign out, disable at Cognito, update local status)
+-    cognito_admin.delete_user(user, db)
++    try:
++        cognito_admin.delete_user(user, db)
++    except Exception as exc:  # noqa: BLE001 - re-raised as HTTPException below
++        _raise_for(exc)
+ 
+     # Step 3: one local transaction -- dependents, then the row itself.
+     deleted_id = user.id
+diff --git a/backend/app/api/auth.py b/backend/app/api/auth.py
+index 6b2414b44..19aa99a7c 100644
+--- a/backend/app/api/auth.py
++++ b/backend/app/api/auth.py
+@@ -340,8 +340,8 @@ def login(request: LoginRequest, db: Session = Depends(get_db)):
+ 
+     try:
+         resp = cognito.admin_initiate_auth(request.email, request.password)
+-    except ClientError as exc:
+-        code = exc.response.get("Error", {}).get("Code", "")
++    except cognito.PROVIDER_ERRORS as exc:
++        code = cognito.provider_error_code(exc)
+         if code in ("NotAuthorizedException", "UserNotFoundException"):
+             auth_events.emit(
+                 AuthEvent.LOGIN_FAILURE,
+@@ -489,8 +489,8 @@ def login_challenge(request: LoginChallengeRequest, db: Session = Depends(get_db
+         resp = cognito.admin_respond_to_auth_challenge(
+             request.email, request.challenge, request.session, challenge_responses
+         )
+-    except ClientError as exc:
+-        code = exc.response.get("Error", {}).get("Code", "")
++    except cognito.PROVIDER_ERRORS as exc:
++        code = cognito.provider_error_code(exc)
+         if code in (
+             "NotAuthorizedException",
+             "CodeMismatchException",
+@@ -666,8 +666,8 @@ def refresh(
+ 
+     try:
+         resp = cognito.refresh_auth(refresh_token, canonical_username)
+-    except ClientError as exc:
+-        code = exc.response.get("Error", {}).get("Code", "")
++    except cognito.PROVIDER_ERRORS as exc:
++        code = cognito.provider_error_code(exc)
+         if code in ("NotAuthorizedException", "UserNotFoundException"):
+             _reconcile_status_on_refresh_rejection(user, db)
+             raise HTTPException(
+@@ -800,8 +800,8 @@ def associate_totp(
+     user, _payload = auth
+     try:
+         secret = cognito.associate_software_token(credentials.credentials)
+-    except ClientError as exc:
+-        code = exc.response.get("Error", {}).get("Code", "")
++    except cognito.PROVIDER_ERRORS as exc:
++        code = cognito.provider_error_code(exc)
+         logger.error("Cognito AssociateSoftwareToken failed: %s", code)
+         raise HTTPException(
+             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+@@ -846,8 +846,8 @@ def verify_totp(
+         cognito.apply_mfa_preference(
+             credentials.credentials, user.email, totp_enabled=True
+         )
+-    except ClientError as exc:
+-        code = exc.response.get("Error", {}).get("Code", "")
++    except cognito.PROVIDER_ERRORS as exc:
++        code = cognito.provider_error_code(exc)
+         if code in ("CodeMismatchException", "EnableSoftwareTokenMFAException"):
+             raise HTTPException(
+                 status_code=status.HTTP_400_BAD_REQUEST,
+@@ -944,8 +944,8 @@ def enable_email_mfa(
+         factors = cognito.apply_mfa_preference(
+             credentials.credentials, user.email, email_enabled=True
+         )
+-    except ClientError as exc:
+-        code = exc.response.get("Error", {}).get("Code", "")
++    except cognito.PROVIDER_ERRORS as exc:
++        code = cognito.provider_error_code(exc)
+         logger.error("Cognito SetUserMFAPreference (email on) failed: %s", code)
+         raise HTTPException(
+             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+@@ -1011,8 +1011,8 @@ def disable_email_mfa(
+         factors = cognito.apply_mfa_preference(
+             credentials.credentials, user.email, email_enabled=False
+         )
+-    except ClientError as exc:
+-        code = exc.response.get("Error", {}).get("Code", "")
++    except cognito.PROVIDER_ERRORS as exc:
++        code = cognito.provider_error_code(exc)
+         logger.error("Cognito SetUserMFAPreference (email off) failed: %s", code)
+         raise HTTPException(
+             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+@@ -1081,8 +1081,8 @@ def forgot_password(request: ForgotPasswordRequest, db: Session = Depends(get_db
+ 
+     try:
+         cognito.forgot_password(email)
+-    except ClientError as exc:
+-        code = exc.response.get("Error", {}).get("Code", "")
++    except cognito.PROVIDER_ERRORS as exc:
++        code = cognito.provider_error_code(exc)
+         if code in ("UserNotFoundException", "InvalidParameterException"):
+             # Swallow — see the enumeration note above.
+             return generic
+@@ -1126,8 +1126,8 @@ def confirm_forgot_password(
+ 
+     try:
+         cognito.confirm_forgot_password(email, request.code, request.new_password)
+-    except ClientError as exc:
+-        code = exc.response.get("Error", {}).get("Code", "")
++    except cognito.PROVIDER_ERRORS as exc:
++        code = cognito.provider_error_code(exc)
+         if code in ("CodeMismatchException", "ExpiredCodeException"):
+             raise HTTPException(
+                 status_code=status.HTTP_400_BAD_REQUEST,
+@@ -1199,8 +1199,8 @@ def change_password(
+         cognito.change_password(
+             credentials.credentials, request.current_password, request.new_password
+         )
+-    except ClientError as exc:
+-        code = exc.response.get("Error", {}).get("Code", "")
++    except cognito.PROVIDER_ERRORS as exc:
++        code = cognito.provider_error_code(exc)
+         if code == "NotAuthorizedException":
+             raise HTTPException(
+                 status_code=status.HTTP_401_UNAUTHORIZED,
+diff --git a/backend/app/core/cognito.py b/backend/app/core/cognito.py
+index 28bc0f5a9..ca0c5ffde 100644
+--- a/backend/app/core/cognito.py
++++ b/backend/app/core/cognito.py
+@@ -30,6 +30,7 @@ from dataclasses import dataclass, field
+ from typing import Any
+ 
+ import httpx
++from botocore.exceptions import BotoCoreError, ClientError
+ from jose import jwt
+ from jose.exceptions import JOSEError
+ 
+@@ -250,6 +251,26 @@ def compute_secret_hash(username: str) -> str:
+     return base64.b64encode(digest).decode("utf-8")
+ 
+ 
++#: Every way a call below can fail at the provider. ``ClientError``: Cognito
++#: answered with an error. ``BotoCoreError``: the call never completed --
++#: credential or SSO-token resolution (raised while signing, before any request),
++#: endpoint, timeout. The families are disjoint, so catching ``ClientError`` alone
++#: lets an expired AWS session escape as an unhandled 500 (ISS-1144).
++PROVIDER_ERRORS = (ClientError, BotoCoreError)
++
++
++def provider_error_code(exc: Exception) -> str:
++    """The Cognito error code of a ``ClientError``, else the exception's class name.
++
++    A ``BotoCoreError`` has no service code; its class name
++    (``TokenRetrievalError``, ``EndpointConnectionError``) matches none of the
++    codes callers branch on, so it takes each caller's "any other failure" path.
++    """
++    if isinstance(exc, ClientError):
++        return exc.response.get("Error", {}).get("Code", "")
++    return type(exc).__name__
++
++
+ def _client():
+     """Lazily construct the boto3 cognito-idp client.
+ 
+diff --git a/backend/app/core/cognito_admin.py b/backend/app/core/cognito_admin.py
+index 9151dc0b3..e2d86f717 100644
+--- a/backend/app/core/cognito_admin.py
++++ b/backend/app/core/cognito_admin.py
+@@ -157,8 +157,8 @@ def _tolerate_missing(operation_name: str, fn, *args, **kwargs) -> None:
+     """
+     try:
+         _retry_on_throttle(operation_name, fn, *args, **kwargs)
+-    except ClientError as exc:
+-        code = exc.response.get("Error", {}).get("Code", "")
++    except cognito.PROVIDER_ERRORS as exc:
++        code = cognito.provider_error_code(exc)
+         if code == "UserNotFoundException":
+             logger.info(
+                 "%s: pool user already absent — treating as success", operation_name
+@@ -208,8 +208,8 @@ def is_last_admin(user: User) -> bool:
+     # catch.
+     try:
+         cognito_groups = cognito.admin_list_groups_for_user(user.email)
+-    except ClientError as exc:
+-        code = exc.response.get("Error", {}).get("Code", "")
++    except cognito.PROVIDER_ERRORS as exc:
++        code = cognito.provider_error_code(exc)
+         if code == "UserNotFoundException":
+             # Authoritative: no pool identity => no provider admin rights to protect.
+             # Read APIs like ListGroupsForUser sit outside prevent_user_existence_errors,
+@@ -239,8 +239,8 @@ def is_last_admin(user: User) -> bool:
+         members = _retry_on_throttle(
+             "ListUsersInGroup", cognito.list_users_in_group, ADMIN_GROUP
+         )
+-    except ClientError as exc:
+-        code = exc.response.get("Error", {}).get("Code", "")
++    except cognito.PROVIDER_ERRORS as exc:
++        code = cognito.provider_error_code(exc)
+         logger.error("ListUsersInGroup failed for %s: %s", ADMIN_GROUP, code)
+         raise ProviderUnavailableError(
+             "Could not verify admin-group membership at the identity provider.",
+@@ -329,8 +329,8 @@ def invite_user(
+             temporary_password,
+             desired_delivery_mediums=["EMAIL"],
+         )
+-    except ClientError as exc:
+-        code = exc.response.get("Error", {}).get("Code", "")
++    except cognito.PROVIDER_ERRORS as exc:
++        code = cognito.provider_error_code(exc)
+         if code == "UsernameExistsException":
+             raise ConflictError(
+                 "A user with this email already exists at the identity provider.",
+@@ -365,10 +365,10 @@ def invite_user(
+         # On any failure (group assignment or otherwise), delete the pool user
+         # to maintain consistency — a partial user is not acceptable.
+         _tolerate_missing("AdminDeleteUser", cognito.admin_delete_user, email)
+-        # If the original error was a ClientError, re-raise as ProviderUnavailableError;
++        # If the original error was a provider error, re-raise as ProviderUnavailableError;
+         # otherwise re-raise the exception as-is.
+-        if isinstance(exc, ClientError):
+-            code = exc.response.get("Error", {}).get("Code", "")
++        if isinstance(exc, cognito.PROVIDER_ERRORS):
++            code = cognito.provider_error_code(exc)
+             logger.error(
+                 "Group assignment failed for newly-created user %s: %s; compensated with AdminDeleteUser",
+                 email,
+@@ -418,8 +418,8 @@ def change_tier(user: User, new_tier: str, db: Session) -> None:
+                 user.email,
+             )
+         )
+-    except ClientError as exc:
+-        code = exc.response.get("Error", {}).get("Code", "")
++    except cognito.PROVIDER_ERRORS as exc:
++        code = cognito.provider_error_code(exc)
+         logger.error("Group lookup failed for %s during tier change: %s", user.email, code)
+         raise ProviderUnavailableError(
+             "Could not read current group membership at the identity provider.",
+@@ -452,8 +452,8 @@ def change_tier(user: User, new_tier: str, db: Session) -> None:
+         _retry_on_throttle(
+             "AdminUserGlobalSignOut", cognito.admin_user_global_sign_out, user.email
+         )
+-    except ClientError as exc:
+-        code = exc.response.get("Error", {}).get("Code", "")
++    except cognito.PROVIDER_ERRORS as exc:
++        code = cognito.provider_error_code(exc)
+         logger.error("Tier change failed for %s: %s", user.email, code)
+         raise ProviderUnavailableError(
+             "Could not update tier at the identity provider.", code=code
+@@ -498,8 +498,8 @@ def change_role(user: User, is_admin: bool, db: Session) -> None:
+         _retry_on_throttle(
+             "AdminUserGlobalSignOut", cognito.admin_user_global_sign_out, user.email
+         )
+-    except ClientError as exc:
+-        code = exc.response.get("Error", {}).get("Code", "")
++    except cognito.PROVIDER_ERRORS as exc:
++        code = cognito.provider_error_code(exc)
+         logger.error("Role change failed for %s: %s", user.email, code)
+         raise ProviderUnavailableError(
+             "Could not update role at the identity provider.", code=code
+@@ -603,8 +603,8 @@ def reset_password(db: Session, user: User) -> None:
+             temp,
+             permanent=False,
+         )
+-    except ClientError as exc:
+-        code = exc.response.get("Error", {}).get("Code", "")
++    except cognito.PROVIDER_ERRORS as exc:
++        code = cognito.provider_error_code(exc)
+         logger.error("AdminSetUserPassword failed for %s: %s", user.email, code)
+         raise ProviderUnavailableError(
+             "Could not reset the password at the identity provider.", code=code
+@@ -683,8 +683,8 @@ def try_delete_pool_user(email: str) -> str | None:
+     try:
+         _retry_on_throttle("AdminDeleteUser", cognito.admin_delete_user, email)
+         return None
+-    except ClientError as exc:
+-        code = exc.response.get("Error", {}).get("Code", "")
++    except cognito.PROVIDER_ERRORS as exc:
++        code = cognito.provider_error_code(exc)
+         if code == "UserNotFoundException":
+             return None
+         logger.error("AdminDeleteUser failed for %s: %s", email, code)
+diff --git a/backend/app/main.py b/backend/app/main.py
+index 767880ddb..49411ada4 100644
+--- a/backend/app/main.py
++++ b/backend/app/main.py
+@@ -19,6 +19,7 @@ if sys.platform == "win32":
+ 
+     asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+ 
++from botocore.exceptions import BotoCoreError
+ from fastapi import FastAPI, Request
+ from fastapi.encoders import jsonable_encoder
+ from fastapi.exceptions import RequestValidationError
+@@ -556,6 +557,29 @@ async def _validation_error_handler(request: Request, exc: RequestValidationErro
+     return JSONResponse(status_code=422, content=jsonable_encoder({"detail": errors}))
+ 
+ 
++@app.exception_handler(BotoCoreError)
++async def _botocore_error_handler(request: Request, exc: BotoCoreError):
++    """ISS-1150: a botocore call that never completed (expired SSO token, no
++    credentials, unreachable endpoint) and that no route translated is a 503.
++
++    Keyed on the class on purpose. Starlette mounts an ``Exception`` or ``500``
++    handler on ServerErrorMiddleware, OUTSIDE CORSMiddleware, so that response
++    still reaches the browser with no CORS header and reads as a CORS block. Any
++    other key is served inside it. Logged here because a handled exception no
++    longer reaches Starlette's own error log.
++    """
++    logger.error(
++        "Unhandled botocore error on %s %s",
++        request.method,
++        request.url.path,
++        exc_info=exc,
++    )
++    return JSONResponse(
++        status_code=503,
++        content={"detail": "A cloud service is unavailable. Please try again."},
++    )
++
++
+ # Register routers
+ app.include_router(auth_router)
+ app.include_router(chats_router)

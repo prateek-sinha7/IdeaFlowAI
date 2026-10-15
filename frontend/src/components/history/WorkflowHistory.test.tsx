@@ -185,8 +185,9 @@ function summaryFor(run: WorkflowRun, agents: { agent_id: string; name: string }
 }
 type ChainHandler = (run: WorkflowRun, type: import("@/types/index").WorkflowType) => void;
 // Redux state so useWorkflowChaining resolves chain targets for ppt/user_stories/
-// prototype/custom. Shared by renderAndOpenRun and the T3-chaining-reachable
-// tests below — both need the exact same catalog.
+// prototype/custom. Used by renderAndOpenRun, and by the T3-chaining-reachable
+// tests below so the list renders as production does (the row "Chain" item
+// those tests once reached was removed by FIX-584).
 function chainCatalogPreloadedState() {
   return {
     global: {
@@ -346,12 +347,13 @@ describe("WorkflowHistory — Suggested next steps", () => {
 // ─────────────────────────────────────────────────────────────────
 // T3-chaining-reachable — handleSelectRun's onOpenRun branch always returns
 // before setSelectedRun runs, so the "Suggested next steps" chain panel above
-// was unreachable in production (DashboardLayout always passes onOpenRun
-// alongside onChainPipeline). Fixed via RowMenu's new "Chain" item, which opts
-// OUT of the onOpenRun redirect (opts.forChain) instead of removing it — the
-// plain row click must keep opening the run through onOpenRun by default.
+// is unreachable in production (DashboardLayout always passes onOpenRun
+// alongside onChainPipeline). T3 reached it through a RowMenu "Chain" item;
+// FIX-584 removed that item on purpose — the run-actions menu carries only
+// actions that act on the row. The plain row click must keep opening the run
+// through onOpenRun.
 // ─────────────────────────────────────────────────────────────────
-describe("WorkflowHistory — chain affordance reachable despite onOpenRun (T3-chaining-reachable)", () => {
+describe("WorkflowHistory — row actions with onOpenRun wired (T3-chaining-reachable; Chain item removed by FIX-584)", () => {
   it("a plain row click still calls onOpenRun (the default 'open this run' behaviour is unchanged)", async () => {
     const run = makeRun({ type: "ppt" });
     mockGetWorkflows.mockResolvedValue({ runs: [run], total: 1 });
@@ -368,27 +370,24 @@ describe("WorkflowHistory — chain affordance reachable despite onOpenRun (T3-c
     // Stayed on the list — the internal detail (with the chain panel) never mounted.
     expect(screen.queryByText(/suggested next steps/i)).not.toBeInTheDocument();
   });
-  it("the row menu offers only Delete after Chain removal (T3-chaining-reachable)", async () => {
+  it("the run-actions menu offers only Delete — no Chain item (FIX-584), even with onChainPipeline wired as in production", async () => {
     const run = makeRun({ type: "ppt" });
     mockGetWorkflows.mockResolvedValue({ runs: [run], total: 1 });
     mockGetWorkflow.mockResolvedValue(run);
-    mockGetRunSummary.mockResolvedValue(summaryFor(run));
     const onOpenRun = vi.fn();
     const onChainPipeline = vi.fn();
+    // Rendered exactly as DashboardLayout does: the old Chain item showed only
+    // when onChainPipeline was passed, so a render without it would pass vacuously.
     renderWithProviders(
       <WorkflowHistory onBack={vi.fn()} onOpenRun={onOpenRun} onChainPipeline={onChainPipeline} />,
       { preloadedState: chainCatalogPreloadedState() },
     );
     await screen.findByText(run.title);
     await userEvent.click(screen.getByRole("button", { name: "Run actions" }));
-    
-    // After commit dfd16738 "drop the Chain action", RowMenu renders only Delete.
-    const menuItems = screen.getAllByRole("menuitem");
-    expect(menuItems).toHaveLength(1);
-    expect(menuItems[0]).toHaveTextContent("Delete");
-    
-    // Verify no Chain item is reachable (regression check).
-    expect(screen.queryByRole("menuitem", { name: /chain/i })).not.toBeInTheDocument();
+    // Proves the menu is open before asserting what it lacks.
+    await screen.findByRole("menuitem", { name: /delete/i });
+    expect(screen.getAllByRole("menuitem")).toHaveLength(1);
+    expect(screen.queryByRole("menuitem", { name: /chain/i })).toBeNull();
   });
 });
 // ─────────────────────────────────────────────────────────────────

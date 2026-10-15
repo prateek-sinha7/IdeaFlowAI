@@ -1,0 +1,17 @@
+# 11 pre-fix control + fixture mutants, 2026-10-07T15:51:11Z. Scratch rsync of backend/ (no .venv), shared tree untouched; interpreter = backend/.venv/bin/python, cwd = the scratch backend (app imported from the scratch copy).
+## A. ISS-981 control: ONLY the four guard hunks of run_commands.py reversed (patch -R of the @@ -2964 / -3101 / -3406 / -3846 hunks of 14a675db4), test files as in the tree
+   pending-row markers in scratch run_commands.py: 11
+$ pytest tests/integration/api/test_duplicate_context_guard_audit_api.py -q -p no:cacheprovider --runxfail
+   E       AssertionError: assert ['pending'] == []
+   E       AssertionError: assert 2 == 0
+   2 failed, 5 warnings in 1.22s
+$ pytest tests/integration/api/test_duplicate_context_guard_api.py -q -p no:cacheprovider --runxfail
+   8 passed, 9 warnings in 1.21s
+## B. ISS-905 fixture mutants, run_commands.py back to the tree version (cmp: identical)
+B1. get_current_principal override removed (the shipped Fault 1):
+   responses with 'Not authenticated': 8
+   8 failed, 3 warnings in 1.24s
+B2. override kept, _seed_chain_source writes no .chain payload (the shipped Fault 2):
+      6 "code":"source_payload_missing"
+   6 failed, 2 passed, 9 warnings in 1.34s
+   scratch guard test restored (cmp vs tree: identical)

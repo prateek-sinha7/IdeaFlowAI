@@ -1,0 +1,37 @@
+# QA-KB-102 fix — end state per scenario after the change, 2026-10-08 15:38, HEAD 2461935f5 + working tree
+# scratch probe outside the suite: evidence/qa-kb-102/analysis-plugins/kb102_fix_observe_test.py (helpers from the red test file + test_restart_resume_db.py)
+# cmd: cd backend && .venv/bin/python -m pytest ../evidence/qa-kb-102/analysis-plugins/kb102_fix_observe_test.py -q -s -p no:cacheprovider --rootdir . -c pyproject.toml
+== A prior=failed: status='failed' error="Resume refused: the workflow this run was launched with no longer compiles (unknown deliverable 'no_such_deliverable_resolver' in workflow 'composed-two-step')"
+   tail: [(1, 'pipeline_start', None), (2, 'agent_start', None), (3, 'pipeline_failed', "prior attempt: step a raised ValueError('boom')"), (4, 'run_resuming', None), (5, 'pipeline_failed', "Resume refused: the workflow this run was launched with no longer compiles (unknown deliverable 'no_such_deliverable_resolver' in workflow 'composed-two-step')")]
+   queue: [('pipeline_failed', 5, "Resume refused: the workflow this run was launched with no longer compiles (unknown deliverable 'no_such_deliverable_resolver' in workflow 'composed-two-step')"), None]
+   registries: queues= [] tasks= []
+== A prior=cancelled: status='failed' error="Resume refused: the workflow this run was launched with no longer compiles (unknown deliverable 'no_such_deliverable_resolver' in workflow 'composed-two-step')"
+   tail: [(1, 'pipeline_start', None), (2, 'agent_start', None), (3, 'pipeline_failed', "prior attempt: step a raised ValueError('boom')"), (99, 'pipeline_cancelled', None), (100, 'run_resuming', None), (101, 'pipeline_failed', "Resume refused: the workflow this run was launched with no longer compiles (unknown deliverable 'no_such_deliverable_resolver' in workflow 'composed-two-step')")]
+   queue: [('pipeline_failed', 101, "Resume refused: the workflow this run was launched with no longer compiles (unknown deliverable 'no_such_deliverable_resolver' in workflow 'composed-two-step')"), None]
+   registries: queues= [] tasks= []
+== A prior=degraded: status='failed' error="Resume refused: the workflow this run was launched with no longer compiles (unknown deliverable 'no_such_deliverable_resolver' in workflow 'composed-two-step')"
+   tail: [(1, 'pipeline_start', None), (2, 'agent_start', None), (3, 'agent_complete', None), (4, 'pipeline_complete', None), (5, 'run_resuming', None), (6, 'pipeline_failed', "Resume refused: the workflow this run was launched with no longer compiles (unknown deliverable 'no_such_deliverable_resolver' in workflow 'composed-two-step')")]
+   queue: [('pipeline_failed', 6, "Resume refused: the workflow this run was launched with no longer compiles (unknown deliverable 'no_such_deliverable_resolver' in workflow 'composed-two-step')"), None]
+   registries: queues= [] tasks= []
+== C quarantine: status='failed' error='Resume failed: sandbox quarantined for run c-22a294: repository is corrupt and requires operator action'
+   tail: [(1, 'pipeline_start', None), (2, 'agent_start', None), (3, 'pipeline_failed', "prior attempt: step a raised ValueError('boom')"), (4, 'run_resuming', None), (5, 'pipeline_failed', 'Resume failed: sandbox quarantined for run c-22a294: repository is corrupt and requires operator action')]
+   queue: [('pipeline_failed', 5, 'Resume failed: sandbox quarantined for run c-22a294: repository is corrupt and requires operator action'), None, None]
+   registries: queues= [] tasks= []
+== G pre-funnel: status='failed' error='scripted fault before the funnel try'
+   tail: [(1, 'pipeline_start', None), (2, 'agent_start', None), (3, 'pipeline_failed', "prior attempt: step a raised ValueError('boom')"), (4, 'run_resuming', None)]
+   queue: [('pipeline_failed', None, 'scripted fault before the funnel try'), None]
+   registries: queues= [] tasks= []
+== control valid manifest: status='degraded' error="prior attempt: step a raised ValueError('boom')"
+   tail: [(1, 'pipeline_start', None), (2, 'agent_start', None), (3, 'pipeline_failed', "prior attempt: step a raised ValueError('boom')"), (4, 'run_resuming', None), (5, 'workflow_validated', None), (6, 'pipeline_start', None), (7, 'agent_start', None), (8, 'agent_input', None), (9, 'agent_skills', None), (10, 'agent_chunk', None), (11, 'artifact_fallback', None), (12, 'agent_complete', None), (13, 'agent_start', None), (14, 'agent_input', None), (15, 'agent_skills', None), (16, 'agent_chunk', None), (17, 'artifact_fallback', None), (18, 'agent_complete', None), (19, 'pipeline_complete', None)]
+   queue: [('workflow_validated', 5, None), ('pipeline_start', 6, None), ('agent_start', 7, None), ('agent_input', 8, None), ('agent_skills', 9, None), ('agent_chunk', 10, None), ('artifact_fallback', 11, None), ('agent_complete', 12, None), ('agent_start', 13, None), ('agent_input', 14, None), ('agent_skills', 15, None), ('agent_chunk', 16, None), ('artifact_fallback', 17, None), ('agent_complete', 18, None), ('pipeline_complete', 19, None), None, None]
+   registries: queues= [] tasks= []
+== D restart scan 1: status='failed' error="prior attempt: step a raised ValueError('boom')"
+   tail: [(1, 'pipeline_start', None), (2, 'agent_start', None), (3, 'run_resuming', None), (4, 'pipeline_failed', "Resume refused: the workflow this run was launched with no longer compiles (unknown deliverable 'no_such_deliverable_resolver' in workflow 'composed-two-step')")]
+   registries: queues= [] tasks= []
+== D restart scan 2: status='failed' error="prior attempt: step a raised ValueError('boom')"
+   tail: [(1, 'pipeline_start', None), (2, 'agent_start', None), (3, 'run_resuming', None), (4, 'pipeline_failed', "Resume refused: the workflow this run was launched with no longer compiles (unknown deliverable 'no_such_deliverable_resolver' in workflow 'composed-two-step')")]
+   registries: queues= [] tasks= []
+=============================== warnings summary ===============================
+    class Settings(BaseSettings):
+    _ts = _dt.datetime.utcnow().isoformat(timespec="seconds") + "Z"
+5 passed, 2 warnings in 3.64s

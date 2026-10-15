@@ -117,12 +117,11 @@ def _seed_family_rows(
 
     db = SessionLocal()
     try:
-        # users.cognito_sub is NOT NULL since the Cognito-only auth migration (b2a621f8).
         db.add(
             User(
                 id=db_user_id,
                 email=f"{db_user_id}@test.local",
-                cognito_sub=f"sub-{db_user_id}",
+                cognito_sub=str(uuid.uuid4()),
             )
         )
         db.add(
@@ -455,10 +454,6 @@ class TestPerRunPathsDistinct:
             "<html><body>revision page</body></html>"
         )
 
-        # The binding lives in context variables since spec 018 / FR-010 (per-worker
-        # BrowserContext isolation), not a module-level ``_SANDBOX``; restore both.
-        _orig_sandbox = playwright_tools._SANDBOX_VAR.get()
-        _orig_agent_key = playwright_tools._AGENT_KEY_VAR.get()
         try:
             # ── Root: navigate + screenshot through the REAL tools. ──
             playwright_tools.bind_sandbox(root_sb, agent_id="root-agent")
@@ -475,8 +470,6 @@ class TestPerRunPathsDistinct:
             playwright_tools.playwright_take_screenshot.invoke({"filename": "shot.png"})
         finally:
             playwright_tools.playwright_close.invoke({})
-            playwright_tools._SANDBOX_VAR.set(_orig_sandbox)
-            playwright_tools._AGENT_KEY_VAR.set(_orig_agent_key)
 
         root_shot = root_sb.browser_dir / "shot.png"
         rev_shot = rev_sb.browser_dir / "shot.png"

@@ -150,7 +150,7 @@
   },
   "src/components/preview/PPTPreview.tsx": {
     "@typescript-eslint/no-unused-vars": {
-      "count": 5
+      "count": 4
     }
   },
   "src/components/preview/PreviewPanel.tsx": {
@@ -275,7 +275,7 @@
       "count": 1
     },
     "react-hooks/set-state-in-effect": {
-      "count": 5
+      "count": 4
     }
   },
   "src/components/workflow/SkillManager.tsx": {
@@ -321,7 +321,7 @@
   },
   "src/components/workflow/composer/ComposerPage.tsx": {
     "react-hooks/exhaustive-deps": {
-      "count": 2
+      "count": 3
     },
     "react-hooks/set-state-in-effect": {
       "count": 3

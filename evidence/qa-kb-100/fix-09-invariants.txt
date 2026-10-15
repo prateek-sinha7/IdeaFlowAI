@@ -1,0 +1,68 @@
+# QA-KB-100 fix 09: invariants after the fix (d284eb258 + working tree, 2026-10-08T12:39Z)
+== SC-001 / INV-1 ratchet: tests/unit/agents/test_banned_patterns.py
+2 failed, 16 passed, 1 warning in 1.89s
+== grep the INV-1 pattern in the two kernel files touched
+no match
+== lint-imports
+
+-   agents.execution_engine.engine -> app.api.runs (l.3577)
+
+
+agents.capabilities must not import the execution kernel or the web layer
+-------------------------------------------------------------------------
+
+agents.capabilities is not allowed to import app:
+
+-   agents.capabilities.prototype_ui_extract -> app.agents.tools.html_extract (l.333)
+
+
+== ruff check (touched files)
+All checks passed!
+== migrations touched
+(none listed above = no migration added)
+
+# ---- appended: are the 2 ratchet failures and the 2 broken contracts this fix's? No.
+== banned-pattern failures name two files this fix did not touch; both are byte-identical to HEAD:
+E           agents/capabilities/prototype_ui_extract.py:333: from app.agents.tools.html_extract import materialise_html
+E           agents/execution_engine/engine.py:981: with a ``prototype_revision`` child and a ``custom_revision`` child tagged
+FAILED tests/unit/agents/test_banned_patterns.py::test_capabilities_do_not_import_kernel_or_web_layer
+FAILED tests/unit/agents/test_banned_patterns.py::TestSC001RevisionPipelineCompliance::test_no_revision_pipeline_names_in_kernel
+git diff --stat HEAD -- agents/capabilities/prototype_ui_extract.py agents/execution_engine/engine.py => []
+== the INV-1 test (if pipeline_type == / spec.id ==) is among the 16 passed:
+4 passed, 14 deselected, 1 warning in 0.92s
+== lint-imports BEFORE: clean 'git archive HEAD' export of backend/{agents,app,tools,pyproject.toml} into the scratchpad
+kernel imports only capability ports (scaffold) BROKEN
+agents.workflows must not import the execution kernel or the web layer KEPT
+agents.capabilities must not import the execution kernel or the web layer BROKEN
+agents.runtime must not import the execution kernel or the web layer KEPT
+shipped code must not import the build-time tooling package KEPT
+Contracts: 3 kept, 2 broken.
+== lint-imports AFTER: working tree
+kernel imports only capability ports (scaffold) BROKEN
+agents.workflows must not import the execution kernel or the web layer KEPT
+agents.capabilities must not import the execution kernel or the web layer BROKEN
+agents.runtime must not import the execution kernel or the web layer KEPT
+shipped code must not import the build-time tooling package KEPT
+Contracts: 3 kept, 2 broken.
+== app.* imports in kernel_services.py: identical module set to HEAD (line numbers +3 after the inserted lines):
+identical
+== the one new import edge this fix adds: app.api.user_workflows -> agents.execution_engine.overrides (lazy, inside _compile_check_override_steps). app -> kernel is not a forbidden direction in any contract; user_workflows already lazily imports agents.execution_engine.engine.
+== per-test outcomes, tests/unit/agents/test_banned_patterns.py (INV-1 / SC-001 pipeline_type-branch tests PASSED; the two FAILED name files outside this diff):
+PASSED tests/unit/agents/test_banned_patterns.py::test_no_hand_rolled_deep_agent_class
+PASSED tests/unit/agents/test_banned_patterns.py::test_no_hand_rolled_deep_agent_function
+PASSED tests/unit/agents/test_banned_patterns.py::test_no_bespoke_agent_loop
+PASSED tests/unit/agents/test_banned_patterns.py::test_no_local_deepagents_module
+PASSED tests/unit/agents/test_banned_patterns.py::test_create_deep_agent_only_in_sanctioned_adapter
+PASSED tests/unit/agents/test_banned_patterns.py::test_runtime_adapter_resolves_after_discover
+PASSED tests/unit/agents/test_banned_patterns.py::test_runtime_capability_does_not_import_app_or_create_deep_agent
+PASSED tests/unit/agents/test_banned_patterns.py::test_capability_boundary_gate_catches_the_iss068_violation
+PASSED tests/unit/agents/test_banned_patterns.py::test_capability_boundary_gate_ignores_lookalikes
+PASSED tests/unit/agents/test_banned_patterns.py::test_gate_catches_injected_hand_rolled_agent
+PASSED tests/unit/agents/test_banned_patterns.py::test_gate_ignores_comment_mentions
+PASSED tests/unit/agents/test_banned_patterns.py::test_inv1_no_kernel_workflow_name_branch
+PASSED tests/unit/agents/test_banned_patterns.py::test_inv1_gate_is_non_vacuous
+PASSED tests/unit/agents/test_banned_patterns.py::TestSC001RevisionPipelineCompliance::test_no_pipeline_type_branch_in_kernel
+PASSED tests/unit/agents/test_banned_patterns.py::TestSC001RevisionPipelineCompliance::test_no_pipeline_type_branch_gate_is_non_vacuous
+PASSED tests/unit/agents/test_banned_patterns.py::TestSC001RevisionPipelineCompliance::test_no_revision_pipeline_names_gate_is_non_vacuous
+FAILED tests/unit/agents/test_banned_patterns.py::test_capabilities_do_not_import_kernel_or_web_layer
+FAILED tests/unit/agents/test_banned_patterns.py::TestSC001RevisionPipelineCompliance::test_no_revision_pipeline_names_in_kernel

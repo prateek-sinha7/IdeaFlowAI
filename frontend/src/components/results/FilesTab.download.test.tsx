@@ -183,7 +183,7 @@ describe("FilesTab — workspace reconciliation", () => {
     expect(screen.getByText(/PPTX \(\.pptx\) · 2\.0 KB/)).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: /^download$/i }));
 
-    await waitFor(() => expect(api.getRunSandboxFileBlob).toHaveBeenCalledWith("tok", "run-1", "out/deck.pptx"));
+    await waitFor(() => expect(api.getRunSandboxFileBlob).toHaveBeenCalledWith("tok", "run-1", "out/deck.pptx", undefined));
     await waitFor(() => expect(clickSpy).toHaveBeenCalled());
     expect(alertSpy).not.toHaveBeenCalled();
   });
@@ -276,7 +276,7 @@ describe("FilesTab — Figma export flow", () => {
     await user.click(screen.getByRole("button", { name: /Done — frames ready/ }));
     await user.click(screen.getByRole("button", { name: /Download ZIP/ }));
 
-    await waitFor(() => expect(exportFigmaZip).toHaveBeenCalledWith("<title>Shop App</title>", "shop-app", "r9"));
+    await waitFor(() => expect(exportFigmaZip).toHaveBeenCalledWith("<title>Shop App</title>", "shop-app", "r9", undefined));
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
   });
 
@@ -305,7 +305,7 @@ describe("FilesTab — Figma export flow", () => {
     render(<FilesTab workflowType="prototype" runId="r1" />);
     await user.click(screen.getByRole("button", { name: /^download$/i }));
     expect(await screen.findByRole("dialog")).toBeInTheDocument();
-    expect(api.getRunSandboxFile).toHaveBeenCalledWith("tok", "r1", "prototype.html");
+    expect(api.getRunSandboxFile).toHaveBeenCalledWith("tok", "r1", "prototype.html", undefined);
   });
 
   it("alerts when the sandbox html is empty", async () => {
@@ -425,7 +425,8 @@ describe("FilesTab — base version section edge cases", () => {
     const user = userEvent.setup();
     api.getWorkflow.mockResolvedValue({ type: "ppt", output: "<title>Old</title>", deliverableFilename: "old.pptx" });
     api.resolveRunDeliverable.mockResolvedValue({ path: "old.pptx", size: 10 });
-    render(<FilesTab workflowType="prototype" parentRunId="p1" parentVersionNumber={2} agentOutputs={[{ name: "A", output: "a" }]} />);
+    // ISS-972: the parent's file is read at the parent's own tag, never the live tree.
+    render(<FilesTab workflowType="prototype" parentRunId="p1" parentVersionNumber={2} parentGitTag="v2" agentOutputs={[{ name: "A", output: "a" }]} />);
     const toggle = screen.getByRole("button", { name: "From version 2" });
     await user.click(toggle);
     expect(await screen.findByText("old.pptx")).toBeInTheDocument();

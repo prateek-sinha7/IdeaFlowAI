@@ -1,0 +1,24 @@
+xx                                                                       [100%]
+=============================== warnings summary ===============================
+app/core/config.py:94
+  /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/app/core/config.py:94: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+    class Settings(BaseSettings):
+
+tests/conftest.py:484
+  /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/tests/conftest.py:484: PytestUnknownMarkWarning: Unknown pytest.mark.agents - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    item.add_marker(getattr(pytest.mark, suite))
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+XFAIL tests/agents/test_resume_run_offset_log.py::test_offset_log_uses_plan_step_count - ISS-950 unfixed
+XFAIL tests/agents/test_resume_run_offset_log.py::test_no_all_steps_complete_while_steps_remain - ISS-950 unfixed
+2 xfailed, 2 warnings in 1.37s
+E       AssertionError: ['resume_run(r1): resuming pipeline=prototype_v2_revision at step offset 1/1', 'resume_run(r1): all steps complete — nothing to re-drive']
+E       assert False
+E        +  where False = any(<generator object test_offset_log_uses_plan_step_count.<locals>.<genexpr> at 0x10dd10520>)
+tests/agents/test_resume_run_offset_log.py:60: AssertionError
+E       AssertionError: ['resume_run(r1): resuming pipeline=prototype_v2_revision at step offset 2/1', 'resume_run(r1): all steps complete — nothing to re-drive']
+E       assert not True
+E        +  where True = any(<generator object test_no_all_steps_complete_while_steps_remain.<locals>.<genexpr> at 0x10d7b8ad0>)
+tests/agents/test_resume_run_offset_log.py:68: AssertionError
+2 failed, 2 warnings in 1.32s

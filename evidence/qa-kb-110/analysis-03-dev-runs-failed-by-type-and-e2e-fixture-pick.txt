@@ -1,0 +1,20 @@
+observed 2026-10-09T14:23Z against http://localhost:8000 (GET only)
+
+== 1. what the e2e test's discovery picks (GET /api/runs?limit=50, newest first, status failed, first non-empty distinct input)
+    1260b7ba-18d3-45c1-afc9-6959c6836155 ex_A1_loop     input_len=40    'Greet the team with a short emoji hello.'
+    9eb70b6e-5a70-41e8-9d5f-fbb05e11440d ex_A4_human_gate input_len=8     'Greet me'
+    9c330eb0-ab0a-4b0b-bf36-94d206bb826a ex_A2_branch   input_len=2     'Hi'
+
+== 2. every failed run for this user, by type (GET /api/runs?status_filter=failed, paged by 100)
+   backlog            2  715c1279, caddd53f
+   ex_A1_loop         5  1260b7ba, caa766dc, c10a03ed, 9a931a7a, eb1d7551
+   ex_A2_branch       2  9c330eb0, e9a9e2f0
+   ex_A4_human_gate   1  9eb70b6e
+   prototype_revision 2  b7bdf6a3, 97b49f98
+   prototype_v2       3  c1862b1a, a98a7627, 9ad760a6
+   user_stories_v2    1  05832e65
+   total failed: 16
+
+== 3. failed *_revision runs in full (id, type, parent_run_id)
+    b7bdf6a3-2ae9-48f6-867e-dbfb61b9f570 prototype_revision 0f62f7bc-d3a2-4748-8004-0b534e1741ae
+    97b49f98-83bd-4ed6-8631-600bf9653905 prototype_revision 87e02c32-96a9-4e50-8ed0-79023d83540f

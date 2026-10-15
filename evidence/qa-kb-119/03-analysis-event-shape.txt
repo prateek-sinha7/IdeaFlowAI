@@ -1,0 +1,26 @@
+# QA-KB-119 analysis: shape of run 78e185fb-c032-4154-8552-774781b6e5df /events payload, 2026-10-09, backend :8000
+# Script: evidence/qa-kb-119/03-analysis-event-shape.py (read-only; prints counts, sizes and event TYPE NAMES only, never payload content or the token)
+
+envelope keys: ['after', 'events', 'workflow_id']
+row keys: ['created_at', 'event_id', 'payload_json', 'seq', 'type']
+events=107409 bytes=52909786 avg_bytes_per_event=493
+seq: min=1 max=107409 contiguous=True
+payload bytes: p50=304 p90=319 p99=358 p99.9=20198 max=1227987
+  payloads >   10000: 166
+  payloads >   50000: 7
+  payloads >  100000: 2
+  payloads >  200000: 1
+top event types by payload bytes (type, count, bytes, share):
+  agent_thinking                 87073    26658975  72.7%
+  agent_chunk                    18640     3861261  10.5%
+  tool_call                        565     2724330   7.4%
+  agent_input                       82     1709629   4.7%
+  pipeline_complete                  1     1227987   3.3%
+  tool_result                      565      284040   0.8%
+  agent_complete                    90       44323   0.1%
+  questionnaire_ready                4       41494   0.1%
+  agent_start                       90       34773   0.1%
+  agent_skills                      82       28012   0.1%
+chat_message+chat_reply: 14 events, 4581 payload bytes (0.01% of payload bytes)
+worst contiguous  100-event window: 1249123 payload bytes
+worst contiguous 1000-event window: 1543526 payload bytes

@@ -1,0 +1,55 @@
+# test_cancel_stops_resumed_run_db.py at HEAD, no plugin (one file)
+...F.                                                                    [100%]
+=================================== FAILURES ===================================
+________ test_cancel_stops_a_resumed_drive_and_writes_the_terminal_row _________
+tests/integration/agents/test_cancel_stops_resumed_run_db.py:236: in test_cancel_stops_a_resumed_drive_and_writes_the_terminal_row
+    assert "pipeline_cancelled" in _persisted_types(session, run_id), (
+E   AssertionError: a cancelled run must persist exactly the pipeline_cancelled terminal — without it nothing downstream (UI, status, cost accounting) is ever told
+E   assert 'pipeline_cancelled' in ['workflow_validated']
+E    +  where ['workflow_validated'] = _persisted_types(<sqlalchemy.orm.session.Session object at 0x10bf6d010>, 'iss084-075b8573')
+------------------------------ Captured log call -------------------------------
+WARNING  app.agents.checkpointer:checkpointer.py:61 Checkpointer: DATABASE_URL is not Postgres — using InMemorySaver. HITL pauses work within the process but do NOT survive a restart.
+WARNING  agents.artifacts.graph:graph.py:155 artifact kind 'sample-wave-plan' is outside ARTIFACT_KINDS — typed consumes routing and the FR-014 revision lookup match kinds EXACTLY, so a typo here is silently unroutable (IN-01 advisory; write proceeds)
+WARNING  agents.artifacts.graph:graph.py:155 artifact kind 'sample-wave-worker' is outside ARTIFACT_KINDS — typed consumes routing and the FR-014 revision lookup match kinds EXACTLY, so a typo here is silently unroutable (IN-01 advisory; write proceeds)
+WARNING  agents.artifacts.graph:graph.py:155 artifact kind 'sample-wave-worker' is outside ARTIFACT_KINDS — typed consumes routing and the FR-014 revision lookup match kinds EXACTLY, so a typo here is silently unroutable (IN-01 advisory; write proceeds)
+WARNING  agents.execution_engine.kernel_services:kernel_services.py:754 update_wave_run_merge_state(step=sample-wave-worker) failed: 'ScopedStore' object has no attribute '_acquire'
+ERROR    agents.execution_engine.engine:engine.py:14364 step sample-wave-worker raised: scripted instance-A crash on run_fanout call #2
+Traceback (most recent call last):
+  File "/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/agents/execution_engine/engine.py", line 14354, in _guarded_step
+    async for event in self._dispatch_step_with_retry(step, ectx, strategy):
+    ...<2 lines>...
+        yield event
+  File "/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/agents/execution_engine/engine.py", line 14391, in _dispatch_step_with_retry
+    async for event in strategy.run(step, ectx):
+        yield event
+  File "/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/agents/capabilities/strategies/wave_scheduler.py", line 490, in run
+    async for event in _dispatch_wave(requests, task_ids):
+        yield event
+  File "/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/agents/capabilities/strategies/wave_scheduler.py", line 474, in _dispatch_wave
+    async for event in stream_wave_fanout(
+    ...<12 lines>...
+        yield event
+  File "/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/agents/capabilities/strategies/_fanout_wave_stream.py", line 88, in stream_wave_fanout
+    yield next_fanout.result()
+          ~~~~~~~~~~~~~~~~~~^^
+  File "/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/tests/integration/agents/test_restart_resume_db.py", line 380, in _wrapped_fanout
+    raise RuntimeError(
+        f"scripted instance-A crash on run_fanout call #{_raise_on}"
+    )
+RuntimeError: scripted instance-A crash on run_fanout call #2
+ERROR    agents.execution_engine.engine:engine.py:2603 finalize_terminal_run: create_run_ref FAILED run=iss084-075b8573 (run_id must be a UUID (hex digits and hyphens only): 'iss084-075b8573')
+WARNING  agents.execution_engine.engine:engine.py:16031 resumed-stream drive(iss084-075b8573) failed mid-drive: Cannot transition run 'iss084-075b8573' from terminal state 'failed' to 'generating'.
+=============================== warnings summary ===============================
+app/core/config.py:94
+  /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/app/core/config.py:94: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https:
+    class Settings(BaseSettings):
+
+tests/integration/agents/test_cancel_stops_resumed_run_db.py::test_cancel_stops_a_resumed_drive_and_writes_the_terminal_row
+tests/integration/agents/test_cancel_stops_resumed_run_db.py::test_a_cancelled_resumed_run_is_not_re_adopted_by_auto_resume
+  /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/agents/execution_engine/engine.py:1324: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime
+    _ts = _dt.datetime.utcnow().isoformat(timespec="seconds") + "Z"
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/integration/agents/test_cancel_stops_resumed_run_db.py::test_cancel_stops_a_resumed_drive_and_writes_the_terminal_row
+1 failed, 4 passed, 3 warnings in 3.22s

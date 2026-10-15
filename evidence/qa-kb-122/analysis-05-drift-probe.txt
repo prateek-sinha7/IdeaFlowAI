@@ -1,0 +1,58 @@
+G1  CreateUserRequest fields (backend/app/api/admin.py, extra=forbid): ['email', 'is_admin', 'tier']
+      RED  tests/integration/e2e/conftest.py:448 sends ['password'] -> 422 extra_forbidden
+      RED  tests/integration/e2e/suites/24_api_contract/test_api_contract.py:342 sends ['password'] -> 422 extra_forbidden
+      sites: 2 (expected 0 after the fix)
+
+G2  AGENT_SUBTABS pinned (composer.py:52): ['Overview', 'Skills', 'Hooks', 'Tools', 'Config']
+      tabs rendered by CanvasConfigRail.tsx:     ['Overview', 'Skills', 'Data', 'Tools', 'Config']
+      RED  pinned but not rendered: ['Hooks']; rendered but not pinned: ['Data']
+      RED  test_composer_canvas.py:271: expect(page.get_by_text(re.compile(r"Agent · step 1 of \d"))).to_be_visible()   (caption is '<kind.label> · step n of m', kind.label='AI agent', stepKind.ts:20)
+
+G4  strict-xfail markers (suites/**) and the status of the ISS card each one cites
+      ISS-374   card=resolved    tests/integration/e2e/suites/03_launch_panels/test_iss374_unrecognized_slug_dead_end.py:45   [still XFAIL in the 2026-10-09 run]
+      ISS-375   card=resolved    tests/integration/e2e/suites/03_launch_panels/test_iss375_transient_fetch_failure_dead_end.py:57   [still XFAIL in the 2026-10-09 run]
+      ISS-786   card=resolved    tests/integration/e2e/suites/03_launch_panels/test_iss786_launch_wizard_back_loop.py:24   [still XFAIL in the 2026-10-09 run]
+      ISS-1157  card=resolved    tests/integration/e2e/suites/03_launch_panels/test_launch_panels.py:345   [added later for QA-KB-116]
+      ISS-263   card=superseded  tests/integration/e2e/suites/03_launch_panels/test_save_manifest_gates.py:83   [still XFAIL in the 2026-10-09 run]
+      ISS-796   card=resolved    tests/integration/e2e/suites/04_composer_canvas/test_iss796_capabilities_double_fetch.py:23   [XPASS 04_composer_canvas.log:474]
+      ISS-228   card=open        tests/integration/e2e/suites/05_saved_workflows/test_iss228_launch_panel_override_binding.py:38   [still XFAIL in the 2026-10-09 run]
+      ISS-923   card=resolved    tests/integration/e2e/suites/05_saved_workflows/test_qa_kb_060_edit_seed_failure_save_creates_row.py:47   [XPASS 05_saved_workflows.log:100]
+      ISS-1033  card=open        tests/integration/e2e/suites/05_saved_workflows/test_qa_kb_060_edit_seed_failure_save_creates_row.py:65   [XPASS 05_saved_workflows.log:102]
+      ISS-813   card=open        tests/integration/e2e/suites/05_saved_workflows/test_qa_ps_041_workflows_duplicate_requests.py:63   [still XFAIL in the 2026-10-09 run]
+      ISS-813   card=open        tests/integration/e2e/suites/05_saved_workflows/test_qa_ps_041_workflows_duplicate_requests.py:81   [still XFAIL in the 2026-10-09 run]
+      ISS-815   card=resolved    tests/integration/e2e/suites/05_saved_workflows/test_qa_ps_041_workflows_duplicate_requests.py:101   [still XFAIL in the 2026-10-09 run]
+      ISS-207   card=resolved    tests/integration/e2e/suites/06_run_history/test_run_history_pagination.py:71   [still XFAIL in the 2026-10-09 run]
+      ISS-208   card=resolved    tests/integration/e2e/suites/06_run_history/test_run_history_pagination.py:125   [still XFAIL in the 2026-10-09 run]
+      ISS-213   card=resolved    tests/integration/e2e/suites/06_run_history/test_run_history_pagination.py:187   [XPASS 06_run_history.log:114]
+      ISS-287   card=superseded  tests/integration/e2e/suites/08_library/test_iss287_agent_config_save_persists.py:51   [still XFAIL in the 2026-10-09 run]
+      ISS-287   card=superseded  tests/integration/e2e/suites/08_library/test_iss287_agent_config_save_persists.py:75   [still XFAIL in the 2026-10-09 run]
+      ISS-318   card=resolved    tests/integration/e2e/suites/08_library/test_iss318_agent_skills_add_persists.py:51   [still XFAIL in the 2026-10-09 run]
+      ISS-318   card=resolved    tests/integration/e2e/suites/08_library/test_iss318_agent_skills_add_persists.py:75   [still XFAIL in the 2026-10-09 run]
+      ISS-190   card=superseded  tests/integration/e2e/suites/12_shell_nav/test_shell_nav.py:343   [XPASS 12_shell_nav.log:184]
+      markers: 20; the five that XPASSed (strict -> failure): ['ISS-1033', 'ISS-190', 'ISS-213', 'ISS-796', 'ISS-923']
+
+G5  UUID literals pinned in tests/integration/e2e (the all-zero 404-probe id excluded)
+      RED  tests/integration/e2e/suites/05_saved_workflows/test_iss228_launch_panel_override_binding.py:33  PROTO_ID = "656ca387-e69c-474d-b7ff-5fd9eb017cc0"
+      RED  tests/integration/e2e/suites/07_run_detail/test_iss285_preview_full_no_deliverable_fallback.py:22  FAILED_RUN_NO_DELIVERABLE = "a40d0f2b-901e-4847-85ba-c205f4a41f16"
+      RED  tests/integration/e2e/suites/07_run_detail/test_iss313_toolbar_download_missing_filename.py:24  RUN_WITH_NULL_DELIVERABLE_FILENAME = "edba51b5-eb00-46b1-ba30-87f2f04db120"
+      RED  tests/integration/e2e/suites/07_run_detail/test_iss390_diverted_stream_placeholder.py:27  DIVERTED_RUN = "28a318c9-d207-4e2a-bce8-c3260d4c57f2"
+      RED  tests/integration/e2e/suites/21_run_families_and_versions/test_iss_230_version_pin_survives_tab_switch.py:22  ROOT_RUN_ID = "2708dbf1-50d0-465d-9bed-56b651ea1abf"
+      RED  tests/integration/e2e/suites/21_run_families_and_versions/test_iss_230_version_pin_survives_tab_switch.py:23  V2_RUN_ID = "23bd9c67-e239-4979-b14a-cb78222795e8"
+      RED  tests/integration/e2e/suites/21_run_families_and_versions/test_iss_230_version_pin_survives_tab_switch.py:31  MID_FAMILY_ROOT_ID = "2708dbf1-50d0-465d-9bed-56b651ea1abf"
+      RED  tests/integration/e2e/suites/21_run_families_and_versions/test_iss_606_609_version_pin_ignored_by_agent_data.py:22  ROOT_RUN_ID = "2708dbf1-50d0-465d-9bed-56b651ea1abf"
+      RED  tests/integration/e2e/suites/21_run_families_and_versions/test_iss_606_609_version_pin_ignored_by_agent_data.py:23  V2_RUN_ID = "23bd9c67-e239-4979-b14a-cb78222795e8"
+      RED  tests/integration/e2e/suites/21_run_families_and_versions/test_iss_607_610_611_612_base_route_revision_unreachable.py:38  ROOT_RUN_ID = "2708dbf1-50d0-465d-9bed-56b651ea1abf"
+      RED  tests/integration/e2e/suites/21_run_families_and_versions/test_iss_607_610_611_612_base_route_revision_unreachable.py:41  MID_FAMILY_ROOT_ID = "2708dbf1-50d0-465d-9bed-56b651ea1abf"
+      RED  tests/integration/e2e/suites/21_run_families_and_versions/test_iss_607_610_611_612_base_route_revision_unreachable.py:42  MID_FAMILY_LATEST_ID = "3839720c-0287-48c0-90cb-4385d910f460"
+      assignments pinning an id: 12 (expected 0 after the fix)
+
+G6  admin/page.tsx create modal (lines 647-714): has type="password" input: False; submit label 'Send Invitation': True; 'Create User' button text: False
+      RED  tests/integration/e2e/suites/11_admin/test_admin.py:350  page.fill('input[type="password"]', accounts.PASSWORD)
+      RED  tests/integration/e2e/suites/11_admin/test_admin.py:352  page.get_by_role("button", name=re.compile(r"create", re.I)).last.click()
+      RED  tests/integration/e2e/suites/11_admin/test_admin.py:382  password_field = page.locator('input[type="password"]')
+      RED  tests/integration/e2e/suites/11_admin/test_create_user_email_validation.py:53  page.fill('input[type="password"]', accounts.PASSWORD)
+      RED  tests/integration/e2e/suites/11_admin/test_create_user_email_validation.py:55  create_button = page.get_by_role("button", name="Create User")
+      RED  tests/integration/e2e/suites/11_admin/test_iss324_duplicate_email_toast.py:61  page.fill('input[type="password"]', accounts.PASSWORD)
+      RED  tests/integration/e2e/suites/11_admin/test_iss324_duplicate_email_toast.py:65  page.get_by_role("button", name="Create User").click()
+      RED  tests/integration/e2e/suites/11_admin/test_iss324_duplicate_email_toast.py:74  page.fill('input[type="password"]', accounts.PASSWORD)
+      RED  tests/integration/e2e/suites/11_admin/test_iss324_duplicate_email_toast.py:79  page.get_by_role("button", name="Create User").click()

@@ -1,0 +1,19 @@
+git: git version 2.50.1 (Apple Git-155)
+
+=== A: first run in a family. .chain/greeting.md was never tracked and never written
+fatal: pathspec '.chain/greeting.md' did not match any files
+exit=128
+--- staged after the failed add (empty => all-or-nothing):
+(end)
+
+=== B: a PRIOR run tracked .chain/greeting.md; this run did not write it (atomic swap removed it)
+exit=0
+--- staged after add (summary M, greeting D expected):
+D	.chain/greeting.md
+M	.chain/summary.md
+
+=== C: fix shape. Same as A but the absent path is dropped from the pathspec list
+exit=0
+--- staged:
+.chain/logs.jsonl
+.chain/summary.md

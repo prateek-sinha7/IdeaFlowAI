@@ -45,6 +45,12 @@ from fastapi import APIRouter, Depends, HTTPException, Response, status
 from pydantic import BaseModel, Field, field_validator, model_validator
 from sqlalchemy.orm import Session
 
+from app.api.run_engine import (
+    _model_entitlement_error,
+    _own_plan_roster,
+    _saved_row_trust,
+    _trigger_entitlement_error,
+)
 from app.core.dependencies import get_current_principal, get_current_user
 from app.core.entitlements import can_run_pipeline
 from app.core.identity import Principal, effective_tier
@@ -76,7 +82,7 @@ def _reject_both(body):
 _INSTANCE_ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 
 
-def _compile_check_manifest(manifest: dict, source_label: str) -> None:
+def _compile_check_manifest(manifest: dict, source_label: str, trust: str) -> None:
     """Compile the manifest the way the ENGINE will — reject it here if it won't.
 
     Not a re-implementation of any compiler rule: the manifest is handed to the
@@ -90,8 +96,9 @@ def _compile_check_manifest(manifest: dict, source_label: str) -> None:
     ``deliverable`` / ``planner`` / ``clarify``) are synthesized here with the
     SAME fallbacks the launch path uses (``run_commands.py`` — the
     USER_WORKFLOW_MANIFEST branch), which is what makes compiling at save time
-    possible at all. ``trust="db"`` matches the launch path too, so a save can
-    never pass a check the run would fail.
+    possible at all. ``trust`` is the one the launch path will use too
+    (``_saved_row_trust``, ISS-1114), so a save can never pass a check the run
+    would fail.
     """
     from agents.execution_engine.engine import (
         _CAPABILITY_REGISTRY,
@@ -113,7 +120,7 @@ def _compile_check_manifest(manifest: dict, source_label: str) -> None:
     step_count = len(raw.get("steps") or [])
     try:
         parsed = build_manifest_from_dict(raw, source_label)
-        _WORKFLOW_COMPILER.compile(parsed, _CAPABILITY_REGISTRY, trust="db")
+        _WORKFLOW_COMPILER.compile(parsed, _CAPABILITY_REGISTRY, trust=trust)
     except (ManifestValidationError, CompilerError) as exc:
         # WARNING, not exception(): a refused save is the gate working, not a
         # crash — the user gets the same message in the 422. Log the compiler's
@@ -135,7 +142,45 @@ def _compile_check_manifest(manifest: dict, source_label: str) -> None:
     )
 
 
-def _validated_manifest(manifest: dict | None, source_label: str) -> dict | None:
+def _compile_check_override_steps(
+    steps: list, override_of: str, source_label: str
+) -> None:
+    """ISS-1112 — an override row's ``steps`` must pass the read side's check.
+
+    The merge compiles them alone at ``trust="user"`` and runs the file plan when
+    they fail, so a save that accepted them would store a row that never applies.
+    Every writer of an override row (POST insert and upsert, PATCH,
+    sync-from-file) runs the SAME shared check and answers 422 instead. Imported
+    lazily, like ``_compile_check_manifest`` above.
+    """
+    from agents.execution_engine.engine import _CAPABILITY_REGISTRY
+    from agents.execution_engine.overrides import compile_override_steps
+    from agents.workflows.compiler import CompilerError
+    from agents.workflows.manifest import ManifestValidationError
+
+    try:
+        compile_override_steps(override_of, steps, _CAPABILITY_REGISTRY)
+    except (ManifestValidationError, CompilerError) as exc:
+        logger.warning(
+            "override rejected at save: source=%s overrides=%s reason=%s: %s",
+            source_label,
+            override_of,
+            type(exc).__name__,
+            exc,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"invalid workflow override ({source_label}): {exc}",
+        ) from exc
+
+
+def _validated_manifest(
+    manifest: dict | None,
+    source_label: str,
+    override_of: str | None = None,
+    *,
+    trust: str,
+) -> dict | None:
     """Structurally validate a 012 step manifest before storing it (T36).
 
     Deliberately NOT a full ``build_manifest_from_dict`` round-trip. That parser
@@ -194,7 +239,12 @@ def _validated_manifest(manifest: dict | None, source_label: str) -> dict | None
     # A manifest that would fail the compiler's topo-validation must never reach
     # disk: the save would 200 and the FIRST RUN would be the thing that failed,
     # long after the edit that caused it.
-    _compile_check_manifest(manifest, source_label)
+    # ISS-1114: at the trust a plain row launches at. An override row keeps "db" here:
+    # its steps launch at "user" and get exactly that check just below.
+    _compile_check_manifest(manifest, source_label, "db" if override_of else trust)
+    # ISS-1112: the row overrides a built-in, so its steps get the merge's check too.
+    if override_of:
+        _compile_check_override_steps(steps, override_of, source_label)
     return manifest
 
 
@@ -723,7 +773,11 @@ def create_user_workflow(
     if body.manifest is None:
         allowed_ids = allowed_custom_agent_ids(body.base_pipeline_type)
         rejected = [aid for aid in body.agent_ids if aid not in allowed_ids]
-        if rejected:
+        # ISS-976 (save == launch): a custom-agent file workflow's own roster is
+        # accepted exactly as launch_run accepts it — the shared `_own_plan_roster`.
+        if rejected and set(body.agent_ids) != _own_plan_roster(
+            body.base_pipeline_type
+        ):
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail=f"agent_ids not allowed for {body.base_pipeline_type!r}: {rejected}",
@@ -743,6 +797,25 @@ def create_user_workflow(
     _compile_selections_trust_user(
         body.base_pipeline_type, body.agent_ids, body.selections
     )
+
+    # QA-KB-017 (ISS-398/934/935): the checks above test model ids against the catalog
+    # only, and a manifest's not at all. Every id this save carries must also be one
+    # the caller's EFFECTIVE tier may run (403) — checked before any row exists.
+    model_error = _model_entitlement_error(
+        effective_tier(current_user, principal),
+        model_overrides=body.model_overrides,
+        selections=body.selections,
+        manifest=body.manifest,
+    )
+    if model_error:
+        raise HTTPException(status_code=model_error[0], detail=model_error[1])
+
+    # ISS-1131: and every pipeline the manifest's conditional gates can trigger.
+    trigger_error = _trigger_entitlement_error(
+        effective_tier(current_user, principal), body.manifest
+    )
+    if trigger_error:
+        raise HTTPException(status_code=trigger_error[0], detail=trigger_error[1])
 
     # CWF-001 D1: order-independent produces/consumes satisfiability check +
     # producer-first pre-sort (via the app-layer helper — this module honors its
@@ -818,7 +891,12 @@ def create_user_workflow(
             prior.base_pipeline_type = body.base_pipeline_type
             prior.model_overrides = body.model_overrides
             prior.manifest_json = (
-                _validated_manifest(body.manifest, f"workflow:{body.name}")
+                _validated_manifest(
+                    body.manifest,
+                    f"workflow:{body.name}",
+                    _ov_target,
+                    trust=_saved_row_trust(effective_tier(current_user, principal)),
+                )
                 or body.selections
                 or None
             )
@@ -865,7 +943,12 @@ def create_user_workflow(
         # full step manifest (012). The request validator guarantees at most one
         # was supplied, so this `or` chain can never silently discard the other.
         manifest_json=(
-            _validated_manifest(body.manifest, f"workflow:{body.name}")
+            _validated_manifest(
+                body.manifest,
+                f"workflow:{body.name}",
+                _ov_target,
+                trust=_saved_row_trust(effective_tier(current_user, principal)),
+            )
             or body.selections
             or None
         ),
@@ -940,11 +1023,30 @@ def export_user_workflow_yaml(
 def update_user_workflow(
     workflow_id: str,
     body: UpdateUserWorkflowRequest,
-    current_user: User = Depends(get_current_user),
+    # get_current_principal, as create: the model gate below reads the EFFECTIVE tier.
+    auth: tuple[User, Principal] = Depends(get_current_principal),
     db: Session = Depends(get_db),
 ):
     """Rename + optional description / model_overrides edit; cross-owner → 404."""
+    current_user, principal = auth
     row = _owned(db, workflow_id, current_user)
+
+    # QA-KB-017: the same model gate as create, before anything on the row changes.
+    model_error = _model_entitlement_error(
+        effective_tier(current_user, principal),
+        model_overrides=body.model_overrides,
+        selections=body.selections,
+        manifest=body.manifest,
+    )
+    if model_error:
+        raise HTTPException(status_code=model_error[0], detail=model_error[1])
+
+    # ISS-1131: the trigger gate as create, on the manifest this PATCH would store.
+    trigger_error = _trigger_entitlement_error(
+        effective_tier(current_user, principal), body.manifest
+    )
+    if trigger_error:
+        raise HTTPException(status_code=trigger_error[0], detail=trigger_error[1])
 
     if body.name is not None and body.name != row.name:
         dup = (
@@ -1000,7 +1102,12 @@ def update_user_workflow(
     if body.manifest is not None:
         # T36: a manifest edit replaces the column outright. An empty dict clears
         # it, mirroring the selections branch above.
-        row.manifest_json = _validated_manifest(body.manifest, f"workflow:{row.id}")
+        row.manifest_json = _validated_manifest(
+            body.manifest,
+            f"workflow:{row.id}",
+            row.overrides_pipeline_type,
+            trust=_saved_row_trust(effective_tier(current_user, principal)),
+        )
 
     if body.attached_skills is not None:
         row.attached_skills = body.attached_skills or None
@@ -1034,7 +1141,8 @@ def delete_user_workflow(
 def sync_user_workflow_from_file(
     workflow_id: str,
     body: SyncFromFileRequest,
-    current_user: User = Depends(get_current_user),
+    # get_current_principal, as create: the entitlement gate below reads the EFFECTIVE tier.
+    auth: tuple[User, Principal] = Depends(get_current_principal),
     db: Session = Depends(get_db),
 ):
     """Overwrite this row's ``manifest_json`` with its source ``workflow.yaml``, verbatim.
@@ -1048,10 +1156,13 @@ def sync_user_workflow_from_file(
     offline sync (``_load_file_manifest_dict`` / ``_diff_manifest_dicts``), so an operator
     and this endpoint can never disagree about what "matches the file" means.
 
-    Cross-owner / missing row → 404 (IDOR→404, ``_owned``). Only a ``pipeline_type`` in
-    ``SUPPORTED_PIPELINE_TYPES`` with an actual ``workflow.yaml`` on disk is syncable —
-    anything else is a 422 naming the reason.
+    Cross-owner / missing row → 404 (IDOR→404, ``_owned``). A ``pipeline_type`` the
+    caller's effective tier may not run is a 403, as create refuses such a base
+    (ISS-1117), and so is a file whose conditional gates trigger one (ISS-1131). Only a
+    ``pipeline_type`` in ``SUPPORTED_PIPELINE_TYPES`` with an actual ``workflow.yaml``
+    on disk is syncable — anything else is a 422 naming the reason.
     """
+    current_user, principal = auth
     from agents.loader import SUPPORTED_PIPELINE_TYPES
     from agents.workflows.manifest import ManifestValidationError
 
@@ -1060,6 +1171,15 @@ def sync_user_workflow_from_file(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=f"Unknown pipeline_type: {body.pipeline_type!r}",
         )
+
+    # ISS-1117: a stored copy launches under the row's own base type, so copying a
+    # pipeline the tier may not run is running it. Create's gate, before the row or
+    # the file is read.
+    allowed, reason = can_run_pipeline(
+        effective_tier(current_user, principal), body.pipeline_type
+    )
+    if not allowed:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=reason)
 
     row = _owned(db, workflow_id, current_user)
 
@@ -1070,6 +1190,21 @@ def sync_user_workflow_from_file(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=f"No usable file manifest for pipeline_type {body.pipeline_type!r}: {exc}",
         ) from exc
+
+    # ISS-1131: and every pipeline the file's conditional gates can trigger.
+    trigger_error = _trigger_entitlement_error(
+        effective_tier(current_user, principal), new_manifest
+    )
+    if trigger_error:
+        raise HTTPException(status_code=trigger_error[0], detail=trigger_error[1])
+
+    # ISS-1112: syncing into an override row stores steps the merge will compile at
+    # trust="user", so they must pass that check here (steps only: the file's own
+    # workflow-level fields are never read off an override row).
+    if row.overrides_pipeline_type and new_manifest.get("steps"):
+        _compile_check_override_steps(
+            new_manifest["steps"], row.overrides_pipeline_type, f"workflow:{row.id}"
+        )
 
     old_manifest = row.manifest_json if isinstance(row.manifest_json, dict) else None
     diff = _diff_manifest_dicts(old_manifest, new_manifest)

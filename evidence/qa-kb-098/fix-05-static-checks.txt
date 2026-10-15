@@ -1,0 +1,33 @@
+# QA-KB-098 fix-05: static checks after the fix, HEAD 7adb69a3f + working tree, 2026-10-08 14:30:35
+
+$ git diff --stat -- backend/app backend/agents   (production source: must be empty)
+(empty)
+
+$ git diff --stat -- backend/tests/agents/test_per_run_paths_v3.py
+ backend/tests/agents/test_per_run_paths_v3.py | 2 --
+ 1 file changed, 2 deletions(-)
+
+$ grep -nE '\._SANDBOX' backend/app/agents/tools/playwright.py backend/tests/agents/test_per_run_paths_v3.py | grep -v _SANDBOX_VAR
+tests/agents/test_per_run_paths_v3.py:313:        _orig_sandbox = pptx_tools._SANDBOX
+tests/agents/test_per_run_paths_v3.py:323:            pptx_tools._SANDBOX = _orig_sandbox
+(only the pptx pins remain; ISS-1108's, left alone per the card)
+
+$ grep -nE '^_SANDBOX|global _SANDBOX' backend/app/agents/tools/playwright.py   (FIX-567 lock: no alias re-added)
+(none)
+
+$ .venv/bin/ruff check tests/agents/test_per_run_paths_v3.py
+All checks passed!
+exit=0
+
+$ git diff --stat -- backend/app backend/agents backend/tools   (every import-linter root package: empty, so the result below is HEAD's)
+(empty)
+
+$ cd backend && .venv/bin/lint-imports | grep -E 'KEPT|BROKEN|Contracts:|Analyzed'   (root_packages = [agents, app, tools], pyproject.toml:356; tests/ is not scanned)
+Analyzed 310 files, 823 dependencies.
+kernel imports only capability ports (scaffold) BROKEN
+agents.workflows must not import the execution kernel or the web layer KEPT
+agents.capabilities must not import the execution kernel or the web layer BROKEN
+agents.runtime must not import the execution kernel or the web layer KEPT
+shipped code must not import the build-time tooling package KEPT
+Contracts: 3 kept, 2 broken.
+(the 2 BROKEN contracts are pre-existing: no file in a scanned package changed; e.g. agents.capabilities.prototype_ui_extract -> app.agents.tools.html_extract (l.333))

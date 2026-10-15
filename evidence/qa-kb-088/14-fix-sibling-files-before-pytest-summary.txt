@@ -1,0 +1,22 @@
+# QA-KB-088 fix, 2026-10-07: sibling files BEFORE relocation (ISS-1091, ISS-1093), DATABASE_URL=sqlite:///:memory:, one file at a time
+## tests/unit/test_workflow_override.py
+  16 tests/unit/conftest.py:81: UnitIsolationError
+  16 E       tests.unit.conftest.UnitIsolationError: Unit test opened a real database connection. Move it to tests/integration/<mirror>/ (the hermetic in-memory SQLite db_session fixture lives in tests/integration/repositories/conftest.py), or mock the Session with MagicMock(spec=Session) / AsyncMock(spec=AsyncSession). Deliberate exception: @pytest.mark.allow_io("reason").
+  16 >       raise UnitIsolationError(
+   1 FAILED tests/unit/test_workflow_override.py::test_a_not_user_allowed_gate_is_rejected
+   1 1 failed, 6 passed, 1 warning, 16 errors in 3.20s
+## tests/unit/api/test_workflows_api.py
+  49 tests/unit/conftest.py:81: UnitIsolationError
+  49 E       tests.unit.conftest.UnitIsolationError: Unit test opened a real database connection. Move it to tests/integration/<mirror>/ (the hermetic in-memory SQLite db_session fixture lives in tests/integration/repositories/conftest.py), or mock the Session with MagicMock(spec=Session) / AsyncMock(spec=AsyncSession). Deliberate exception: @pytest.mark.allow_io("reason").
+  49 >       raise UnitIsolationError(
+   1 4 passed, 3 warnings, 49 errors in 6.88s
+## tests/unit/test_chain_projection.py
+  11 tests/unit/conftest.py:81: UnitIsolationError
+  11 E       tests.unit.conftest.UnitIsolationError: Unit test opened a real database connection. Move it to tests/integration/<mirror>/ (the hermetic in-memory SQLite db_session fixture lives in tests/integration/repositories/conftest.py), or mock the Session with MagicMock(spec=Session) / AsyncMock(spec=AsyncSession). Deliberate exception: @pytest.mark.allow_io("reason").
+  11 >       raise UnitIsolationError(
+   1 3 warnings, 11 errors in 2.22s
+## tests/unit/test_authz_bounded_calls.py
+   5 tests/unit/conftest.py:81: UnitIsolationError
+   5 E       tests.unit.conftest.UnitIsolationError: Unit test opened a real database connection. Move it to tests/integration/<mirror>/ (the hermetic in-memory SQLite db_session fixture lives in tests/integration/repositories/conftest.py), or mock the Session with MagicMock(spec=Session) / AsyncMock(spec=AsyncSession). Deliberate exception: @pytest.mark.allow_io("reason").
+   5 >       raise UnitIsolationError(
+   1 2 passed, 1 warning, 5 errors in 3.00s

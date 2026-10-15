@@ -1,0 +1,70 @@
+# QA-KB-044 analyze evidence 07 - live data, SELECT-only (local Postgres velocity-local-db, read-only session) + GET-only API, 2026-10-01 22:28
+# No writes. DB credentials and the API token are not printed.
+
+-- Q3  completed runs, and how many of them have NULL/empty output
+SELECT count(*) AS completed_total, count(*) FILTER (WHERE output IS NULL OR output = '') AS completed_null_or_empty_output
+FROM workflow_runs WHERE status = 'completed'
+-- rows: 1
+    ('26', '0')
+
+-- Q1  every TERMINAL run with NULL/empty output, by shape (type,status,out_null,is_child,tagged,has_deliverable_filename,n)
+SELECT type, status, (output IS NULL) AS out_null, (parent_run_id IS NOT NULL) AS is_child, (git_tag IS NOT NULL) AS tagged,
+       (deliverable_filename IS NOT NULL) AS has_deliv_file, count(*)
+FROM workflow_runs
+WHERE status IN ('completed','failed','cancelled','degraded','diverted') AND (output IS NULL OR output = '')
+GROUP BY 1,2,3,4,5,6 ORDER BY count(*) DESC
+-- rows: 9
+    ('prototype_v2', 'cancelled', 'True', 'False', 'False', 'False', '4')
+    ('prototype_v2', 'failed', 'True', 'False', 'False', 'False', '3')
+    ('backlog', 'cancelled', 'True', 'False', 'False', 'False', '3')
+    ('backlog', 'failed', 'True', 'False', 'False', 'False', '2')
+    ('prototype_revision', 'cancelled', 'True', 'True', 'False', 'False', '2')
+    ('prototype_revision', 'failed', 'True', 'True', 'False', 'False', '2')
+    ('user_stories_v2', 'failed', 'True', 'False', 'False', 'False', '1')
+    ('backlog_revision', 'cancelled', 'True', 'True', 'False', 'False', '1')
+    ('ex_A4_human_divert', 'diverted', 'True', 'False', 'False', 'False', '1')
+
+-- Q2  multi-member families that contain a NULL/empty-output terminal member (members in created_at order)
+WITH RECURSIVE fam AS (
+  SELECT id, id AS root_id FROM workflow_runs WHERE parent_run_id IS NULL
+  UNION ALL
+  SELECT c.id, f.root_id FROM workflow_runs c JOIN fam f ON c.parent_run_id = f.id
+), multi AS (SELECT root_id FROM fam GROUP BY root_id HAVING count(*) > 1),
+nullfam AS (SELECT DISTINCT f.root_id FROM fam f JOIN workflow_runs r ON r.id = f.id
+            WHERE r.status IN ('completed','failed','cancelled','degraded','diverted') AND (r.output IS NULL OR r.output = ''))
+SELECT f.root_id, r.id, r.type, r.status, to_char(r.created_at,'MM-DD HH24:MI'), (r.output IS NULL) AS out_null, (r.git_tag IS NOT NULL) AS tagged
+FROM fam f JOIN workflow_runs r ON r.id = f.id
+WHERE f.root_id IN (SELECT root_id FROM multi) AND f.root_id IN (SELECT root_id FROM nullfam)
+ORDER BY f.root_id, r.created_at
+-- rows: 20
+    ('0f62f7bc-d3a2-4748-8004-0b534e1741ae', '0f62f7bc-d3a2-4748-8004-0b534e1741ae', 'prototype_v2', 'completed', '09-28 14:09', 'False', 'True')
+    ('0f62f7bc-d3a2-4748-8004-0b534e1741ae', 'b7bdf6a3-2ae9-48f6-867e-dbfb61b9f570', 'prototype_revision', 'failed', '09-29 07:40', 'True', 'False')
+    ('429dc032-8038-4f0a-9558-ee666c7f5da3', '429dc032-8038-4f0a-9558-ee666c7f5da3', 'ex_A4_human_divert', 'diverted', '09-24 12:53', 'True', 'False')
+    ('429dc032-8038-4f0a-9558-ee666c7f5da3', '2fc4ebbb-43b8-4a7f-b7c0-09b7cc49aefe', 'ex_A3_c_dutch', 'completed', '09-24 12:53', 'False', 'True')
+    ('78e185fb-c032-4154-8552-774781b6e5df', '78e185fb-c032-4154-8552-774781b6e5df', 'backlog', 'completed', '09-30 12:26', 'False', 'True')
+    ('78e185fb-c032-4154-8552-774781b6e5df', '80054fbc-71cc-42de-adeb-ae2db82eb2f2', 'backlog_revision', 'completed', '10-01 09:50', 'False', 'True')
+    ('78e185fb-c032-4154-8552-774781b6e5df', 'fa7bcb5f-cc6b-44eb-bbb3-0dfa38724aca', 'backlog_revision', 'completed', '10-01 14:51', 'False', 'True')
+    ('78e185fb-c032-4154-8552-774781b6e5df', '8d4d2d70-9357-4780-a43f-405a25712807', 'backlog_revision', 'completed', '10-01 15:16', 'False', 'True')
+    ('78e185fb-c032-4154-8552-774781b6e5df', '48b0811e-cd10-473d-aac3-b9f1aac44ce7', 'backlog_revision', 'completed', '10-01 15:31', 'False', 'True')
+    ('78e185fb-c032-4154-8552-774781b6e5df', '0924fe8a-f332-460d-b304-e306fed25ae7', 'backlog_revision', 'cancelled', '10-01 16:05', 'True', 'False')
+    ('78e185fb-c032-4154-8552-774781b6e5df', '10dde796-01f0-4a5e-b615-4e69f9f19c83', 'backlog_revision', 'completed', '10-01 16:16', 'False', 'True')
+    ('78e185fb-c032-4154-8552-774781b6e5df', 'b40eabd0-d7e2-4bc2-bc42-99ef6a147bff', 'backlog_revision', 'completed', '10-01 16:22', 'False', 'True')
+    ('87e02c32-96a9-4e50-8ed0-79023d83540f', '87e02c32-96a9-4e50-8ed0-79023d83540f', 'prototype_v2', 'completed', '09-28 09:39', 'False', 'True')
+    ('87e02c32-96a9-4e50-8ed0-79023d83540f', '36ebfbe1-fdff-41bf-9a79-416daa5623ac', 'prototype_large_revision', 'degraded', '09-28 10:45', 'False', 'True')
+    ('87e02c32-96a9-4e50-8ed0-79023d83540f', '4eb1a2ea-b4be-400a-b53c-b63597cc52a0', 'prototype_revision', 'cancelled', '09-28 11:46', 'True', 'False')
+    ('87e02c32-96a9-4e50-8ed0-79023d83540f', '97b49f98-83bd-4ed6-8631-600bf9653905', 'prototype_revision', 'failed', '09-28 11:56', 'True', 'False')
+    ('87e02c32-96a9-4e50-8ed0-79023d83540f', '8f36b400-19e4-4291-944c-09e30b37fc6f', 'prototype_revision', 'completed', '09-28 12:26', 'False', 'True')
+    ('87e02c32-96a9-4e50-8ed0-79023d83540f', '4f3ebe40-8384-467c-9255-322eaf0fc183', 'prototype_revision', 'completed', '09-28 12:31', 'False', 'True')
+    ('9b6f1bfb-a587-4a4f-931d-78d9e1f351e7', '9b6f1bfb-a587-4a4f-931d-78d9e1f351e7', 'prototype_v2', 'completed', '09-28 12:41', 'False', 'True')
+    ('9b6f1bfb-a587-4a4f-931d-78d9e1f351e7', '14327554-d63d-4676-aaa8-a7f3d6cfc175', 'prototype_revision', 'cancelled', '09-28 13:57', 'True', 'False')
+
+-- API (GET) /api/runs/87e02c32-96a9-4e50-8ed0-79023d83540f/family  (owner admin@velocity.ai; revision_index = the N in /versions/N)
+    revision_index=1 id=87e02c32-96a9-4e50-8ed0-79023d83540f type=prototype_v2 status=completed git_tag=v1
+    revision_index=2 id=36ebfbe1-fdff-41bf-9a79-416daa5623ac type=prototype_large_revision status=degraded git_tag=v2
+    revision_index=3 id=4eb1a2ea-b4be-400a-b53c-b63597cc52a0 type=prototype_revision status=cancelled git_tag=None
+    revision_index=4 id=97b49f98-83bd-4ed6-8631-600bf9653905 type=prototype_revision status=failed git_tag=None
+    revision_index=5 id=8f36b400-19e4-4291-944c-09e30b37fc6f type=prototype_revision status=completed git_tag=v5
+    revision_index=6 id=4f3ebe40-8384-467c-9255-322eaf0fc183 type=prototype_revision status=completed git_tag=v6
+
+-- API (GET) /api/runs/4eb1a2ea-b4be-400a-b53c-b63597cc52a0  -> status='cancelled' output=None deliverable_filename=None
+-- API (GET) /api/runs/97b49f98-83bd-4ed6-8631-600bf9653905  -> status='failed' output=None deliverable_filename=None

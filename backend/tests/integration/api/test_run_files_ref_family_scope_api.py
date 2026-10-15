@@ -1,4 +1,4 @@
-"""tests/unit/test_run_files_ref_family_scope.py — QA-PS-008 / ISS-671 / ISS-672.
+"""tests/integration/api/test_run_files_ref_family_scope_api.py — QA-PS-008 / ISS-671 / ISS-672.
 
 Every sandbox git call in ``LocalWorkspace`` runs with only ``cwd`` set. When the
 sandbox directory has NO ``.git`` of its own, git's normal upward repository
@@ -93,9 +93,7 @@ def _seed_user(env) -> _FakeUser:
         u = User(
             id=str(uuid.uuid4()),
             email=f"u-{uuid.uuid4().hex[:8]}@example.com",
-            # users.cognito_sub is NOT NULL since the Cognito-only auth migration
-            # (b2a621f8), which also dropped password_hash.
-            cognito_sub=f"sub-{uuid.uuid4()}",
+            cognito_sub=str(uuid.uuid4()),
         )
         db.add(u)
         db.commit()
@@ -197,6 +195,9 @@ def _make_family_in_host_checkout(env, user):
     # Chain root == v1_id. ensure() only creates the dir — never git_init_sandbox().
     sb = RunSandbox(user.id, v1_id, runs_root=env["runs_root"])
     sb.ensure()
+    # ISS-1072: an EMPTY run dir is an expired workspace (404 before the ref gate),
+    # so give it the payload a live sandbox without its own .git still has.
+    (sb.root / "notes.md").write_text("payload", encoding="utf-8")
     assert not (sb.root / ".git").exists()
     _assert_nearest_repo_is(sb.root, outer)
 

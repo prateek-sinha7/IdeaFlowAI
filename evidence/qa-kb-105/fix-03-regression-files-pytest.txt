@@ -1,0 +1,24 @@
+# QA-KB-105 fix — resume-tier files (every test file naming _drive_resumed_stream / resume_run( / _replay_clarify_run / restore_non_terminal_runs / _drive_user_resume / _rearm_gate_run / _fail_resume / "/resume"), HEAD eb84ce544 + working-tree change, one file per run, 2026-10-08T22:48Z
+# command per file: .venv/bin/python -m pytest <file> -q -p no:cacheprovider -rf
+tests/agents/test_resume_context_v3.py: FAILED tests/agents/test_resume_context_v3.py::test_resume_run_uses_context_file_over_diverging_db_column FAILED tests/agents/test_resume_context_v3.py::test_resume_run_falls_back_to_db_column_when_context_absent 2 failed, 2 warnings in 1.77s 
+tests/agents/test_resume_run_offset_log.py: 2 passed, 2 warnings in 1.13s 
+tests/agents/test_resume_seed_bounded_aggregate.py: 4 passed, 2 warnings in 1.10s 
+tests/agents/test_run_trace.py: 16 passed, 2 warnings in 1.01s 
+tests/agents/test_ttl_sweep_loop_v3.py: 4 passed, 2 warnings in 2.85s 
+tests/integration/agents/test_cancel_stops_resumed_run_db.py: 5 passed, 3 warnings in 4.48s 
+tests/integration/agents/test_qa_kb_102_silent_resume.py: 6 passed, 1 warning in 2.14s 
+tests/integration/agents/test_qa_kb_105_unsatisfiable_resume.py: ERROR    agents.execution_engine.engine:engine.py:15541 resume(u-99dc9848) failed: Resume failed: Workflow DAG is unsatisfiable: Agent 'custom-agent:b' consumes 'x' but nothing produces it. ERROR    agents.execution_engine.engine:engine.py:15541 resume(c-043eff78) failed: Resume failed: Workflow DAG is unsatisfiable: Agent 'custom-agent:b' consumes 'x' but nothing produces it. ERROR    agents.execution_engine.engine:engine.py:15541 resume(r-a7833d7f) failed: Resume failed: Workflow DAG is unsatisfiable: Agent 'custom-agent:b' consumes 'x' but nothing produces it. FAILED tests/integration/agents/test_qa_kb_105_unsatisfiable_resume.py::test_user_resume_unsatisfiable_dag_records_new_failure_and_live_frame FAILED tests/integration/agents/test_qa_kb_105_unsatisfiable_resume.py::test_user_resume_of_cancelled_run_unsatisfiable_dag_ends_failed FAILED tests/integration/agents/test_qa_kb_105_unsatisfiable_resume.py::test_restart_auto_resume_unsatisfiable_dag_does_not_leave_running_ghost 3 failed, 1 warning in 2.22s 
+tests/integration/agents/test_restart_resume_db.py: 85 passed, 17 warnings in 21.01s 
+tests/integration/agents/test_resume_marker_workspace_db.py: 5 passed, 2 warnings in 3.12s 
+tests/integration/agents/test_resume_ws_bridge_db.py: FAILED tests/integration/agents/test_resume_ws_bridge_db.py::test_engine_module_does_not_import_app_api 1 failed, 3 passed, 3 warnings in 4.37s 
+tests/integration/agents/test_specs_from_plan_db.py: FAILED tests/integration/agents/test_specs_from_plan_db.py::test_resume_run_builds_display_names_for_a_real_composed_workflow 1 failed, 1 warning in 1.38s 
+tests/integration/api/test_capacity_gate_endpoints_api.py: 11 passed, 3 warnings in 1.32s 
+tests/integration/api/test_rest_answers_cancel_api.py: 29 passed, 3 warnings in 1.95s 
+tests/integration/api/test_rest_resume_api.py: 10 passed, 3 warnings in 1.38s 
+tests/integration/repositories/test_run_events_db.py: 10 passed, 1 warning in 1.18s 
+tests/unit/agents/execution_engine/test_resumability.py: 7 passed, 1 warning in 0.96s 
+tests/unit/agents/workflows/test_specs_from_plan.py: FAILED tests/unit/agents/workflows/test_specs_from_plan.py::test_resume_paths_call_the_shared_helper_not_a_bare_comprehension 1 failed, 5 passed, 1 warning in 1.18s 
+tests/unit/app/test_gate_agent_ids_survives_resume.py: 6 passed, 1 warning in 1.52s 
+tests/unit/app/test_run_shutdown.py: 13 passed, 1 warning in 1.51s 
+tests/unit/services/test_shutdown_reachability.py: 8 passed, 1 warning in 8.05s 
+tests/unit/test_run_shutdown_stale_citations.py: 15 passed, 1 warning in 2.49s 

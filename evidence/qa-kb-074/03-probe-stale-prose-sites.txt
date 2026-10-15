@@ -1,0 +1,8 @@
+backend/agents/authz.py:477: [S1] read_events_of_types lists append_event_next_seq as a read_events caller
+backend/agents/authz.py:597: [S2] _max_event_seq gives the whole-log read as why the sink cannot use append_event_next_seq
+backend/agents/execution_engine/engine.py:13085: [S3] _stamp_resume_marker says append_event_next_seq re-reads EVERY row
+backend/tests/agents/test_resume_marker_seq_allocation.py:3: [C1] test docstring: marker allocates through append_event_next_seq, which still reads the whole log
+backend/tests/agents/test_resume_marker_seq_allocation.py:4: [C2] test docstring: that method still derives the next seq via read_events(run_id, after_seq=0)
+backend/tests/integration/agents/test_resume_marker_workspace_db.py:221: [C3] test section comment: marker routes through append_event_next_seq
+.knowledge/architecture/DOMAIN-durable-state-resume.md:399: [C4] DOMAIN card: single allocator rejected on the whole-log cost
+-- 7 hit(s) over 1270 files scanned

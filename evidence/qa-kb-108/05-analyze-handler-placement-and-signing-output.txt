@@ -1,0 +1,17 @@
+/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/.venv/lib/python3.13/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+  from starlette.testclient import TestClient as TestClient  # noqa
+== 1. global handler registration key vs CORS headers on the 503
+no handler (today's main.py)               status=500 ACAO=None                       body='Internal Server Error'
+@app.exception_handler(Exception)          status=503 ACAO=None                       body='{"detail":"Authentication service unavailable"}'
+@app.exception_handler(500)                status=503 ACAO=None                       body='{"detail":"Authentication service unavailable"}'
+@app.exception_handler(BotoCoreError)      status=503 ACAO='http://localhost:3000'    body='{"detail":"Authentication service unavailable"}'
+== 2. which Cognito operations need credentials (no creds in this process, endpoint = closed localhost port)
+admin_get_user (signed)                      -> NoCredentialsError
+admin_initiate_auth (signed)                 -> NoCredentialsError
+admin_respond_to_auth_challenge (signed)     -> NoCredentialsError
+change_password (noAuth)                     -> EndpointConnectionError
+forgot_password (noAuth)                     -> EndpointConnectionError
+associate_software_token (noAuth)            -> EndpointConnectionError
+set_user_mfa_preference (noAuth)             -> EndpointConnectionError
+== 3. app.agents.llm_errors.map_exception on the SSO-expiry exception
+TokenRetrievalError                          -> LLMErrorPayload(message='Something went wrong. Please try again.', code='internal_error', recoverable=True)

@@ -98,6 +98,34 @@ describe("handlePipelineMessage — pipeline_reconnected (12-08 Gap 2 FE half)",
     expect(sessionStorage.getItem("active_pipeline_run_id")).toBeNull();
   });
 
+  // ISS-136 (QA-KB-008): 'degraded' is a terminal status but the arm's
+  // TERMINAL_STATUSES list omitted it, so the run stayed "running" (fixed: FIX-674).
+  it("ISS-136: live:false + terminal 'degraded' resolves isRunning=false and clears the run id", () => {
+    const h = makeHarness();
+    handlePipelineMessage(
+      { type: "pipeline_reconnected", live: false, status: "degraded", pipeline_run_id: "run-1" },
+      h.setPipelineState,
+      h.agentStartTimesRef,
+    );
+    expect(h.state.isRunning).toBe(false);
+    expect(sessionStorage.getItem("active_pipeline_run_id")).toBeNull();
+  });
+
+  // ISS-864: terminal branch never stamps the run-level marker, so the run
+  // reads "Run complete". Degraded row also needs the ISS-136 fix to resolve.
+  for (const status of ["failed", "cancelled", "degraded"] as const) {
+    it(`ISS-864: live:false + '${status}' stamps the ${status} marker`, () => {
+      const h = makeHarness();
+      handlePipelineMessage(
+        { type: "pipeline_reconnected", live: false, status, pipeline_run_id: "run-1" },
+        h.setPipelineState,
+        h.agentStartTimesRef,
+      );
+      expect(h.state.isRunning).toBe(false);
+      expect((h.state as unknown as Record<string, unknown>)[status]).toBe(true);
+    });
+  }
+
   it("live:false + non-terminal 'running' keeps isRunning true (no premature resolve)", () => {
     const h = makeHarness();
     const handled = handlePipelineMessage(

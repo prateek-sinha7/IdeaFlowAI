@@ -179,13 +179,9 @@ describe("AdminPage — tier dropdown", () => {
     expect(await screen.findByText("Failed to update tier")).toBeInTheDocument();
   });
 
-  // LIKELY DEFECT (reported, not fixed): AdminPage.handleUpdateTier catches its own
-  // error and never rethrows, so TierDropdown's `catch { setLocalTier(currentTier) }`
-  // revert is unreachable and the trigger keeps showing the failed (optimistic)
-  // tier while the server still holds the old one. This test states the intended
-  // contract; `it.fails` keeps the evidence visible and flips red once production
-  // is fixed (then remove `.fails`).
-  it.fails("reverts the trigger to the original tier when the update is rejected", async () => {
+  // Fixed on feat/stale-bug-fixes: a rejected tier update now reverts the trigger,
+  // so the former `it.fails` evidence is a plain passing test.
+  it("reverts the trigger to the original tier when the update is rejected", async () => {
     api.adminUpdateTier.mockRejectedValue(new Error("Tier change denied"));
     await renderAdmin();
     const user = userEvent.setup();

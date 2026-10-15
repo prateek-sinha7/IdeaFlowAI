@@ -1,0 +1,82 @@
+diff --git a/backend/agents/execution_engine/engine.py b/backend/agents/execution_engine/engine.py
+index 703399179..ffcf7cd6a 100644
+--- a/backend/agents/execution_engine/engine.py
++++ b/backend/agents/execution_engine/engine.py
+@@ -15702,7 +15702,7 @@ class ExecutionEngine:
+             # WR-01: drop the task entry registered at the create_task site.
+             self._fire_resume_cleanup(run_id)
+             return
+-        if not agents:
++        if not agents or resumed_compiled is None:
+             # ── Roster seam (twin of the execute() roster seam at ~line 1473): the
+             # compiled plan is the single source of the run's agent roster. For a
+             # composed workflow (steps are instances of an agent template, e.g.
+@@ -15710,14 +15710,24 @@ class ExecutionEngine:
+             # static membership and returns `[]` above — that alone doesn't mean
+             # there's nothing to resume, so fall back to the compiled plan before
+             # giving up.
++            # ISS-950: a registry roster that is a STRICT SUBSET of the plan is partial
++            # too (prototype_v2_revision: 1 of 3), so complete it by the execute()
++            # seam's rule. The offset counts plan steps; a partial roster logged
++            # "offset 1/1" and "all steps complete" with steps still to run.
+             try:
+-                compiled = compile_for_run(pipeline_type)
++                plan_steps = compile_for_run(pipeline_type).steps
+             except Exception as exc:  # noqa: BLE001 — cannot compile → cannot resume
+-                logger.warning("resume_run(%s): cannot compile plan (%s)", run_id, exc)
+-                self._fire_resume_cleanup(run_id)
+-                return
+-            if compiled.steps:
+-                agents = self._specs_from_plan(compiled.steps)
++                if not agents:
++                    logger.warning(
++                        "resume_run(%s): cannot compile plan (%s)", run_id, exc
++                    )
++                    self._fire_resume_cleanup(run_id)
++                    return
++                plan_steps = []  # no plan: a registry roster resumes as it stands
++            if plan_steps and (
++                not agents or {a.id for a in agents} < {s.agent_id for s in plan_steps}
++            ):
++                agents = self._specs_from_plan(plan_steps)
+         if not agents:
+             logger.warning(
+                 "resume_run(%s): empty agent list — nothing to resume", run_id
+@@ -16173,22 +16183,28 @@ class ExecutionEngine:
+             )
+             self._fire_resume_cleanup(run_id)
+             return
+-        if not agents and resumed_compiled is None:
++        if resumed_compiled is None:
+             # ── Roster seam (twin of resume_run's ~10818): the registry has no static
+             # membership for some custom-workflow types — fall back to the compiled
+             # plan before giving up. Scoped to resumed_compiled is None ONLY: a
+             # DB-manifest replay's roster IS the compiled plan already, so it must
+             # never fall through to the generic compile_for_run(pipeline_type) roster.
++            # ISS-950: a partial registry roster (a strict subset of the plan) is
++            # completed too, by the same rule as resume_run's seam.
+             try:
+-                compiled = compile_for_run(pipeline_type)
++                plan_steps = compile_for_run(pipeline_type).steps
+             except Exception as exc:  # noqa: BLE001 — cannot compile → cannot replay
+-                logger.warning(
+-                    "_replay_clarify_run(%s): cannot compile plan (%s)", run_id, exc
+-                )
+-                self._fire_resume_cleanup(run_id)
+-                return
+-            if compiled.steps:
+-                agents = self._specs_from_plan(compiled.steps)
++                if not agents:
++                    logger.warning(
++                        "_replay_clarify_run(%s): cannot compile plan (%s)", run_id, exc
++                    )
++                    self._fire_resume_cleanup(run_id)
++                    return
++                plan_steps = []  # no plan: a registry roster replays as it stands
++            if plan_steps and (
++                not agents or {a.id for a in agents} < {s.agent_id for s in plan_steps}
++            ):
++                agents = self._specs_from_plan(plan_steps)
+         if not agents:
+             logger.warning(
+                 "_replay_clarify_run(%s): empty agent list — nothing to replay", run_id

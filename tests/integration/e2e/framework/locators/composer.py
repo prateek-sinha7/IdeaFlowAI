@@ -49,7 +49,7 @@ AGENT_RENAME = 'input[name="agent-rename"]'
 RUN_GATE_TITLE = "Add at least one agent first"
 RAIL_WORKFLOW = 'button:text-is("Workflow")'
 RAIL_AGENT = 'button:text-is("Agent")'
-AGENT_SUBTABS = ["Overview", "Skills", "Hooks", "Tools", "Config"]
+AGENT_SUBTABS = ["Overview", "Skills", "Data", "Tools", "Config"]
 AGENT_NAME = 'input[name="agent-name"]'
 
 WORKFLOW_NAME = 'input[name="workflow-name"]'

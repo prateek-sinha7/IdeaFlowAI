@@ -224,8 +224,9 @@ export interface UseRunChatReturn {
    * rather than ALL events from seq 0. This prevents duplicate chat_reply cards
    * (e.g. "Revision started") from being re-added by FIX-172 when the seenRef
    * dedup might be racing with seedRunChatTranscript's seenRef.clear().
+   * ISS-926: the cursor is per run (run_events.seq is) — pass the run being fetched.
    */
-  getLastSeq: () => number;
+  getLastSeq: (runId: string | null) => number;
   /**
    * DEF-44-12-4 (Piece 3) — IMPERATIVE prior-transcript seed, fired ONLY from
    * the explicit history-open action. Clears the per-hook seen-set + seq cursor,
@@ -493,7 +494,10 @@ export function useRunChat(config: UseRunChatConfig): UseRunChatReturn {
   // Per-hook max-seen seq cursor (mirrors the page's lastSeqRef) — the offset the
   // DEF-44-12-2 re-fetch-after-send passes as `afterSeq` so it pulls only newer
   // events. Advanced inside handleFrame from a larger numeric `data.seq`.
-  const lastSeqRef = useRef<number>(0);
+  // ISS-926: keyed by run — run_events.seq is per run, and a family transcript
+  // folds several runs' frames, so one scalar let a longer member's seq skip
+  // the fetched run's own events.
+  const lastSeqRef = useRef<Record<string, number>>({});
 
   const handleFrame = useCallback((frame: RunChatFrame) => {
     const data = (frame?.data ?? {}) as Record<string, unknown>;
@@ -503,8 +507,14 @@ export function useRunChat(config: UseRunChatConfig): UseRunChatReturn {
       seenRef.current.add(eventId);
     }
     const seq = typeof data.seq === "number" ? data.seq : undefined;
-    if (typeof seq === "number" && seq > lastSeqRef.current) {
-      lastSeqRef.current = seq;
+    // ISS-926: a frame names its own run (chat rows carry pipeline_run_id); one
+    // that names none belongs to the viewed run.
+    const seqRunId =
+      typeof data.pipeline_run_id === "string" ? data.pipeline_run_id
+      : typeof data.run_id === "string" ? data.run_id
+      : runId ?? "";
+    if (typeof seq === "number" && seq > (lastSeqRef.current[seqRunId] ?? 0)) {
+      lastSeqRef.current[seqRunId] = seq;
     }
     switch (frame.type) {
       case "chat_message":
@@ -566,22 +576,27 @@ export function useRunChat(config: UseRunChatConfig): UseRunChatReturn {
               : undefined,
         });
         break;
-      case "review_gate_approved":
+      case "review_gate_approved": {
         // Mark the most recent unresolved gate card in the transcript as
         // resolved so it re-renders as a plain inline text
         // ("Review approved — build continues") instead of a styled box.
         // Generic — keyed on cardKind, never on workflow/agent name (SC-001).
+        // QA-KB-020 (ISS-654): a family transcript holds several runs' gate cards,
+        // so only a card of the approved run (the frame's pipeline_run_id) may flip.
+        // A side with no run id keeps the old positional match.
+        const rid = typeof data.pipeline_run_id === "string" ? data.pipeline_run_id : undefined;
         setMessages((prev) => {
-          // Find the last unresolved gate card and flip it.
+          // Find the approved run's last unresolved gate card and flip it.
           const idx = prev.map((m, i) => ({ m, i }))
             .reverse()
-            .find(({ m }) => m.cardKind === "gate" && !m.resolved)?.i;
+            .find(({ m }) => m.cardKind === "gate" && !m.resolved && (!rid || !m.runId || m.runId === rid))?.i;
           if (idx === undefined) return prev;
           const updated = [...prev];
           updated[idx] = { ...updated[idx], resolved: true };
           return updated;
         });
         break;
+      }
       case "concierge_proposal": {
         // ISS-054 / KAN-160: durable Concierge-held consequential proposal
         // (33-03/D-05). "pending" adds/updates the chip; a "resolved" row
@@ -715,7 +730,7 @@ export function useRunChat(config: UseRunChatConfig): UseRunChatReturn {
           }
           if (!fetchEvents) return;
           try {
-            const newFrames = await fetchEvents(postRunId, lastSeqRef.current);
+            const newFrames = await fetchEvents(postRunId, lastSeqRef.current[postRunId ?? ""] ?? 0);
             for (const f of newFrames) handleFrame(f);
           } catch {
             // A re-fetch failure must not surface — the optimistic turn stands;
@@ -736,7 +751,7 @@ export function useRunChat(config: UseRunChatConfig): UseRunChatReturn {
   const seedTranscript = useCallback(
     (frames: RunChatFrame[], isTerminalRun?: boolean) => {
       seenRef.current.clear();
-      lastSeqRef.current = 0;
+      lastSeqRef.current = {};
       setMessages([]);
       // rqo Issue-2 part-2: an explicit history-open resets the streaming hint too
       // (a seeded transcript's chat_reply rows are all terminal — never mid-stream).
@@ -806,8 +821,8 @@ export function useRunChat(config: UseRunChatConfig): UseRunChatReturn {
    * can fetch only events AFTER the last delivered seq, preventing duplicate
    * chat_reply cards (e.g. "Revision started") from re-appearing.
    */
-  const getLastSeq = useCallback((): number => {
-    return lastSeqRef.current;
+  const getLastSeq = useCallback((seqRunId: string | null): number => {
+    return lastSeqRef.current[seqRunId ?? ""] ?? 0;
   }, []);
 
   /**

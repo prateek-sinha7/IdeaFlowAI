@@ -1,0 +1,20 @@
+# QA-KB-088 fix, 2026-10-07: sibling files AFTER relocation (ISS-1091, ISS-1093), DATABASE_URL=sqlite:///:memory:, one file at a time, -p no:cacheprovider
+## tests/integration/api/test_workflow_override_api.py
+17 passed, 1 warning in 1.15s
+## tests/unit/test_workflow_override.py
+E       AssertionError: assert CompiledWorkflow(id='ppt', steps=[Step(agent_id='custom-agent:mine', strategy='single_shot', mechanical=None, gates=['..., effort=None), repo=None, limits=Limits(max_tokens=None, max_subagents=None, max_depth=None, wall_clock_seconds=None)) is CompiledWorkflow(id='ppt', steps=[Step(agent_id='ppt-brief-analyst', strategy='single_shot', mechanical=None, gates=[]..., effort=None), repo=None, limits=Limits(max_tokens=None, max_subagents=None, max_depth=None, wall_clock_seconds=None))
+FAILED tests/unit/test_workflow_override.py::test_a_not_user_allowed_gate_is_rejected
+1 failed, 5 passed, 1 warning in 0.97s
+## tests/integration/api/test_workflows_api.py
+E               AssertionError: prototype must carry its authored display_name verbatim (got 'Build an interactive prototype (Fast)')
+FAILED tests/integration/api/test_workflows_api.py::TestList::test_list_carries_launchable_flags
+1 failed, 52 passed, 3 warnings in 28.51s
+## tests/integration/api/test_chain_projection_api.py
+11 passed, 3 warnings in 1.18s
+## tests/integration/agents/test_authz_bounded_calls_db.py
+7 passed, 1 warning in 2.42s
+## old paths gone
+ls: tests/unit/api/test_workflows_api.py: No such file or directory
+ls: tests/unit/test_authz_bounded_calls.py: No such file or directory
+ls: tests/unit/test_chain_projection.py: No such file or directory
+ls: tests/unit/test_workflow_override_e2e.py: No such file or directory

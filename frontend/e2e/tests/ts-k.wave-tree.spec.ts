@@ -25,7 +25,7 @@ test.describe("TS-K — wave / subagent tree", () => {
     // the Build Agent) are driven by sse.start below (the mocked stream is the
     // source of truth for the rendered pipeline, independent of the launched row).
     await dashboard.runWith({ workflow: "Generate product requirements", idea: "Build an Apple-style reference prototype" });
-    dashboard.sse.start(AGENTS.od_prototype, { pipelineType: "prototype", runId: "run-e2e-1" });
+    dashboard.sse.start(AGENTS.prototype, { pipelineType: "prototype", runId: "run-e2e-1" });
     // Make the Build Agent navigable (a running row → opens L2), then drill in.
     dashboard.sse.agentStart(BUILD);
     await dashboard.thinkingTab().click();

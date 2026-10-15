@@ -1,0 +1,10 @@
+Q select r.id, r.type, r.parent_run_id from workflow_runs r join users u on u.id = r.user_id where u.email = 'admin@velocity.ai' order by r.created_at desc
+admin runs total (X-Total-Count): 67
+first page: 50 runs   older (offset>=50): 17 runs
+older runs by bucket -> {'custom': 17}
+extra_beyond_page_one = 17  (bucket 'custom')
+first-page family cards by bucket (approximates the chip counts) -> {'custom': 33, 'user_stories': 1}
+shown (chip for bucket 'custom') ~= 33
+assertion  shown >= extra_beyond_page_one  ->  33 >= 17  ->  True
+TRUE per-bucket run totals (what the test title says the chip should show) -> {'custom': 60, 'user_stories': 1, 'prototype': 6}
+the chip for 'custom' undercounts the true run total by 27, and the test still passes: True

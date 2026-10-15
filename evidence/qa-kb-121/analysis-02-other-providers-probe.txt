@@ -1,0 +1,15 @@
+QA-KB-121 analysis-02: other providers' key-rejection strings through the real sanitizer. Offline, no network.
+Probe: evidence/qa-kb-121/analysis-02-probe.py (run with: backend/.venv/bin/python -I evidence/qa-kb-121/analysis-02-probe.py). anthropic 0.125.0 builds the 401 the way its own client does for a non-2xx response; httpx raise_for_status for Mistral.
+The strings are SDK-built; what the live APIs return for a revoked key is INFERRED (not driven).
+
+anthropic 0.125.0 | httpx 0.28.1
+----------------------------------------------------------------------------------------------------
+Anthropic revoked/invalid ANTHROPIC_API_KEY (401)
+  type: AuthenticationError | status_code: 401
+  str(exc): Error code: 401 - {'type': 'error', 'error': {'type': 'authentication_error', 'message': 'invalid x-api-key'}}
+  engine _sanitize_agent_error -> GENERIC 'rejected this request'
+----------------------------------------------------------------------------------------------------
+Mistral invalid MISTRAL_API_KEY (401)
+  type: HTTPStatusError
+  str(exc): Client error '401 Unauthorized' for url 'https://api.mistral.ai/v1/chat/completions' | For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/401
+  engine _sanitize_agent_error -> CREDENTIAL(cloud-session copy)

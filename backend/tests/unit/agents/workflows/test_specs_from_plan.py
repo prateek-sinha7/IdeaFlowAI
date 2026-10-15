@@ -119,25 +119,33 @@ def test_specs_from_plan_matches_real_composed_manifest():
 
 
 def test_resume_paths_call_the_shared_helper_not_a_bare_comprehension():
-    """FIX-266 ratchet: resume_run and _derive_offset's plan-rebuild sites must read
-    `self._specs_from_plan(compiled.steps)`. A future edit reintroducing the bare
-    `[load_agent_spec(s.agent_id) for s in compiled.steps]` pattern at either site would
-    silently drop the display_name overlay again — this fails the build instead."""
+    """FIX-266 ratchet: every plan-rebuild site (execute + the resume_run paths;
+    _derive_offset was folded into resume_run) must read `self._specs_from_plan(...)`.
+    A future edit reintroducing the bare `[load_agent_spec(s.agent_id) for s in <steps>]`
+    pattern at any site would silently drop the display_name overlay again — this fails
+    the build instead.
+
+    The helper argument is matched by call, not by the exact variable name: the resume
+    paths legitimately pass `resumed_compiled.steps` / `plan_steps` rather than
+    `compiled.steps`, and the ban covers a bare comprehension over ANY of those vars."""
     source = _ENGINE_PY.read_text(encoding="utf-8")
 
+    # Bare comprehension over ANY step iterable (compiled.steps, resumed_compiled.steps,
+    # plan_steps, …) — the overlay-dropping pattern, wherever it reappears.
     banned = re.compile(
-        r"\[\s*load_agent_spec\(s\.agent_id\)\s+for\s+s\s+in\s+compiled\.steps\s*\]"
+        r"\[\s*load_agent_spec\(s\.agent_id\)\s+for\s+s\s+in\s+[\w.]+\s*\]"
     )
     assert not banned.search(source), (
-        "engine.py contains a bare `[load_agent_spec(s.agent_id) for s in "
-        "compiled.steps]` — this is the FIX-266 regression pattern (no display_name "
-        "overlay). Use `self._specs_from_plan(compiled.steps)` instead."
+        "engine.py contains a bare `[load_agent_spec(s.agent_id) for s in <steps>]` — "
+        "this is the FIX-266 regression pattern (no display_name overlay). Use "
+        "`self._specs_from_plan(<steps>)` instead."
     )
 
-    calls = source.count("self._specs_from_plan(compiled.steps)")
+    # Count helper CALLS regardless of the argument variable name (excludes the `def`).
+    calls = len(re.findall(r"self\._specs_from_plan\(", source))
     assert calls >= 3, (
-        f"expected _specs_from_plan(compiled.steps) at all 3 known call sites "
-        f"(execute, resume_run, _derive_offset); found {calls}. If a call site was "
+        f"expected self._specs_from_plan(...) at the known plan-rebuild sites "
+        f"(execute + the resume_run paths); found {calls}. If call sites were "
         f"legitimately removed, lower this bound deliberately — do not delete the test."
     )
 

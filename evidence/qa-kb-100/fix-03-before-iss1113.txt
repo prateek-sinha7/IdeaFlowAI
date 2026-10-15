@@ -1,0 +1,8 @@
+tests/integration/api/test_iss1113_override_row_launch_trust.py::test_launching_an_override_row_by_id_compiles_below_db_trust
+  /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/.venv/lib/python3.13/site-packages/fastapi/routing.py:352: StarletteDeprecationWarning: 'HTTP_422_UNPROCESSABLE_ENTITY' is deprecated. Use 'HTTP_422_UNPROCESSABLE_CONTENT' instead.
+    return await dependant.call(**values)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+XFAIL tests/integration/api/test_iss1113_override_row_launch_trust.py::test_launching_an_override_row_by_id_compiles_below_db_trust - ISS-1113 unfixed
+1 xfailed, 4 warnings in 1.16s

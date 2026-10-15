@@ -1,0 +1,33 @@
+# QA-KB-099 analysis 01: reproduce at HEAD 3af414bc6 (2026-10-08T11:49Z)
+# tree: /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2   branch: feat/stale-bug-fixes
+
+$ cd backend && .venv/bin/python -m pytest tests/unit/services/test_shutdown_reachability.py -q -p no:cacheprovider -rA --tb=short
+F.......                                                                 [100%]
+=================================== FAILURES ===================================
+____ test_sigterm_reaches_the_lifespan_shutdown_half_while_a_stream_is_live ____
+tests/unit/services/test_shutdown_reachability.py:180: in test_sigterm_reaches_the_lifespan_shutdown_half_while_a_stream_is_live
+    proc = subprocess.Popen(
+tests/unit/conftest.py:129: in _deny_popen
+    raise UnitIsolationError(
+E   tests.unit.conftest.UnitIsolationError: Unit test spawned a subprocess: ['/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/.venv/bin/python', '-m', 'uvicorn', 'reachability_probe_app:app', '--host', '127.0.0.1', '--port', '51919', '--timeout-graceful-shutdown', '5', '--log-level', 'error']. Move it to tests/integration/ (suffix _external), or assert against the command it would have built instead of running it. Deliberate exception: @pytest.mark.allow_io("reason").
+=============================== warnings summary ===============================
+app/core/config.py:94
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+==================================== PASSES ====================================
+_______________ test_development_defaults_shutdown_stop_runs_on ________________
+------------------------------ Captured log call -------------------------------
+WARNING  app.core.config:config.py:612 Cognito is the sole authentication authority but COGNITO_USER_POOL_ID, COGNITO_CLIENT_ID, COGNITO_CLIENT_SECRET are unset. The Cognito SSM parameters may exist but be missing from the on-host secrets-loader allowlist (infra/scripts/bootstrap-ec2.sh) — verify /etc/velocityai/app.env on the host.
+WARNING  app.core.config:config.py:665 SECRET_KEY is the shipped default. Acceptable in ENV=development only. Set ENV=production (or any non-development value) and rotate the key before deploying.
+____ test_explicit_shutdown_stop_runs_always_wins[development-false-False] _____
+------------------------------ Captured log call -------------------------------
+WARNING  app.core.config:config.py:612 Cognito is the sole authentication authority but COGNITO_USER_POOL_ID, COGNITO_CLIENT_ID, COGNITO_CLIENT_SECRET are unset. The Cognito SSM parameters may exist but be missing from the on-host secrets-loader allowlist (infra/scripts/bootstrap-ec2.sh) — verify /etc/velocityai/app.env on the host.
+=========================== short test summary info ============================
+PASSED tests/unit/services/test_shutdown_reachability.py::test_docker_entrypoint_still_passes_timeout_graceful_shutdown
+PASSED tests/unit/services/test_shutdown_reachability.py::test_production_teardown_budget_fits_inside_stop_grace_period
+PASSED tests/unit/services/test_shutdown_reachability.py::test_production_leaves_shutdown_stop_runs_off
+PASSED tests/unit/services/test_shutdown_reachability.py::test_development_defaults_shutdown_stop_runs_on
+PASSED tests/unit/services/test_shutdown_reachability.py::test_explicit_shutdown_stop_runs_always_wins[development-false-False]
+PASSED tests/unit/services/test_shutdown_reachability.py::test_explicit_shutdown_stop_runs_always_wins[production-true-True]
+PASSED tests/unit/services/test_shutdown_reachability.py::test_close_checkpointer_is_awaited_exactly_once_on_the_shutdown_path
+FAILED tests/unit/services/test_shutdown_reachability.py::test_sigterm_reaches_the_lifespan_shutdown_half_while_a_stream_is_live
+1 failed, 7 passed, 1 warning in 1.80s

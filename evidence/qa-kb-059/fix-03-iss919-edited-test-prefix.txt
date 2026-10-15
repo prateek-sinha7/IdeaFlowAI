@@ -1,0 +1,57 @@
+# QA-KB-059 fix: EDITED iss919 test file (T4 rewritten per ISS-983 'For the test-writer') run against the PRE-FIX IdeaInputPage.tsx snapshot, aliased from a scratch config outside the repo. All 4 red inside it.fails = defect observed
+# alias: @/components/workflow/IdeaInputPage -> scratch copy of the pre-fix file (relative imports rewritten to @/components/workflow/...)
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - ESM syntax in a file loaded as CommonJS (../../../../../../../private/tmp/claude-502/-Users-bilala-Developer-Projects-VELOCITY-AI-worktrees-feat-user-stories-v2/2d1a1575-310a-48fd-8155-2763a084604d/scratchpad/qa-kb-059-before/vitest.scratch.config.ts:1:1). Use a `.mjs` extension or set `"type": "module"` in the closest package.json
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+
+ RUN  v4.1.11 /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/frontend
+
+stdout | ../../../../../../../private/tmp/claude-502/-Users-bilala-Developer-Projects-VELOCITY-AI-worktrees-feat-user-stories-v2/2d1a1575-310a-48fd-8155-2763a084604d/scratchpad/qa-kb-059-before/iss919-on-prefix.scratch.test.tsx > QA-KB-059 scratch: IdeaInputPage while GET /api/workflows/user_stories is PENDING > ISS-919 T1 both Save buttons should be disabled (red today = defect observed)
+[wf] 4. roster for user_stories { fromLibrary: 4, fromManifest: 0, using: 'library' }
+
+stdout | ../../../../../../../private/tmp/claude-502/-Users-bilala-Developer-Projects-VELOCITY-AI-worktrees-feat-user-stories-v2/2d1a1575-310a-48fd-8155-2763a084604d/scratchpad/qa-kb-059-before/iss919-on-prefix.scratch.test.tsx > QA-KB-059 scratch: IdeaInputPage while GET /api/workflows/user_stories is PENDING > ISS-919 T1 both Save buttons should be disabled (red today = defect observed)
+[T1] pending window: saveAsMyVersion.disabled=false saveWorkflow.disabled=false advanced.disabled=false advancedLabel="Advanced4 agents · ~4m"
+
+stdout | ../../../../../../../private/tmp/claude-502/-Users-bilala-Developer-Projects-VELOCITY-AI-worktrees-feat-user-stories-v2/2d1a1575-310a-48fd-8155-2763a084604d/scratchpad/qa-kb-059-before/iss919-on-prefix.scratch.test.tsx > QA-KB-059 scratch: IdeaInputPage while GET /api/workflows/user_stories is PENDING > ISS-919 T2 clicking Save as my version while pending sends the library roster as an override UPSERT
+[wf] 4. roster for user_stories { fromLibrary: 4, fromManifest: 0, using: 'library' }
+
+stdout | ../../../../../../../private/tmp/claude-502/-Users-bilala-Developer-Projects-VELOCITY-AI-worktrees-feat-user-stories-v2/2d1a1575-310a-48fd-8155-2763a084604d/scratchpad/qa-kb-059-before/iss919-on-prefix.scratch.test.tsx > QA-KB-059 scratch: IdeaInputPage while GET /api/workflows/user_stories is PENDING > ISS-919 T2 clicking Save as my version while pending sends the library roster as an override UPSERT
+[wf] 4. roster for user_stories { fromLibrary: 4, fromManifest: 0, using: 'library' }
+
+stdout | ../../../../../../../private/tmp/claude-502/-Users-bilala-Developer-Projects-VELOCITY-AI-worktrees-feat-user-stories-v2/2d1a1575-310a-48fd-8155-2763a084604d/scratchpad/qa-kb-059-before/iss919-on-prefix.scratch.test.tsx > QA-KB-059 scratch: IdeaInputPage while GET /api/workflows/user_stories is PENDING > ISS-919 T2 clicking Save as my version while pending sends the library roster as an override UPSERT
+[T2] createUserWorkflow calls while detail pending: 1
+[T2] POST body: {"overrides_pipeline_type":"user_stories","base_pipeline_type":"user_stories","agent_ids":["domain-analyst","epic-architect","story-estimator","nfr-specialist"]}
+
+stdout | ../../../../../../../private/tmp/claude-502/-Users-bilala-Developer-Projects-VELOCITY-AI-worktrees-feat-user-stories-v2/2d1a1575-310a-48fd-8155-2763a084604d/scratchpad/qa-kb-059-before/iss919-on-prefix.scratch.test.tsx > QA-KB-059 scratch: the FAILED-fetch window (adjacent state) > ISS-984 T3 a rejected GET leaves Save as my version enabled and shows no error
+[wf] 4. roster for user_stories { fromLibrary: 4, fromManifest: 0, using: 'library' }
+
+ ✓ ../../../../../../../private/tmp/claude-502/-Users-bilala-Developer-Projects-VELOCITY-AI-worktrees-feat-user-stories-v2/2d1a1575-310a-48fd-8155-2763a084604d/scratchpad/qa-kb-059-before/iss919-on-prefix.scratch.test.tsx > QA-KB-059 scratch: IdeaInputPage while GET /api/workflows/user_stories is PENDING > ISS-919 T1 both Save buttons should be disabled (red today = defect observed) 114ms
+ ✓ ../../../../../../../private/tmp/claude-502/-Users-bilala-Developer-Projects-VELOCITY-AI-worktrees-feat-user-stories-v2/2d1a1575-310a-48fd-8155-2763a084604d/scratchpad/qa-kb-059-before/iss919-on-prefix.scratch.test.tsx > QA-KB-059 scratch: IdeaInputPage while GET /api/workflows/user_stories is PENDING > ISS-919 T2 clicking Save as my version while pending sends the library roster as an override UPSERT 40ms
+stdout | ../../../../../../../private/tmp/claude-502/-Users-bilala-Developer-Projects-VELOCITY-AI-worktrees-feat-user-stories-v2/2d1a1575-310a-48fd-8155-2763a084604d/scratchpad/qa-kb-059-before/iss919-on-prefix.scratch.test.tsx > QA-KB-059 scratch: the FAILED-fetch window (adjacent state) > ISS-984 T3 a rejected GET leaves Save as my version enabled and shows no error
+[T3] after rejected GET: saveAsMyVersion.disabled=false errorBannerShown=false
+
+stdout | ../../../../../../../private/tmp/claude-502/-Users-bilala-Developer-Projects-VELOCITY-AI-worktrees-feat-user-stories-v2/2d1a1575-310a-48fd-8155-2763a084604d/scratchpad/qa-kb-059-before/iss919-on-prefix.scratch.test.tsx > QA-KB-059 scratch: an edit made in the window vs the late overlay (Advanced trigger) > ISS-983 T4 the Advanced trigger is disabled while the detail is pending and enabled once it lands
+[wf] 4. roster for user_stories { fromLibrary: 4, fromManifest: 0, using: 'library' }
+
+stdout | ../../../../../../../private/tmp/claude-502/-Users-bilala-Developer-Projects-VELOCITY-AI-worktrees-feat-user-stories-v2/2d1a1575-310a-48fd-8155-2763a084604d/scratchpad/qa-kb-059-before/iss919-on-prefix.scratch.test.tsx > QA-KB-059 scratch: an edit made in the window vs the late overlay (Advanced trigger) > ISS-983 T4 the Advanced trigger is disabled while the detail is pending and enabled once it lands
+[wf] 1. fetched user_stories {
+  compiledSteps: 0,
+  manifestSteps: 0,
+  stepsWithGates: [],
+  stepsWithRoute: []
+}
+
+stdout | ../../../../../../../private/tmp/claude-502/-Users-bilala-Developer-Projects-VELOCITY-AI-worktrees-feat-user-stories-v2/2d1a1575-310a-48fd-8155-2763a084604d/scratchpad/qa-kb-059-before/iss919-on-prefix.scratch.test.tsx > QA-KB-059 scratch: an edit made in the window vs the late overlay (Advanced trigger) > ISS-983 T4 the Advanced trigger is disabled while the detail is pending and enabled once it lands
+[T4] advanced.disabled pending=false settled=false
+
+stdout | ../../../../../../../private/tmp/claude-502/-Users-bilala-Developer-Projects-VELOCITY-AI-worktrees-feat-user-stories-v2/2d1a1575-310a-48fd-8155-2763a084604d/scratchpad/qa-kb-059-before/iss919-on-prefix.scratch.test.tsx > QA-KB-059 scratch: an edit made in the window vs the late overlay (Advanced trigger) > ISS-983 T4 the Advanced trigger is disabled while the detail is pending and enabled once it lands
+[wf] 4. roster for user_stories { fromLibrary: 4, fromManifest: 0, using: 'library' }
+
+ ✓ ../../../../../../../private/tmp/claude-502/-Users-bilala-Developer-Projects-VELOCITY-AI-worktrees-feat-user-stories-v2/2d1a1575-310a-48fd-8155-2763a084604d/scratchpad/qa-kb-059-before/iss919-on-prefix.scratch.test.tsx > QA-KB-059 scratch: the FAILED-fetch window (adjacent state) > ISS-984 T3 a rejected GET leaves Save as my version enabled and shows no error 80ms
+ ✓ ../../../../../../../private/tmp/claude-502/-Users-bilala-Developer-Projects-VELOCITY-AI-worktrees-feat-user-stories-v2/2d1a1575-310a-48fd-8155-2763a084604d/scratchpad/qa-kb-059-before/iss919-on-prefix.scratch.test.tsx > QA-KB-059 scratch: an edit made in the window vs the late overlay (Advanced trigger) > ISS-983 T4 the Advanced trigger is disabled while the detail is pending and enabled once it lands 40ms
+
+ Test Files  1 passed (1)
+      Tests  4 expected fail (4)
+   Start at  18:11:11
+   Duration  1.79s (transform 238ms, setup 80ms, import 644ms, tests 276ms, environment 695ms)
+

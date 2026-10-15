@@ -641,7 +641,7 @@ export function CanvasNode({
               e.stopPropagation();
               if (removable) onRemove();
             }}
-            className="grid h-5 w-5 place-items-center rounded-[6px] text-ink-200 enabled:hover:text-ink-500 disabled:cursor-not-allowed disabled:opacity-0"
+            className="grid h-5 w-5 place-items-center rounded-[6px] text-ink-200 enabled:hover:text-ink-500 disabled:cursor-not-allowed disabled:text-line-faint"
           >
             <X className="h-3 w-3" />
           </button>
@@ -728,7 +728,8 @@ export function CanvasNode({
             siblings they flowed onto the same text line and sat flush against
             each other (the pill's margin-top does nothing horizontally). */}
         <div className="mt-3 flex flex-wrap items-center gap-1.5">
-          {locked && (
+          {/* Same predicate as the Remove lock (BUG-025): every non-optional role is Core. */}
+          {!removable && (
             <span className="inline-flex h-[22px] items-center gap-1 rounded-[6px] border border-line-control px-1.5 font-sans text-[8px] font-bold uppercase tracking-[0.05em] text-ink-500">
               <Lock className="h-2.5 w-2.5" />
               Core

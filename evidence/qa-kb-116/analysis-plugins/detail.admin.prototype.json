@@ -1,0 +1,187 @@
+{
+ "id": "prototype",
+ "name": "Prototype",
+ "description": "5-step workflow: Spec Writer Agent -> Task Planner Agent -> Spec Kit Analyzer -> Build Agent -> Validation Agent",
+ "planner": "run",
+ "clarify_mode": "auto",
+ "clarify_defaults": [
+  "target_audience",
+  "scope",
+  "priority",
+  "style",
+  "user_journeys",
+  "key_screens",
+  "interactions",
+  "personas"
+ ],
+ "context_providers": [
+  "opendesign",
+  "chain_context"
+ ],
+ "deliverable": {
+  "strategy": "single_file",
+  "name": "prototype.html"
+ },
+ "steps": [
+  {
+   "agent_id": "prototype-specify",
+   "name": "Spec Writer Agent",
+   "role": "Specification & Architecture",
+   "order": 1,
+   "strategy": "single_shot",
+   "gates": [],
+   "validators": [],
+   "compaction": null,
+   "task_source": null,
+   "declared_gate": null,
+   "skills": [
+    "velocity-design"
+   ]
+  },
+  {
+   "agent_id": "prototype-plan",
+   "name": "Task Planner Agent",
+   "role": "Build Planning & Task Decomposition",
+   "order": 2,
+   "strategy": "single_shot",
+   "gates": [],
+   "validators": [],
+   "compaction": null,
+   "task_source": null,
+   "declared_gate": null,
+   "skills": []
+  },
+  {
+   "agent_id": "prototype-analyze",
+   "name": "Spec Kit Analyzer",
+   "role": "Cross-Artifact Quality Analysis",
+   "order": 3,
+   "strategy": "single_shot",
+   "gates": [],
+   "validators": [],
+   "compaction": null,
+   "task_source": null,
+   "declared_gate": null,
+   "skills": []
+  },
+  {
+   "agent_id": "prototype-build",
+   "name": "Build Agent",
+   "role": "Incremental HTML Construction",
+   "order": 4,
+   "strategy": "task_loop",
+   "gates": [],
+   "validators": [
+    "html_static",
+    "html_render"
+   ],
+   "compaction": "html_skeleton",
+   "task_source": {
+    "kind": "parsed",
+    "parser": "heading_tasks",
+    "target": "tasks.md",
+    "path": null
+   },
+   "declared_gate": null,
+   "skills": []
+  },
+  {
+   "agent_id": "prototype-validate",
+   "name": "Validation Agent",
+   "role": "Structural Validation & Delivery",
+   "order": 5,
+   "strategy": "single_shot",
+   "gates": [],
+   "validators": [],
+   "compaction": null,
+   "task_source": null,
+   "declared_gate": null,
+   "skills": []
+  }
+ ],
+ "manifest_steps": [
+  {
+   "strategy": "single_shot",
+   "agent": "prototype-specify",
+   "skills": [
+    "velocity-design"
+   ],
+   "tools": {
+    "read_files": true,
+    "write_files": true,
+    "exec": false
+   },
+   "gates": [],
+   "depends_on": []
+  },
+  {
+   "strategy": "single_shot",
+   "agent": "prototype-plan",
+   "tools": {
+    "read_files": true,
+    "write_files": true,
+    "exec": false
+   },
+   "gates": [],
+   "depends_on": [
+    "prototype-specify"
+   ]
+  },
+  {
+   "strategy": "single_shot",
+   "agent": "prototype-analyze",
+   "tools": {
+    "read_files": true,
+    "write_files": true,
+    "exec": false
+   },
+   "gates": [],
+   "depends_on": [
+    "prototype-plan"
+   ]
+  },
+  {
+   "strategy": "task_loop",
+   "task_source": {
+    "kind": "parsed",
+    "parser": "heading_tasks",
+    "target": "tasks.md",
+    "source_step": "prototype-plan",
+    "spec_step": "prototype-specify"
+   },
+   "validators": [
+    "html_static",
+    "html_render"
+   ],
+   "require_render": true,
+   "compaction": "html_skeleton",
+   "agent": "prototype-build",
+   "tools": {
+    "read_files": true,
+    "write_files": true,
+    "exec": false
+   },
+   "gates": [],
+   "depends_on": [
+    "prototype-analyze"
+   ]
+  },
+  {
+   "strategy": "single_shot",
+   "agent": "prototype-validate",
+   "tools": {
+    "read_files": true,
+    "write_files": true,
+    "exec": false
+   },
+   "gates": [],
+   "depends_on": [
+    "prototype-build"
+   ]
+  }
+ ],
+ "is_overridden": true,
+ "has_override": true,
+ "override_id": "b50f3925-e5bb-498a-8539-193c0b50e04a",
+ "showing_original": false
+}

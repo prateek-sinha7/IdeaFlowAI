@@ -1,0 +1,1379 @@
+diff --git a/tests/integration/e2e/README.md b/tests/integration/e2e/README.md
+index df6e5da14..a298be01d 100644
+--- a/tests/integration/e2e/README.md
++++ b/tests/integration/e2e/README.md
+@@ -52,7 +52,9 @@ uv pip install -p .venv -r requirements.txt
+ Needs the frontend on :3000 and the backend on :8000, plus the seeded QA
+ accounts (`backend/scripts/seed_test_users.py`). Both that script and
+ `framework/accounts.py` read `E2E_BASE_PASSWORD`; set it for one and not the
+-other and every sign-in fails confusingly.
++other and every sign-in fails confusingly. The four scenarios that sign in as a
++`disposable_user` set its password the same way, through `backend/.venv` and the
++backend's AWS credentials.
+ 
+ No `playwright install` step — `--browser-channel chrome` drives the real
+ Google Chrome already on the machine, not a downloaded Chromium.
+diff --git a/tests/integration/e2e/conftest.py b/tests/integration/e2e/conftest.py
+index b84006352..1692af51c 100644
+--- a/tests/integration/e2e/conftest.py
++++ b/tests/integration/e2e/conftest.py
+@@ -11,6 +11,7 @@ from __future__ import annotations
+ import json
+ import os
+ import re
++import subprocess
+ import uuid
+ from datetime import datetime
+ from pathlib import Path
+@@ -417,6 +418,35 @@ def page_as(browser, signed_in_state, pytestconfig):
+         c.close()
+ 
+ 
++def _give_password(email: str) -> None:
++    """Set the shared password on an invited account, permanently (ISS-1187).
++
++    The same `AdminSetUserPassword(permanent=True)` `seed_test_users.py` gives the
++    seeded accounts, run in the backend's own venv for its pool id and AWS
++    credentials: this venv carries no AWS client on purpose (requirements.txt).
++    Never through the admin API — it takes no password, by design.
++    """
++    backend = INTEGRATION.parent.parent / "backend"
++    out = subprocess.run(
++        [
++            str(backend / ".venv/bin/python"),
++            "-c",
++            "import sys; from app.core import cognito; "
++            "cognito.admin_set_user_password(sys.argv[1], sys.stdin.read(), permanent=True)",
++            email,
++        ],
++        input=accounts.PASSWORD,
++        cwd=backend,
++        capture_output=True,
++        text=True,
++        timeout=120,
++    )
++    assert out.returncode == 0, (
++        f"could not set a password on {email} (needs the backend venv and its AWS "
++        f"credentials, as seed_test_users.py does): {out.stderr[-500:]}"
++    )
++
++
+ @pytest.fixture
+ def disposable_user(page_as):
+     """Create throwaway accounts through the admin API, and delete them after.
+@@ -431,7 +461,10 @@ def disposable_user(page_as):
+     only way back is a direct database write. That is D-31, and it cost this
+     suite a two-hour outage.
+ 
+-    Yields a factory: `make(tier="hexaware")` -> `{"id", "email", "password"}`.
++    Yields a factory: `make(tier="hexaware")` -> `{"id", "email", "row"}`, `row`
++    being the 201 body. Creation is invitation-only (b2a621f84), so the account
++    has no password anyone here knows; `make(..., signs_in=True)` gives it the
++    shared one and adds `"password"`.
+     """
+     from framework import api as _api
+ 
+@@ -439,7 +472,7 @@ def disposable_user(page_as):
+     admin.goto("/dashboard")
+     created: list[str] = []
+ 
+-    def make(tier: str = "basic", *, email: str | None = None) -> dict:
++    def make(tier: str = "basic", *, email: str | None = None, signs_in: bool = False) -> dict:
+         address = email or f"e2e-{uuid.uuid4().hex[:12]}@velocity.ai"
+         result = _api.full(
+             admin,
+@@ -447,7 +480,6 @@ def disposable_user(page_as):
+             "/api/admin/users",
+             {
+                 "email": address,
+-                "password": accounts.PASSWORD,
+                 "tier": tier,
+                 "is_admin": False,
+             },
+@@ -458,7 +490,11 @@ def disposable_user(page_as):
+         )
+         row = json.loads(result["body"])
+         created.append(row["id"])
+-        return {"id": row["id"], "email": address, "password": accounts.PASSWORD}
++        user = {"id": row["id"], "email": address, "row": row}
++        if signs_in:
++            _give_password(address)
++            user["password"] = accounts.PASSWORD
++        return user
+ 
+     make.admin_page = admin
+     yield make
+diff --git a/tests/integration/e2e/framework/api.py b/tests/integration/e2e/framework/api.py
+index e8becf132..f5c5a0379 100644
+--- a/tests/integration/e2e/framework/api.py
++++ b/tests/integration/e2e/framework/api.py
+@@ -98,7 +98,7 @@ def full(page, method: str, url: str, body: dict | None = None, limit: int = 200
+     this instead.
+     """
+     return page.evaluate(
+-        _FETCH_FULL, [method, _absolute(url), json.dumps(body) if body else None, limit]
++        _FETCH_FULL, [method, _absolute(url), json.dumps(body) if body is not None else None, limit]
+     )
+ 
+ 
+diff --git a/tests/integration/e2e/framework/locators/admin.py b/tests/integration/e2e/framework/locators/admin.py
+index fd2418c7a..9f778fa38 100644
+--- a/tests/integration/e2e/framework/locators/admin.py
++++ b/tests/integration/e2e/framework/locators/admin.py
+@@ -18,6 +18,11 @@ LOGOUT = 'button:text-is("Logout")'
+ ADD_USER = 'button:text-is("Add user")'
+ SEARCH = 'input[name="admin-user-search"]'
+ 
++# The create dialog is invitation-only (b2a621f84): email, plan and the admin
++# checkbox, no password input.
++CREATE_DIALOG = "Create New User"
++SEND_INVITATION = "Send Invitation"
++
+ TILES = ["TOTAL USERS", "BASIC", "PRO", "ENTERPRISE", "ADMINS"]
+ 
+ 
+diff --git a/tests/integration/e2e/framework/locators/composer.py b/tests/integration/e2e/framework/locators/composer.py
+index 016294dc8..cf910cd82 100644
+--- a/tests/integration/e2e/framework/locators/composer.py
++++ b/tests/integration/e2e/framework/locators/composer.py
+@@ -49,7 +49,7 @@ AGENT_RENAME = 'input[name="agent-rename"]'
+ RUN_GATE_TITLE = "Add at least one agent first"
+ RAIL_WORKFLOW = 'button:text-is("Workflow")'
+ RAIL_AGENT = 'button:text-is("Agent")'
+-AGENT_SUBTABS = ["Overview", "Skills", "Hooks", "Tools", "Config"]
++AGENT_SUBTABS = ["Overview", "Skills", "Data", "Tools", "Config"]
+ AGENT_NAME = 'input[name="agent-name"]'
+ 
+ WORKFLOW_NAME = 'input[name="workflow-name"]'
+diff --git a/tests/integration/e2e/framework/locators/home_catalog.py b/tests/integration/e2e/framework/locators/home_catalog.py
+index 36314d218..fc60bdb49 100644
+--- a/tests/integration/e2e/framework/locators/home_catalog.py
++++ b/tests/integration/e2e/framework/locators/home_catalog.py
+@@ -50,7 +50,7 @@ def lock_badge(tier: str) -> str:
+ # exactly what HomeLaunchGrid renders outside the Coming Soon group.
+ LAUNCHABLE_TITLES = [
+     "Pitch an idea (Fast)",
+-    "Pitch an idea (Detailed)",
++    "Pitch an idea (Depth)",
+     "Build an interactive prototype (Fast)",
+     "Build an end-to-end application",
+     "Generate product requirements",
+diff --git a/tests/integration/e2e/suites/02_home_catalog/test_home_catalog.py b/tests/integration/e2e/suites/02_home_catalog/test_home_catalog.py
+index ddd06cde9..487d985ab 100644
+--- a/tests/integration/e2e/suites/02_home_catalog/test_home_catalog.py
++++ b/tests/integration/e2e/suites/02_home_catalog/test_home_catalog.py
+@@ -132,7 +132,7 @@ def test_every_catalog_card_renders_regardless_of_tier(page, shot):
+         # spec 017 entitled ppt and ppt_v2 on EVERY tier — the deck is the
+         # entry-level product now. The spec's matrix predates that merge.
+         ("basic", "Pitch an idea (Fast)", None),
+-        ("basic", "Pitch an idea (Detailed)", None),
++        ("basic", "Pitch an idea (Depth)", None),
+         ("basic", "Build an interactive prototype (Fast)", "Pro"),
+         ("basic", "Compose a custom workflow", "Enterprise"),
+         ("pro", "Pitch an idea (Fast)", None),
+diff --git a/tests/integration/e2e/suites/04_composer_canvas/test_composer_canvas.py b/tests/integration/e2e/suites/04_composer_canvas/test_composer_canvas.py
+index 29c43d801..097eafc9c 100644
+--- a/tests/integration/e2e/suites/04_composer_canvas/test_composer_canvas.py
++++ b/tests/integration/e2e/suites/04_composer_canvas/test_composer_canvas.py
+@@ -266,9 +266,9 @@ def test_the_config_rails_agent_tab_has_five_sub_tabs_of_its_own(page, shot):
+         page.click(L.RAIL_AGENT)
+         expect(page.locator(L.AGENT_NAME)).to_be_visible()
+ 
+-    # "step 1 of 3", not the display name: the heading uses the agent's ROLE
+-    # ("Slide Plan & Content Architecture"), not its canvas label.
+-    expect(page.get_by_text(re.compile(r"Agent · step 1 of \d"))).to_be_visible()
++    # The caption names the step's KIND ("AI agent" for a plain agent,
++    # stepKind.ts), then its position: "AI agent · step 1 of 3".
++    expect(page.get_by_text(re.compile(r"AI agent · step 1 of \d"))).to_be_visible()
+     for sub in L.AGENT_SUBTABS:
+         expect(page.get_by_text(sub, exact=True).first).to_be_visible()
+ 
+diff --git a/tests/integration/e2e/suites/04_composer_canvas/test_iss796_capabilities_double_fetch.py b/tests/integration/e2e/suites/04_composer_canvas/test_iss796_capabilities_double_fetch.py
+index 9a9232c3b..081379ec1 100644
+--- a/tests/integration/e2e/suites/04_composer_canvas/test_iss796_capabilities_double_fetch.py
++++ b/tests/integration/e2e/suites/04_composer_canvas/test_iss796_capabilities_double_fetch.py
+@@ -20,7 +20,6 @@ from framework.locators import composer as L
+ 
+ 
+ @pytest.mark.issue("ISS-796")
+-@pytest.mark.xfail(reason="ISS-796 unfixed", strict=True)
+ def test_opening_the_agent_config_tab_reuses_the_capabilities_fetch(page, shot):
+     """ISS-796 — opening an agent's config tab on the canvas must not fire a
+     second /api/capabilities request; CanvasView already fetched it once on
+diff --git a/tests/integration/e2e/suites/05_saved_workflows/test_iss228_launch_panel_override_binding.py b/tests/integration/e2e/suites/05_saved_workflows/test_iss228_launch_panel_override_binding.py
+index 054ee09ee..e4e61de0f 100644
+--- a/tests/integration/e2e/suites/05_saved_workflows/test_iss228_launch_panel_override_binding.py
++++ b/tests/integration/e2e/suites/05_saved_workflows/test_iss228_launch_panel_override_binding.py
+@@ -7,9 +7,10 @@ saved override rather than a brand-new blank launch. See
+ the full root-cause analysis (a same-commit React effect-ordering race in
+ `LaunchWizard.tsx`).
+ 
+-Fixture: the seeded `"My prototype"` override
+-(`656ca387-e69c-474d-b7ff-5fd9eb017cc0`, `agent_ids: ["documentation-agent",
+-"prototype-specify"]`, confirmed alive via `GET /api/user-workflows/{id}`).
++Fixture: the seeded `"My prototype"` override (`agent_ids:
++["documentation-agent", "prototype-specify"]`), found by name at runtime. Its
++id changed with a reseed, and a pinned id made the ISS-228 test fail on a 404
++instead of on the bug (ISS-1188).
+ 
+ NO TEST HERE FOR ISS-284. That card predicts "Save as my version" clicked
+ mid-race silently persists a race-clobbered default roster back to the
+@@ -30,10 +31,19 @@ import time
+ import pytest
+ from playwright.sync_api import expect
+ 
+-PROTO_ID = "656ca387-e69c-474d-b7ff-5fd9eb017cc0"
++from framework import api
++
+ PROTO_NAME = "My prototype"
+ 
+ 
++def _proto_id(page) -> str:
++    page.goto("/dashboard")
++    for row in api.json_body(page, "GET", "/api/user-workflows"):
++        if row["name"] == PROTO_NAME:
++            return row["id"]
++    pytest.skip(f"no saved workflow named {PROTO_NAME!r} in this account")
++
++
+ @pytest.mark.issue("ISS-228")
+ @pytest.mark.xfail(reason="ISS-228 unfixed", strict=True)
+ def test_cold_launch_panel_shows_the_saved_overrides_own_name(page, shot):
+@@ -41,8 +51,9 @@ def test_cold_launch_panel_shows_the_saved_overrides_own_name(page, shot):
+     /workflows/{id}/run must give some visible indication it is bound to
+     THAT workflow ("My prototype"), not render as an anonymous generic
+     wizard with no trace of the saved override anywhere on the page."""
+-    with shot("cold-launch", f'When I cold-load "/workflows/{PROTO_ID}/run"'):
+-        page.goto(f"/workflows/{PROTO_ID}/run")
++    proto_id = _proto_id(page)
++    with shot("cold-launch", f'When I cold-load "/workflows/{proto_id}/run"'):
++        page.goto(f"/workflows/{proto_id}/run")
+         expect(page.get_by_text("Configure your prototype")).to_be_visible()
+ 
+     body = page.evaluate("() => document.body.innerText")
+diff --git a/tests/integration/e2e/suites/05_saved_workflows/test_qa_kb_060_edit_seed_failure_save_creates_row.py b/tests/integration/e2e/suites/05_saved_workflows/test_qa_kb_060_edit_seed_failure_save_creates_row.py
+index 676321f7e..3298e17b5 100644
+--- a/tests/integration/e2e/suites/05_saved_workflows/test_qa_kb_060_edit_seed_failure_save_creates_row.py
++++ b/tests/integration/e2e/suites/05_saved_workflows/test_qa_kb_060_edit_seed_failure_save_creates_row.py
+@@ -44,7 +44,6 @@ def _block_post(page, posts: list[str]) -> None:
+ 
+ 
+ @pytest.mark.issue("ISS-923")
+-@pytest.mark.xfail(reason="ISS-923 unfixed", strict=True)
+ def test_failed_edit_seed_never_lets_save_create_a_new_row(page):
+     """ISS-923 — with the row GET failing (network error), Save workflow must
+     not POST a new workflow."""
+@@ -62,7 +61,6 @@ def test_failed_edit_seed_never_lets_save_create_a_new_row(page):
+ 
+ 
+ @pytest.mark.issue("ISS-1033")
+-@pytest.mark.xfail(reason="ISS-1033 unfixed", strict=True)
+ def test_save_during_pending_edit_seed_never_creates_a_new_row(page):
+     """ISS-1033 — while the row GET is still in flight, Save workflow must not
+     POST a new workflow."""
+diff --git a/tests/integration/e2e/suites/06_run_history/test_run_history_pagination.py b/tests/integration/e2e/suites/06_run_history/test_run_history_pagination.py
+index 8e87e19db..faba20f5e 100644
+--- a/tests/integration/e2e/suites/06_run_history/test_run_history_pagination.py
++++ b/tests/integration/e2e/suites/06_run_history/test_run_history_pagination.py
+@@ -183,8 +183,11 @@ def _bucket_of(run_type: str) -> str:
+     return base if base in {"user_stories", "ppt", "prototype", "app_builder"} else "custom"
+ 
+ 
++# No xfail since 2026-10-09, when this passed on a 67-run dataset (17 runs past
++# page one). That is a lower bound holding, not true per-type totals: the chips
++# count the loaded families on purpose, and what they should count is ISS-219's
++# open decision. On the 273-run dataset this was written for, it failed.
+ @pytest.mark.issue("ISS-213")
+-@pytest.mark.xfail(reason="ISS-213 unfixed", strict=True)
+ def test_a_type_chips_count_reflects_the_true_account_total(page, shot):
+     """ISS-213 — a type-filter chip's count must reflect the account's true
+     per-type total, not just how many of that type sit inside the loaded
+diff --git a/tests/integration/e2e/suites/07_run_detail/test_iss285_preview_full_no_deliverable_fallback.py b/tests/integration/e2e/suites/07_run_detail/test_iss285_preview_full_no_deliverable_fallback.py
+index 562d07dbf..99b8214cd 100644
+--- a/tests/integration/e2e/suites/07_run_detail/test_iss285_preview_full_no_deliverable_fallback.py
++++ b/tests/integration/e2e/suites/07_run_detail/test_iss285_preview_full_no_deliverable_fallback.py
+@@ -10,8 +10,8 @@ explaining the substitution — a materially different tab (a 32-record
+ governance/security log) is rendered in place of the requested Preview with
+ zero visual or textual indication that a fallback occurred.
+ 
+-Run used: a40d0f2b-901e-4847-85ba-c205f4a41f16 (status `failed`, no Preview tab).
+-Live run discovered 2026-09-21; these rot whenever the database is pruned.
++The run is discovered rather than pinned: the pinned one went with a reseed
++and the page then had nothing to render, so this passed vacuously (ISS-1188).
+ """
+ 
+ from __future__ import annotations
+@@ -19,7 +19,17 @@ from __future__ import annotations
+ import pytest
+ from playwright.sync_api import expect
+ 
+-FAILED_RUN_NO_DELIVERABLE = "a40d0f2b-901e-4847-85ba-c205f4a41f16"
++from framework import api
++
++
++def _a_failed_run_with_no_deliverable(page) -> str:
++    """A failed run that produced nothing: no output and no deliverable file."""
++    page.goto("/dashboard")
++    for row in api.json_body(page, "GET", "/api/runs?limit=100&status_filter=failed"):
++        run = api.json_body(page, "GET", f"/api/runs/{row['id']}")
++        if not (run.get("output") or "").strip() and not run.get("deliverable_filename"):
++            return row["id"]
++    pytest.skip("no failed run in this history is without a deliverable")
+ 
+ 
+ @pytest.mark.issue("ISS-285")
+@@ -28,7 +38,8 @@ def test_preview_full_does_not_silently_substitute_audit(page):
+     deliverable must not land on the unrelated Audit tab with no
+     explanation — either no tab is selected (mirroring the plain /runs/{id}
+     route for the same run) or an explicit fallback message is shown."""
+-    page.goto(f"/runs/{FAILED_RUN_NO_DELIVERABLE}/preview/full")
++    run_id = _a_failed_run_with_no_deliverable(page)
++    page.goto(f"/runs/{run_id}/preview/full")
+     page.wait_for_load_state("networkidle")
+ 
+     audit_tab = page.locator('[data-testid="tab-audit"]')
+diff --git a/tests/integration/e2e/suites/07_run_detail/test_iss313_toolbar_download_missing_filename.py b/tests/integration/e2e/suites/07_run_detail/test_iss313_toolbar_download_missing_filename.py
+index 8a6631016..9e712cee4 100644
+--- a/tests/integration/e2e/suites/07_run_detail/test_iss313_toolbar_download_missing_filename.py
++++ b/tests/integration/e2e/suites/07_run_detail/test_iss313_toolbar_download_missing_filename.py
+@@ -12,8 +12,8 @@ it completes with `deliverable_mimetype` set but `deliverable_filename` null.
+ `PreviewPanel.tsx`'s toolbar-download effect gates the button on that name
+ resolving in the workspace listing, so it never enables.
+ 
+-Run used: edba51b5-eb00-46b1-ba30-87f2f04db120 (status `completed`,
+-deliverable_filename null). Live run discovered 2026-09-21.
++The run is discovered rather than pinned: the pinned one went with a reseed
++and the page rendered a 404 (ISS-1188).
+ """
+ 
+ from __future__ import annotations
+@@ -21,7 +21,19 @@ from __future__ import annotations
+ import pytest
+ from playwright.sync_api import expect
+ 
+-RUN_WITH_NULL_DELIVERABLE_FILENAME = "edba51b5-eb00-46b1-ba30-87f2f04db120"
++from framework import api
++
++
++def _a_completed_run_with_no_deliverable_filename(page) -> str:
++    """A completed run with a deliverable mimetype but no `deliverable_filename`."""
++    page.goto("/dashboard")
++    for row in api.json_body(page, "GET", "/api/runs?limit=100&status_filter=completed"):
++        if row.get("deliverable_mimetype") and not row.get("deliverable_filename"):
++            return row["id"]
++    pytest.skip(
++        "no completed run in this history has a deliverable but no "
++        "deliverable_filename (e.g. an ex_playwright_smoke_test run)"
++    )
+ 
+ 
+ @pytest.mark.issue("ISS-313")
+@@ -29,7 +41,8 @@ def test_toolbar_download_enabled_when_deliverable_filename_missing(page):
+     """A completed run with a fully rendered deliverable must offer a working
+     toolbar Download button, even when the backend never wrote
+     `deliverable_filename` for that run's manifest."""
+-    page.goto(f"/runs/{RUN_WITH_NULL_DELIVERABLE_FILENAME}/stream")
++    run_id = _a_completed_run_with_no_deliverable_filename(page)
++    page.goto(f"/runs/{run_id}/stream")
+     page.wait_for_load_state("networkidle")
+ 
+     download_button = page.get_by_role(
+diff --git a/tests/integration/e2e/suites/07_run_detail/test_iss390_diverted_stream_placeholder.py b/tests/integration/e2e/suites/07_run_detail/test_iss390_diverted_stream_placeholder.py
+index 7d56e5c1b..f241ffd86 100644
+--- a/tests/integration/e2e/suites/07_run_detail/test_iss390_diverted_stream_placeholder.py
++++ b/tests/integration/e2e/suites/07_run_detail/test_iss390_diverted_stream_placeholder.py
+@@ -9,9 +9,9 @@ Root cause is two gates in series, both required for a fix:
+      independently omits "diverted" from the same triad (this half was
+      originally filed as ISS-282, now superseded by ISS-390).
+ 
+-Run used: 28a318c9-d207-4e2a-bce8-c3260d4c57f2 ("Ex A4 Human Divert"),
+-status `diverted`, `completed_at` set (terminal), `output`/
+-`deliverable_filename` both null, only 2/3 agents ran.
++The run is discovered rather than pinned: any `diverted` run (terminal, e.g.
++an "Ex A4 Human Divert"). The pinned one went with a reseed and the page then
++had nothing to render, so this passed vacuously (ISS-1188).
+ 
+ Contrast (not asserted here, documented in the card): the cancelled run
+ 28a318c9-d207-4e2a-bce8-c3260d4c57f2 already shows a status-aware message
+@@ -24,7 +24,15 @@ from __future__ import annotations
+ import pytest
+ from playwright.sync_api import expect
+ 
+-DIVERTED_RUN = "28a318c9-d207-4e2a-bce8-c3260d4c57f2"
++from framework import api
++
++
++def _a_diverted_run(page) -> str:
++    page.goto("/dashboard")
++    rows = api.json_body(page, "GET", "/api/runs?limit=100&status_filter=diverted")
++    if not rows:
++        pytest.skip("no run in this history diverted")
++    return rows[0]["id"]
+ 
+ 
+ @pytest.mark.issue("ISS-390")
+@@ -32,7 +40,8 @@ def test_diverted_run_preview_is_not_the_live_waiting_placeholder(page):
+     """A permanently-terminal diverted run's Preview tab must show a
+     state-aware terminal message, not the neutral live-streaming placeholder
+     that implies output is still forthcoming."""
+-    page.goto(f"/runs/{DIVERTED_RUN}/stream")
++    run_id = _a_diverted_run(page)
++    page.goto(f"/runs/{run_id}/stream")
+     page.wait_for_load_state("networkidle")
+ 
+     preview_tab = page.locator('[data-testid="tab-preview"]')
+diff --git a/tests/integration/e2e/suites/07_run_detail/test_iss802_steps_agent_artifacts_duplicate_request.py b/tests/integration/e2e/suites/07_run_detail/test_iss802_steps_agent_artifacts_duplicate_request.py
+index 541d5dc41..2635eb972 100644
+--- a/tests/integration/e2e/suites/07_run_detail/test_iss802_steps_agent_artifacts_duplicate_request.py
++++ b/tests/integration/e2e/suites/07_run_detail/test_iss802_steps_agent_artifacts_duplicate_request.py
+@@ -68,7 +68,9 @@ def test_opening_an_agent_in_steps_tab_fetches_artifacts_once(page):
+     expect(page.locator(L.HEADER)).to_be_visible()
+     page.wait_for_timeout(1500)
+ 
+-    artifact_calls = [u for u in requests if f"/api/runs/{run_id}/artifacts" in u]
++    # The version list only. `?kind=clarifications` is a different read, the
++    # run's clarify rounds (PreviewPanel, 5336d910c), not a second copy of it.
++    artifact_calls = [u for u in requests if u.split("?")[0].endswith(f"/api/runs/{run_id}/artifacts") and "kind=" not in u]
+ 
+     assert len(artifact_calls) <= 1, (
+         "opening an agent's Steps detail pane should fetch "
+diff --git a/tests/integration/e2e/suites/10_analytics/test_analytics.py b/tests/integration/e2e/suites/10_analytics/test_analytics.py
+index 0ed92d567..1194bfc29 100644
+--- a/tests/integration/e2e/suites/10_analytics/test_analytics.py
++++ b/tests/integration/e2e/suites/10_analytics/test_analytics.py
+@@ -267,7 +267,7 @@ def test_a_user_with_no_runs_sees_an_empty_state(shot, disposable_user, browser,
+     from framework import settings
+     from framework.locators import auth as AUTH
+ 
+-    user = disposable_user(tier="basic")
++    user = disposable_user(tier="basic", signs_in=True)
+     context = browser.new_context(
+         base_url=settings.BASE_URL,
+         viewport=settings.VIEWPORT,
+diff --git a/tests/integration/e2e/suites/11_admin/test_admin.py b/tests/integration/e2e/suites/11_admin/test_admin.py
+index 1ce333340..adf60471b 100644
+--- a/tests/integration/e2e/suites/11_admin/test_admin.py
++++ b/tests/integration/e2e/suites/11_admin/test_admin.py
+@@ -343,13 +343,12 @@ def test_adding_a_user_creates_an_account_at_the_chosen_tier(page, shot, disposa
+     try:
+         with shot("add-user-dialog", 'When I click "Add user"'):
+             page.click(L.ADD_USER)
+-            expect(page.get_by_text("Create New User")).to_be_visible()
++            expect(page.get_by_text(L.CREATE_DIALOG)).to_be_visible()
+ 
+-        with shot("user-created", 'And I create a disposable user at tier "basic"'):
++        with shot("user-created", 'And I invite a disposable address at tier "basic"'):
+             page.fill('input[type="email"]', address)
+-            page.fill('input[type="password"]', accounts.PASSWORD)
+             page.locator('select[name="new-user-tier"]').select_option("basic")
+-            page.get_by_role("button", name=re.compile(r"create", re.I)).last.click()
++            page.get_by_role("button", name=L.SEND_INVITATION).click()
+             expect(page.locator(L.row(address)).first).to_be_visible(timeout=20000)
+ 
+         row = page.locator(L.row(address)).first.inner_text()
+@@ -363,28 +362,6 @@ def test_adding_a_user_creates_an_account_at_the_chosen_tier(page, shot, disposa
+         _delete_by_email(admin_page, address)
+ 
+ 
+-@pytest.mark.issue("ISS-577")
+-def test_the_create_user_password_field_has_a_show_hide_toggle(page, shot):
+-    """ISS-577 — the "Create New User" modal's Password field must offer a
+-
+-    show/hide toggle, the same affordance ISS-338 established for
+-    /settings/profile's password fields. Today `admin/page.tsx` imports no
+-    `Eye`/`EyeOff` icon at all and the field is hardcoded `type="password"`
+-    with no toggle button anywhere in the modal. No user is created — the
+-    dialog is opened and closed without submitting.
+-    """
+-    open_admin(page)
+-
+-    with shot("add-user-dialog-password-toggle", 'When I click "Add user"'):
+-        page.click(L.ADD_USER)
+-        expect(page.get_by_text("Create New User")).to_be_visible()
+-
+-    password_field = page.locator('input[type="password"]')
+-    expect(password_field).to_be_visible()
+-    sibling_button = password_field.locator("xpath=following-sibling::button[1]")
+-    expect(sibling_button).to_be_visible()
+-
+-
+ def _delete_by_email(admin_page, address: str) -> None:
+     """Remove a user by address, through the API, best effort."""
+     listing = api.full(admin_page, "GET", "/api/admin/users")
+@@ -421,71 +398,44 @@ def test_deleting_a_user_removes_them(page, shot, disposable_user):
+     assert tile(page, "TOTAL USERS") == before - 1
+ 
+ 
+-BREAK_GLASS_REFUSAL = "local break-glass account and cannot be reset here"
+-
+-
+ @pytest.mark.scenario("S-11-17")
+ @pytest.mark.destructive
+ def test_an_admin_resets_another_users_password_to_a_temporary_one(page, shot, disposable_user):
+     """Scenario: An admin resets another user's password to a temporary one
+ 
+-    NARROWED. The reset endpoint only acts on accounts whose password it owns.
+-    A user created here comes back `auth_provider: "local"` and the endpoint
+-    refuses it:
+-
+-        "This is a local break-glass account and cannot be reset here. Its
+-         password is changed from the account's own profile settings, or
+-         through the break-glass runbook."
+-
+-    So the `requires_new_password_at_next_login` branch — and the
+-    NEW_PASSWORD_REQUIRED challenge it produces in 01-auth — cannot be reached
+-    with any account this suite can create. What IS assertable, and what this
+-    asserts, is the refusal itself: an admin cannot reset a password the
+-    application does not own, and is not handed a working credential for
+-    someone else's account either way.
++    The body is empty, as the admin screen sends it: the admin supplies no
++    password and is shown none (`ResetPasswordRequest`, Phase 3 Decision 6).
++    Cognito sets a temporary one and the user chooses their own at next
++    sign-in, so the answer is the status and nothing else.
+     """
+     user = disposable_user(tier="basic")
+ 
+-    with shot("temporary-reset", "When I reset without marking it permanent"):
++    with shot("temporary-reset", "When I reset another user's password"):
+         page.goto("/admin")
+         expect(page.get_by_text(L.HEADING)).to_be_visible()
+         result = api.full(
+-            page,
+-            "POST",
+-            f"/api/admin/users/{user['id']}/reset-password",
+-            {"new_password": "flowin-e2e-temporary-1"},
+-        )
+-
+-    if result["status"] == 200:
+-        body = json.loads(result["body"])
+-        assert body.get("requires_new_password_at_next_login") is True, (
+-            f"a default reset did not require a new password at next login: {body}"
++            page, "POST", f"/api/admin/users/{user['id']}/reset-password", {}
+         )
+-        return
+ 
+-    assert result["status"] in (400, 403, 409), result["body"][:200]
+-    assert BREAK_GLASS_REFUSAL in result["body"], (
+-        f"the reset was refused for another reason: {result['body'][:200]}"
++    assert result["status"] == 200, result["body"][:200]
++    assert json.loads(result["body"]) == {"status": "temporary_password_set"}, (
++        f"the reset answered more than its status — no credential may come back: "
++        f"{result['body'][:200]}"
+     )
+-    # The refusal must not leak a credential either.
+-    assert "flowin-e2e-temporary-1" not in result["body"]
+ 
+ 
+ @pytest.mark.scenario("S-11-18")
+ @pytest.mark.destructive
+-def test_a_permanent_reset_skips_the_challenge_but_is_knowable(page, shot, disposable_user):
+-    """Scenario: A permanent reset skips the challenge but is knowable
+-
+-    Same limit as S-11-17: the endpoint refuses an account whose password it
+-    does not own, so the trade-off this scenario records — convenience for the
+-    admin, at the cost of the admin knowing a live credential — cannot be
+-    exercised here. The refusal is asserted instead, and it must not depend on
+-    `permanent`: a flag that changed WHETHER the refusal happens would be a
+-    bypass.
++def test_a_reset_that_names_a_password_is_refused(page, shot, disposable_user):
++    """Scenario: A reset that names a password is refused
++
++    There is no admin-chosen or permanent reset any more. A body carrying
++    `new_password` or `permanent` is a 422, not a silently ignored field, so no
++    caller can believe it set a password that was never used.
+     """
+     user = disposable_user(tier="basic")
+ 
+-    with shot("permanent-reset", "When I reset with permanent=true"):
++    with shot("permanent-reset", "When I reset with a password and permanent=true"):
+         page.goto("/admin")
+         expect(page.get_by_text(L.HEADING)).to_be_visible()
+         result = api.full(
+@@ -495,18 +445,8 @@ def test_a_permanent_reset_skips_the_challenge_but_is_knowable(page, shot, dispo
+             {"new_password": "flowin-e2e-permanent-1", "permanent": True},
+         )
+ 
+-    if result["status"] == 200:
+-        body = json.loads(result["body"])
+-        assert body.get("requires_new_password_at_next_login") is not True, (
+-            f"a permanent reset still forces a challenge: {body}"
+-        )
+-        return
+-
+-    assert result["status"] in (400, 403, 409), result["body"][:200]
+-    assert BREAK_GLASS_REFUSAL in result["body"], (
+-        "`permanent=true` changed WHY the reset was refused — the flag must not "
+-        f"affect whether it is allowed at all: {result['body'][:200]}"
+-    )
++    assert result["status"] == 422, result["body"][:200]
++    assert "extra_forbidden" in result["body"], result["body"][:200]
+ 
+ 
+ @pytest.mark.scenario("S-11-19")
+@@ -560,7 +500,7 @@ def test_changing_another_users_tier_takes_effect(page, shot, disposable_user, b
+     """
+     from framework.locators import home_catalog as HOME
+ 
+-    user = disposable_user(tier="basic")
++    user = disposable_user(tier="basic", signs_in=True)
+     open_admin(page)
+     row = page.locator(L.row(user["email"])).first
+     expect(row).to_be_visible()
+diff --git a/tests/integration/e2e/suites/11_admin/test_create_user_email_validation.py b/tests/integration/e2e/suites/11_admin/test_create_user_email_validation.py
+index 7cf72ac40..4d3aabfc8 100644
+--- a/tests/integration/e2e/suites/11_admin/test_create_user_email_validation.py
++++ b/tests/integration/e2e/suites/11_admin/test_create_user_email_validation.py
+@@ -20,7 +20,7 @@ import uuid
+ import pytest
+ from playwright.sync_api import expect
+ 
+-from framework import accounts, api
++from framework import api
+ from framework.locators import admin as L
+ 
+ 
+@@ -47,13 +47,12 @@ def test_create_user_dialog_rejects_email_with_no_at_or_domain(page, shot):
+     try:
+         with shot("add-user-dialog", 'When I click "Add user"'):
+             page.click(L.ADD_USER)
+-            expect(page.get_by_text("Create New User")).to_be_visible()
++            expect(page.get_by_text(L.CREATE_DIALOG)).to_be_visible()
+ 
+         page.fill('input[type="email"]', malformed)
+-        page.fill('input[type="password"]', accounts.PASSWORD)
+ 
+-        create_button = page.get_by_role("button", name="Create User")
+-        with shot("malformed-email-blocked", "Then Create User stays disabled"):
++        create_button = page.get_by_role("button", name=L.SEND_INVITATION)
++        with shot("malformed-email-blocked", "Then Send Invitation stays disabled"):
+             expect(create_button).to_be_disabled()
+     finally:
+         _delete_by_email(page, malformed)
+diff --git a/tests/integration/e2e/suites/11_admin/test_iss324_duplicate_email_toast.py b/tests/integration/e2e/suites/11_admin/test_iss324_duplicate_email_toast.py
+index 4ffb667fc..c4d0371aa 100644
+--- a/tests/integration/e2e/suites/11_admin/test_iss324_duplicate_email_toast.py
++++ b/tests/integration/e2e/suites/11_admin/test_iss324_duplicate_email_toast.py
+@@ -24,7 +24,7 @@ import uuid
+ import pytest
+ from playwright.sync_api import expect
+ 
+-from framework import accounts, api
++from framework import api
+ from framework.locators import admin as L
+ 
+ 
+@@ -56,27 +56,25 @@ def test_duplicate_email_create_shows_an_error_toast(page, shot):
+         # window starts when showToast("success", ...) actually runs, i.e.
+         # once the create response resolves — not when the dialog opens.
+         page.click(L.ADD_USER)
+-        expect(page.get_by_text("Create New User")).to_be_visible()
++        expect(page.get_by_text(L.CREATE_DIALOG)).to_be_visible()
+         page.fill('input[type="email"]', dup_email)
+-        page.fill('input[type="password"]', accounts.PASSWORD)
+         with page.expect_response(
+             lambda r: r.url.endswith("/api/admin/users") and r.request.method == "POST"
+         ):
+-            page.get_by_role("button", name="Create User").click()
++            page.get_by_role("button", name=L.SEND_INVITATION).click()
+         t0 = time.time()
+-        expect(page.get_by_text("Create New User")).to_have_count(0)
++        expect(page.get_by_text(L.CREATE_DIALOG)).to_have_count(0)
+ 
+         # Second create with the same email, fired well inside the first
+         # toast's 3.5s window — backend rejects with 409.
+         page.click(L.ADD_USER)
+-        expect(page.get_by_text("Create New User")).to_be_visible()
++        expect(page.get_by_text(L.CREATE_DIALOG)).to_be_visible()
+         page.fill('input[type="email"]', dup_email)
+-        page.fill('input[type="password"]', accounts.PASSWORD)
+ 
+         with page.expect_response(
+             lambda r: r.url.endswith("/api/admin/users") and r.request.method == "POST"
+         ) as resp_info:
+-            page.get_by_role("button", name="Create User").click()
++            page.get_by_role("button", name=L.SEND_INVITATION).click()
+         assert resp_info.value.status == 409, (
+             f"expected the duplicate create to 409, got {resp_info.value.status}"
+         )
+diff --git a/tests/integration/e2e/suites/12_shell_nav/test_shell_nav.py b/tests/integration/e2e/suites/12_shell_nav/test_shell_nav.py
+index 794292796..caff1b31e 100644
+--- a/tests/integration/e2e/suites/12_shell_nav/test_shell_nav.py
++++ b/tests/integration/e2e/suites/12_shell_nav/test_shell_nav.py
+@@ -198,7 +198,7 @@ def test_the_notifications_panel_opens_with_an_empty_state(
+     The empty state is still worth a scenario; it just needs an account that
+     has never run anything, and creating one is the only way left to get it.
+     """
+-    user = disposable_user(tier="basic")
++    user = disposable_user(tier="basic", signs_in=True)
+     context = browser.new_context(
+         base_url=settings.BASE_URL,
+         viewport=settings.VIEWPORT,
+@@ -340,7 +340,6 @@ def test_browser_back_and_forward_work_across_top_level_screens(page, shot):
+ 
+ 
+ @pytest.mark.issue("ISS-190")
+-@pytest.mark.xfail(reason="ISS-190 unfixed", strict=True)
+ def test_forward_navigation_to_prototype_wizard_rehydrates(page, shot):
+     """ISS-190 — Back-then-Forward to /create/prototype must render the wizard,
+     not leave the un-hydrated RSC stream as a blank body.
+diff --git a/tests/integration/e2e/suites/17_theme_and_tiers/test_theme_and_tiers.py b/tests/integration/e2e/suites/17_theme_and_tiers/test_theme_and_tiers.py
+index 76baf235b..9e77ab9f5 100644
+--- a/tests/integration/e2e/suites/17_theme_and_tiers/test_theme_and_tiers.py
++++ b/tests/integration/e2e/suites/17_theme_and_tiers/test_theme_and_tiers.py
+@@ -278,7 +278,7 @@ def test_a_hexaware_user_gains_prototype_and_loses_presentations(browser, shot,
+     from framework.locators import auth as AUTH
+     from framework.locators import home_catalog as HOME
+ 
+-    user = disposable_user(tier="hexaware")
++    user = disposable_user(tier="hexaware", signs_in=True)
+     context = browser.new_context(
+         base_url=settings.BASE_URL,
+         viewport=settings.VIEWPORT,
+diff --git a/tests/integration/e2e/suites/21_run_families_and_versions/test_iss_230_version_pin_survives_tab_switch.py b/tests/integration/e2e/suites/21_run_families_and_versions/test_iss_230_version_pin_survives_tab_switch.py
+index a2a895d02..6619a8990 100644
+--- a/tests/integration/e2e/suites/21_run_families_and_versions/test_iss_230_version_pin_survives_tab_switch.py
++++ b/tests/integration/e2e/suites/21_run_families_and_versions/test_iss_230_version_pin_survives_tab_switch.py
+@@ -1,12 +1,10 @@
+ """ISS-230 — switching tabs while pinned to a non-root version silently drops
+ the pin: URL, API fetch and displayed data all revert to v1 (the root run).
+ 
+-Uses the one genuine 2-member revision family in this dataset (see
+-bug-hunter/ledger.md, BUG-20260828-090732-runs-id-versions): root run
+-`2708dbf1-50d0-465d-9bed-56b651ea1abf` (v1), revision
+-`23bd9c67-e239-4979-b14a-cb78222795e8` (v2). `21_run_families_and_versions`'s
+-own `a_run()` helper cannot be used here — every other run in the seed
+-history is a family of one, so it would never land on `/versions/2`.
++Runs against a revision family discovered at runtime (`a_revised_family`):
++its root is v1 and its second member is v2. `a_run()` cannot be used here — it
++returns a family of one, which would never land on `/versions/2`. The ids
++these tests used to pin went with a reseed (ISS-1188).
+ """
+ 
+ from __future__ import annotations
+@@ -17,22 +15,17 @@ from playwright.sync_api import expect
+ from framework import settings
+ from framework.locators import run_detail as RD
+ 
+-# Live run ids discovered 2026-09-21. These rot whenever the database is pruned;
+-# the durable fix is runtime discovery via a_run_with_status(page, "completed").
+-ROOT_RUN_ID = "2708dbf1-50d0-465d-9bed-56b651ea1abf"
+-V2_RUN_ID = "23bd9c67-e239-4979-b14a-cb78222795e8"
++from .test_run_families_and_versions import a_revised_family
+ 
+ # ISS-296 needs a family of THREE or more. In a 2-member family the only
+ # version you can switch to from v2 is v1, and v1 is the one case the menu
+ # deliberately expresses as the un-pinned route (see the test below), so a
+ # 2-member fixture cannot distinguish "the pin was written" from "the pin was
+-# dropped". This is the same 5-member family
+-# test_iss_607_610_611_612_base_route_revision_unreachable.py uses.
+-MID_FAMILY_ROOT_ID = "2708dbf1-50d0-465d-9bed-56b651ea1abf"
++# dropped".
+ 
+ 
+-def _pin_to_v2(page) -> None:
+-    page.goto(f"/runs/{ROOT_RUN_ID}/versions/2")
++def _pin_to_v2(page, root: str) -> None:
++    page.goto(f"/runs/{root}/versions/2")
+     expect(page.locator(RD.LANE)).to_be_visible()
+     page.wait_for_timeout(settings.SETTLE_MS)
+     assert page.url.endswith("/versions/2"), page.url
+@@ -43,7 +36,8 @@ def _pin_to_v2(page) -> None:
+ def test_tab_switch_keeps_the_version_pin_in_the_url(page, shot, testid, suffix):
+     """Clicking Files or Steps while pinned to /versions/2 must keep the pin
+     in the URL, not silently collapse it back to the un-versioned root route."""
+-    _pin_to_v2(page)
++    root, _ = a_revised_family(page)
++    _pin_to_v2(page, root)
+ 
+     with shot(f"tab-switch-{testid}", f'When I click the "{testid}" tab while pinned to v2'):
+         page.locator(f"[data-testid='{testid}']").click()
+@@ -59,19 +53,21 @@ def test_tab_switch_keeps_the_version_pin_in_the_url(page, shot, testid, suffix)
+ def test_tab_switch_keeps_fetching_the_pinned_revisions_run_id(page, shot):
+     """Navigating to Files while pinned to v2 must keep fetching the pinned
+     revision's own run id, not silently re-fetch the root run."""
+-    _pin_to_v2(page)
++    root, members = a_revised_family(page)
++    v2 = members[1]["id"]
++    _pin_to_v2(page, root)
+ 
+     requests: list[str] = []
+     page.on("request", lambda req: requests.append(req.url))
+ 
+     with shot("tab-switch-refetch", 'When I navigate to "/files" while pinned to v2'):
+-        page.goto(f"/runs/{ROOT_RUN_ID}/versions/2/files")
++        page.goto(f"/runs/{root}/versions/2/files")
+         page.wait_for_timeout(settings.SETTLE_MS)
+ 
+-    fetched_v2 = any(f"/api/runs/{V2_RUN_ID}" in u for u in requests)
++    fetched_v2 = any(f"/api/runs/{v2}" in u for u in requests)
+ 
+     assert fetched_v2, (
+-        f"tab switch never re-fetched the pinned revision {V2_RUN_ID} — "
++        f"tab switch never re-fetched the pinned revision {v2} — "
+         f"requests seen: {requests}"
+     )
+     assert "/versions/2" in page.url, (
+@@ -133,8 +129,10 @@ def test_the_files_tab_shows_the_pinned_versions_own_deliverable(page, shot):
+     """The Files tab's "Final output" must describe the PINNED version's
+     deliverable, not the live/root run's. This is the bug's own reproduction
+     step 5 — the axis on which it was reopened after FIX-328."""
++    root, members = a_revised_family(page)
++    v2 = members[1]["id"]
+     # First capture the root's final output size
+-    page.goto(f"/runs/{ROOT_RUN_ID}/files")
++    page.goto(f"/runs/{root}/files")
+     expect(page.locator(RD.LANE)).to_be_visible()
+     expect(page.get_by_text(RD.FINAL_OUTPUT).first).to_be_visible(timeout=20000)
+     page.wait_for_timeout(settings.SETTLE_MS)
+@@ -143,7 +141,7 @@ def test_the_files_tab_shows_the_pinned_versions_own_deliverable(page, shot):
+     root_final = root_body.split(RD.FINAL_OUTPUT, 1)[1].split(RD.AGENT_OUTPUTS, 1)[0]
+ 
+     # Now load v2's final output
+-    page.goto(f"/runs/{ROOT_RUN_ID}/versions/2/files")
++    page.goto(f"/runs/{root}/versions/2/files")
+     expect(page.locator(RD.LANE)).to_be_visible()
+     expect(page.get_by_text(RD.FINAL_OUTPUT).first).to_be_visible(timeout=20000)
+     page.wait_for_timeout(settings.SETTLE_MS)
+@@ -160,7 +158,7 @@ def test_the_files_tab_shows_the_pinned_versions_own_deliverable(page, shot):
+     # the root's deliverable, which makes the two identical exactly when it is
+     # broken — so "assert they differ" passes only when the bug is absent and
+     # skipping on equality retires the check precisely when it matters.
+-    page.goto(f"/runs/{V2_RUN_ID}/files")
++    page.goto(f"/runs/{v2}/files")
+     expect(page.locator(RD.LANE)).to_be_visible()
+     expect(page.get_by_text(RD.FINAL_OUTPUT).first).to_be_visible(timeout=20000)
+     page.wait_for_timeout(settings.SETTLE_MS)
+diff --git a/tests/integration/e2e/suites/21_run_families_and_versions/test_iss_606_609_version_pin_ignored_by_agent_data.py b/tests/integration/e2e/suites/21_run_families_and_versions/test_iss_606_609_version_pin_ignored_by_agent_data.py
+index a80ff2800..ff94bd50f 100644
+--- a/tests/integration/e2e/suites/21_run_families_and_versions/test_iss_606_609_version_pin_ignored_by_agent_data.py
++++ b/tests/integration/e2e/suites/21_run_families_and_versions/test_iss_606_609_version_pin_ignored_by_agent_data.py
+@@ -4,9 +4,8 @@ The Steps tab's pipeline summary/agent list and the Audit tab's own fetches
+ both ignore the URL's version pin, unlike `effUserStoryContent` et al. (the
+ Preview-tab content, already version-aware per FIX-334).
+ 
+-Same 2-member family as ISS-230's suite file (see that file's own docstring):
+-root run `2708dbf1-50d0-465d-9bed-56b651ea1abf` (v1), revision
+-`23bd9c67-e239-4979-b14a-cb78222795e8` (v2) — live runs discovered 2026-09-21.
++Same discovered family as ISS-230's suite file (`a_revised_family`): its root
++is v1 and its second member is v2.
+ """
+ 
+ from __future__ import annotations
+@@ -17,10 +16,7 @@ from playwright.sync_api import expect
+ from framework import settings
+ from framework.locators import run_detail as RD
+ 
+-# Live run ids discovered 2026-09-21. These rot whenever the database is pruned;
+-# the durable fix is runtime discovery via a_run_with_status(page, "completed").
+-ROOT_RUN_ID = "2708dbf1-50d0-465d-9bed-56b651ea1abf"
+-V2_RUN_ID = "23bd9c67-e239-4979-b14a-cb78222795e8"
++from .test_run_families_and_versions import a_revised_family
+ 
+ 
+ @pytest.mark.issue("ISS-606")
+@@ -30,6 +26,9 @@ def test_steps_tab_shows_the_pinned_versions_own_agent_count(page, shot):
+     the root's agent count first, then navigating to v2 and asserting that
+     the displayed count is the PINNED version's own (i.e., they differ or
+     both are the same and truly the v2 count)."""
++    root, members = a_revised_family(page)
++    v2 = members[1]["id"]
++
+     def roster_at(url: str, label: str) -> int:
+         """The roster size the Steps tab reports for whatever run `url` shows."""
+         page.goto(url)
+@@ -45,11 +44,11 @@ def test_steps_tab_shows_the_pinned_versions_own_agent_count(page, shot):
+     # expectation this way (rather than from the root) is what makes the check
+     # survive a fixture swap: whatever family this points at, v2's own page and
+     # the pinned view must agree.
+-    v2_own = roster_at(f"/runs/{V2_RUN_ID}/steps", "the revision's own page")
+-    root_roster = roster_at(f"/runs/{ROOT_RUN_ID}/steps", "the root")
++    v2_own = roster_at(f"/runs/{v2}/steps", "the revision's own page")
++    root_roster = roster_at(f"/runs/{root}/steps", "the root")
+ 
+     with shot("iss606-steps-v2", "When I cold-load the Steps tab pinned to v2"):
+-        pinned = roster_at(f"/runs/{ROOT_RUN_ID}/versions/2/steps", "the pinned view")
++        pinned = roster_at(f"/runs/{root}/versions/2/steps", "the pinned view")
+ 
+     # ISS-606 is the pinned view rendering the ROOT's roster instead of its own.
+     # Assert against the revision's own figure — comparing pinned-vs-root instead
+@@ -76,21 +75,23 @@ def test_steps_tab_shows_the_pinned_versions_own_agent_count(page, shot):
+ def test_audit_tab_fetches_the_pinned_versions_own_run_id(page, shot):
+     """The Audit tab's gate/validation/exec/hook-run fetches must be keyed on
+     the PINNED version's run id, not the live/root run's."""
++    root, members = a_revised_family(page)
++    v2 = members[1]["id"]
+     requests: list[str] = []
+     page.on("request", lambda req: requests.append(req.url))
+ 
+     with shot("iss609-audit-v2", "When I cold-load the Audit tab pinned to v2"):
+-        page.goto(f"/runs/{ROOT_RUN_ID}/versions/2/audit")
++        page.goto(f"/runs/{root}/versions/2/audit")
+         expect(page.locator(RD.LANE)).to_be_visible()
+         page.wait_for_timeout(settings.SETTLE_MS)
+ 
+     fetched_v2_gate_events = any(
+-        f"/api/runs/{V2_RUN_ID}/gate-events" in u for u in requests
++        f"/api/runs/{v2}/gate-events" in u for u in requests
+     )
+ 
+     assert fetched_v2_gate_events, (
+         f"Audit tab pinned to v2 never fetched the pinned revision's own "
+-        f"gate-events ({V2_RUN_ID}) — requests seen: {requests}"
++        f"gate-events ({v2}) — requests seen: {requests}"
+     )
+ 
+     # Deliberately NOT `assert not fetched_root_gate_events`, for the same reason
+diff --git a/tests/integration/e2e/suites/21_run_families_and_versions/test_iss_607_610_611_612_base_route_revision_unreachable.py b/tests/integration/e2e/suites/21_run_families_and_versions/test_iss_607_610_611_612_base_route_revision_unreachable.py
+index 24f872498..446181d0c 100644
+--- a/tests/integration/e2e/suites/21_run_families_and_versions/test_iss_607_610_611_612_base_route_revision_unreachable.py
++++ b/tests/integration/e2e/suites/21_run_families_and_versions/test_iss_607_610_611_612_base_route_revision_unreachable.py
+@@ -4,21 +4,17 @@ From a root run's base (unversioned) Steps route, neither the version picker
+ nor the chat's deep-link buttons can reach a revision's own content — the
+ revision's agent step becomes unreachable through any normal-user path.
+ 
+-One live fixture: the family rooted at `2708dbf1-50d0-465d-9bed-56b651ea1abf`.
++One family, discovered at runtime (`a_revised_family`), mounted at its root.
+ 
+ These checks deliberately do NOT name a member or a version number. Revising
+ the root again adds a member and renumbers nothing, but it does change which
+ member is NEWEST — and the header's version menu is driven by GIT TAGS
+ (`GET /api/runs/{id}/sandbox/refs`), not by the family, so a member that never
+-reached `completed` with a sandbox carries no `vN` tag at all. This family's
+-own tags run v1 / untagged / v3. Naming "v2" asserts the fixture rather than
++reached `completed` with a sandbox carries no `vN` tag at all (a family's
++tags can run v1 / untagged / v3). Naming "v2" asserts the fixture rather than
+ the behaviour, and the behaviour is all ISS-607/610/612 claim: a deep link from
+ an un-pinned route must reach SOME other member instead of silently no-opping
+ on the root.
+-
+-(An earlier revision of this file described a "5-member family" with
+-`3839720c…` as v5. That was never true — it is a 3-member family and that run
+-is v3.)
+ """
+ 
+ from __future__ import annotations
+@@ -31,15 +27,7 @@ from playwright.sync_api import expect
+ from framework import settings
+ from framework.locators import run_detail as RD
+ 
+-# The one family root these checks mount. Rots if the database is pruned; the
+-# durable fix is runtime discovery via a_run_with_status(page, "completed").
+-# Individual MEMBER ids are deliberately not pinned here — see the module
+-# docstring.
+-ROOT_RUN_ID = "2708dbf1-50d0-465d-9bed-56b651ea1abf"
+-
+-# ISS-611's skipped test needs a version pinned in the MIDDLE of a family.
+-MID_FAMILY_ROOT_ID = "2708dbf1-50d0-465d-9bed-56b651ea1abf"
+-MID_FAMILY_LATEST_ID = "3839720c-0287-48c0-90cb-4385d910f460"
++from .test_run_families_and_versions import a_revised_family
+ 
+ 
+ def _newest_revision_card(page):
+@@ -66,7 +54,7 @@ def _newest_revision_card(page):
+     return card
+ 
+ 
+-def _assert_targeted_a_revision(page, requests: list[str], what: str) -> None:
++def _assert_targeted_a_revision(page, requests: list[str], what: str, root: str) -> None:
+     """The deep link must reach a DIFFERENT family member, not stay on the root.
+ 
+     ISS-607/ISS-612 are both "the link silently no-ops and the root's content
+@@ -83,10 +71,10 @@ def _assert_targeted_a_revision(page, requests: list[str], what: str) -> None:
+         m.group(1)
+         for u in requests
+         if (m := re.search(r"/api/runs/([0-9a-f-]{36})", u))
+-        and m.group(1) != ROOT_RUN_ID
++        and m.group(1) != root
+     }
+     assert others, (
+-        f"{what} never fetched any run but the ROOT ({ROOT_RUN_ID}) — the card "
++        f"{what} never fetched any run but the ROOT ({root}) — the card "
+         f"has no way to target a different run in the family. "
+         f"requests seen: {requests}"
+     )
+@@ -131,7 +119,8 @@ def _pick_a_tagged_version(page, shot, shot_name: str, where: str) -> None:
+ def test_version_picker_navigates_to_revision_from_base_steps_route(page, shot):
+     """Picking a version from the base (unversioned) Steps route must
+     navigate to the revision's own content, not silently no-op."""
+-    page.goto(f"/runs/{ROOT_RUN_ID}/steps")
++    root, _ = a_revised_family(page)
++    page.goto(f"/runs/{root}/steps")
+     expect(page.locator(RD.LANE)).to_be_visible()
+     page.wait_for_timeout(settings.SETTLE_MS)
+     assert "/versions/" not in page.url
+@@ -151,7 +140,8 @@ def test_version_picker_navigates_to_revision_from_base_steps_route(page, shot):
+ def test_chat_answer_in_steps_navigates_to_revision_from_base_route(page, shot):
+     """The chat transcript's "Answer in Steps" link on the "Revision started"
+     entry must navigate to the revision's own Steps content, not no-op."""
+-    page.goto(f"/runs/{ROOT_RUN_ID}/steps")
++    root, _ = a_revised_family(page)
++    page.goto(f"/runs/{root}/steps")
+     expect(page.locator(RD.LANE)).to_be_visible()
+     page.wait_for_timeout(settings.SETTLE_MS)
+ 
+@@ -167,7 +157,7 @@ def test_chat_answer_in_steps_navigates_to_revision_from_base_route(page, shot):
+         answer_link.click()
+         page.wait_for_timeout(settings.SETTLE_MS)
+ 
+-    _assert_targeted_a_revision(page, requests, "'Answer in Steps'")
++    _assert_targeted_a_revision(page, requests, "'Answer in Steps'", root)
+ 
+ 
+ @pytest.mark.issue("ISS-610")
+@@ -176,7 +166,8 @@ def test_version_picker_noop_is_not_steps_specific(page, shot):
+     documents for Steps must be FIXED on every tab, not just Steps — proven
+     here on the Files tab, which shares the one PreviewPanel/RunHeader
+     mount app-wide."""
+-    page.goto(f"/runs/{ROOT_RUN_ID}/files")
++    root, _ = a_revised_family(page)
++    page.goto(f"/runs/{root}/files")
+     expect(page.locator(RD.LANE)).to_be_visible()
+     page.wait_for_timeout(settings.SETTLE_MS)
+     assert "/versions/" not in page.url
+@@ -210,7 +201,8 @@ def test_chat_deliverable_card_deep_link_carries_the_revisions_run_id(page, shot
+     its "Open in Preview" link is clicked, not silently stay on the root's
+     v1 content. This is ISS-612's generalization of ISS-607's chat no-op to
+     a non-"Revision started" card kind."""
+-    page.goto(f"/runs/{ROOT_RUN_ID}/steps")
++    root, _ = a_revised_family(page)
++    page.goto(f"/runs/{root}/steps")
+     expect(page.locator(RD.LANE)).to_be_visible()
+     page.wait_for_timeout(settings.SETTLE_MS)
+ 
+@@ -229,5 +221,5 @@ def test_chat_deliverable_card_deep_link_carries_the_revisions_run_id(page, shot
+         page.wait_for_timeout(settings.SETTLE_MS)
+ 
+     _assert_targeted_a_revision(
+-        page, requests, "the revision's Deliverable card's 'Open in Preview'"
++        page, requests, "the revision's Deliverable card's 'Open in Preview'", root
+     )
+diff --git a/tests/integration/e2e/suites/21_run_families_and_versions/test_run_families_and_versions.py b/tests/integration/e2e/suites/21_run_families_and_versions/test_run_families_and_versions.py
+index ed06b0b2b..bb5115d91 100644
+--- a/tests/integration/e2e/suites/21_run_families_and_versions/test_run_families_and_versions.py
++++ b/tests/integration/e2e/suites/21_run_families_and_versions/test_run_families_and_versions.py
+@@ -181,6 +181,27 @@ def a_run(page) -> str:
+     pytest.skip("no completed run is a family of one by its own /family record")
+ 
+ 
++def a_revised_family(page) -> tuple[str, list[dict]]:
++    """The newest family holding a revision: `(root_id, members)` from
++    `/api/runs/{root}/family`, members in version order, or skip.
++
++    Discovered, never pinned (14ce62c59): the family the version-pin files used
++    to name went with a reseed (ISS-1188). A divert pair shares a root too, but
++    its second run is another workflow rather than a version, so it is passed
++    over.
++    """
++    page.goto("/dashboard")
++    rows = api.json_body(page, "GET", "/api/runs?limit=100")
++    diverted = {r["id"] for r in rows if r.get("diverted_at_step_id")}
++    for root in dict.fromkeys(r["root_run_id"] for r in rows if r.get("parent_run_id")):
++        if root in diverted:
++            continue
++        members = api.json_body(page, "GET", f"/api/runs/{root}/family")["members"]
++        if len(members) > 1:
++            return root, sorted(members, key=lambda m: m["revision_index"])
++    pytest.skip("no run in this history has a revision, so there is no version to pin")
++
++
+ # ── families on run history ──────────────────────────────────────────────────
+ 
+ 
+diff --git a/tests/integration/e2e/suites/24_api_contract/test_api_contract.py b/tests/integration/e2e/suites/24_api_contract/test_api_contract.py
+index 0d90c25b9..e00b87d13 100644
+--- a/tests/integration/e2e/suites/24_api_contract/test_api_contract.py
++++ b/tests/integration/e2e/suites/24_api_contract/test_api_contract.py
+@@ -18,7 +18,6 @@ from __future__ import annotations
+ 
+ import json
+ import subprocess
+-import uuid
+ import sys
+ from pathlib import Path
+ 
+@@ -330,33 +329,18 @@ def test_creating_a_user_answers_201_with_the_created_user(page, shot, disposabl
+     """Scenario: Creating a user answers 201 with the created user
+ 
+     The account is deleted in the fixture's teardown. `is_admin` is never set —
+-    a second local admin locks every admin out (D-31).
++    a second local admin locks every admin out (D-31). The POST is the
++    fixture's own, which asserts the 201: one copy of the body, not two.
+     """
+     with shot("create-201", "When an admin POSTs to /api/admin/users"):
+         page.goto("/dashboard")
+-        address = f"e2e-{uuid.uuid4().hex[:12]}@velocity.ai"
+-        result = api.full(
+-            disposable_user.admin_page,
+-            "POST",
+-            "/api/admin/users",
+-            {
+-                "email": address,
+-                "password": accounts.PASSWORD,
+-                "tier": "basic",
+-                "is_admin": False,
+-            },
+-        )
++        user = disposable_user(tier="basic")
+ 
+-    assert result["status"] == 201, f"{result['status']}: {result['body'][:200]}"
+-    body = json.loads(result["body"])
++    body = user["row"]
+     for field in ("id", "email", "tier", "is_admin", "created_at"):
+         assert field in body, f"the AdminUserResponse has no {field!r}: {sorted(body)}"
+-    assert body["email"] == address and body["tier"] == "basic"
++    assert body["email"] == user["email"] and body["tier"] == "basic"
+     assert body["is_admin"] is False
+-    # Never the password, in any form.
+-    assert accounts.PASSWORD not in result["body"]
+-
+-    api.full(disposable_user.admin_page, "DELETE", f"/api/admin/users/{body['id']}")
+ 
+ 
+ @pytest.mark.scenario("S-24-13")
+@@ -654,18 +638,27 @@ def test_an_expired_workspace_is_stated_not_inferred(page, shot):
+ 
+ 
+ @pytest.mark.scenario("S-24-25")
+-def test_the_reserved_subtrees_are_never_listed(page, shot):
+-    """Scenario: The reserved subtrees are never listed
++def test_a_listed_reserved_file_is_readable(page, shot):
++    """Scenario: A listed reserved file is readable
+ 
+     The listing is the complete description of what `/sandbox/file` will serve.
++    Since f9df3737c it lists every file, `.uploads/` and `.logs/` included, so a
++    listed reserved file has to open (the unit twin is
++    `test_a_listed_reserved_file_is_readable`).
+     """
+     run_id = my_run_id(page)
+ 
+     with shot("reserved-subtrees", "When I read the workspace listing"):
+         body = sandbox_of(page, run_id)
+ 
+-    leaked = [f["path"] for f in body["files"] if f["path"].startswith((".uploads/", ".logs/"))]
+-    assert not leaked, f"reserved subtrees appear in the listing: {leaked}"
++    reserved = [f["path"] for f in body["files"] if f["path"].startswith((".uploads/", ".logs/"))]
++    if not reserved:
++        pytest.skip("this run's workspace holds no .uploads/ or .logs/ file")
++
++    result = api.full(page, "GET", f"/api/runs/{run_id}/sandbox/file?path={reserved[0]}")
++    assert result["status"] == 200, (
++        f"{reserved[0]} is listed but /sandbox/file answers {result['status']}"
++    )
+ 
+ 
+ def _pick(files, predicate):
+diff --git a/tests/integration/e2e/suites/25_pipeline_smoke/test_pipeline_smoke.py b/tests/integration/e2e/suites/25_pipeline_smoke/test_pipeline_smoke.py
+index bec45da2c..8f842172b 100644
+--- a/tests/integration/e2e/suites/25_pipeline_smoke/test_pipeline_smoke.py
++++ b/tests/integration/e2e/suites/25_pipeline_smoke/test_pipeline_smoke.py
+@@ -35,7 +35,7 @@ from framework.locators import run_detail as RD
+ # `deliverable.name`. None means the strategy is `serialized_sandbox`, which
+ # delivers a tree rather than one named file.
+ PPT = ("Pitch an idea (Fast)", "presentation.pptx", r"PPT|PRESENTATION|Pitch")
+-PPT_V2 = ("Pitch an idea (Detailed)", "presentation.html", r"PPT|PRESENTATION|Pitch")
++PPT_V2 = ("Pitch an idea (Depth)", "presentation.html", r"PPT|PRESENTATION|Pitch")
+ USER_STORIES = ("Generate product requirements", "user_stories.md", r"USER[ _]STORIES|REQUIREMENTS")
+ PROTOTYPE = ("Build an interactive prototype (Fast)", "prototype.html", r"PROTOTYPE")
+ APP_BUILDER = ("Build an end-to-end application", None, r"APP[ _]BUILDER|APPLICATION")
+diff --git a/tests/integration/screens/02-home-catalog.feature.md b/tests/integration/screens/02-home-catalog.feature.md
+index ec4d4a240..87276e64d 100644
+--- a/tests/integration/screens/02-home-catalog.feature.md
++++ b/tests/integration/screens/02-home-catalog.feature.md
+@@ -44,7 +44,7 @@ sibling `button[aria-label="Inspect <title> details"]`.
+ | Let a reviewer choose the handoff | A person at a review gate picks which separate workflow the run hands off to. | ~3 agents |
+ | Let a reviewer choose the path | The run pauses at a review gate and a person picks which branch comes next. | ~5 agents · ~1m |
+ | Pitch an idea (Fast) | Executive-grade deck with charts, data, and a clear narrative. | ~3 agents · ~8m |
+-| Pitch an idea (Detailed) | Executive-grade deck, delivered as a rendered HTML deck and a real editable PowerPoint file. | ~4 agents · ~8m |
++| Pitch an idea (Depth) | Executive-grade deck, delivered as a rendered HTML deck and a real editable PowerPoint file. | ~4 agents · ~8m |
+ | Build an interactive prototype (Fast) | Navigable, high-fidelity HTML prototype from a brief or story set. | ~2 agents · ~21m |
+ | Generate product requirements | Epics, user stories, and Gherkin acceptance criteria — ready for Jira. | ~7 agents · ~5m |
+ | Compose a custom workflow | Assemble specialist agents for tasks outside the standard pipelines. | ~9 agents · ~3m |
+diff --git a/tests/integration/screens/04-composer-canvas.feature.md b/tests/integration/screens/04-composer-canvas.feature.md
+index 68a7c6498..dcf4ec539 100644
+--- a/tests/integration/screens/04-composer-canvas.feature.md
++++ b/tests/integration/screens/04-composer-canvas.feature.md
+@@ -54,8 +54,8 @@ Testid `composer-header-summary`.
+ **Config rail** — tabs `Workflow` | `Agent`, plus `Reset to default`.
+ 
+ The **Agent** tab is not one panel but five sub-tabs of its own — `Overview`,
+-`Skills`, `Hooks`, `Tools`, `Config` — headed by
+-`Agent · step <n> of <total> · <agent title>` and carrying
++`Skills`, `Data`, `Tools`, `Config` — headed by the step's kind and position,
++`AI agent · step <n> of <total>` for a plain agent, and carrying
+ `input[name="agent-name"]`. Its `Skills` sub-tab renders the full skill catalogue
+ **inline in the rail**, not as a modal; the surface manifest had it listed as an
+ overlay, which is why four sweeps never found it by opening dialogs.
+@@ -186,8 +186,8 @@ Feature: Composing a workflow
+   Scenario: The config rail's Agent tab has five sub-tabs of its own
+     When I cold-load "/workflows/ppt/canvas"
+     And I click the rail tab "Agent"
+-    Then the rail heading reads "Agent · step 1 of 3 · <the first agent's title>"
+-    And I see the sub-tabs "Overview", "Skills", "Hooks", "Tools", "Config"
++    Then the rail heading reads "AI agent · step 1 of 3"
++    And I see the sub-tabs "Overview", "Skills", "Data", "Tools", "Config"
+     And an input named "agent-name" is present
+ 
+   @S-04-11
+diff --git a/tests/integration/screens/11-admin.feature.md b/tests/integration/screens/11-admin.feature.md
+index 622ebef60..0c32fbe7c 100644
+--- a/tests/integration/screens/11-admin.feature.md
++++ b/tests/integration/screens/11-admin.feature.md
+@@ -63,7 +63,7 @@ four seeded accounts are not admins and must be refused.
+ 
+ ## Resetting another user's password
+ 
+-`adminResetUserPassword` → `POST /api/admin/users/{id}/reset-password`.
++`adminResetUserPassword` → `POST /api/admin/users/{id}/reset-password`, body `{}`.
+ 
+ **This is the ONLY reset path when the pool uses email MFA.** AWS disqualifies email
+ as an account-recovery channel whenever it is also a second factor, so
+@@ -72,16 +72,15 @@ screen has no "forgot password" link (see `09-settings` § Security).
+ 
+ | | |
+ |---|---|
+-| `permanent` | defaults to **false** |
+-| false → | a **temporary** password; the user must choose their own at next sign-in |
+-| true → | a permanent password the admin now knows |
+-| either way | the target's **existing sessions are revoked** |
+-| response | `requires_new_password_at_next_login` |
++| body | empty; a `new_password` or `permanent` field is a 422 |
++| effect | a **temporary** password Cognito generates and no one is shown; the user must choose their own at next sign-in |
++| sessions | the target's **existing sessions are revoked** |
++| response | `{"status": "temporary_password_set"}` |
+ 
+-The default matters: with `permanent=false` **the admin never ends up knowing a live
+-credential for someone else's account**. That is a security property, not a
+-convenience, and it is what makes the `NEW_PASSWORD_REQUIRED` challenge in `01-auth`
+-reachable in normal operation.
++**The admin never ends up knowing a live credential for someone else's account**
++(Phase 3, Decision 6). That is a security property, not a convenience, and it is
++what makes the `NEW_PASSWORD_REQUIRED` challenge in `01-auth` reachable in normal
++operation. There is no permanent, admin-chosen reset any more.
+ 
+ ---
+ 
+@@ -212,7 +211,7 @@ Feature: Admin dashboard
+   Scenario: Adding a user creates an account at the chosen tier
+     When I cold-load "/admin"
+     And I click "Add user"
+-    And I create a disposable user at tier "basic"
++    And I invite a disposable address at tier "basic"
+     Then that user appears in the table with plan "BASIC" and role "User"
+     And TOTAL USERS increases by one
+     And BASIC increases by one
+@@ -235,12 +234,12 @@ Feature: Admin dashboard
+   @destructive
+   Scenario: An admin resets another user's password to a temporary one
+     Given I am an admin on "/admin"
+-    When I reset another user's password without marking it permanent
+-    Then the response reports requires_new_password_at_next_login
++    When I reset another user's password
++    Then the response is {"status": "temporary_password_set"} and nothing else
+     And that user's existing sessions are revoked
+     When that user next signs in
+     Then they are challenged with NEW_PASSWORD_REQUIRED
+-    # The default is `permanent=false` SO THAT the admin never ends up knowing a
++    # No password is supplied or shown SO THAT the admin never ends up knowing a
+     # live credential for someone else's account. That is a security property.
+     # It is also how the first-sign-in challenge in 01-auth is reached in normal
+     # operation.
+@@ -248,13 +247,13 @@ Feature: Admin dashboard
+   @S-11-18
+   @sourced
+   @destructive
+-  Scenario: A permanent reset skips the challenge but is knowable
++  Scenario: A reset that names a password is refused
+     Given I am an admin on "/admin"
+-    When I reset another user's password with permanent=true
+-    Then that user signs in with it directly, with no challenge
+-    And their existing sessions are still revoked
+-    # Recorded so the trade-off is explicit: convenience for the admin, at the
+-    # cost of the admin knowing a live credential. Prefer the default.
++    When I reset another user's password with a new_password and permanent=true
++    Then the status is 422 and the fields are "extra_forbidden"
++    # There is no permanent, admin-chosen reset any more. Refusing the fields
++    # rather than ignoring them means no caller can believe it set a password
++    # that was never used.
+ 
+   @S-11-19
+   @sourced
+diff --git a/tests/integration/screens/12-shell-nav.feature.md b/tests/integration/screens/12-shell-nav.feature.md
+index f4e58e4ca..eef6c57f5 100644
+--- a/tests/integration/screens/12-shell-nav.feature.md
++++ b/tests/integration/screens/12-shell-nav.feature.md
+@@ -16,7 +16,7 @@ owns.
+ | Home | `button` "Home" | → `/dashboard` |
+ | Library | `button` "Library" | → `/library` |
+ | My Workflows | `button` "My Workflows" | → `/workflows` |
+-| Running-pipeline badge | `button` `<Workflow> <done>/<total>` | e.g. `Pitch an idea (Detailed) 0/4`; only while a run is live |
++| Running-pipeline badge | `button` `<Workflow> <done>/<total>` | e.g. `Pitch an idea (Depth) 0/4`; only while a run is live |
+ | Notifications | `button[aria-label="Notifications"]` | |
+ | Account menu | `button[aria-label="Account menu"]` | |
+ 
+diff --git a/tests/integration/screens/15-overlays.feature.md b/tests/integration/screens/15-overlays.feature.md
+index e99386f80..2c004ef49 100644
+--- a/tests/integration/screens/15-overlays.feature.md
++++ b/tests/integration/screens/15-overlays.feature.md
+@@ -89,7 +89,7 @@ Feature: Overlays
+   @S-15-01
+   Scenario: Inspecting a catalog workflow describes it without launching
+     When I cold-load "/dashboard"
+-    And I click "Inspect Pitch an idea (Detailed) details"
++    And I click "Inspect Pitch an idea (Depth) details"
+     Then a dialog opens headed with that workflow's name
+     And it shows the ordered step chain
+     And it shows CONTEXT PROVIDERS, CAPABILITIES and COMPACTION sections
+diff --git a/tests/integration/screens/17-theme-and-tiers.feature.md b/tests/integration/screens/17-theme-and-tiers.feature.md
+index 4834f7e71..1116888f6 100644
+--- a/tests/integration/screens/17-theme-and-tiers.feature.md
++++ b/tests/integration/screens/17-theme-and-tiers.feature.md
+@@ -62,7 +62,7 @@ is what makes it the useful control.
+ |---|---|---|---|
+ | Generate product requirements | — | — | — |
+ | Pitch an idea (Fast) | Pro | — | — |
+-| Pitch an idea (Detailed) | Pro | — | — |
++| Pitch an idea (Depth) | Pro | — | — |
+ | Build an interactive prototype (Fast) | Pro | — | — |
+ | Build an end-to-end application | Pro | — | — |
+ | Compose a custom workflow | Enterprise | Enterprise | — |
+diff --git a/tests/integration/screens/24-api-contract.feature.md b/tests/integration/screens/24-api-contract.feature.md
+index 2b2061304..fdf2e852f 100644
+--- a/tests/integration/screens/24-api-contract.feature.md
++++ b/tests/integration/screens/24-api-contract.feature.md
+@@ -558,10 +558,12 @@ Feature: The run sandbox
+     # this flag separates them, and the UI renders different copy for each.
+ 
+   @S-24-25
+-  Scenario: The reserved subtrees are never listed
++  Scenario: A listed reserved file is readable
+     When I GET "/api/runs/{id}/sandbox"
+-    Then no file's path starts with ".uploads/" or ".logs/"
++    Then files under ".uploads/" and ".logs/" are listed with the rest
++    And GET "/api/runs/{id}/sandbox/file" answers 200 for a listed one
+     # The listing is the complete description of what /sandbox/file will serve.
++    # Since f9df3737c it lists every file, reserved subtrees included.
+ 
+   @S-24-26
+   @security
+diff --git a/tests/integration/screens/25-pipeline-smoke.feature.md b/tests/integration/screens/25-pipeline-smoke.feature.md
+index 8a20cb4fb..eedae181b 100644
+--- a/tests/integration/screens/25-pipeline-smoke.feature.md
++++ b/tests/integration/screens/25-pipeline-smoke.feature.md
+@@ -16,7 +16,7 @@ gate and branch mechanics, which belong with 22-handoff-and-gates.
+ | Workflow | Catalogue card | Deliverable strategy | Delivers |
+ |---|---|---|---|
+ | `ppt` | Pitch an idea (Fast) | `ppt` | `presentation.pptx` |
+-| `ppt_v2` | Pitch an idea (Detailed) | `single_file` | `presentation.html` |
++| `ppt_v2` | Pitch an idea (Depth) | `single_file` | `presentation.html` |
+ | `user_stories` | Generate product requirements | `streamed_text` | `user_stories.md` |
+ | `prototype` | Build an interactive prototype (Fast) | `single_file` | `prototype.html` |
+ | `app_builder` | Build an end-to-end application | `serialized_sandbox` | a sandbox tree |
+@@ -87,7 +87,7 @@ fingerprint of one would be noise.
+   @destructive
+   # live: dispatches a real run, so it cannot run in the offline tier.
+   Scenario: Pitch an idea v2 runs end to end and delivers a deck
+-    Given the catalogue card "Pitch an idea (Detailed)"
++    Given the catalogue card "Pitch an idea (Depth)"
+     When I launch it with a one-sentence brief
+     And I answer every gate it stops at
+     Then the run reaches a completed state

@@ -1,0 +1,2 @@
+### tests/unit/app/test_binary_deliverable.py (after fix, final tree, 2026-10-07T18:27:55Z)
+8 passed, 6 warnings in 1.74s

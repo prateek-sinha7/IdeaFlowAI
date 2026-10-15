@@ -1,0 +1,559 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.13.14, pytest-9.0.3, pluggy-1.6.0
+rootdir: /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend
+configfile: pyproject.toml
+plugins: cov-7.1.0, xdist-3.8.0, timeout-2.4.0, asyncio-1.4.0, hypothesis-6.122.3, langsmith-0.8.18, anyio-4.15.1
+asyncio: mode=Mode.AUTO, debug=False, asyncio_default_fixture_loop_scope=function, asyncio_default_test_loop_scope=function
+collected 7 items
+
+tests/unit/test_workflow_override_e2e.py EEEEEEE                         [100%]
+
+==================================== ERRORS ====================================
+_ ERROR at setup of test_saving_an_override_then_reading_ppt_returns_my_steps __
+
+    @pytest.fixture
+    def api():
+        engine = create_engine(
+            "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
+        )
+>       Base.metadata.create_all(bind=engine)
+
+tests/unit/test_workflow_override_e2e.py:37: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+.venv/lib/python3.13/site-packages/sqlalchemy/sql/schema.py:5868: in create_all
+    bind._run_ddl_visitor(
+.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py:3252: in _run_ddl_visitor
+    with self.begin() as conn:
+         ^^^^^^^^^^^^
+/opt/homebrew/Cellar/python@3.13/3.13.14/Frameworks/Python.framework/Versions/3.13/lib/python3.13/contextlib.py:141: in __enter__
+    return next(self.gen)
+           ^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py:3242: in begin
+    with self.connect() as conn:
+         ^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py:3278: in connect
+    return self._connection_cls(self)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py:146: in __init__
+    self._dbapi_connection = engine.raw_connection()
+                             ^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py:3302: in raw_connection
+    return self.pool.connect()
+           ^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/sqlalchemy/pool/base.py:449: in connect
+    return _ConnectionFairy._checkout(self)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/sqlalchemy/pool/base.py:1263: in _checkout
+    fairy = _ConnectionRecord.checkout(pool)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/sqlalchemy/pool/base.py:712: in checkout
+    rec = pool._do_get()
+          ^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/sqlalchemy/pool/impl.py:507: in _do_get
+    rec = self.connection
+          ^^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/sqlalchemy/util/langhelpers.py:1141: in __get__
+    obj.__dict__[self.__name__] = result = self.fget(obj)
+                                           ^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/sqlalchemy/pool/impl.py:464: in connection
+    return _ConnectionRecord(self)
+           ^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/sqlalchemy/pool/base.py:674: in __init__
+    self.__connect()
+.venv/lib/python3.13/site-packages/sqlalchemy/pool/base.py:914: in __connect
+    )._exec_w_sync_on_first_run(self.dbapi_connection, self)
+      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/sqlalchemy/event/attr.py:483: in _exec_w_sync_on_first_run
+    self(*args, **kw)
+.venv/lib/python3.13/site-packages/sqlalchemy/event/attr.py:495: in __call__
+    fn(*args, **kw)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+dbapi_connection = <sqlite3.Connection object at 0x1104c31f0>
+connection_record = <sqlalchemy.pool.base._ConnectionRecord object at 0x10ddece30>
+
+    def _deny_db_connect(dbapi_connection, connection_record):  # noqa: ARG001
+        """SQLAlchemy ``connect`` event listener — refuses every real DBAPI connection."""
+>       raise UnitIsolationError(
+            "Unit test opened a real database connection. Move it to "
+            "tests/integration/<mirror>/ (the hermetic in-memory SQLite db_session fixture "
+            "lives in tests/integration/repositories/conftest.py), or mock the Session with "
+            "MagicMock(spec=Session) / AsyncMock(spec=AsyncSession). "
+            "Deliberate exception: @pytest.mark.allow_io(\"reason\")."
+        )
+E       tests.unit.conftest.UnitIsolationError: Unit test opened a real database connection. Move it to tests/integration/<mirror>/ (the hermetic in-memory SQLite db_session fixture lives in tests/integration/repositories/conftest.py), or mock the Session with MagicMock(spec=Session) / AsyncMock(spec=AsyncSession). Deliberate exception: @pytest.mark.allow_io("reason").
+
+tests/unit/conftest.py:81: UnitIsolationError
+____ ERROR at setup of test_workflow_level_fields_still_come_from_the_file _____
+
+    @pytest.fixture
+    def api():
+        engine = create_engine(
+            "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
+        )
+>       Base.metadata.create_all(bind=engine)
+
+tests/unit/test_workflow_override_e2e.py:37: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+.venv/lib/python3.13/site-packages/sqlalchemy/sql/schema.py:5868: in create_all
+    bind._run_ddl_visitor(
+.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py:3252: in _run_ddl_visitor
+    with self.begin() as conn:
+         ^^^^^^^^^^^^
+/opt/homebrew/Cellar/python@3.13/3.13.14/Frameworks/Python.framework/Versions/3.13/lib/python3.13/contextlib.py:141: in __enter__
+    return next(self.gen)
+           ^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py:3242: in begin
+    with self.connect() as conn:
+         ^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py:3278: in connect
+    return self._connection_cls(self)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py:146: in __init__
+    self._dbapi_connection = engine.raw_connection()
+                             ^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py:3302: in raw_connection
+    return self.pool.connect()
+           ^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/sqlalchemy/pool/base.py:449: in connect
+    return _ConnectionFairy._checkout(self)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/sqlalchemy/pool/base.py:1263: in _checkout
+    fairy = _ConnectionRecord.checkout(pool)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/sqlalchemy/pool/base.py:712: in checkout
+    rec = pool._do_get()
+          ^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/sqlalchemy/pool/impl.py:507: in _do_get
+    rec = self.connection
+          ^^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/sqlalchemy/util/langhelpers.py:1141: in __get__
+    obj.__dict__[self.__name__] = result = self.fget(obj)
+                                           ^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/sqlalchemy/pool/impl.py:464: in connection
+    return _ConnectionRecord(self)
+           ^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/sqlalchemy/pool/base.py:674: in __init__
+    self.__connect()
+.venv/lib/python3.13/site-packages/sqlalchemy/pool/base.py:914: in __connect
+    )._exec_w_sync_on_first_run(self.dbapi_connection, self)
+      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/sqlalchemy/event/attr.py:483: in _exec_w_sync_on_first_run
+    self(*args, **kw)
+.venv/lib/python3.13/site-packages/sqlalchemy/event/attr.py:495: in __call__
+    fn(*args, **kw)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+dbapi_connection = <sqlite3.Connection object at 0x11059ff10>
+connection_record = <sqlalchemy.pool.base._ConnectionRecord object at 0x11180a390>
+
+    def _deny_db_connect(dbapi_connection, connection_record):  # noqa: ARG001
+        """SQLAlchemy ``connect`` event listener — refuses every real DBAPI connection."""
+>       raise UnitIsolationError(
+            "Unit test opened a real database connection. Move it to "
+            "tests/integration/<mirror>/ (the hermetic in-memory SQLite db_session fixture "
+            "lives in tests/integration/repositories/conftest.py), or mock the Session with "
+            "MagicMock(spec=Session) / AsyncMock(spec=AsyncSession). "
+            "Deliberate exception: @pytest.mark.allow_io(\"reason\")."
+        )
+E       tests.unit.conftest.UnitIsolationError: Unit test opened a real database connection. Move it to tests/integration/<mirror>/ (the hermetic in-memory SQLite db_session fixture lives in tests/integration/repositories/conftest.py), or mock the Session with MagicMock(spec=Session) / AsyncMock(spec=AsyncSession). Deliberate exception: @pytest.mark.allow_io("reason").
+
+tests/unit/conftest.py:81: UnitIsolationError
+_____ ERROR at setup of test_original_query_param_shows_the_system_version _____
+
+    @pytest.fixture
+    def api():
+        engine = create_engine(
+            "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
+        )
+>       Base.metadata.create_all(bind=engine)
+
+tests/unit/test_workflow_override_e2e.py:37: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+.venv/lib/python3.13/site-packages/sqlalchemy/sql/schema.py:5868: in create_all
+    bind._run_ddl_visitor(
+.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py:3252: in _run_ddl_visitor
+    with self.begin() as conn:
+         ^^^^^^^^^^^^
+/opt/homebrew/Cellar/python@3.13/3.13.14/Frameworks/Python.framework/Versions/3.13/lib/python3.13/contextlib.py:141: in __enter__
+    return next(self.gen)
+           ^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py:3242: in begin
+    with self.connect() as conn:
+         ^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py:3278: in connect
+    return self._connection_cls(self)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py:146: in __init__
+    self._dbapi_connection = engine.raw_connection()
+                             ^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py:3302: in raw_connection
+    return self.pool.connect()
+           ^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/sqlalchemy/pool/base.py:449: in connect
+    return _ConnectionFairy._checkout(self)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/sqlalchemy/pool/base.py:1263: in _checkout
+    fairy = _ConnectionRecord.checkout(pool)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/sqlalchemy/pool/base.py:712: in checkout
+    rec = pool._do_get()
+          ^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/sqlalchemy/pool/impl.py:507: in _do_get
+    rec = self.connection
+          ^^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/sqlalchemy/util/langhelpers.py:1141: in __get__
+    obj.__dict__[self.__name__] = result = self.fget(obj)
+                                           ^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/sqlalchemy/pool/impl.py:464: in connection
+    return _ConnectionRecord(self)
+           ^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/sqlalchemy/pool/base.py:674: in __init__
+    self.__connect()
+.venv/lib/python3.13/site-packages/sqlalchemy/pool/base.py:914: in __connect
+    )._exec_w_sync_on_first_run(self.dbapi_connection, self)
+      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/sqlalchemy/event/attr.py:483: in _exec_w_sync_on_first_run
+    self(*args, **kw)
+.venv/lib/python3.13/site-packages/sqlalchemy/event/attr.py:495: in __call__
+    fn(*args, **kw)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+dbapi_connection = <sqlite3.Connection object at 0x111845b70>
+connection_record = <sqlalchemy.pool.base._ConnectionRecord object at 0x10d310170>
+
+    def _deny_db_connect(dbapi_connection, connection_record):  # noqa: ARG001
+        """SQLAlchemy ``connect`` event listener — refuses every real DBAPI connection."""
+>       raise UnitIsolationError(
+            "Unit test opened a real database connection. Move it to "
+            "tests/integration/<mirror>/ (the hermetic in-memory SQLite db_session fixture "
+            "lives in tests/integration/repositories/conftest.py), or mock the Session with "
+            "MagicMock(spec=Session) / AsyncMock(spec=AsyncSession). "
+            "Deliberate exception: @pytest.mark.allow_io(\"reason\")."
+        )
+E       tests.unit.conftest.UnitIsolationError: Unit test opened a real database connection. Move it to tests/integration/<mirror>/ (the hermetic in-memory SQLite db_session fixture lives in tests/integration/repositories/conftest.py), or mock the Session with MagicMock(spec=Session) / AsyncMock(spec=AsyncSession). Deliberate exception: @pytest.mark.allow_io("reason").
+
+tests/unit/conftest.py:81: UnitIsolationError
+_ ERROR at setup of test_switching_the_override_off_restores_the_system_steps __
+
+    @pytest.fixture
+    def api():
+        engine = create_engine(
+            "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
+        )
+>       Base.metadata.create_all(bind=engine)
+
+tests/unit/test_workflow_override_e2e.py:37: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+.venv/lib/python3.13/site-packages/sqlalchemy/sql/schema.py:5868: in create_all
+    bind._run_ddl_visitor(
+.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py:3252: in _run_ddl_visitor
+    with self.begin() as conn:
+         ^^^^^^^^^^^^
+/opt/homebrew/Cellar/python@3.13/3.13.14/Frameworks/Python.framework/Versions/3.13/lib/python3.13/contextlib.py:141: in __enter__
+    return next(self.gen)
+           ^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py:3242: in begin
+    with self.connect() as conn:
+         ^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py:3278: in connect
+    return self._connection_cls(self)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py:146: in __init__
+    self._dbapi_connection = engine.raw_connection()
+                             ^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py:3302: in raw_connection
+    return self.pool.connect()
+           ^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/sqlalchemy/pool/base.py:449: in connect
+    return _ConnectionFairy._checkout(self)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/sqlalchemy/pool/base.py:1263: in _checkout
+    fairy = _ConnectionRecord.checkout(pool)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/sqlalchemy/pool/base.py:712: in checkout
+    rec = pool._do_get()
+          ^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/sqlalchemy/pool/impl.py:507: in _do_get
+    rec = self.connection
+          ^^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/sqlalchemy/util/langhelpers.py:1141: in __get__
+    obj.__dict__[self.__name__] = result = self.fget(obj)
+                                           ^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/sqlalchemy/pool/impl.py:464: in connection
+    return _ConnectionRecord(self)
+           ^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/sqlalchemy/pool/base.py:674: in __init__
+    self.__connect()
+.venv/lib/python3.13/site-packages/sqlalchemy/pool/base.py:914: in __connect
+    )._exec_w_sync_on_first_run(self.dbapi_connection, self)
+      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/sqlalchemy/event/attr.py:483: in _exec_w_sync_on_first_run
+    self(*args, **kw)
+.venv/lib/python3.13/site-packages/sqlalchemy/event/attr.py:495: in __call__
+    fn(*args, **kw)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+dbapi_connection = <sqlite3.Connection object at 0x1118464d0>
+connection_record = <sqlalchemy.pool.base._ConnectionRecord object at 0x1106c6990>
+
+    def _deny_db_connect(dbapi_connection, connection_record):  # noqa: ARG001
+        """SQLAlchemy ``connect`` event listener — refuses every real DBAPI connection."""
+>       raise UnitIsolationError(
+            "Unit test opened a real database connection. Move it to "
+            "tests/integration/<mirror>/ (the hermetic in-memory SQLite db_session fixture "
+            "lives in tests/integration/repositories/conftest.py), or mock the Session with "
+            "MagicMock(spec=Session) / AsyncMock(spec=AsyncSession). "
+            "Deliberate exception: @pytest.mark.allow_io(\"reason\")."
+        )
+E       tests.unit.conftest.UnitIsolationError: Unit test opened a real database connection. Move it to tests/integration/<mirror>/ (the hermetic in-memory SQLite db_session fixture lives in tests/integration/repositories/conftest.py), or mock the Session with MagicMock(spec=Session) / AsyncMock(spec=AsyncSession). Deliberate exception: @pytest.mark.allow_io("reason").
+
+tests/unit/conftest.py:81: UnitIsolationError
+_____________ ERROR at setup of test_saving_twice_updates_one_row ______________
+
+    @pytest.fixture
+    def api():
+        engine = create_engine(
+            "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
+        )
+>       Base.metadata.create_all(bind=engine)
+
+tests/unit/test_workflow_override_e2e.py:37: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+.venv/lib/python3.13/site-packages/sqlalchemy/sql/schema.py:5868: in create_all
+    bind._run_ddl_visitor(
+.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py:3252: in _run_ddl_visitor
+    with self.begin() as conn:
+         ^^^^^^^^^^^^
+/opt/homebrew/Cellar/python@3.13/3.13.14/Frameworks/Python.framework/Versions/3.13/lib/python3.13/contextlib.py:141: in __enter__
+    return next(self.gen)
+           ^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py:3242: in begin
+    with self.connect() as conn:
+         ^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py:3278: in connect
+    return self._connection_cls(self)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py:146: in __init__
+    self._dbapi_connection = engine.raw_connection()
+                             ^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py:3302: in raw_connection
+    return self.pool.connect()
+           ^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/sqlalchemy/pool/base.py:449: in connect
+    return _ConnectionFairy._checkout(self)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/sqlalchemy/pool/base.py:1263: in _checkout
+    fairy = _ConnectionRecord.checkout(pool)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/sqlalchemy/pool/base.py:712: in checkout
+    rec = pool._do_get()
+          ^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/sqlalchemy/pool/impl.py:507: in _do_get
+    rec = self.connection
+          ^^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/sqlalchemy/util/langhelpers.py:1141: in __get__
+    obj.__dict__[self.__name__] = result = self.fget(obj)
+                                           ^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/sqlalchemy/pool/impl.py:464: in connection
+    return _ConnectionRecord(self)
+           ^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/sqlalchemy/pool/base.py:674: in __init__
+    self.__connect()
+.venv/lib/python3.13/site-packages/sqlalchemy/pool/base.py:914: in __connect
+    )._exec_w_sync_on_first_run(self.dbapi_connection, self)
+      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/sqlalchemy/event/attr.py:483: in _exec_w_sync_on_first_run
+    self(*args, **kw)
+.venv/lib/python3.13/site-packages/sqlalchemy/event/attr.py:495: in __call__
+    fn(*args, **kw)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+dbapi_connection = <sqlite3.Connection object at 0x111846e30>
+connection_record = <sqlalchemy.pool.base._ConnectionRecord object at 0x1119fecf0>
+
+    def _deny_db_connect(dbapi_connection, connection_record):  # noqa: ARG001
+        """SQLAlchemy ``connect`` event listener — refuses every real DBAPI connection."""
+>       raise UnitIsolationError(
+            "Unit test opened a real database connection. Move it to "
+            "tests/integration/<mirror>/ (the hermetic in-memory SQLite db_session fixture "
+            "lives in tests/integration/repositories/conftest.py), or mock the Session with "
+            "MagicMock(spec=Session) / AsyncMock(spec=AsyncSession). "
+            "Deliberate exception: @pytest.mark.allow_io(\"reason\")."
+        )
+E       tests.unit.conftest.UnitIsolationError: Unit test opened a real database connection. Move it to tests/integration/<mirror>/ (the hermetic in-memory SQLite db_session fixture lives in tests/integration/repositories/conftest.py), or mock the Session with MagicMock(spec=Session) / AsyncMock(spec=AsyncSession). Deliberate exception: @pytest.mark.allow_io("reason").
+
+tests/unit/conftest.py:81: UnitIsolationError
+__________ ERROR at setup of test_another_users_override_is_invisible __________
+
+    @pytest.fixture
+    def api():
+        engine = create_engine(
+            "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
+        )
+>       Base.metadata.create_all(bind=engine)
+
+tests/unit/test_workflow_override_e2e.py:37: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+.venv/lib/python3.13/site-packages/sqlalchemy/sql/schema.py:5868: in create_all
+    bind._run_ddl_visitor(
+.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py:3252: in _run_ddl_visitor
+    with self.begin() as conn:
+         ^^^^^^^^^^^^
+/opt/homebrew/Cellar/python@3.13/3.13.14/Frameworks/Python.framework/Versions/3.13/lib/python3.13/contextlib.py:141: in __enter__
+    return next(self.gen)
+           ^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py:3242: in begin
+    with self.connect() as conn:
+         ^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py:3278: in connect
+    return self._connection_cls(self)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py:146: in __init__
+    self._dbapi_connection = engine.raw_connection()
+                             ^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py:3302: in raw_connection
+    return self.pool.connect()
+           ^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/sqlalchemy/pool/base.py:449: in connect
+    return _ConnectionFairy._checkout(self)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/sqlalchemy/pool/base.py:1263: in _checkout
+    fairy = _ConnectionRecord.checkout(pool)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/sqlalchemy/pool/base.py:712: in checkout
+    rec = pool._do_get()
+          ^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/sqlalchemy/pool/impl.py:507: in _do_get
+    rec = self.connection
+          ^^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/sqlalchemy/util/langhelpers.py:1141: in __get__
+    obj.__dict__[self.__name__] = result = self.fget(obj)
+                                           ^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/sqlalchemy/pool/impl.py:464: in connection
+    return _ConnectionRecord(self)
+           ^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/sqlalchemy/pool/base.py:674: in __init__
+    self.__connect()
+.venv/lib/python3.13/site-packages/sqlalchemy/pool/base.py:914: in __connect
+    )._exec_w_sync_on_first_run(self.dbapi_connection, self)
+      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/sqlalchemy/event/attr.py:483: in _exec_w_sync_on_first_run
+    self(*args, **kw)
+.venv/lib/python3.13/site-packages/sqlalchemy/event/attr.py:495: in __call__
+    fn(*args, **kw)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+dbapi_connection = <sqlite3.Connection object at 0x111847790>
+connection_record = <sqlalchemy.pool.base._ConnectionRecord object at 0x1119fde50>
+
+    def _deny_db_connect(dbapi_connection, connection_record):  # noqa: ARG001
+        """SQLAlchemy ``connect`` event listener — refuses every real DBAPI connection."""
+>       raise UnitIsolationError(
+            "Unit test opened a real database connection. Move it to "
+            "tests/integration/<mirror>/ (the hermetic in-memory SQLite db_session fixture "
+            "lives in tests/integration/repositories/conftest.py), or mock the Session with "
+            "MagicMock(spec=Session) / AsyncMock(spec=AsyncSession). "
+            "Deliberate exception: @pytest.mark.allow_io(\"reason\")."
+        )
+E       tests.unit.conftest.UnitIsolationError: Unit test opened a real database connection. Move it to tests/integration/<mirror>/ (the hermetic in-memory SQLite db_session fixture lives in tests/integration/repositories/conftest.py), or mock the Session with MagicMock(spec=Session) / AsyncMock(spec=AsyncSession). Deliberate exception: @pytest.mark.allow_io("reason").
+
+tests/unit/conftest.py:81: UnitIsolationError
+_________ ERROR at setup of test_the_listing_reports_the_override_too __________
+
+    @pytest.fixture
+    def api():
+        engine = create_engine(
+            "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
+        )
+>       Base.metadata.create_all(bind=engine)
+
+tests/unit/test_workflow_override_e2e.py:37: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+.venv/lib/python3.13/site-packages/sqlalchemy/sql/schema.py:5868: in create_all
+    bind._run_ddl_visitor(
+.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py:3252: in _run_ddl_visitor
+    with self.begin() as conn:
+         ^^^^^^^^^^^^
+/opt/homebrew/Cellar/python@3.13/3.13.14/Frameworks/Python.framework/Versions/3.13/lib/python3.13/contextlib.py:141: in __enter__
+    return next(self.gen)
+           ^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py:3242: in begin
+    with self.connect() as conn:
+         ^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py:3278: in connect
+    return self._connection_cls(self)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py:146: in __init__
+    self._dbapi_connection = engine.raw_connection()
+                             ^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py:3302: in raw_connection
+    return self.pool.connect()
+           ^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/sqlalchemy/pool/base.py:449: in connect
+    return _ConnectionFairy._checkout(self)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/sqlalchemy/pool/base.py:1263: in _checkout
+    fairy = _ConnectionRecord.checkout(pool)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/sqlalchemy/pool/base.py:712: in checkout
+    rec = pool._do_get()
+          ^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/sqlalchemy/pool/impl.py:507: in _do_get
+    rec = self.connection
+          ^^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/sqlalchemy/util/langhelpers.py:1141: in __get__
+    obj.__dict__[self.__name__] = result = self.fget(obj)
+                                           ^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/sqlalchemy/pool/impl.py:464: in connection
+    return _ConnectionRecord(self)
+           ^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/sqlalchemy/pool/base.py:674: in __init__
+    self.__connect()
+.venv/lib/python3.13/site-packages/sqlalchemy/pool/base.py:914: in __connect
+    )._exec_w_sync_on_first_run(self.dbapi_connection, self)
+      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/sqlalchemy/event/attr.py:483: in _exec_w_sync_on_first_run
+    self(*args, **kw)
+.venv/lib/python3.13/site-packages/sqlalchemy/event/attr.py:495: in __call__
+    fn(*args, **kw)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+dbapi_connection = <sqlite3.Connection object at 0x111846a70>
+connection_record = <sqlalchemy.pool.base._ConnectionRecord object at 0x1106aa570>
+
+    def _deny_db_connect(dbapi_connection, connection_record):  # noqa: ARG001
+        """SQLAlchemy ``connect`` event listener — refuses every real DBAPI connection."""
+>       raise UnitIsolationError(
+            "Unit test opened a real database connection. Move it to "
+            "tests/integration/<mirror>/ (the hermetic in-memory SQLite db_session fixture "
+            "lives in tests/integration/repositories/conftest.py), or mock the Session with "
+            "MagicMock(spec=Session) / AsyncMock(spec=AsyncSession). "
+            "Deliberate exception: @pytest.mark.allow_io(\"reason\")."
+        )
+E       tests.unit.conftest.UnitIsolationError: Unit test opened a real database connection. Move it to tests/integration/<mirror>/ (the hermetic in-memory SQLite db_session fixture lives in tests/integration/repositories/conftest.py), or mock the Session with MagicMock(spec=Session) / AsyncMock(spec=AsyncSession). Deliberate exception: @pytest.mark.allow_io("reason").
+
+tests/unit/conftest.py:81: UnitIsolationError
+=============================== warnings summary ===============================
+app/core/config.py:94
+  /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/app/core/config.py:94: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+    class Settings(BaseSettings):
+
+.venv/lib/python3.13/site-packages/fastapi/testclient.py:1
+  /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/.venv/lib/python3.13/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+.venv/lib/python3.13/site-packages/starlette/testclient.py:53
+  /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/.venv/lib/python3.13/site-packages/starlette/testclient.py:53: DeprecationWarning: The anyio.abc.BlockingPortal alias is deprecated, use anyio.from_thread.BlockingPortal instead.
+    _PortalFactoryType = Callable[[], AbstractContextManager[anyio.abc.BlockingPortal]]
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+ERROR tests/unit/test_workflow_override_e2e.py::test_saving_an_override_then_reading_ppt_returns_my_steps
+ERROR tests/unit/test_workflow_override_e2e.py::test_workflow_level_fields_still_come_from_the_file
+ERROR tests/unit/test_workflow_override_e2e.py::test_original_query_param_shows_the_system_version
+ERROR tests/unit/test_workflow_override_e2e.py::test_switching_the_override_off_restores_the_system_steps
+ERROR tests/unit/test_workflow_override_e2e.py::test_saving_twice_updates_one_row
+ERROR tests/unit/test_workflow_override_e2e.py::test_another_users_override_is_invisible
+ERROR tests/unit/test_workflow_override_e2e.py::test_the_listing_reports_the_override_too
+======================== 3 warnings, 7 errors in 1.96s =========================

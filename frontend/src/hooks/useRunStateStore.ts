@@ -564,6 +564,9 @@ export function useRunStateStore(): RunStateStoreReturn {
       // verdict. These three types rehydrate `validationPassed` / `validationIssues`
       // via handlePipelineMessage's existing cases; no new reducer needed.
       "validator_result", "gate_passed", "gate_blocked",
+      // hook_run (ISS-870): same allowlist trap — dropped here before the reducer's
+      // "hook_run" case, so pipelineState.hookRuns never grew.
+      "hook_run",
       // Task 9.2 (SGV2, Req 20/19): same allowlist trap — without these the engine
       // notices' projections (chainContextUnavailableReason /
       // finalizationFailedReason) never reached the viewed state the lane reads,

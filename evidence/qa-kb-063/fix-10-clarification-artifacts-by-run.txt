@@ -1,0 +1,2 @@
+GET /api/runs/b40eabd0-d7e2-4bc2-bc42-99ef6a147bff/artifacts?kind=clarifications -> 0 artifact(s); status=completed root_run_id=78e185fb-c032-4154-8552-774781b6e5df parent_run_id=78e185fb-c032-4154-8552-774781b6e5df
+GET /api/runs/78e185fb-c032-4154-8552-774781b6e5df/artifacts?kind=clarifications -> 4 artifact(s); status=completed root_run_id=78e185fb-c032-4154-8552-774781b6e5df parent_run_id=None

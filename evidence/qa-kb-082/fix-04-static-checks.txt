@@ -1,0 +1,16 @@
+# QA-KB-082 fix-04 — static checks on the changed file
+# cmd: npx eslint --max-warnings 0 src/app/preview-fullscreen/page.tsx
+eslint exit=0
+
+# cmd: npx tsc --noEmit -p .   (whole frontend project)
+tsc total errors: 13
+errors in src/app/preview-fullscreen/: 0
+errors outside *.test.* files: 0
+files carrying the errors (none touched by this fix):
+src/components/analytics/AnalyticsPage.test.tsx
+src/components/DashboardLayout.chain.test.tsx
+src/components/history/WorkflowHistory.modelChip.test.tsx
+src/components/preview/PreviewPanel.liveVersion.test.tsx
+src/components/results/AgentDetailPanel.waveWorkerStatus.test.tsx
+src/hooks/useWorkflow.imagePayload.test.ts
+src/providers/RunConnectionProvider.test.tsx

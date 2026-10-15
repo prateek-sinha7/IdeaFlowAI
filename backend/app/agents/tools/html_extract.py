@@ -266,7 +266,7 @@ def materialise_html(
         page_dir = pages_dir / f"{page_num:02d}"
         page_dir.mkdir(parents=True, exist_ok=True)
         md = _render_scripts_index_md(script_records)
-        (page_dir / "text.md").write_text(md)
+        (page_dir / "text.md").write_text(md, encoding="utf-8")
         manifest_pages[str(page_num)] = {"images": [], "chars": len(md)}
 
         for rec in script_records:
@@ -284,7 +284,7 @@ def materialise_html(
                 md = _render_script_chunk_md(
                     rec["index"], rec["src"], part, len(chunks), chunk
                 )
-                (page_dir / "text.md").write_text(md)
+                (page_dir / "text.md").write_text(md, encoding="utf-8")
                 manifest_pages[str(page_num)] = {"images": [], "chars": len(md)}
 
     if handler_records:
@@ -292,7 +292,7 @@ def materialise_html(
         page_dir = pages_dir / f"{page_num:02d}"
         page_dir.mkdir(parents=True, exist_ok=True)
         md = _render_handlers_md(handler_records)
-        (page_dir / "text.md").write_text(md)
+        (page_dir / "text.md").write_text(md, encoding="utf-8")
         manifest_pages[str(page_num)] = {"images": [], "chars": len(md)}
 
     page_count = page_num
@@ -350,18 +350,20 @@ def materialise_html(
         "static_reason": static_reason,
         "screens": screens_meta,
     }
-    (tmp_dir / "manifest.json").write_text(json.dumps(manifest, indent=2))
+    (tmp_dir / "manifest.json").write_text(
+        json.dumps(manifest, indent=2), encoding="utf-8"
+    )
 
     doc_ref_re = _fet._DOC_REF_RE
     doc_parts = []
     for n in pages_list:
         text_path = pages_dir / f"{n:02d}" / "text.md"
-        text = text_path.read_text() if text_path.is_file() else ""
+        text = text_path.read_text(encoding="utf-8") if text_path.is_file() else ""
         text = doc_ref_re.sub(rf"@[[pages/{n:02d}/\1]]", text)
         doc_parts.append(
             f"\n\n<!-- ================= PAGE {n} ================= -->\n\n" + text
         )
-    (tmp_dir / "document.md").write_text("".join(doc_parts))
+    (tmp_dir / "document.md").write_text("".join(doc_parts), encoding="utf-8")
 
     os.rename(tmp_dir, doc_dir)
 
@@ -377,7 +379,7 @@ def _read_json(path: Path) -> dict | None:
     if not path.is_file():
         return None
     try:
-        return json.loads(path.read_text())
+        return json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return None
 
@@ -1246,7 +1248,7 @@ def _render_screen_md(rec: dict, has_screenshot: bool) -> str:
 def _write_screen_page(page_dir: Path, rec: dict) -> dict:
     has_shot = rec.get("screenshot") is not None
     md = _render_screen_md(rec, has_shot)
-    (page_dir / "text.md").write_text(md)
+    (page_dir / "text.md").write_text(md, encoding="utf-8")
     images: list[str] = []
     if has_shot:
         (page_dir / "image-1.png").write_bytes(rec["screenshot"])

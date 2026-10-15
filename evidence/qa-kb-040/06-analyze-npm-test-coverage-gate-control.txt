@@ -1,0 +1,8 @@
+# cmd (cwd frontend/): npm test -- src/hooks/useWorkflow.waveTokens.test.ts   (a file that PASSES today - control for the coverage gate)
+ Test Files  1 passed (1)
+      Tests  2 passed (2)
+ERROR: Coverage for lines (0.87%) does not meet global threshold (80%)
+ERROR: Coverage for functions (0.64%) does not meet global threshold (80%)
+ERROR: Coverage for statements (0.81%) does not meet global threshold (80%)
+ERROR: Coverage for branches (0.99%) does not meet global threshold (80%)
+exit=1

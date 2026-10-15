@@ -1,0 +1,166 @@
+# QA-KB-091 analyzer evidence 06 - candidate fix diffs against the working-tree PreviewPanel.tsx (SCRATCH COPIES; the real file was not edited), 2026-10-02
+# C (recommended minimum) and D (optional refinement) shown against the real file; A and B1 for comparison.
+
+################ patchedA vs real ################
+@@ -1139,7 +1139,7 @@
+     reopenedRunStatus === "cancelled" ||
+     reopenedRunStatus === "degraded";
+   const terminalFailure = liveFailureSignal || reopenFailureSignal;
+-  const showFailureAffordance = !hasContent && isTerminal && terminalFailure;
++  const showFailureAffordance = !overrideActive && !hasContent && isTerminal && terminalFailure;
+   // IN-03 (16 review): a cancelled run is a deliberate user Stop, not a failure —
+   // the affordance copy must say so rather than "failed or degraded". Live cancel
+   // carries no failed/degraded flag (useWorkflow resets agents to idle), so the
+@@ -1151,7 +1151,7 @@
+   // (headerFailed below) and drop the Preview tab entirely
+   // (terminalFailureNoDeliverable). Same carve-out shape as isCancelledTerminal.
+   const isDivertedTerminal = reopenedRunStatus === "diverted";
+-  const showDivertedAffordance = !hasContent && isTerminal && isDivertedTerminal;
++  const showDivertedAffordance = !overrideActive && !hasContent && isTerminal && isDivertedTerminal;
+   // ─── Phase 42-03 (§D / Group D) — terminal-FAILED run surface ────────────────
+   // A terminal FAILED run (failed/degraded with NO deliverable, and NOT a
+   // deliberate cancel) matches the Failed mock: tabs become [Steps, Audit, Files]
+
+################ patchedB vs real ################
+@@ -1129,28 +1129,28 @@
+   //   • history path — the reopened run's persisted status ("failed"/"cancelled").
+   const isStillRunning = !!(isStreaming || pipelineState?.isRunning);
+   const isTerminal = !isStillRunning;
+-  const liveFailureSignal = !!(pipelineState?.failed || pipelineState?.degraded);
++  const liveFailureSignal = !overrideActive && !!(pipelineState?.failed || pipelineState?.degraded);
+   // WR-01 (16 review): "degraded" is a terminal failure-signal status ISS-016 now
+   // persists. A degraded run reopened with NO partial deliverable must surface the
+   // affordance (CONTEXT A2: on BOTH the live and history paths) — not the neutral
+   // empty-state. Keyed on the SERVER status, never a client empty==failed guess.
+-  const reopenFailureSignal =
++  const reopenFailureSignal = !overrideActive && (
+     reopenedRunStatus === "failed" ||
+     reopenedRunStatus === "cancelled" ||
+-    reopenedRunStatus === "degraded";
++    reopenedRunStatus === "degraded");
+   const terminalFailure = liveFailureSignal || reopenFailureSignal;
+   const showFailureAffordance = !hasContent && isTerminal && terminalFailure;
+   // IN-03 (16 review): a cancelled run is a deliberate user Stop, not a failure —
+   // the affordance copy must say so rather than "failed or degraded". Live cancel
+   // carries no failed/degraded flag (useWorkflow resets agents to idle), so the
+   // cancelled signal is the reopened server status only.
+-  const isCancelledTerminal = reopenedRunStatus === "cancelled";
++  const isCancelledTerminal = !overrideActive && reopenedRunStatus === "cancelled";
+   // ISS-390: a diverted run is terminal and non-resumable with no deliverable, but
+   // it is a hand-off, not a failure — so it gets its OWN affordance branch instead
+   // of joining reopenFailureSignal, which would mislabel the header as failed
+   // (headerFailed below) and drop the Preview tab entirely
+   // (terminalFailureNoDeliverable). Same carve-out shape as isCancelledTerminal.
+-  const isDivertedTerminal = reopenedRunStatus === "diverted";
++  const isDivertedTerminal = !overrideActive && reopenedRunStatus === "diverted";
+   const showDivertedAffordance = !hasContent && isTerminal && isDivertedTerminal;
+   // ─── Phase 42-03 (§D / Group D) — terminal-FAILED run surface ────────────────
+   // A terminal FAILED run (failed/degraded with NO deliverable, and NOT a
+
+################ patchedC vs real ################
+@@ -1064,6 +1064,7 @@
+   // ppt → ppt, prototype → prototype); otherwise the live content flows through
+   // unchanged. onRevise* are suppressed while viewing older (read-only).
+   const overrideActive = viewingVersion != null;
++  const shellOnScreen = viewingVersion == null || viewingVersion.id === unpinnedRunId;
+   const overrideContent = viewingVersion?.content;
+   const effUserStoryContent = overrideActive && (renderType === "user_stories" || renderType === "app_builder") ? overrideContent : userStoryContent;
+   const effPptContent = overrideActive && renderType === "ppt" ? overrideContent : pptContent;
+@@ -1129,28 +1130,28 @@
+   //   • history path — the reopened run's persisted status ("failed"/"cancelled").
+   const isStillRunning = !!(isStreaming || pipelineState?.isRunning);
+   const isTerminal = !isStillRunning;
+-  const liveFailureSignal = !!(pipelineState?.failed || pipelineState?.degraded);
++  const liveFailureSignal = shellOnScreen && !!(pipelineState?.failed || pipelineState?.degraded);
+   // WR-01 (16 review): "degraded" is a terminal failure-signal status ISS-016 now
+   // persists. A degraded run reopened with NO partial deliverable must surface the
+   // affordance (CONTEXT A2: on BOTH the live and history paths) — not the neutral
+   // empty-state. Keyed on the SERVER status, never a client empty==failed guess.
+-  const reopenFailureSignal =
++  const reopenFailureSignal = shellOnScreen && (
+     reopenedRunStatus === "failed" ||
+     reopenedRunStatus === "cancelled" ||
+-    reopenedRunStatus === "degraded";
++    reopenedRunStatus === "degraded");
+   const terminalFailure = liveFailureSignal || reopenFailureSignal;
+   const showFailureAffordance = !hasContent && isTerminal && terminalFailure;
+   // IN-03 (16 review): a cancelled run is a deliberate user Stop, not a failure —
+   // the affordance copy must say so rather than "failed or degraded". Live cancel
+   // carries no failed/degraded flag (useWorkflow resets agents to idle), so the
+   // cancelled signal is the reopened server status only.
+-  const isCancelledTerminal = reopenedRunStatus === "cancelled";
++  const isCancelledTerminal = shellOnScreen && reopenedRunStatus === "cancelled";
+   // ISS-390: a diverted run is terminal and non-resumable with no deliverable, but
+   // it is a hand-off, not a failure — so it gets its OWN affordance branch instead
+   // of joining reopenFailureSignal, which would mislabel the header as failed
+   // (headerFailed below) and drop the Preview tab entirely
+   // (terminalFailureNoDeliverable). Same carve-out shape as isCancelledTerminal.
+-  const isDivertedTerminal = reopenedRunStatus === "diverted";
++  const isDivertedTerminal = shellOnScreen && reopenedRunStatus === "diverted";
+   const showDivertedAffordance = !hasContent && isTerminal && isDivertedTerminal;
+   // ─── Phase 42-03 (§D / Group D) — terminal-FAILED run surface ────────────────
+   // A terminal FAILED run (failed/degraded with NO deliverable, and NOT a
+@@ -1807,7 +1808,7 @@
+                   cancelled={isCancelledTerminal}
+                   diverted={isDivertedTerminal}
+                 />
+-              ) : isStillRunning ? (
++              ) : isStillRunning && shellOnScreen ? (
+                 // Streaming build — the mock's chrome with a "building …" URL + an
+                 // indeterminate progress bar (ND-F: no screenshot placeholder). The
+                 // live renderer streams inside; a calm building state fills until then.
+
+################ patchedD vs real ################
+@@ -1064,6 +1064,9 @@
+   // ppt → ppt, prototype → prototype); otherwise the live content flows through
+   // unchanged. onRevise* are suppressed while viewing older (read-only).
+   const overrideActive = viewingVersion != null;
++  // URL-resolved pin id first (known as soon as the family loads), the fetched pin second
++  const pinTargetId = pinnedMemberId ?? viewingVersion?.id;
++  const shellOnScreen = pinTargetId == null || pinTargetId === unpinnedRunId;
+   const overrideContent = viewingVersion?.content;
+   const effUserStoryContent = overrideActive && (renderType === "user_stories" || renderType === "app_builder") ? overrideContent : userStoryContent;
+   const effPptContent = overrideActive && renderType === "ppt" ? overrideContent : pptContent;
+@@ -1129,28 +1132,28 @@
+   //   • history path — the reopened run's persisted status ("failed"/"cancelled").
+   const isStillRunning = !!(isStreaming || pipelineState?.isRunning);
+   const isTerminal = !isStillRunning;
+-  const liveFailureSignal = !!(pipelineState?.failed || pipelineState?.degraded);
++  const liveFailureSignal = shellOnScreen && !!(pipelineState?.failed || pipelineState?.degraded);
+   // WR-01 (16 review): "degraded" is a terminal failure-signal status ISS-016 now
+   // persists. A degraded run reopened with NO partial deliverable must surface the
+   // affordance (CONTEXT A2: on BOTH the live and history paths) — not the neutral
+   // empty-state. Keyed on the SERVER status, never a client empty==failed guess.
+-  const reopenFailureSignal =
++  const reopenFailureSignal = shellOnScreen && (
+     reopenedRunStatus === "failed" ||
+     reopenedRunStatus === "cancelled" ||
+-    reopenedRunStatus === "degraded";
++    reopenedRunStatus === "degraded");
+   const terminalFailure = liveFailureSignal || reopenFailureSignal;
+   const showFailureAffordance = !hasContent && isTerminal && terminalFailure;
+   // IN-03 (16 review): a cancelled run is a deliberate user Stop, not a failure —
+   // the affordance copy must say so rather than "failed or degraded". Live cancel
+   // carries no failed/degraded flag (useWorkflow resets agents to idle), so the
+   // cancelled signal is the reopened server status only.
+-  const isCancelledTerminal = reopenedRunStatus === "cancelled";
++  const isCancelledTerminal = shellOnScreen && reopenedRunStatus === "cancelled";
+   // ISS-390: a diverted run is terminal and non-resumable with no deliverable, but
+   // it is a hand-off, not a failure — so it gets its OWN affordance branch instead
+   // of joining reopenFailureSignal, which would mislabel the header as failed
+   // (headerFailed below) and drop the Preview tab entirely
+   // (terminalFailureNoDeliverable). Same carve-out shape as isCancelledTerminal.
+-  const isDivertedTerminal = reopenedRunStatus === "diverted";
++  const isDivertedTerminal = shellOnScreen && reopenedRunStatus === "diverted";
+   const showDivertedAffordance = !hasContent && isTerminal && isDivertedTerminal;
+   // ─── Phase 42-03 (§D / Group D) — terminal-FAILED run surface ────────────────
+   // A terminal FAILED run (failed/degraded with NO deliverable, and NOT a
+@@ -1807,7 +1810,7 @@
+                   cancelled={isCancelledTerminal}
+                   diverted={isDivertedTerminal}
+                 />
+-              ) : isStillRunning ? (
++              ) : isStillRunning && shellOnScreen ? (
+                 // Streaming build — the mock's chrome with a "building …" URL + an
+                 // indeterminate progress bar (ND-F: no screenshot placeholder). The
+                 // live renderer streams inside; a calm building state fills until then.

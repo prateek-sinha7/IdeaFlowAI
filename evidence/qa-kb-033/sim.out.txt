@@ -1,0 +1,12 @@
+PART 1: idiom sites in HEAD: 5
+scenario                                                  toBe(5) [today]   >=3 [agreed fix]  >=5 [ratchet]     per-setter        count
+HEAD as-is (5 sites)                                      pass              pass              pass              pass              5
+S1 +1 legitimate new narrowed site                        FAIL              pass              pass              pass              6
+S4 -1: /edit site reverted to swallow-all                 FAIL              pass              FAIL              FAIL              4
+S2 -2: /run + canvas reverted (ISS-380, FIX-368 undone)   FAIL              pass              FAIL              FAIL              3
+S3 -1 reverted AND +1 added (compensating)                pass              pass              pass              FAIL              5
+
+PART 2: launchImageAndRecents.source.test.ts:31-34 asserts split(P).length-1 === 2
+HEAD                                     count=2  toBe(2): pass
+S1 legit third reader of pending.images  count=3  toBe(2): FAIL  (FAIL = false alarm)
+S3 ppt setter loses spread, unrelated +1 count=2  toBe(2): pass  (pass = real regression missed)

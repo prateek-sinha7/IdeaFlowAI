@@ -358,7 +358,7 @@ export function RunHeader({
       getRunSandboxRefs(token, activeRunId)
         .then((t) => { if (!cancelled) setTags(t); })
         .catch(() => { if (!cancelled) setTags([]); });
-    });
+    }).catch(() => {});
     return () => { cancelled = true; };
   }, [activeRunId]);
   const hasTags = tags.length > 0;

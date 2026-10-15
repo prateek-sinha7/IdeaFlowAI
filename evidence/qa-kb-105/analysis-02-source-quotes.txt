@@ -1,0 +1,180 @@
+# QA-KB-105 analysis-02: verbatim source quotes behind the root cause (generated with sed -n, not retyped)
+# Tree: branch feat/stale-bug-fixes, HEAD 135e6ea9b, 2026-10-08T22:16; the three backend files below are unmodified vs HEAD: yes
+
+== backend/agents/execution_engine/engine.py:5239-5249
+        if not validation.satisfiable:
+            yield {
+                "type": "error",
+                "data": {
+                    "error": "Workflow DAG is unsatisfiable: "
+                    + "; ".join(validation.errors),
+                    "code": "workflow_unsatisfiable",
+                    "recoverable": False,
+                },
+            }
+            return
+
+== backend/agents/execution_engine/engine.py:16009-16009
+        _terminal_seen = False
+
+== backend/agents/execution_engine/engine.py:16047-16053
+                if event.get("type") in (
+                    "pipeline_failed",
+                    "pipeline_complete",
+                    "pipeline_cancelled",
+                    "pipeline_diverted",
+                ):
+                    _terminal_seen = True
+
+== backend/agents/execution_engine/engine.py:16118-16122
+        except Exception as exc:  # noqa: BLE001 — a resume failure must not crash startup
+            logger.warning("resumed-stream drive(%s) failed mid-drive: %s", run_id, exc)
+            # ISS-1103: swallowed, not silent — record it before the finally's sentinel.
+            if not _terminal_seen:
+                await self._fail_resume(run_id, f"Resume failed: {exc}", live_queue)
+
+== backend/agents/execution_engine/engine.py:15979-15983
+        # ── ISS-084: the cooperative STOP signal, resolved HERE because this is the ONE
+        # funnel every resume driver (resume_run branch (b), _rearm_gate_run branch (a),
+        # _replay_clarify_run, the user POST /resume wrapper) reaches _execute_impl
+        # through — so a future resume driver inherits the fix instead of re-opening the
+        # hole. Without it _execute_impl bound its None default and all twelve cooperative
+
+== backend/agents/execution_engine/engine.py:5379-5379
+            self._state_machine.transition(pipeline_run_id, "planning")
+
+== backend/agents/execution_engine/engine.py:5739-5739
+        self._state_machine.transition(pipeline_run_id, "generating")
+
+== backend/agents/execution_engine/engine.py:16167-16169
+            if self._resume_output_persist_sink is not None:
+                try:
+                    await self._resume_output_persist_sink(run_id)
+
+== backend/agents/capabilities/gate_pendency.py:40-49
+QUESTIONNAIRE_RESOLUTIONS = frozenset(
+    {
+        "questionnaire_complete",
+        "pipeline_start",
+        "pipeline_complete",
+        "pipeline_cancelled",
+        "pipeline_failed",
+        "error",
+    }
+)
+
+== backend/agents/capabilities/gate_pendency.py:53-62
+REVIEW_RESOLUTIONS = frozenset(
+    {
+        "review_gate_approved",
+        "pipeline_complete",
+        "pipeline_cancelled",
+        "pipeline_failed",
+        "budget_aborted",
+        "error",
+    }
+)
+
+== backend/agents/capabilities/gate_pendency.py:72-75
+PREMATURE_STOP_EVENT_TYPES = frozenset(
+    {"pipeline_cancelled", "pipeline_failed", "budget_aborted", "error"}
+)
+
+
+== backend/app/api/run_commands.py:916-917
+        if cancelled and not resume_supersedes:
+            new_status = "cancelled"
+
+== backend/app/api/run_commands.py:4033-4036
+    if not wr.completed_at:
+        wr.completed_at = datetime.now(timezone.utc)
+    if duration_seconds is not None and not wr.duration:
+        wr.duration = duration_seconds
+
+== backend/app/api/run_commands.py:4270-4277
+            elif utype == "error":
+                pipeline_error_seen = True
+                if pipeline_error_msg is None:
+                    pipeline_error_msg = (
+                        update["data"].get("error")
+                        or update["data"].get("code")
+                        or "Pipeline error"
+                    )
+
+== backend/app/api/run_commands.py:4326-4338
+                    elif (
+                        pipeline_complete_seen
+                        and not pipeline_error_seen
+                        and not pipeline_failed_seen
+                    ):
+                        wr.status = "completed"
+                    else:
+                        # CWF-001 D2 fail-safe: any generic ``error`` / ``pipeline_failed`` /
+                        # agent_error-without-clean-terminal (or a stream that ended with no
+                        # clean pipeline_complete) → "failed". Reaches "completed" ONLY on a
+                        # clean terminal. Mirrors _drive_revision_to_queue's else → "failed".
+                        wr.status = "failed"
+                        wr.error = first_agent_error_msg or pipeline_error_msg
+
+== backend/app/api/run_commands.py:688-693
+        if wr.status not in _RESUMABLE_STATUSES:
+            raise _reject(
+                "run_not_resumable",
+                f"Run is {wr.status!r}; only failed, degraded, or cancelled runs are resumable",
+                http_status=status.HTTP_409_CONFLICT,
+            )
+
+== frontend/src/hooks/useWorkflow.ts:1357-1362
+    case "error": {
+      const error = msg.error as string | undefined;
+      if (!error) return false;
+      setPipelineState((prev) => ({ ...prev, pipelineError: error }));
+      return true;
+    }
+
+== frontend/src/hooks/useWorkflow.ts:1531-1542
+      // live:false + NON-terminal (or missing) status: the run is still
+      // in-flight on the backend but this connection has no live task to
+      // attach to. Keep isRunning true (the UI showing "running" is correct —
+      // the run IS running). Recovery (WR-02): the backend closes the
+      // task-registered-before-queue race at the source — the live queue is
+      // now registered synchronously with the driver task in
+      // restore_non_terminal_runs — so this shape only occurs while the
+      // restore scan has not yet reached the run. The SSE transport
+      // (useRunStream) reconnects natively and replays from Last-Event-ID, so
+      // the tail arrives without any client-side re-attach frame. No new retry
+      // loop here (T-12-08-02).
+      return true;
+
+== backend/tests/unit/app/test_gate_agent_ids_survives_resume.py:36-44
+    seen = {}
+
+    async def _fake_execute_impl(**kwargs):
+        seen.update(kwargs)
+        return
+        yield  # pragma: no cover — makes this an async generator
+
+    engine = ExecutionEngine()
+    monkeypatch.setattr(engine, "_execute_impl", _fake_execute_impl)
+
+== backend/tests/agents/test_run_trace.py:296-302
+        seen.update(kwargs)
+        yield {"type": "agent_input", "data": {"agent_id": "w", "system_prompt": "SYS"}}
+        yield {"type": "tool_call", "data": {"agent_id": "w", "tool": "write_file"}}
+        yield {"type": "agent_chunk", "data": {"agent_id": "w", "chunk": "done"}}
+
+    engine = ExecutionEngine()
+    monkeypatch.setattr(engine, "_execute_impl", _fake_execute_impl)
+
+== backend/tests/integration/api/test_rest_run_launch_api.py:671-675 (docstring) and :736-740 (assertions)
+async def test_driver_generic_error_records_failed(env, monkeypatch):
+    """CWF-001 D2: a launch whose engine stream ends in a GENERIC ``error`` event
+    (e.g. the compile-time DAG-unsatisfiable error) with NO clean ``pipeline_complete``
+    must persist status == "failed" (was mislabeled "completed"), with the error
+    message captured onto wr.error. Mirrors the revision twin's fail-safe else."""
+    ...
+    row = _latest_run(env)
+    assert row.status == "failed"
+    assert row.status != "completed"
+    assert row.error is not None
+    assert "unsatisfiable" in row.error

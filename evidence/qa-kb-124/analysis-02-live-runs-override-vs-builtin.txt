@@ -1,0 +1,242 @@
+# QA-KB-124 analysis-02: the live runs, from the dev Postgres (SELECT only) and the :8001 backend log
+# captured 2026-10-09 ~17:00 CEST. Times in run_events/workflow_runs are UTC (CEST = UTC+2).
+# helper scripts: q.py = run one SELECT read-only (psycopg2 set_session(readonly=True)); q3.py = per-step tool calls + streamed reply from run_events; q4.py = one step's full reply
+
+## 1. every ex_A1_loop run, with the two flags that separate the plans
+# check_has_deliver = the check step's recorded system_prompt contains '## How to deliver'; check_ctx_nonempty = its recorded context_message is non-empty
+-- SQL: SELECT r.id, r.status, r.created_at, (SELECT count(*) FROM run_events e WHERE e.run_id=r.id AND e.type='tool_call') AS tool_calls, (SELECT count(*) FROM run_events e WHERE e.run_id=r.id AND e.type='artifact_fallback') AS fallbacks, (SELECT bool_or(position('How to deliver' in (e.payload_json->>'system_prompt'))>0) FROM run_events e WHERE e.run_id=r.id AND e.type='agent_input' AND e.payload_json->>'agent_id'='custom-agent:check') AS check_has_deliver, (SELECT bool_or(length(e.payload_json->>'context_message')>0) FROM run_events e WHERE e.run_id=r.id AND e.type='agent_input' AND e.payload_json->>'agent_id'='custom-agent:check') AS check_ctx_nonempty FROM workflow_runs r WHERE r.type='ex_A1_loop' ORDER BY r.created_at
+id | status | created_at | tool_calls | fallbacks | check_has_deliver | check_ctx_nonempty
+962e6107-4685-4239-b91f-5ca0fcec3393 | completed | 2026-10-02 00:52:03.360003 | 0 | 6 | False | True
+d091ed54-18c7-49fb-8d6f-5d3466f27f1b | completed | 2026-10-02 00:58:04.876580 | 0 | 6 | False | True
+83001c0b-87c9-44a3-9426-cf4c0a2a199f | completed | 2026-10-07 15:35:28.461656 | 0 | 6 | False | True
+32bbde34-22d2-4be8-a51f-1ff25b2540a3 | completed | 2026-10-09 07:18:37.575780 | 0 | 6 | False | True
+17df71f9-544b-400c-93c2-6f3f6f9d515d | completed | 2026-10-09 07:20:42.131931 | 0 | 6 | False | True
+92c5be73-17c6-48bb-afc8-2c2b620f494c | completed | 2026-10-09 07:25:10.096079 | 0 | 6 | False | True
+eb1d7551-cfc8-4265-8b06-154128cc124a | failed | 2026-10-09 11:12:20.074793 | 0 | 0 |  | 
+9a931a7a-54dc-4f4f-a316-b5ac1dbe3822 | failed | 2026-10-09 11:41:56.060687 | 6 | 0 | True | False
+c10a03ed-77d8-4f31-97b9-d1af2994ce17 | failed | 2026-10-09 13:41:54.681024 | 4 | 0 | True | False
+caa766dc-8ae4-4e91-9ed0-f679c16a9624 | failed | 2026-10-09 13:42:17.414230 | 6 | 0 | True | False
+1260b7ba-18d3-45c1-afc9-6959c6836155 | failed | 2026-10-09 13:42:42.506503 | 4 | 0 | True | False
+# eb1d7551 (11:12 UTC) failed earlier for an unrelated reason: 'The model could not be reached' (Bedrock session), 0 steps ran.
+
+## 2. provider per run: Bedrock reports cache tokens on agent_complete, the local Ollama override reports 0
+-- SQL: SELECT r.id, r.created_at, r.status, sum((e.payload_json->>'cache_read_tokens')::int) AS cache_read, sum((e.payload_json->>'cache_write_tokens')::int) AS cache_write, round(avg((e.payload_json->>'duration')::numeric),1) AS avg_step_secs FROM workflow_runs r JOIN run_events e ON e.run_id=r.id AND e.type='agent_complete' WHERE r.type='ex_A1_loop' GROUP BY r.id, r.created_at, r.status ORDER BY r.created_at
+id | created_at | status | cache_read | cache_write | avg_step_secs
+962e6107-4685-4239-b91f-5ca0fcec3393 | 2026-10-02 00:52:03.360003 | completed | 0 | 0 | 19.0
+d091ed54-18c7-49fb-8d6f-5d3466f27f1b | 2026-10-02 00:58:04.876580 | completed | 0 | 0 | 12.7
+83001c0b-87c9-44a3-9426-cf4c0a2a199f | 2026-10-07 15:35:28.461656 | completed | 0 | 4237 | 4.8
+32bbde34-22d2-4be8-a51f-1ff25b2540a3 | 2026-10-09 07:18:37.575780 | completed | 0 | 0 | 14.7
+17df71f9-544b-400c-93c2-6f3f6f9d515d | 2026-10-09 07:20:42.131931 | completed | 0 | 0 | 9.6
+92c5be73-17c6-48bb-afc8-2c2b620f494c | 2026-10-09 07:25:10.096079 | completed | 0 | 0 | 9.0
+9a931a7a-54dc-4f4f-a316-b5ac1dbe3822 | 2026-10-09 11:41:56.060687 | failed | 29135 | 18098 | 5.4
+c10a03ed-77d8-4f31-97b9-d1af2994ce17 | 2026-10-09 13:41:54.681024 | failed | 22592 | 17720 | 4.6
+caa766dc-8ae4-4e91-9ed0-f679c16a9624 | 2026-10-09 13:42:17.414230 | failed | 45873 | 1502 | 5.3
+1260b7ba-18d3-45c1-afc9-6959c6836155 | 2026-10-09 13:42:42.506503 | failed | 39260 | 1067 | 4.2
+# 83001c0b (2026-10-07, Bedrock, cache_write 4237) COMPLETED on the built-in plan; the reporter's 'completed on Ollama' run 32bbde34 has cache 0/0.
+
+## 3. the four FAILING runs: tool calls and streamed reply of every step (the reply is what the conditional gate parses)
+######## run 9a931a7a
+ -- custom-agent:emoji
+   tool_call write_file args={"file_path": "emoji-greet-the-team-with-a-short-emoji-hello.md", "content": "\ud83d\ude80 Hey team! Ready to ship some great work today?"}
+   tool_result write_file -> 'Updated file /emoji-greet-the-team-with-a-short-emoji-hello.md'
+   agent_complete output_length=50
+   [custom-agent:emoji] STREAMED REPLY = 'Done! 🚀 Greeted the team with a short emoji hello.'
+ -- custom-agent:greet
+   tool_call write_file args={"file_path": "greet-greet-the-team-with-a-short-emoji-hello.md", "content": "\ud83d\udc4b Hello team, ready to make some magic happen!"}
+   tool_result write_file -> 'Updated file /greet-greet-the-team-with-a-short-emoji-hello.md'
+   agent_complete output_length=7
+   [custom-agent:greet] STREAMED REPLY = 'Done! ✨'
+ -- custom-agent:check
+   tool_call ls args={"path": "/"}
+   tool_call ls args={"path": "/.agents"}
+   tool_result ls -> "['/.agents/01-custom-agent_emoji.md', '/.agents/02-custom-agent_greet.md']"
+   tool_result ls -> "['/.agents/', '/.context/', '/.family.lock', '/.git/', '/.gitignore', '/.logs/', '/PLANNER.md', '/em"
+   tool_call read_file args={"file_path": "/greet-greet-the-team-with-a-short-emoji-hello.md"}
+   tool_result read_file -> '     1\t👋 Hello team, ready to make some magic happen!'
+   tool_call write_file args={"file_path": "/check-greet-the-team-with-a-short-emoji-hello.md", "content": "{\"decision\": \"retry\"}"}
+   tool_result write_file -> 'Updated file /check-greet-the-team-with-a-short-emoji-hello.md'
+   agent_complete output_length=30
+   [custom-agent:check] STREAMED REPLY = 'The greeting contains no joke.'
+   GATE_BLOCKED {'step': 'custom-agent:check', 'gate': 'conditional', 'reason': 'no matching route outcome and no default_next', 'seq': 316, 'event_id': '882274ea-7563-4b73-ac2e-b440260408de'}
+######## run c10a03ed
+ -- custom-agent:emoji
+   tool_call write_file args={"file_path": "/emoji-greet-the-team-with-a-short-emoji-hello.md", "content": "\ud83c\udf89 Hello team! Excited to work with you all today!"
+   tool_result write_file -> 'Updated file /emoji-greet-the-team-with-a-short-emoji-hello.md'
+   agent_complete output_length=7
+   [custom-agent:emoji] STREAMED REPLY = 'Done! 🎉'
+ -- custom-agent:greet
+   tool_call write_file args={"file_path": "greet-greet-the-team-with-a-short-emoji-hello.md", "content": "\ud83d\udc4b Hello team, excited to help you out today!"}
+   tool_result write_file -> 'Updated file /greet-greet-the-team-with-a-short-emoji-hello.md'
+   agent_complete output_length=5
+   [custom-agent:greet] STREAMED REPLY = 'Done!'
+ -- custom-agent:check
+   tool_call read_file args={"file_path": "/greet-greet-the-team-with-a-short-emoji-hello.md"}
+   tool_result read_file -> '     1\t👋 Hello team, excited to help you out today!'
+   tool_call write_file args={"file_path": "/check-greet-the-team-with-a-short-emoji-hello.md", "content": "{\"decision\": \"retry\"}"}
+   tool_result write_file -> 'Updated file /check-greet-the-team-with-a-short-emoji-hello.md'
+   agent_complete output_length=83
+   [custom-agent:check] STREAMED REPLY = "I need to read the greeting file first.Now I'll write my answer to the output file:"
+   GATE_BLOCKED {'step': 'custom-agent:check', 'gate': 'conditional', 'reason': 'no matching route outcome and no default_next', 'seq': 257, 'event_id': '96d701f1-be54-4cc7-bb17-3e0354ef0ad9'}
+######## run caa766dc
+ -- custom-agent:emoji
+   tool_call write_file args={"file_path": "/emoji-greet-the-team-with-a-short-emoji-hello.md", "content": "\ud83c\udf1f Hey team, let's make today amazing!\n"}
+   tool_result write_file -> 'Updated file /emoji-greet-the-team-with-a-short-emoji-hello.md'
+   agent_complete output_length=7
+   [custom-agent:emoji] STREAMED REPLY = 'Done! 🌟'
+ -- custom-agent:greet
+   tool_call write_file args={"file_path": "greet-greet-the-team-with-a-short-emoji-hello.md", "content": "\ud83d\udc4b Hey team, ready to make some magic happen?\n"}
+   tool_result write_file -> 'Updated file /greet-greet-the-team-with-a-short-emoji-hello.md'
+   agent_complete output_length=34
+   [custom-agent:greet] STREAMED REPLY = 'All set! What can I help you with?'
+ -- custom-agent:check
+   tool_call ls args={"path": "/"}
+   tool_call ls args={"path": "/.agents"}
+   tool_result ls -> "['/.agents/', '/.context/', '/.family.lock', '/.git/', '/.gitignore', '/.logs/', '/PLANNER.md', '/em"
+   tool_result ls -> "['/.agents/01-custom-agent_emoji.md', '/.agents/02-custom-agent_greet.md']"
+   tool_call read_file args={"file_path": "/greet-greet-the-team-with-a-short-emoji-hello.md"}
+   tool_result read_file -> '     1\t👋 Hey team, ready to make some magic happen?'
+   tool_call write_file args={"file_path": "/check-greet-the-team-with-a-short-emoji-hello.md", "content": "{\"decision\": \"retry\"}\n"}
+   tool_result write_file -> 'Updated file /check-greet-the-team-with-a-short-emoji-hello.md'
+   agent_complete output_length=84
+   [custom-agent:check] STREAMED REPLY = 'The greeting "👋 Hey team, ready to make some magic happen?" does not contain a joke.'
+   GATE_BLOCKED {'step': 'custom-agent:check', 'gate': 'conditional', 'reason': 'no matching route outcome and no default_next', 'seq': 327, 'event_id': '3e1cde5a-29d9-404c-bb85-2abbd16dd1b0'}
+######## run 1260b7ba
+ -- custom-agent:emoji
+   tool_call write_file args={"file_path": "emoji-greet-the-team-with-a-short-emoji-hello.md", "content": "\ud83c\udf89 Hey team! Hope everyone's having an awesome day. 
+   tool_result write_file -> 'Updated file /emoji-greet-the-team-with-a-short-emoji-hello.md'
+   agent_complete output_length=7
+   [custom-agent:emoji] STREAMED REPLY = 'Done! 🎉'
+ -- custom-agent:greet
+   tool_call write_file args={"file_path": "greet-greet-the-team-with-a-short-emoji-hello.md", "content": "\ud83d\udc4b Hey team, ready to get things done?"}
+   tool_result write_file -> 'Updated file /greet-greet-the-team-with-a-short-emoji-hello.md'
+   agent_complete output_length=0
+ -- custom-agent:check
+   tool_call read_file args={"file_path": "/greet-greet-the-team-with-a-short-emoji-hello.md"}
+   tool_result read_file -> '     1\t👋 Hey team, ready to get things done?'
+   tool_call write_file args={"file_path": "/check-greet-the-team-with-a-short-emoji-hello.md", "content": "{\"decision\": \"retry\"}"}
+   tool_result write_file -> 'Updated file /check-greet-the-team-with-a-short-emoji-hello.md'
+   agent_complete output_length=32
+   [custom-agent:check] STREAMED REPLY = 'No joke present in the greeting.'
+   GATE_BLOCKED {'step': 'custom-agent:check', 'gate': 'conditional', 'reason': 'no matching route outcome and no default_next', 'seq': 238, 'event_id': '6f161634-7fdd-44df-9e30-199382e88a4f'}
+
+## 4. the Bedrock run that PASSED on the built-in plan before the override existed (2026-10-07): check replies are bare JSON
+######## run 83001c0b
+ -- custom-agent:emoji
+   agent_complete output_length=115
+   [custom-agent:emoji] STREAMED REPLY = "🌟 Hello! It's wonderful to see you. I'm here and ready to help with whatever you need. What can I do for you today?"
+ -- custom-agent:greet
+   agent_complete output_length=104
+   [custom-agent:greet] STREAMED REPLY = "I need to read the file from the earlier step first.👋 Hi there — looks like you're testing the workflow!"
+ -- custom-agent:check
+   agent_complete output_length=21
+   [custom-agent:check] STREAMED REPLY = '{"decision": "retry"}'
+ -- custom-agent:greet
+   agent_complete output_length=159
+   [custom-agent:greet] STREAMED REPLY = 'Let me read the previous output to see what context I have:Hello! Why did the warmth cross the road? To give you the biggest smile waiting on the other side! 
+ -- custom-agent:check
+   agent_complete output_length=18
+   [custom-agent:check] STREAMED REPLY = '{"decision": "ok"}'
+ -- custom-agent:done
+   agent_complete output_length=100
+   [custom-agent:done] STREAMED REPLY = 'Hello! Why did the warmth cross the road? To give you the biggest smile waiting on the other side! 😊'
+
+## 5. gate_events of that passing run (retry -> greet pass 2 -> ok -> done)
+-- SQL: SELECT step, gate, outcome, left(detail::text,160) AS detail, created_at FROM gate_events WHERE run_id='83001c0b-87c9-44a3-9426-cf4c0a2a199f' ORDER BY created_at
+step | gate | outcome | detail | created_at
+custom-agent:check | conditional | route | {"trigger": "step", "target": "greet", "decision": "retry", "skipped_targets": ["done"], "feedback": "The greeting had no joke. Greet the user again in one shor | 2026-10-07 15:35:47.198031
+custom-agent:greet | conditional | retry_consumed | {"from_step": "custom-agent:check", "pass_number": 2} | 2026-10-07 15:35:47.217564
+custom-agent:check | conditional | route | {"trigger": "step", "target": "done", "decision": "ok", "skipped_targets": ["greet"], "feedback": null} | 2026-10-07 15:35:55.015450
+
+## 6. the :8001 backend log line for the reporter's run 9a931a7a (launched 13:41:56 CEST = 11:41:56 UTC): it launched from the saved override
+# file: /private/tmp/claude-502/-Users-bilala-Developer-Projects-VELOCITY-AI-worktrees-feat-user-stories-v2/5bcc53cb-b19a-476a-8fd1-bfd80715e60a/scratchpad/be8001.log
+42:13:41:56  api         override: run launching ex_A1_loop from user 2d626ad9-ef1d-4a0c-8cd9-2a33affbc4e8's saved override bdf009f2-8545-4579-81a3-96391402b713  686d4424
+281:13:43:02  api         override: run launching ex_A2_branch from user 2d626ad9-ef1d-4a0c-8cd9-2a33affbc4e8's saved override 90e7e6ac-e5a7-41cc-819e-b09a0746f52f  a6906075
+# (the :8000 log was truncated by the 16:41 restart, so the validator's three runs have no log line; their composed prompts in section 1/3 show the same plan)
+
+## 7. the same override on ex_A2_branch (run 41f50ae1, Bedrock, completed): the decision step ALSO wrote its file, but its reply ENDED with the JSON, so FIX-526's trailing-object recovery routed it
+######## run 41f50ae1
+ -- custom-agent:emoji
+   tool_call write_file args={"file_path": "emoji-hola-c-mo-est-s.md", "content": "\ud83c\udf1f"}
+   tool_result write_file -> 'Updated file /emoji-hola-c-mo-est-s.md'
+   agent_complete output_length=7
+   [custom-agent:emoji] STREAMED REPLY = 'Done! ⭐'
+ -- custom-agent:language
+   tool_call read_file args={"file_path": "/emoji-hola-c-mo-est-s.md"}
+   tool_result read_file -> '     1\t🌟'
+   tool_call write_file args={"file_path": "/language-hola-c-mo-est-s.md", "content": "{\"decision\": \"spanish\"}"}
+   tool_result write_file -> 'Updated file /language-hola-c-mo-est-s.md'
+   agent_complete output_length=423
+   [custom-agent:language] STREAMED REPLY = 'The user\'s message is a single period, which doesn\'t clearly indicate a language. However, looking at the prior step (emoji picker output), the context suggests this workflow is relat
+ -- custom-agent:say-hola
+   tool_call write_file args={"file_path": "greeting.md", "content": "Hola, mundo!"}
+   tool_result write_file -> 'Updated file /greeting.md'
+   agent_complete output_length=12
+   [custom-agent:say-hola] STREAMED REPLY = 'Done.'
+-- full streamed reply of custom-agent:language:
+The user's message is a single period, which doesn't clearly indicate a language. However, looking at the prior step (emoji picker output), the context suggests this workflow is related to "hola-c-mo-est-s" (possibly "¿Hola, cómo estás?" - Spanish for "Hi, how are you?"). Given the ambiguity of a single period and the Spanish context from the prior step, the most reasonable inference is Spanish.
+
+{"decision": "spanish"}
+-- SQL: SELECT step, gate, outcome, left(detail::text,200) AS detail FROM gate_events WHERE run_id LIKE '41f50ae1%'
+step | gate | outcome | detail
+custom-agent:language | conditional | route | {"trigger": "step", "target": "custom-agent:say-hola", "decision": "spanish", "skipped_targets": ["custom-agent:say-hello", "custom-agent:say-hallo"], "feedback": null}
+
+## 8. the failing runs' own rows: selections_json / manifest_json are JSON null, i.e. a plain built-in launch (the override is applied server-side at launch)
+-- SQL: SELECT id, selections_json::text AS selections_json, manifest_json::text AS manifest_json, gate_agent_ids_json::text AS gates FROM workflow_runs WHERE id IN ('9a931a7a-54dc-4f4f-a316-b5ac1dbe3822','c10a03ed-77d8-4f31-97b9-d1af2994ce17','caa766dc-8ae4-4e91-9ed0-f679c16a9624','1260b7ba-18d3-45c1-afc9-6959c6836155')
+id | selections_json | manifest_json | gates
+1260b7ba-18d3-45c1-afc9-6959c6836155 | null | null | null
+caa766dc-8ae4-4e91-9ed0-f679c16a9624 | null | null | null
+9a931a7a-54dc-4f4f-a316-b5ac1dbe3822 | null | null | null
+c10a03ed-77d8-4f31-97b9-d1af2994ce17 | null | null | null
+
+## 9. the check step's recorded input in the first failing run (c10a03ed, seq 158): empty context_message, delivery directive in the system prompt
+--- context_message ---
+
+--- context_sources --- []
+--- tool_calls --- []
+--- system_prompt ---
+## Sandbox Reading Guide
+
+Every composed (no-code) workflow clones this template once per step, as
+`custom-agent:<instance_id>`, with that step's own prompt appended below this
+preamble. Whether you are the first step or a later one is decided by the
+workflow you were compiled into, not by this file:
+
+- **First step of the workflow:** your brief arrives in the task message —
+  write whatever your own step instructions below tell you to; later steps
+  read it.
+- **Later step:** nothing is pasted into your prompt. Read what you need
+  yourself:
+  - `.agents/NN-<instance-id>.md` — the prior step's own output (step-ordered;
+    `-p{visit}` on a retry pass, `-t{task}` on a task pass)
+  - `.uploads/<file>` + `.uploads/<file>.txt` — only if your step declared
+    `uploaded_files`
+  - `.context/design/{design-system.md,craft.md,template/SKILL.md,template/example.html}`
+    and `.context/selections.json` — only if your step declared
+    template/design_system/craft
+  - `.context/summary.md`, `.context/logs.jsonl`, `.context/<output>` — only if
+    this workflow chains from an earlier run
+
+Reading is your job — the engine no longer pastes these into your message.
+
+You are a workflow agent. Your instructions are below and they are complete.
+
+Look at the greeting above. Respond with exactly one line, no markdown, no code
+fences, no explanation.
+
+If the greeting contains a joke, respond with exactly:
+{"decision": "ok"}
+
+If the greeting does not contain a joke, respond with exactly:
+{"decision": "retry"}
+
+
+Earlier steps produced:
+- Greet → greet-greet-the-team-with-a-short-emoji-hello.md
+Read the files you need before you start.
+
+## How to deliver
+
+Call `write_file` with path `check-greet-the-team-with-a-short-emoji-hello.md`. Its content is your answer — never this instruction.
+--- seq --- 158
+--- event_id ---
+5a6b9726-8cfc-43a2-9d87-b5a716121950

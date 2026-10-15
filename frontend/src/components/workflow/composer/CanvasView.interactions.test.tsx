@@ -66,11 +66,6 @@ const noAttachments = {
   removeFile: vi.fn(),
   removeImage: vi.fn(),
   fileBlocks: "",
-  documents: [],
-  previewFailedKeys: [],
-  uploadGate: { kind: "ready" as const },
-  retryFile: vi.fn(),
-  settleUploads: vi.fn(),
 };
 
 const RUN_CONFIG: WorkflowRunConfig = {

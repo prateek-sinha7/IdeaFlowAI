@@ -1,0 +1,31 @@
+# QA-KB-091 fixer: AFTER the fix (PreviewPanel.tsx md5 79228a6ba58e4acde2d3eafe2f46f2be), 2026-10-07T18:43:00Z
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - ESM syntax in a file loaded as CommonJS (vitest.config.ts:1:1). Use a `.mjs` extension or set `"type": "module"` in the closest package.json
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+
+ RUN  v4.1.11 /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/frontend
+
+ ❯ src/components/preview/PreviewPanel.shellStatusForeignPin.iss952.test.tsx (7 tests | 5 failed) 208ms
+     × ISS-952 pinned completed+null under cancelled shell -> own copy, Preview tab kept 110ms
+     × ISS-952 pinned completed+null under failed shell -> own copy, Preview tab kept 21ms
+     × ISS-952 pinned completed+null under degraded shell -> own copy, Preview tab kept 22ms
+     × ISS-952 pinned completed+null under diverted shell -> own copy, Preview tab kept 20ms
+     × ISS-952 pinned failed+null under cancelled shell -> failed copy 19ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 5 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/components/preview/PreviewPanel.shellStatusForeignPin.iss952.test.tsx > ISS-952 / QA-KB-091 - shell status must not win over a foreign empty pin > ISS-952 pinned completed+null under cancelled shell -> own copy, Preview tab kept
+ FAIL  src/components/preview/PreviewPanel.shellStatusForeignPin.iss952.test.tsx > ISS-952 / QA-KB-091 - shell status must not win over a foreign empty pin > ISS-952 pinned completed+null under failed shell -> own copy, Preview tab kept
+ FAIL  src/components/preview/PreviewPanel.shellStatusForeignPin.iss952.test.tsx > ISS-952 / QA-KB-091 - shell status must not win over a foreign empty pin > ISS-952 pinned completed+null under degraded shell -> own copy, Preview tab kept
+ FAIL  src/components/preview/PreviewPanel.shellStatusForeignPin.iss952.test.tsx > ISS-952 / QA-KB-091 - shell status must not win over a foreign empty pin > ISS-952 pinned completed+null under diverted shell -> own copy, Preview tab kept
+ FAIL  src/components/preview/PreviewPanel.shellStatusForeignPin.iss952.test.tsx > ISS-952 / QA-KB-091 - shell status must not win over a foreign empty pin > ISS-952 pinned failed+null under cancelled shell -> failed copy
+Error: Expect test to fail
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/5]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  5 failed | 2 passed (7)
+   Start at  20:43:00
+   Duration  1.12s (transform 156ms, setup 54ms, import 372ms, tests 208ms, environment 375ms)
+
+EXIT=1

@@ -1,0 +1,27 @@
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - ESM syntax in a file loaded as CommonJS (vitest.config.ts:1:1). Use a `.mjs` extension or set `"type": "module"` in the closest package.json
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+
+ RUN  v4.1.11 /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/frontend
+
+ × src/app/[...view]/terminalReopenReconcileLock.meta.test.ts > ISS-126 source-lock stays in step with page.tsx (QA-KB-071) > ISS-898: every applyTerminalStatus/reconcileTerminalStatus anchor in the lock occurs in page.tsx 2ms
+   → Expect test to fail
+ × src/app/[...view]/terminalReopenReconcileLock.meta.test.ts > ISS-126 source-lock stays in step with page.tsx (QA-KB-071) > ISS-1009: the reviewGateData case guards that its anchor was found before slicing 0ms
+   → Expect test to fail
+ × src/app/[...view]/terminalReopenReconcileLock.meta.test.ts > ISS-126 source-lock stays in step with page.tsx (QA-KB-071) > ISS-1010: the ordering case searches the replay loop from the reopen fetch 0ms
+   → Expect test to fail
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/app/[...view]/terminalReopenReconcileLock.meta.test.ts > ISS-126 source-lock stays in step with page.tsx (QA-KB-071) > ISS-898: every applyTerminalStatus/reconcileTerminalStatus anchor in the lock occurs in page.tsx
+ FAIL  src/app/[...view]/terminalReopenReconcileLock.meta.test.ts > ISS-126 source-lock stays in step with page.tsx (QA-KB-071) > ISS-1009: the reviewGateData case guards that its anchor was found before slicing
+ FAIL  src/app/[...view]/terminalReopenReconcileLock.meta.test.ts > ISS-126 source-lock stays in step with page.tsx (QA-KB-071) > ISS-1010: the ordering case searches the replay loop from the reopen fetch
+Error: Expect test to fail
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/3]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  3 failed (3)
+   Start at  19:06:07
+   Duration  649ms (transform 22ms, setup 60ms, import 10ms, tests 3ms, environment 466ms)
+

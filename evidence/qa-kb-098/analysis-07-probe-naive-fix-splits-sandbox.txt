@@ -1,0 +1,5 @@
+# QA-KB-098 analysis 07: PROBE - the naive one-line fix for the revision-identity sibling splits the physical sandbox
+# HEAD 165c40316, 2026-10-07T23:21Z; script evidence/qa-kb-098/analysis-plugins/kb098_naive_fix_trap_probe.py
+
+today:     engine sandbox.run_id='chain-root-aaa'; factory sandbox dir leaf='chain-root-aaa'; shared with engine dir: True
+naive fix: engine sandbox.run_id='revision-bbb'; factory sandbox dir leaf='revision-bbb'; shared with engine dir: False

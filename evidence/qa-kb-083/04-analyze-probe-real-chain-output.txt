@@ -1,0 +1,11 @@
+# probe 2: REAL dependency chain (only verify_credential stubbed): resolve_principal, revocation gate, _sync_role_projection, handlers
+# run: cd backend && DATABASE_URL=sqlite:///:memory: PYTHONPATH=. .venv/bin/python <probe>.py   (HEAD 024c03ef8, 2026-10-02)
+1. ordinary: newer token (basic groups), stale pro column
+   token groups=basic token_iat=now-10s | row.tier BEFORE=pro   roles_synced_at=now-100s
+   -> /me tier=basic | prefs allowed[premium]=False | PUT premium=403 | row.tier AFTER=basic | stored preferred_model=None
+2. residual window: older-but-valid token (basic groups), pro column synced after it was minted
+   token groups=basic token_iat=now-3600s | row.tier BEFORE=pro   roles_synced_at=now-100s
+   -> /me tier=basic | prefs allowed[premium]=True | PUT premium=200 | row.tier AFTER=pro | stored preferred_model=eu.anthropic.claude-opus-4-6-v1
+3. mirror: older-but-valid token (pro groups), basic column synced after it was minted
+   token groups=pro   token_iat=now-3600s | row.tier BEFORE=basic roles_synced_at=now-100s
+   -> /me tier=pro | prefs allowed[premium]=False | PUT premium=403 | row.tier AFTER=basic | stored preferred_model=None

@@ -1,0 +1,14 @@
+# QA-KB-075: the repo's own '-k reconcile' selection (22 tests, one file, offline) with _reconcile_terminal_status swapped for a scratch variant.
+# run_variant.py compiles the variant from the scratchpad and exec's it into app.api.run_commands at test-setup; backend/ is never edited.
+
+$ run_variant.py none tests/integration/agents/test_restart_resume_db.py -k reconcile -q -rf
+22 passed, 61 deselected, 1 warning in 1.59s
+
+$ run_variant.py opt2 tests/integration/agents/test_restart_resume_db.py -k reconcile -q -rf
+FAILED tests/integration/agents/test_restart_resume_db.py::test_reconcile_fix484_boundary_scoping[T5-iss436-degraded-then-failed]
+FAILED tests/integration/agents/test_restart_resume_db.py::test_reconcile_fix484_boundary_scoping[T6-iss437-failed-then-clean]
+2 failed, 20 passed, 61 deselected, 1 warning in 1.67s
+
+$ run_variant.py opt4 tests/integration/agents/test_restart_resume_db.py -k reconcile -q -rf
+22 passed, 61 deselected, 1 warning in 1.51s
+

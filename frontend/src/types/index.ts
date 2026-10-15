@@ -957,6 +957,12 @@ export interface AgentRunState {
    *  kept, so 29m 54s of re-run time was invisible in run faba87c9. This is the
    *  figure that reconciles against the run header. */
   cumulativeDuration?: number;
+  /** Tokens spent by this step's EARLIER passes (a loop-back re-ran it). The step's
+   *  own token fields stay last-pass-only; runUsage adds these so the run total keeps
+   *  every pass (QA-KB-093). Banked on agent_start, not set on wave steps. */
+  priorPassInputTokens?: number;
+  priorPassOutputTokens?: number;
+  priorPassTotalTokens?: number;
   /** Wave worker children (a wave clones one agent N times, so every worker's
    *  agent_start/agent_complete carries the SAME agent_id as this parent —
    *  keyed here by `task_id` so the Steps list folds them under ONE parent

@@ -1,0 +1,74 @@
+# QA-KB-105 fix-01: the analyzer's probe (evidence/qa-kb-105/analysis-plugins/kb105_probe_test.py) re-run AFTER the ISS-1125 guard in _drive_resumed_stream.
+# Command (from backend/): DATABASE_URL=sqlite:///<scratch>/kb105-fix-probe.db KB105_OUT=../evidence/qa-kb-105/fix-01-unsatisfiable-resume-probe-after.txt PYTHONPATH=. .venv/bin/python -m pytest ../evidence/qa-kb-105/analysis-plugins/kb105_probe_test.py -c pyproject.toml --rootdir=. -p no:cacheprovider -q -s
+# Tree: branch feat/stale-bug-fixes, HEAD eb84ce544 + working-tree fix in backend/agents/execution_engine/engine.py; 2026-10-08T22:46Z
+
+== U1 user resume, prior=failed, DAG unsatisfiable: status='failed' error="Resume failed: Workflow DAG is unsatisfiable: Agent 'custom-agent:b' consumes 'x' but no upstream agent produces it." completed_at=SET duration=None
+   tail: [(1, 'pipeline_start', None), (2, 'agent_start', None), (3, 'pipeline_failed', "prior attempt: step a raised ValueError('boom')"), (4, 'run_resuming', None), (5, 'workflow_validated', False), (6, 'error', "Workflow DAG is unsatisfiable: Agent 'custom-agent:b' consumes 'x' but no upstream agent produces it."), (7, 'pipeline_failed', "Resume failed: Workflow DAG is unsatisfiable: Agent 'custom-agent:b' consumes 'x' but no upstream agent produces it.")]
+   counts: run_resuming=1 error=1 pipeline_failed=2 pipeline_complete=0 pipeline_cancelled=0
+   derive_open_gate(unfiltered)=(None, None) derive_open_gate(strip_premature_stops)=(None, None)
+   live queue: [('workflow_validated', None), ('error', "Workflow DAG is unsatisfiable: Agent 'custom-agent:b' consumes 'x' but no upstream agent produces it."), ('pipeline_failed', "Resume failed: Workflow DAG is unsatisfiable: Agent 'custom-agent:b' consumes 'x' but no upstream agent produces it."), None, None]
+   registries: queues=[] tasks=[]
+== U2 user resume, prior=cancelled, DAG unsatisfiable: status='failed' error="Resume failed: Workflow DAG is unsatisfiable: Agent 'custom-agent:b' consumes 'x' but no upstream agent produces it." completed_at=SET duration=None
+   tail: [(1, 'pipeline_start', None), (2, 'agent_start', None), (3, 'pipeline_failed', "prior attempt: step a raised ValueError('boom')"), (99, 'pipeline_cancelled', None), (100, 'run_resuming', None), (101, 'workflow_validated', False), (102, 'error', "Workflow DAG is unsatisfiable: Agent 'custom-agent:b' consumes 'x' but no upstream agent produces it."), (103, 'pipeline_failed', "Resume failed: Workflow DAG is unsatisfiable: Agent 'custom-agent:b' consumes 'x' but no upstream agent produces it.")]
+   counts: run_resuming=1 error=1 pipeline_failed=2 pipeline_complete=0 pipeline_cancelled=1
+   derive_open_gate(unfiltered)=(None, None) derive_open_gate(strip_premature_stops)=(None, None)
+   live queue: [('workflow_validated', None), ('error', "Workflow DAG is unsatisfiable: Agent 'custom-agent:b' consumes 'x' but no upstream agent produces it."), ('pipeline_failed', "Resume failed: Workflow DAG is unsatisfiable: Agent 'custom-agent:b' consumes 'x' but no upstream agent produces it."), None, None]
+   registries: queues=[] tasks=[]
+== U3 user resume, prior=degraded, DAG unsatisfiable: status='failed' error="Resume failed: Workflow DAG is unsatisfiable: Agent 'custom-agent:b' consumes 'x' but no upstream agent produces it." completed_at=SET duration=None
+   tail: [(1, 'pipeline_start', None), (2, 'agent_start', None), (3, 'agent_complete', None), (4, 'pipeline_complete', None), (5, 'run_resuming', None), (6, 'workflow_validated', False), (7, 'error', "Workflow DAG is unsatisfiable: Agent 'custom-agent:b' consumes 'x' but no upstream agent produces it."), (8, 'pipeline_failed', "Resume failed: Workflow DAG is unsatisfiable: Agent 'custom-agent:b' consumes 'x' but no upstream agent produces it.")]
+   counts: run_resuming=1 error=1 pipeline_failed=1 pipeline_complete=1 pipeline_cancelled=0
+   derive_open_gate(unfiltered)=(None, None) derive_open_gate(strip_premature_stops)=(None, None)
+   live queue: [('workflow_validated', None), ('error', "Workflow DAG is unsatisfiable: Agent 'custom-agent:b' consumes 'x' but no upstream agent produces it."), ('pipeline_failed', "Resume failed: Workflow DAG is unsatisfiable: Agent 'custom-agent:b' consumes 'x' but no upstream agent produces it."), None, None]
+   registries: queues=[] tasks=[]
+== R0 before any boot
+== R0 seeded running row: status='running' error="prior attempt: step a raised ValueError('boom')" completed_at=None duration=None
+   tail: [(1, 'pipeline_start', None), (2, 'agent_start', None), (3, 'agent_complete', None)]
+   counts: run_resuming=0 error=0 pipeline_failed=0 pipeline_complete=0 pipeline_cancelled=0
+   derive_open_gate(unfiltered)=(None, None) derive_open_gate(strip_premature_stops)=(None, None)
+   registries: queues=[] tasks=[]
+== R1 after boot 1, DAG unsatisfiable: status='failed' error="prior attempt: step a raised ValueError('boom')" completed_at=SET duration=4.2
+   tail: [(1, 'pipeline_start', None), (2, 'agent_start', None), (3, 'agent_complete', None), (4, 'run_resuming', None), (5, 'workflow_validated', False), (6, 'error', "Workflow DAG is unsatisfiable: Agent 'custom-agent:b' consumes 'x' but no upstream agent produces it."), (7, 'pipeline_failed', "Resume failed: Workflow DAG is unsatisfiable: Agent 'custom-agent:b' consumes 'x' but no upstream agent produces it.")]
+   counts: run_resuming=1 error=1 pipeline_failed=1 pipeline_complete=0 pipeline_cancelled=0
+   derive_open_gate(unfiltered)=(None, None) derive_open_gate(strip_premature_stops)=(None, None)
+   registries: queues=[] tasks=[]
+== R2 after boot 2, DAG unsatisfiable: status='failed' error="prior attempt: step a raised ValueError('boom')" completed_at=SET duration=4.2
+   tail: [(1, 'pipeline_start', None), (2, 'agent_start', None), (3, 'agent_complete', None), (4, 'run_resuming', None), (5, 'workflow_validated', False), (6, 'error', "Workflow DAG is unsatisfiable: Agent 'custom-agent:b' consumes 'x' but no upstream agent produces it."), (7, 'pipeline_failed', "Resume failed: Workflow DAG is unsatisfiable: Agent 'custom-agent:b' consumes 'x' but no upstream agent produces it.")]
+   counts: run_resuming=1 error=1 pipeline_failed=1 pipeline_complete=0 pipeline_cancelled=0
+   derive_open_gate(unfiltered)=(None, None) derive_open_gate(strip_premature_stops)=(None, None)
+   registries: queues=[] tasks=[]
+== G1.0 review-gate parked, seeded: status='waiting_for_user' error="prior attempt: step a raised ValueError('boom')" completed_at=None duration=None
+   tail: [(1, 'review_gate_ready', None)]
+   counts: run_resuming=0 error=0 pipeline_failed=0 pipeline_complete=0 pipeline_cancelled=0
+   derive_open_gate(unfiltered)=('review', 'g-rev-fe312e:custom-agent:a:1') derive_open_gate(strip_premature_stops)=('review', 'g-rev-fe312e:custom-agent:a:1')
+   registries: queues=[] tasks=[]
+== G1.1 review gate, after boot 1, DAG unsatisfiable: status='failed' error="prior attempt: step a raised ValueError('boom')" completed_at=SET duration=None
+   tail: [(1, 'review_gate_ready', None), (2, 'run_resuming', None), (3, 'workflow_validated', False), (4, 'error', "Workflow DAG is unsatisfiable: Agent 'custom-agent:b' consumes 'x' but no upstream agent produces it."), (5, 'pipeline_failed', "Resume failed: Workflow DAG is unsatisfiable: Agent 'custom-agent:b' consumes 'x' but no upstream agent produces it.")]
+   counts: run_resuming=1 error=1 pipeline_failed=1 pipeline_complete=0 pipeline_cancelled=0
+   derive_open_gate(unfiltered)=(None, None) derive_open_gate(strip_premature_stops)=('review', 'g-rev-fe312e:custom-agent:a:1')
+   registries: queues=[] tasks=[]
+== G1.2 review gate, after boot 2, DAG unsatisfiable: status='failed' error="prior attempt: step a raised ValueError('boom')" completed_at=SET duration=None
+   tail: [(1, 'review_gate_ready', None), (2, 'run_resuming', None), (3, 'workflow_validated', False), (4, 'error', "Workflow DAG is unsatisfiable: Agent 'custom-agent:b' consumes 'x' but no upstream agent produces it."), (5, 'pipeline_failed', "Resume failed: Workflow DAG is unsatisfiable: Agent 'custom-agent:b' consumes 'x' but no upstream agent produces it.")]
+   counts: run_resuming=1 error=1 pipeline_failed=1 pipeline_complete=0 pipeline_cancelled=0
+   derive_open_gate(unfiltered)=(None, None) derive_open_gate(strip_premature_stops)=('review', 'g-rev-fe312e:custom-agent:a:1')
+   registries: queues=[] tasks=[]
+== G2.0 clarify-parked, seeded: status='waiting_for_user' error="prior attempt: step a raised ValueError('boom')" completed_at=None duration=None
+   tail: [(1, 'questionnaire_ready', None)]
+   counts: run_resuming=0 error=0 pipeline_failed=0 pipeline_complete=0 pipeline_cancelled=0
+   derive_open_gate(unfiltered)=('questionnaire', None) derive_open_gate(strip_premature_stops)=('questionnaire', None)
+   registries: queues=[] tasks=[]
+== G2.1 clarify, after boot 1, DAG unsatisfiable: status='failed' error="prior attempt: step a raised ValueError('boom')" completed_at=SET duration=None
+   tail: [(1, 'questionnaire_ready', None), (2, 'workflow_validated', False), (3, 'error', "Workflow DAG is unsatisfiable: Agent 'custom-agent:b' consumes 'x' but no upstream agent produces it."), (4, 'pipeline_failed', "Resume failed: Workflow DAG is unsatisfiable: Agent 'custom-agent:b' consumes 'x' but no upstream agent produces it.")]
+   counts: run_resuming=0 error=1 pipeline_failed=1 pipeline_complete=0 pipeline_cancelled=0
+   derive_open_gate(unfiltered)=(None, None) derive_open_gate(strip_premature_stops)=('questionnaire', None)
+   registries: queues=[] tasks=[]
+== G2.2 clarify, after boot 2, DAG unsatisfiable: status='failed' error="prior attempt: step a raised ValueError('boom')" completed_at=SET duration=None
+   tail: [(1, 'questionnaire_ready', None), (2, 'workflow_validated', False), (3, 'error', "Workflow DAG is unsatisfiable: Agent 'custom-agent:b' consumes 'x' but no upstream agent produces it."), (4, 'pipeline_failed', "Resume failed: Workflow DAG is unsatisfiable: Agent 'custom-agent:b' consumes 'x' but no upstream agent produces it.")]
+   counts: run_resuming=0 error=1 pipeline_failed=1 pipeline_complete=0 pipeline_cancelled=0
+   derive_open_gate(unfiltered)=(None, None) derive_open_gate(strip_premature_stops)=('questionnaire', None)
+   registries: queues=[] tasks=[]
+== C user resume, prior=failed, DAG LEFT satisfiable (control): status='completed' error=None completed_at=SET duration=0.2
+   tail: [(1, 'pipeline_start', None), (2, 'agent_start', None), (3, 'pipeline_failed', "prior attempt: step a raised ValueError('boom')"), (4, 'run_resuming', None), (5, 'workflow_validated', True), (6, 'pipeline_start', None), (7, 'agent_start', None), (8, 'agent_input', None), (9, 'agent_skills', None), (10, 'agent_chunk', None), (11, 'artifact_fallback', None), (12, 'agent_complete', None), (13, 'agent_start', None), (14, 'agent_input', None), (15, 'agent_skills', None), (16, 'agent_chunk', None), (17, 'artifact_fallback', None), (18, 'agent_complete', None), (19, 'pipeline_complete', None)]
+   counts: run_resuming=1 error=0 pipeline_failed=1 pipeline_complete=1 pipeline_cancelled=0
+   derive_open_gate(unfiltered)=(None, None) derive_open_gate(strip_premature_stops)=(None, None)
+   live queue: [('workflow_validated', None), ('pipeline_start', None), ('agent_start', None), ('agent_input', None), ('agent_skills', None), ('agent_chunk', None), ('artifact_fallback', None), ('agent_complete', None), ('agent_start', None), ('agent_input', None), ('agent_skills', None), ('agent_chunk', None), ('artifact_fallback', None), ('agent_complete', None), ('pipeline_complete', None), None, None]
+   registries: queues=[] tasks=[]

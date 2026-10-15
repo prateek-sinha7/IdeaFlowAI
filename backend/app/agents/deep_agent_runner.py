@@ -515,21 +515,6 @@ class _BedrockCachePointsMiddleware(AgentMiddleware[Any, Any, Any]):
 # ---------------------------------------------------------------------------
 
 
-def _read_denied_message(name: str, path: str) -> str:
-    """The text an agent receives when the READ guard refuses a call.
-
-    The readable prefixes are listed from ``AGENT_READABLE_RESERVED`` itself, so
-    the message cannot drift from the guard (it used to name ``.context/`` only
-    while ``.agents/`` and ``.uploads/`` were readable too).
-    """
-    readable = ", ".join(sorted(AGENT_READABLE_RESERVED))
-    return (
-        f"Tool '{name}' is not permitted to read '{path}': "
-        f"that path is engine-reserved. "
-        f"Only paths under {readable} are readable by agents."
-    )
-
-
 TRUNCATED_WRITE_MESSAGE = (
     "Your output was cut off at the output token limit, so this call arrived without "
     "its content. Write the file in smaller parts: write_file the first sections, "
@@ -605,8 +590,7 @@ class _ReservedPathGuardMiddleware(AgentMiddleware[Any, Any, Any]):
 
     **READ guard** — tools that read from the sandbox (``read_file``, ``ls``,
     ``glob``, ``grep``) are refused for any path under ``RESERVED_PATHS`` UNLESS the
-    normalised prefix is in ``AGENT_READABLE_RESERVED`` (the denial message lists
-    that constant's entries; see ``_read_denied_message``).
+    normalised prefix is in ``AGENT_READABLE_RESERVED`` (i.e. ``.context/`` only).
     ``.chain/`` is deliberately NOT in ``AGENT_READABLE_RESERVED``; an agent cannot
     read it directly — only authorized Workspace surfaces may (Requirement 18 AC 8).
 
@@ -730,7 +714,11 @@ class _ReservedPathGuardMiddleware(AgentMiddleware[Any, Any, Any]):
                     path,
                 )
                 return ToolMessage(
-                    content=_read_denied_message(name, path),
+                    content=(
+                        f"Tool '{name}' is not permitted to read '{path}': "
+                        f"that path is engine-reserved. "
+                        f"Only paths under .context/ are readable by agents."
+                    ),
                     name=name,
                     tool_call_id=call.get("id") or "",
                     status="error",

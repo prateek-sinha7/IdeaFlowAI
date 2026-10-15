@@ -2305,6 +2305,14 @@ def _join(values: Any, sep: str = ", ") -> str:
     return sep.join(str(v) for v in (values or []))
 
 
+def _state_text(state: Any) -> str:
+    """A screen state for the States line; a model writes {"name", "description"} as often as text."""
+    if isinstance(state, dict):
+        name, description = state.get("name", ""), state.get("description", "")
+        return f"{name} — {description}" if description else str(name)
+    return str(state)
+
+
 def _yn(value: Any) -> str:
     """A table cell for a boolean: yes / no (anything else as given)."""
     return (
@@ -2562,7 +2570,7 @@ def render_screens_md(solution: dict[str, list[dict]], all_stories: list[dict]) 
             lines.append("")
         states = s.get("states") or []
         if states:
-            lines.append(f"States: {', '.join(states)}")
+            lines.append(f"States: {', '.join(_state_text(st) for st in states)}")
             lines.append("")
         story_ids = sorted(
             {

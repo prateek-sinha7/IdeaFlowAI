@@ -1,0 +1,39 @@
+# QA-KB-126 analysis 04: mutation probe, compile trust forced to user for a caller who may not hold the Composer (HEAD facae452a, 2026-10-09T13:54Z)
+# cmd: cd backend && PYTHONDONTWRITEBYTECODE=1 DATABASE_URL=sqlite:///:memory: .venv/bin/python -m pytest ../evidence/qa-kb-126/analysis-plugins/test_probe_mutation_trust_user_for_non_composer.py -c pyproject.toml --rootdir=. -p no:cacheprovider -q -s -W ignore
+# NO source file is edited: the mutation is a monkeypatch of WorkflowCompiler.compile (db -> user unless the world's tier is enterprise). It stands in for the one-helper change and shows the compile trust is sufficient at the save, PATCH, launch Case 3 and trigger doors. Compare with analysis-01.
+
+
+[mut-S] basic POST base=ppt exec-manifest -> 422 invalid workflow manifest (workflow:probe-row): capability ('gate', 'security') is not user-allowed in step 'c
+[mut-S] basic POST base=ppt benign manifest (control) -> 201
+.
+[mut-S] hexaware POST base=prototype exec-manifest -> 422 invalid workflow manifest (workflow:probe-row): capability ('gate', 'security') is not user-allowed in step 'c
+[mut-S] hexaware POST base=prototype benign manifest (control) -> 201
+.
+[mut-S] pro POST base=ppt exec-manifest -> 422 invalid workflow manifest (workflow:probe-row): capability ('gate', 'security') is not user-allowed in step 'c
+[mut-S] pro POST base=ppt benign manifest (control) -> 201
+.
+[mut-L] basic launches a legacy exec row (base ppt) -> 422 code=invalid_workflow_manifest mint reached=False
+.
+[mut-P] basic PATCH exec manifest onto an entitled-label row -> 422; stored manifest_json=None
+.
+[mut-T] trigger of a legacy exec row (owner basic) -> CompilerError raised before the mint: capability ('gate', 'security') is not user-allowed in step 'custom-agent' — a user/db manifest may ; mint reached=False
+.
+[mut-E] enterprise Composer row (base custom) save+launch -> 200; plan=["custom-agent:mine: exec=True spawn=False git=False tool_sets=[] gates=['security', 'approval'] validators=['code_test']"]; _trust='db'
+.
+[mut-M] item                                                           basic save -> launch by id (mutated)
+[mut-M] CONTROL benign step                                            201+200 (nothing privileged)
+[mut-M] CONTROL gates=[human] (user_allowed)                           201+200 gates=['human']
+[mut-M] gate security                                                  SAVE 422
+[mut-M] gate approval                                                  SAVE 422
+[mut-M] exec + gates security,approval                                 SAVE 422
+[mut-M] spawn_subagents grant                                          SAVE 422
+[mut-M] network grant                                                  SAVE 422
+[mut-M] secrets grant (list field)                                     SAVE 422
+[mut-M] git grant                                                      201+200 (nothing privileged)
+[mut-M] engineer-only hook provenance_audit                            SAVE 422
+[mut-M] compaction html_skeleton                                       SAVE 422
+[mut-M] post_step revision_validation                                  SAVE 422
+[mut-M] tool_sets [internet,pptx,spawn_subagents,ask_user]             201+200 (nothing privileged)
+[mut-M] limits raised (max_subagents 64, max_depth 6, wall_clock 7200) SAVE 422
+.
+8 passed in 1.89s

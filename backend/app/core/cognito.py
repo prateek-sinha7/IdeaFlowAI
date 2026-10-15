@@ -30,6 +30,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import httpx
+from botocore.exceptions import BotoCoreError, ClientError
 from jose import jwt
 from jose.exceptions import JOSEError
 
@@ -248,6 +249,26 @@ def compute_secret_hash(username: str) -> str:
         hashlib.sha256,
     ).digest()
     return base64.b64encode(digest).decode("utf-8")
+
+
+#: Every way a call below can fail at the provider. ``ClientError``: Cognito
+#: answered with an error. ``BotoCoreError``: the call never completed --
+#: credential or SSO-token resolution (raised while signing, before any request),
+#: endpoint, timeout. The families are disjoint, so catching ``ClientError`` alone
+#: lets an expired AWS session escape as an unhandled 500 (ISS-1144).
+PROVIDER_ERRORS = (ClientError, BotoCoreError)
+
+
+def provider_error_code(exc: Exception) -> str:
+    """The Cognito error code of a ``ClientError``, else the exception's class name.
+
+    A ``BotoCoreError`` has no service code; its class name
+    (``TokenRetrievalError``, ``EndpointConnectionError``) matches none of the
+    codes callers branch on, so it takes each caller's "any other failure" path.
+    """
+    if isinstance(exc, ClientError):
+        return exc.response.get("Error", {}).get("Code", "")
+    return type(exc).__name__
 
 
 def _client():

@@ -1,0 +1,10 @@
+# QA-KB-048 5-fixer, 2026-10-02 — offline check of the hazard ISS-943's analysis raised against the bare-ref option:
+# a ppt_v2 row saved as the 2-agent library default, restored WITHOUT completion, is refused before the mint.
+# cmd (from backend/, DATABASE_URL pinned to a scratch sqlite file, no server, no Bedrock, no run):
+#   from agents.loader import load_agent_spec
+#   from app.api.composition_order import presort_specs, UnsatisfiableComposition
+['ppt-deck-qa-v2', 'ppt-code-generator'] -> UnsatisfiableComposition (launch_run 422 workflow_unsatisfiable): Workflow DAG is unsatisfiable: Agent 'ppt-deck-qa-v2' consumes 'ppt-composer' but no agent in the workflow produces it.
+['ppt-brief-analyst', 'ppt-composer', 'ppt-deck-qa-v2', 'ppt-code-generator'] -> ok: ['ppt-brief-analyst', 'ppt-composer', 'ppt-deck-qa-v2', 'ppt-code-generator']
+# How such a row arises today: overrideLoad "failed" leaves planAgents null (no completion) and rosterSettling false
+# (LaunchWizard.tsx: `const rosterSettling = overrideLoad === "loading" || agentRestorePending;`), so Save workflow
+# stays enabled and saves the 2-agent library default. ppt_v2 and the completion effect shipped together (70665bbcb).

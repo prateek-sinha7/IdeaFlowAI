@@ -12,7 +12,8 @@
  */
 
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, screen, waitFor } from "@testing-library/react";
+import { renderWithProviders } from "@/test/renderWithProviders";
 import userEvent from "@testing-library/user-event";
 
 const api = vi.hoisted(() => ({
@@ -54,7 +55,7 @@ const MODELS = [
 ];
 
 function renderSettings(props: { initialSection?: SettingsSection; onBack?: () => void } = {}) {
-  return render(<AccountSettings onBack={props.onBack ?? (() => {})} initialSection={props.initialSection} />);
+  return renderWithProviders(<AccountSettings onBack={props.onBack ?? (() => {})} initialSection={props.initialSection} />);
 }
 
 beforeEach(() => {

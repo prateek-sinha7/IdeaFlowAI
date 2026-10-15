@@ -1,0 +1,52 @@
+# QA-KB-124 re-analysis 08: tests against the three trees (offline; ONE FILE PER pytest invocation; nothing in the repo tree was edited)
+# date: 2026-10-09  trees: baseline = unmodified copy of backend/ (identical to the live agents/ and app/), inert = ISS-1156 card predicate (spec.produces only),
+#   optA = AgentContext.step_produces threaded by the engine (analysis-07-candidate-fix.diff)
+# cmd: cd <tree>/backend && PYTHONPATH=. backend/.venv/bin/python -m pytest <one file> -q -p no:cacheprovider -rxX
+
+## A. the candidate engine-driven red test (analysis-08-candidate-red-test.py, copied into each tree as tests/agents/test_zz_candidate_red_decision_prompt.py)
+baseline  1 failed, 3 warnings in 15.76s
+inert     1 failed, 3 warnings in 25.19s
+optA      1 passed, 3 warnings in 10.28s
+
+## B. the test-writer's existing hand-built-spec unit test (tests/unit/agents/test_decision_step_no_delivery_block.py, strict xfail)
+baseline  XFAIL tests/unit/agents/test_decision_step_no_delivery_block.py::test_route_decision_step_gets_no_write_file_delivery_block - ISS-1156 unfixed 1 passed, 1 xfailed, 1 warning in 8.23s 
+inert     [XPASS(strict)] ISS-1156 unfixed 1 failed, 1 passed, 1 warning in 9.00s 
+optA      [XPASS(strict)] ISS-1156 unfixed 1 failed, 1 passed, 1 warning in 3.98s 
+# reading: XFAIL = red as intended; [XPASS(strict)] = reported as a FAILURE = the test says 'fixed'. It says 'fixed' for the inert predicate, which does not work (see the 'inert' block of analysis-07-candidate-fix-probe.txt).
+
+## C. regression files, baseline vs optA (identical counts = no regression; the failing ids are pre-existing, identical on the live tree)
+baseline  tests/unit/agents/test_custom_agent_prompt.py                      5 passed, 1 warning in 3.83s
+optA      tests/unit/agents/test_custom_agent_prompt.py                      5 passed, 1 warning in 2.23s
+baseline  tests/agents/test_conditional_loop_completion_t23.py               1 passed, 3 warnings in 7.32s
+optA      tests/agents/test_conditional_loop_completion_t23.py               1 passed, 3 warnings in 5.95s
+baseline  tests/unit/agents/test_artifact_fallback_and_roster.py             13 passed, 1 warning in 1.84s
+optA      tests/unit/agents/test_artifact_fallback_and_roster.py             13 passed, 1 warning in 3.48s
+baseline  tests/unit/agents/test_tool_grant_invariants.py                    26 passed, 1 warning in 4.26s
+optA      tests/unit/agents/test_tool_grant_invariants.py                    26 passed, 1 warning in 2.23s
+baseline  tests/unit/agents/test_capabilities_threading.py                   2 passed, 5 warnings in 2.67s
+optA      tests/unit/agents/test_capabilities_threading.py                   2 passed, 5 warnings in 6.82s
+baseline  tests/unit/agents/test_deliverable_readback_scope.py               1 passed, 1 warning in 2.78s
+optA      tests/unit/agents/test_deliverable_readback_scope.py               1 passed, 1 warning in 2.11s
+baseline  tests/unit/agents/test_step_reply.py                               5 passed, 1 warning in 1.48s
+optA      tests/unit/agents/test_step_reply.py                               5 passed, 1 warning in 2.12s
+baseline  tests/agents/test_agent_input_system_prompt_v3.py                  3 passed, 2 warnings in 2.57s
+optA      tests/agents/test_agent_input_system_prompt_v3.py                  3 passed, 2 warnings in 2.23s
+baseline  tests/unit/agents/test_create_runner.py                            2 failed, 21 passed, 1 warning in 3.00s
+optA      tests/unit/agents/test_create_runner.py                            2 failed, 21 passed, 1 warning in 2.42s
+baseline  tests/contract/agents/test_skill_prompt_baseline.py                2 failed, 1 warning in 1.62s
+optA      tests/contract/agents/test_skill_prompt_baseline.py                2 failed, 1 warning in 1.40s
+baseline  tests/agents/test_prompt_ledger_v2.py                              1 failed, 50 passed, 3 skipped, 2 warnings in 2.27s
+optA      tests/agents/test_prompt_ledger_v2.py                              1 failed, 50 passed, 3 skipped, 2 warnings in 2.73s
+
+## D. the pre-existing failing ids, run on the LIVE tree (cd backend && .venv/bin/python -m pytest <file> -q -p no:cacheprovider)
+-- tests/unit/agents/test_create_runner.py
+FAILED tests/unit/agents/test_create_runner.py::test_tool_provider_workspace_binds_identical_set
+FAILED tests/unit/agents/test_create_runner.py::test_tool_provider_prototype_binds_report_task_complete
+2 failed, 21 passed, 1 warning in 2.21s
+-- tests/contract/agents/test_skill_prompt_baseline.py
+FAILED tests/contract/agents/test_skill_prompt_baseline.py::test_text_only_no_skills_prompt_is_stable
+FAILED tests/contract/agents/test_skill_prompt_baseline.py::test_disk_skill_only_prompt_is_stable
+2 failed, 1 warning in 1.58s
+-- tests/agents/test_prompt_ledger_v2.py
+FAILED tests/agents/test_prompt_ledger_v2.py::TestLedgerAC4NoRequestMd::test_request_md_absence_documented_in_engine
+1 failed, 53 passed, 2 warnings in 2.62s

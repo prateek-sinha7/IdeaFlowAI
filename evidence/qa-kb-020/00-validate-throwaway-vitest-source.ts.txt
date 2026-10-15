@@ -1,0 +1,31 @@
+import { act, renderHook } from "@testing-library/react";
+import { describe, expect, it } from "vitest";
+import { useRunChat, type RunChatFrame } from "./useRunChat";
+
+let evt = 0;
+const f = (type: string, data: Record<string, unknown>): RunChatFrame => ({ type, data: { event_id: `e${++evt}`, seq: evt, ...data } });
+function setup() {
+  let sink: ((m: RunChatFrame) => void) | null = null;
+  const { result } = renderHook(() =>
+    useRunChat({ runId: "run-A", subscribe: (fn) => { sink = fn; return () => {}; }, sendCommand: async () => {} }),
+  );
+  const emit = (fr: RunChatFrame) => act(() => { sink?.(fr); });
+  emit(f("chat_reply", { message_id: "gA", card_kind: "gate", text: "gate A", pipeline_run_id: "run-A", agent_name: "agentX" }));
+  emit(f("chat_reply", { message_id: "gB", card_kind: "gate", text: "gate B", pipeline_run_id: "run-B", agent_name: "agentX" }));
+  const st = () => Object.fromEntries(result.current.messages.map((m) => [m.runId, !!m.resolved]));
+  return { emit, st };
+}
+describe("QA-KB-020", () => {
+  it("approve run B (later gate): only B resolves", () => {
+    const { emit, st } = setup();
+    emit(f("review_gate_approved", { pipeline_run_id: "run-B" }));
+    console.log("S1 approve B ->", JSON.stringify(st()));
+    expect(st()).toEqual({ "run-A": false, "run-B": true });
+  });
+  it("approve run A (earlier gate): only A resolves", () => {
+    const { emit, st } = setup();
+    emit(f("review_gate_approved", { pipeline_run_id: "run-A" }));
+    console.log("S2 approve A ->", JSON.stringify(st()));
+    expect(st()).toEqual({ "run-A": true, "run-B": false });
+  });
+});

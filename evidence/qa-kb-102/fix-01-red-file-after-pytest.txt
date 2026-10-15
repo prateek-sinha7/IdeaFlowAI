@@ -1,0 +1,21 @@
+# QA-KB-102 fix — red file after the change (HEAD 2461935f5 + working tree), 2026-10-08 15:29
+# cmd: cd backend && .venv/bin/python -m pytest tests/integration/agents/test_qa_kb_102_silent_resume.py -q -p no:cacheprovider -rX
+# before the change (observed this session, same file): 6 xfailed in 2.46s
+[XPASS(strict)] ISS-1103 unfixed
+WARNING  agents.execution_engine.engine:engine.py:15710 resume_run(a-d32168e3): persisted manifest failed to recompile (unknown deliverable 'no_such_deliverable_resolver' in workflow 'composed-two-step') — refusing to resume with a substitute roster
+ERROR    agents.execution_engine.engine:engine.py:15541 resume(a-d32168e3) failed: Resume refused: the workflow this run was launched with no longer compiles (unknown deliverable 'no_such_deliverable_resolver' in workflow 'composed-two-step')
+[XPASS(strict)] ISS-1103 unfixed
+WARNING  agents.execution_engine.engine:engine.py:16119 resumed-stream drive(c-267c526e) failed mid-drive: sandbox quarantined for run c-267c526e: repository is corrupt and requires operator action
+ERROR    agents.execution_engine.engine:engine.py:15541 resume(c-267c526e) failed: Resume failed: sandbox quarantined for run c-267c526e: repository is corrupt and requires operator action
+[XPASS(strict)] ISS-1119 unfixed
+WARNING  agents.execution_engine.engine:engine.py:15710 resume_run(d-6277c7d6): persisted manifest failed to recompile (unknown deliverable 'no_such_deliverable_resolver' in workflow 'composed-two-step') — refusing to resume with a substitute roster
+ERROR    agents.execution_engine.engine:engine.py:15541 resume(d-6277c7d6) failed: Resume refused: the workflow this run was launched with no longer compiles (unknown deliverable 'no_such_deliverable_resolver' in workflow 'composed-two-step')
+[XPASS(strict)] ISS-1120 unfixed
+WARNING  agents.execution_engine.engine:engine.py:16250 _replay_clarify_run(r-61efb9f1): persisted manifest failed to recompile (unknown deliverable 'no_such_deliverable_resolver' in workflow 'composed-two-step') — refusing to replay with a substitute roster
+ERROR    agents.execution_engine.engine:engine.py:15541 resume(r-61efb9f1) failed: Resume refused: the workflow this run was launched with no longer compiles (unknown deliverable 'no_such_deliverable_resolver' in workflow 'composed-two-step')
+[XPASS(strict)] ISS-1122 unfixed
+WARNING  agents.execution_engine.engine:engine.py:15710 resume_run(g-7ce2a9f1): persisted manifest failed to recompile (unknown deliverable 'no_such_deliverable_resolver' in workflow 'composed-two-step') — refusing to resume with a substitute roster
+ERROR    agents.execution_engine.engine:engine.py:15541 resume(g-7ce2a9f1) failed: Resume refused: the workflow this run was launched with no longer compiles (unknown deliverable 'no_such_deliverable_resolver' in workflow 'composed-two-step')
+[XPASS(strict)] ISS-1123 unfixed
+ERROR    app.api.run_commands:run_commands.py:796 user-resume drive failed run=f-3765adbb: scripted fault before the funnel try
+6 failed, 1 warning in 2.17s

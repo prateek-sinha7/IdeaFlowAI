@@ -1,0 +1,12 @@
+# QA-KB-060 fix phase, 2026-10-07, AFTER the fix (it.fails markers left in place for 6-verifier)
+# cwd: frontend/   cmd: npx vitest --run src/components/workflow/composer/ComposerPage.iss923.test.tsx --reporter=verbose
+ × src/components/workflow/composer/ComposerPage.iss923.test.tsx > ComposerPage — Save workflow gated on the /edit seed (ISS-923) > ISS-923: Save workflow is disabled when an edit id was expected but no row arrived 135ms
+   → Expect test to fail
+ × src/components/workflow/composer/ComposerPage.iss923.test.tsx > ComposerPage — Save workflow gated on the /edit seed (ISS-923) > ISS-923: clicking Save workflow with no seeded row never POSTs a new workflow 92ms
+   → Expect test to fail
+ ✓ src/components/workflow/composer/ComposerPage.iss923.test.tsx > ComposerPage — Save workflow gated on the /edit seed (ISS-923) > ISS-923: Save workflow is enabled once the row id arrives 76ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+Error: Expect test to fail
+Error: Expect test to fail
+ Test Files  1 failed (1)
+      Tests  2 failed | 1 passed (3)

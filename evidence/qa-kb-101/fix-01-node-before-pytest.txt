@@ -1,0 +1,14 @@
+# HEAD 874686ece, before the fix, 2026-10-08 15:05:53
+# DATABASE_URL=sqlite:///:memory: .venv/bin/python -m pytest tests/integration/api/test_workflows_api.py::TestList::test_list_carries_launchable_flags -p no:cacheprovider -q --tb=line -W ignore
+F                                                                        [100%]
+=================================== FAILURES ===================================
+E   AssertionError: prototype must carry its authored display_name verbatim (got 'Build an interactive prototype (Fast)')
+    assert 'Build an int...totype (Fast)' == 'Build an int...ive prototype'
+      
+      - Build an interactive prototype
+      + Build an interactive prototype (Fast)
+      ?                               +++++++
+/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/tests/integration/api/test_workflows_api.py:225: AssertionError: prototype must carry its authored display_name verbatim (got 'Build an interactive prototype (Fast)')
+=========================== short test summary info ============================
+FAILED tests/integration/api/test_workflows_api.py::TestList::test_list_carries_launchable_flags
+1 failed in 2.27s

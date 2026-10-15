@@ -120,7 +120,11 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
     PATH="/opt/venv/bin:${PATH}" \
     OD_ROOT=/app/opendesign \
-    GLOBAL_SKILLS_ROOT=/app/builtin-skills/global
+    GLOBAL_SKILLS_ROOT=/app/builtin-skills/global \
+    USER_SKILLS_ROOT=/app/skills/users \
+    GLOBAL_HOOKS_ROOT=/app/hooks/global \
+    PPTX_SKILLS_ROOT=/app/pptx \
+    RUNS_ROOT=/app/runs
 
 # Runtime-only OS deps:
 #   * libpq5     — psycopg2's shared lib at runtime (libpq-dev is build-only)
@@ -340,7 +344,13 @@ RUN test -n "$(find "$GLOBAL_SKILLS_ROOT" -mindepth 2 -maxdepth 2 -name SKILL.md
     && test -f "$OD_ROOT/skills/pptx-html-fidelity-audit/scripts/verify_layout.py" \
     && test -d "$OD_ROOT/fonts"
 
-USER 10001:10001
+# No `USER 10001:10001` here on purpose: the container starts as root so
+# docker-entrypoint.sh can chown the /app/skills + /app/runs bind-mount roots
+# (whose owner comes from the host, not this image), then it drops to 10001
+# with setpriv before alembic/uvicorn run. The app never runs as root.
+# HOME is pinned to the runtime user's home: without USER the runtime would
+# default it to /root, and setpriv keeps the environment it is given.
+ENV HOME=/app
 
 EXPOSE 8000
 

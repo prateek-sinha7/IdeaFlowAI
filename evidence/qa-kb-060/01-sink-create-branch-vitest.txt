@@ -1,0 +1,37 @@
+# QA-KB-060 analyze phase, 2026-10-02, branch feat/user-stories-v2 @ 024c03ef (dirty)
+# cwd: frontend/   cmd: npx vitest --run src/components/workflow/composer/ComposerPage.test.tsx -t 'Save to catalogue persists' --reporter=verbose
+# Sink half of the bug: a ComposerPage mounted with no initialUserWorkflowId (the failed-seed props) calls saveUserWorkflow(token, undefined, {base_pipeline_type:'custom',...}), the create branch (lib/api.ts:2648-2654).
+
+ RUN  v4.1.11 /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/frontend
+
+stdout | src/components/workflow/composer/ComposerPage.test.tsx > ComposerPage — full-page Composer Simple view (41-04) > Save to catalogue persists via the shared saveUserWorkflow dispatch (reused NameWorkflowModal path)
+[wf] 7. ComposerPage mount {
+  workflowType: 'user_stories',
+  initialManifestSteps: 0,
+  initialAgentIds: 6,
+  libraryLoaded: 6,
+  source: 'agentIds'
+}
+
+ ↓ src/components/workflow/composer/ComposerPage.test.tsx > ComposerPage — full-page Composer Simple view (41-04) > renders as a full-page surface with the Composer eyebrow + Save affordances
+ ↓ src/components/workflow/composer/ComposerPage.test.tsx > ComposerPage — full-page Composer Simple view (41-04) > shows a Simple ⇄ Canvas toggle — Canvas active by default mounts the node-graph, Simple renders agent rows
+ ↓ src/components/workflow/composer/ComposerPage.test.tsx > ComposerPage — full-page Composer Simple view (41-04) > identity card: Name + Description are editable, Deliverable-type is READ-ONLY (ND-AH)
+ ↓ src/components/workflow/composer/ComposerPage.test.tsx > ComposerPage — full-page Composer Simple view (41-04) > each agent row renders index, name, role, Core badge (getRole), model picker, override chips, custom prompt + remove
+ ↓ src/components/workflow/composer/ComposerPage.test.tsx > ComposerPage — full-page Composer Simple view (41-04) > reorder moves an agent within pipelineAgents (Move down swaps neighbours)
+ ↓ src/components/workflow/composer/ComposerPage.test.tsx > ComposerPage — full-page Composer Simple view (41-04) > Summary rail: agents + review-gate counts + strategy + LIVE est. duration, NO est. cost (ND-AG), Save-to-catalogue primary
+ ↓ src/components/workflow/composer/ComposerPage.test.tsx > ComposerPage — full-page Composer Simple view (41-04) > edit-from-My-Workflows pre-loads the saved agents + name (shared data model)
+ ✓ src/components/workflow/composer/ComposerPage.test.tsx > ComposerPage — full-page Composer Simple view (41-04) > Save to catalogue persists via the shared saveUserWorkflow dispatch (reused NameWorkflowModal path) 319ms
+ ↓ src/components/workflow/composer/ComposerPage.test.tsx > ComposerPage — full-page Composer Simple view (41-04) > surfaces the producer-first pre-sort — reorders rows on save
+ ↓ src/components/workflow/composer/ComposerPage.test.tsx > ComposerPage — full-page Composer Simple view (41-04) > surfaces an unsatisfiable-composition rejection inline
+ ↓ src/components/workflow/composer/ComposerPage.test.tsx > ComposerPage — full-page Composer Simple view (41-04) > header badge counts only review gates (human/before-human), not conditional gates (DEFECT E / ADR-0013)
+ ↓ src/components/workflow/composer/ComposerPage.test.tsx > ComposerPage — full-page Composer Simple view (41-04) > header badge pluralizes the gate label correctly
+ ↓ src/components/workflow/composer/ComposerPage.test.tsx > ComposerPage — additive, reuses the modal sub-components (INV-3) > the AgentsPopup MODAL wrapper is RETAINED — still imported by LaunchWizard + IdeaInputPage
+ ↓ src/components/workflow/composer/ComposerPage.test.tsx > ComposerPage — additive, reuses the modal sub-components (INV-3) > the Composer REUSES the exported sub-components (not forked)
+ ↓ src/components/workflow/composer/ComposerPage.test.tsx > ComposerPage — save keeps top-level manifest keys it does not model > a re-saved workflow keeps its limits block
+ ↓ src/components/workflow/composer/ComposerPage.test.tsx > ComposerPage — save keeps top-level manifest keys it does not model > a re-saved workflow keeps its capabilities block (ISS-875)
+
+ Test Files  1 passed (1)
+      Tests  1 passed | 15 skipped (16)
+   Start at  10:55:42
+   Duration  2.06s (transform 450ms, setup 72ms, import 979ms, tests 321ms, environment 577ms)
+

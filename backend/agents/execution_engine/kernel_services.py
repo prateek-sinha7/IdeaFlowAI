@@ -340,30 +340,18 @@ class KernelServices:
     def static_check(self, html_path):
         return _static_check(html_path)
 
-    async def materialise_html(
-        self,
-        source_path,
-        source_bytes: bytes,
-        output_dir,
-        source_name: str,
-        output_stem: str,
-    ) -> None:
-        """Materialise an HTML document through the app-side browser adapter."""
-        from app.agents.tools.html_extract import materialise_html
-
-        await asyncio.to_thread(
-            materialise_html,
-            source_path,
-            source_bytes,
-            output_dir,
-            source_name,
-            output_stem,
-        )
-
     async def render_check(self, html_path):
         from app.agents.render_check import render_check
 
         return await render_check(html_path)
+
+    def materialise_html(self, source_path, source_bytes, doc_dir, filename, slug):
+        """Port over app.agents.tools.html_extract.materialise_html so the
+        extract_prototype_ui capability reaches it through ctx.runner instead of
+        importing the app layer directly (Ports & Adapters; mirrors render_check)."""
+        from app.agents.tools.html_extract import materialise_html
+
+        return materialise_html(source_path, source_bytes, doc_dir, filename, slug)
 
     # ── Pre-edit revision baseline (revision_validation post-step, CR-06) ───────
     async def compute_revision_baseline(self, original_html: str):
@@ -1198,10 +1186,11 @@ class KernelServices:
         engine's single emit boundary.
 
         ``event_queue`` (optional): forwarded straight through to the kernel
-        ``run_fanout`` so a caller like ``parallel_group`` can receive each
-        worker's live per-agent events as a side channel. None for every other
-        caller today (fanout_batch, wave_scheduler, the engine tool-result
-        path) — unchanged, byte-identical.
+        ``run_fanout`` so a caller can receive each worker's live per-agent
+        events as a side channel. ``parallel_group`` (``_fanout_stream``) and
+        ``wave_scheduler`` (``_fanout_wave_stream``) pass one on every fan-out;
+        fanout_batch and the engine tool-result path pass None — unchanged,
+        byte-identical.
         """
         from agents.execution_engine.fanout import run_fanout as _kernel_run_fanout
 
@@ -1606,10 +1595,6 @@ class KernelServices:
             )
 
         # ── (1) Resolve workflow_ref (R-12) ──────────────────────────────────────
-        target_manifest_json: dict[str, Any] | None = None
-        target_model_overrides: dict[str, Any] | None = None
-        target_attached_skills: list[dict[str, Any]] | None = None
-        target_attached_hooks: list[dict[str, Any]] | None = None
         if workflow_ref == "self":
             target_pipeline_type = self._pipeline_type
             target_agents: list | None = self._ordered_agents
@@ -1617,38 +1602,37 @@ class KernelServices:
         elif _is_file_backed_workflow(workflow_ref):
             # ── Case 1 parity — a FILE-BACKED workflow id (the A3 fixture's shape) ──
             # Mirrors launch_run's LaunchSource.FILE_PIPELINE resolution: the id is
-            # the pipeline_type, the roster is get_pipeline_agents(...) with the
-            # compiled-plan fallback launch_run already uses for a composed manifest
-            # whose custom-agent steps have no AGENT.md, and `compiled` stays None so
-            # the engine's own compile_for_run(pipeline_type) is what routes the run.
-            from agents.execution_engine.engine import compile_for_run
-            from agents.loader import load_agent_spec
+            # the pipeline_type, the roster is get_pipeline_agents(...) completed from
+            # the compiled plan when it is empty OR incomplete (custom-agent steps have
+            # no AGENT.md; ISS-878), and `compiled` stays None so the engine's own
+            # compile_for_run(pipeline_type) is what routes the run.
+            from agents.execution_engine.engine import (
+                compile_for_run,
+                get_execution_engine,
+            )
             from agents.registry import get_pipeline_agents
 
             target_pipeline_type = workflow_ref
             target_compiled = None
             target_agents = get_pipeline_agents(workflow_ref)
-            if not target_agents:
-                target_agents = [
-                    load_agent_spec(s.agent_id)
-                    for s in compile_for_run(workflow_ref).steps
-                ]
+            _plan = compile_for_run(workflow_ref)
+            if len(target_agents) < len(_plan.steps):
+                target_agents = get_execution_engine()._specs_from_plan(_plan.steps)
         else:
             # A saved ``user_workflow_id``: resolved by the APP layer through the
             # trigger port — the owner-scoped ``_owned`` lookup + launch_run's
-            # Case 2 / Case 3 branching, moved verbatim to
+            # Case 2 / Case 3 branching, moved to
             # ``app.api.run_commands._resolve_saved_trigger_target``. The kernel
-            # must not import app.api (import-linter).
-            target = get_trigger_launch_port().resolve_saved_workflow(
-                workflow_ref, ectx.owner_id
+            # must not import app.api (import-linter). ``ectx.run_id`` goes along so
+            # the row compiles at no more trust than the run firing this trigger
+            # (ISS-1164, QA-KB-126).
+            (
+                target_pipeline_type,
+                target_agents,
+                target_compiled,
+            ) = get_trigger_launch_port().resolve_saved_workflow(
+                workflow_ref, ectx.owner_id, ectx.run_id
             )
-            target_pipeline_type = target.pipeline_type
-            target_agents = target.agents
-            target_compiled = target.compiled
-            target_manifest_json = target.manifest_json
-            target_model_overrides = target.model_overrides
-            target_attached_skills = target.attached_skills
-            target_attached_hooks = target.attached_hooks
 
         # ── (3)/(4) Mint via T27's core — parent_run_id + owner_id/workspace_id
         # unconditionally inherited from ectx (R-15) ─────────────────────────────
@@ -1667,14 +1651,13 @@ class KernelServices:
             compiled=target_compiled,
             od_context=None,
             validated_images=[],
-            model_overrides=target_model_overrides or {},
+            model_overrides={},
             user=SimpleNamespace(id=ectx.owner_id),
             source_workflow_run_id=None,
             selections=None,
             gate_agent_ids=None,
-            attached_skills=target_attached_skills,
-            attached_hooks=target_attached_hooks,
-            manifest_json=target_manifest_json,
+            attached_skills=None,
+            attached_hooks=None,
             parent_run_id_override=ectx.run_id,
             owner_id_override=ectx.owner_id,
             workspace_id_override=ectx.workspace_id,

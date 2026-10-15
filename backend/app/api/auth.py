@@ -340,8 +340,8 @@ def login(request: LoginRequest, db: Session = Depends(get_db)):
 
     try:
         resp = cognito.admin_initiate_auth(request.email, request.password)
-    except ClientError as exc:
-        code = exc.response.get("Error", {}).get("Code", "")
+    except cognito.PROVIDER_ERRORS as exc:
+        code = cognito.provider_error_code(exc)
         if code in ("NotAuthorizedException", "UserNotFoundException"):
             auth_events.emit(
                 AuthEvent.LOGIN_FAILURE,
@@ -489,8 +489,8 @@ def login_challenge(request: LoginChallengeRequest, db: Session = Depends(get_db
         resp = cognito.admin_respond_to_auth_challenge(
             request.email, request.challenge, request.session, challenge_responses
         )
-    except ClientError as exc:
-        code = exc.response.get("Error", {}).get("Code", "")
+    except cognito.PROVIDER_ERRORS as exc:
+        code = cognito.provider_error_code(exc)
         if code in (
             "NotAuthorizedException",
             "CodeMismatchException",
@@ -666,8 +666,8 @@ def refresh(
 
     try:
         resp = cognito.refresh_auth(refresh_token, canonical_username)
-    except ClientError as exc:
-        code = exc.response.get("Error", {}).get("Code", "")
+    except cognito.PROVIDER_ERRORS as exc:
+        code = cognito.provider_error_code(exc)
         if code in ("NotAuthorizedException", "UserNotFoundException"):
             _reconcile_status_on_refresh_rejection(user, db)
             raise HTTPException(
@@ -800,8 +800,8 @@ def associate_totp(
     user, _payload = auth
     try:
         secret = cognito.associate_software_token(credentials.credentials)
-    except ClientError as exc:
-        code = exc.response.get("Error", {}).get("Code", "")
+    except cognito.PROVIDER_ERRORS as exc:
+        code = cognito.provider_error_code(exc)
         logger.error("Cognito AssociateSoftwareToken failed: %s", code)
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -846,8 +846,8 @@ def verify_totp(
         cognito.apply_mfa_preference(
             credentials.credentials, user.email, totp_enabled=True
         )
-    except ClientError as exc:
-        code = exc.response.get("Error", {}).get("Code", "")
+    except cognito.PROVIDER_ERRORS as exc:
+        code = cognito.provider_error_code(exc)
         if code in ("CodeMismatchException", "EnableSoftwareTokenMFAException"):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -944,8 +944,8 @@ def enable_email_mfa(
         factors = cognito.apply_mfa_preference(
             credentials.credentials, user.email, email_enabled=True
         )
-    except ClientError as exc:
-        code = exc.response.get("Error", {}).get("Code", "")
+    except cognito.PROVIDER_ERRORS as exc:
+        code = cognito.provider_error_code(exc)
         logger.error("Cognito SetUserMFAPreference (email on) failed: %s", code)
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -1011,8 +1011,8 @@ def disable_email_mfa(
         factors = cognito.apply_mfa_preference(
             credentials.credentials, user.email, email_enabled=False
         )
-    except ClientError as exc:
-        code = exc.response.get("Error", {}).get("Code", "")
+    except cognito.PROVIDER_ERRORS as exc:
+        code = cognito.provider_error_code(exc)
         logger.error("Cognito SetUserMFAPreference (email off) failed: %s", code)
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -1081,8 +1081,8 @@ def forgot_password(request: ForgotPasswordRequest, db: Session = Depends(get_db
 
     try:
         cognito.forgot_password(email)
-    except ClientError as exc:
-        code = exc.response.get("Error", {}).get("Code", "")
+    except cognito.PROVIDER_ERRORS as exc:
+        code = cognito.provider_error_code(exc)
         if code in ("UserNotFoundException", "InvalidParameterException"):
             # Swallow — see the enumeration note above.
             return generic
@@ -1126,8 +1126,8 @@ def confirm_forgot_password(
 
     try:
         cognito.confirm_forgot_password(email, request.code, request.new_password)
-    except ClientError as exc:
-        code = exc.response.get("Error", {}).get("Code", "")
+    except cognito.PROVIDER_ERRORS as exc:
+        code = cognito.provider_error_code(exc)
         if code in ("CodeMismatchException", "ExpiredCodeException"):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -1199,8 +1199,8 @@ def change_password(
         cognito.change_password(
             credentials.credentials, request.current_password, request.new_password
         )
-    except ClientError as exc:
-        code = exc.response.get("Error", {}).get("Code", "")
+    except cognito.PROVIDER_ERRORS as exc:
+        code = cognito.provider_error_code(exc)
         if code == "NotAuthorizedException":
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,

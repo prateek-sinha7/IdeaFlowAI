@@ -47,7 +47,18 @@ interface FilesTabProps {
    *  reconciled against the run's own workspace instead of guessed from the text
    *  the last agent streamed; threading no run id keeps the old derived row. */
   runId?: string | null;
+  /** ISS-665 / ISS-973 — the version tag this run's own files live at. A revision
+   *  family shares ONE sandbox whose live tree is the NEWEST member's, so an older
+   *  member's row, its Download and its Figma export read that tag. Undefined →
+   *  the live tree (every caller that threads none). Null → an older member with
+   *  no tag (ISS-697): no snapshot exists, so the derived row stands rather than
+   *  taking another member's file. */
+  selectedRef?: string | null;
   parentVersionNumber?: number;
+  /** ISS-972 — the parent's own version tag, for the "From v{n-1}" rows. The
+   *  parent is never what the live tree holds, so without a tag its derived rows
+   *  stand. */
+  parentGitTag?: string | null;
   // Workstream C2 (POR §5 D7) — "Run input" section. The raw run input (parsed
   // via C1 parseRunInput → prompt.md) and the answered clarify rounds (rendered
   // via renderClarificationsMarkdown → clarifications.md). BOTH optional and
@@ -165,7 +176,7 @@ interface FileItem {
   // reconciled against the run's own listing (resolveRunDeliverable). Present →
   // name/size came off disk and Download fetches those bytes, so a binary
   // (presentation.pptx) survives; absent → the legacy content-derived row.
-  workspace?: { runId: string; path: string };
+  workspace?: { runId: string; path: string; ref?: string };
 }
 
 // ─── Phase 39-03 — agent initials for the timeline avatar node ────────────────
@@ -483,11 +494,12 @@ function withWorkspaceFile(row: FileItem, runId: string, file: SandboxFile): Fil
     name,
     size: formatSize(file.size),
     format: ext ? `${ext.toUpperCase()} (.${ext})` : row.format,
-    workspace: { runId, path: file.path },
+    // ISS-665 — downloaded at the ref it was resolved at, never the live tree.
+    workspace: { runId, path: file.path, ref: file.ref },
   };
 }
 
-export function FilesTab({ workflowType, userStoryContent, pptContent, prototypeContent, agentOutputs, genericDeliverable, runId, parentRunId, parentVersionNumber, runInput, clarifications, onOpenPreview, runStatus, isRunning, buildingTaskIndex, buildingTaskTotal, buildingFilename }: FilesTabProps) {
+export function FilesTab({ workflowType, userStoryContent, pptContent, prototypeContent, agentOutputs, genericDeliverable, runId, selectedRef, parentRunId, parentVersionNumber, parentGitTag, runInput, clarifications, onOpenPreview, runStatus, isRunning, buildingTaskIndex, buildingTaskTotal, buildingFilename }: FilesTabProps) {
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
   // ─── Figma export guide modal ────────────────────────────────────────────────
   const [figmaModalOpen, setFigmaModalOpen] = useState(false);
@@ -498,6 +510,8 @@ export function FilesTab({ workflowType, userStoryContent, pptContent, prototype
   const figmaStemRef = useRef<string>("prototype");
   // The run id threaded to exportFigmaZip for the Playwright backend path.
   const figmaRunIdRef = useRef<string | null>(null);
+  // ISS-974 — the version tag the backend renders at, captured with the run id.
+  const figmaRefRef = useRef<string | undefined>(undefined);
   // ─── B3 (POR §5 D6) — base-version "From v{n-1}" section state ────────────────
   // Collapsed by default; the parent run's files are fetched LAZILY on first
   // expand (never while collapsed) and cached. baseFetched guards the fetch to
@@ -531,8 +545,10 @@ export function FilesTab({ workflowType, userStoryContent, pptContent, prototype
         // instead of emptying the section.
         try {
           const { resolveRunDeliverable } = await import("@/lib/api");
-          const hit = rows.length > 0
-            ? await resolveRunDeliverable(getToken() || "", parentRunId, parentRun.deliverableFilename)
+          // ISS-972 — the live tree is the NEWEST member's, never the parent's, so
+          // the parent is read at its own tag or not at all.
+          const hit = rows.length > 0 && parentGitTag
+            ? await resolveRunDeliverable(getToken() || "", parentRunId, parentRun.deliverableFilename, parentGitTag)
             : null;
           if (hit) setBaseFiles([withWorkspaceFile(rows[0], parentRunId, hit), ...rows.slice(1)]);
         } catch { /* the derived rows stand */ }
@@ -542,7 +558,7 @@ export function FilesTab({ workflowType, userStoryContent, pptContent, prototype
         setBaseLoading(false);
       }
     }
-  }, [baseOpen, parentRunId]);
+  }, [baseOpen, parentRunId, parentGitTag]);
 
   // ─── ISS-199 — the current run's deliverable, read from its workspace ────────
   // ONE fetch when the run has settled — no polling, mirroring the header
@@ -553,14 +569,15 @@ export function FilesTab({ workflowType, userStoryContent, pptContent, prototype
 
   useEffect(() => {
     setWorkspaceDeliverable(null);
-    if (!runId || isRunning) return;
+    // ISS-665 — null: no snapshot of this member exists (see `selectedRef`).
+    if (!runId || isRunning || selectedRef === null) return;
     let cancelled = false;
     void (async () => {
       try {
         const { resolveRunDeliverable, getToken } = await import("@/lib/api");
         const token = getToken();
         if (!token) return;
-        const hit = await resolveRunDeliverable(token, runId);
+        const hit = await resolveRunDeliverable(token, runId, undefined, selectedRef);
         if (hit && !cancelled) setWorkspaceDeliverable(hit);
       } catch {
         // A workspace that cannot be listed leaves the derived row in place —
@@ -568,7 +585,7 @@ export function FilesTab({ workflowType, userStoryContent, pptContent, prototype
       }
     })();
     return () => { cancelled = true; };
-  }, [runId, isRunning]);
+  }, [runId, isRunning, selectedRef]);
 
   // ── App Builder: split agent outputs into docs + code files (memoized) ───
   const { appBuilderDocFiles, appBuilderCodeFiles } = useMemo(() => {
@@ -737,7 +754,7 @@ export function FilesTab({ workflowType, userStoryContent, pptContent, prototype
       setDownloadingId(file.id);
       try {
         const { getRunSandboxFileBlob, getToken } = await import("@/lib/api");
-        const blob = await getRunSandboxFileBlob(getToken() || "", file.workspace.runId, file.workspace.path);
+        const blob = await getRunSandboxFileBlob(getToken() || "", file.workspace.runId, file.workspace.path, file.workspace.ref);
         const url = URL.createObjectURL(blob);
         // downloadBlob passes a `blob:` string straight through to the anchor.
         downloadBlob(url, file.name, blob.type);
@@ -836,10 +853,10 @@ export function FilesTab({ workflowType, userStoryContent, pptContent, prototype
       setDownloadingId(file.id);
       try {
         let html = prototypeContent || "";
-        if (!html && runId) {
+        if (!html && runId && selectedRef !== null) {
           // Fetch prototype.html bytes from the sandbox for reopened runs.
           const { getRunSandboxFile, getToken } = await import("@/lib/api");
-          html = await getRunSandboxFile(getToken() || "", runId, "prototype.html");
+          html = await getRunSandboxFile(getToken() || "", runId, "prototype.html", selectedRef);
         }
         if (!html) {
           alert("Prototype content not available. Please try again after the run completes.");
@@ -851,7 +868,10 @@ export function FilesTab({ workflowType, userStoryContent, pptContent, prototype
           ? t[1].replace(/[^a-zA-Z0-9\s]/g, "").trim().replace(/\s+/g, "-").toLowerCase().slice(0, 40)
           : file.name.replace(/-figma\.json$/, "");
         figmaHtmlRef.current = html;
-        figmaRunIdRef.current = runId ?? null;
+        // ISS-974 — the server renders this member's tag; with no snapshot (null)
+        // it is skipped for the client-side walk of this run's own html.
+        figmaRunIdRef.current = selectedRef === null ? null : runId ?? null;
+        figmaRefRef.current = selectedRef ?? undefined;
         setFigmaModalOpen(true);
       } catch {
         alert("Could not load prototype content for Figma export. Please try again.");
@@ -861,7 +881,7 @@ export function FilesTab({ workflowType, userStoryContent, pptContent, prototype
     } else {
       downloadBlob(file.content, file.name, file.mimeType);
     }
-  }, [userStoryContent, pptContent, prototypeContent, appBuilderCodeFiles, appBuilderDocFiles, runId]);
+  }, [userStoryContent, pptContent, prototypeContent, appBuilderCodeFiles, appBuilderDocFiles, runId, selectedRef]);
 
   const isAppBuilder = workflowType === "app_builder" || workflowType === "app_builder_revision";
   // Workstream C2 (POR §5 D7) — the "Run input" rows; counted in totalCount so the
@@ -1237,7 +1257,7 @@ export function FilesTab({ workflowType, userStoryContent, pptContent, prototype
       onConfirm={async () => {
         try {
           const { exportFigmaZip } = await import("@/lib/exporters/figmaExporter");
-          await exportFigmaZip(figmaHtmlRef.current, figmaStemRef.current, figmaRunIdRef.current);
+          await exportFigmaZip(figmaHtmlRef.current, figmaStemRef.current, figmaRunIdRef.current, figmaRefRef.current);
         } catch {
           alert("Figma ZIP export failed. Please try again.");
         }

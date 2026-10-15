@@ -241,7 +241,9 @@ describe("ComposerPage — full-page Composer Simple view (41-04)", () => {
   });
 
   it("each agent row renders index, name, role, Core badge (getRole), model picker, override chips, custom prompt + remove", async () => {
-    renderComposer();
+    // BUG-025 — a Core badge only exists on a built-in's own canvas; a bare mount is
+    // a custom composition (/workflows/new), where nothing is core.
+    renderComposer({ builtinCanvasType: "user_stories" });
     // Agent rows are Simple-view content; Canvas is the default view.
     await userEvent.click(screen.getByRole("button", { name: /^Simple$/ }));
     const firstRow = screen.getByTestId("agent-row-domain-analyst");
@@ -447,5 +449,23 @@ describe("ComposerPage — save keeps top-level manifest keys it does not model"
     const [, , payload] = mockSaveUserWorkflow.mock.calls[0] as [string, string | undefined, { manifest?: Record<string, unknown> }];
     expect(payload.manifest).toBeDefined();
     expect((payload.manifest as { limits?: unknown }).limits).toEqual({ max_subagents: 200, max_depth: 2 });
+  });
+
+  // ISS-875 (inverse sibling of ISS-682): capabilities is a modeled key, so the passthrough skips it
+  // and ComposerPage must hydrate it from initialManifest itself.
+  it("a re-saved workflow keeps its capabilities block (ISS-875)", async () => {
+    mockSaveUserWorkflow.mockResolvedValue({ id: "wf-1" });
+    const steps = [
+      { agent: "custom-agent", instance_id: "one", name: "One", prompt: "do one thing", gates: [], depends_on: [] },
+    ];
+    renderComposer({
+      initialName: "Net flow",
+      initialManifestSteps: steps,
+      initialManifest: { steps, capabilities: { internet: true } },
+    });
+    await userEvent.click(screen.getByRole("button", { name: /Save workflow/i }));
+    await waitFor(() => expect(mockSaveUserWorkflow).toHaveBeenCalled());
+    const [, , payload] = mockSaveUserWorkflow.mock.calls[0] as [string, string | undefined, { manifest?: Record<string, unknown> }];
+    expect((payload.manifest as { capabilities?: unknown }).capabilities).toEqual({ internet: true });
   });
 });

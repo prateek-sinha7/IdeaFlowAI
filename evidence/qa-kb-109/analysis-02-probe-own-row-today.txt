@@ -1,0 +1,54 @@
+# QA-KB-109 analysis-02: the real AdminPage at HEAD, signed-in admin's own row (offline, jsdom, module mocks only)
+# date: 2026-10-09   frontend/src/app/admin/page.tsx unmodified (git status clean for that directory)
+# run from frontend/ (temporary node_modules symlink in analysis-plugins/, removed afterwards):
+#   ./node_modules/.bin/vitest run --config ../evidence/qa-kb-109/analysis-plugins/vitest.probe.config.ts
+
+
+ RUN  v4.1.11 /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/frontend
+
+stdout | ../evidence/qa-kb-109/analysis-plugins/adminSelfRow.probe.test.tsx > QA-KB-109 probe: the signed-in admin's own row > [today] P1 inventory: the own row carries the same controls as every other row
+[P1] OWN ROW   admin@velocity.ai: [{"control":"tier dropdown (Enterprise)","disabled":false},{"control":"Remove admin access from admin@velocity.ai","disabled":false},{"control":"Reset password for admin@velocity.ai","disabled":false},{"control":"Disable admin@velocity.ai","disabled":false},{"control":"Delete admin@velocity.ai","disabled":false}]
+[P1] OTHER ADMIN bob@velocity.ai: [{"control":"tier dropdown (Basic)","disabled":false},{"control":"Remove admin access from bob@velocity.ai","disabled":false},{"control":"Reset password for bob@velocity.ai","disabled":false},{"control":"Disable bob@velocity.ai","disabled":false},{"control":"Delete bob@velocity.ai","disabled":false}]
+[P1] PLAIN USER alice@velocity.ai: [{"control":"tier dropdown (Pro)","disabled":false},{"control":"Grant admin access to alice@velocity.ai","disabled":false},{"control":"Reset password for alice@velocity.ai","disabled":false},{"control":"Disable alice@velocity.ai","disabled":false},{"control":"Delete alice@velocity.ai","disabled":false}]
+
+stdout | ../evidence/qa-kb-109/analysis-plugins/adminSelfRow.probe.test.tsx > QA-KB-109 probe: the signed-in admin's own row > [today] P2 clicking Delete then confirming sends the DELETE for the admin's own id; the modal stays open on the 400
+[P2] DELETE sent for own id 11111111-aaaa-bbbb-cccc-000000000001; toast="Failed to delete user"; modal still open=true; server's sentence shown anywhere=false
+
+ ✓ ../evidence/qa-kb-109/analysis-plugins/adminSelfRow.probe.test.tsx > QA-KB-109 probe: the signed-in admin's own row > [today] P1 inventory: the own row carries the same controls as every other row 165ms
+stdout | ../evidence/qa-kb-109/analysis-plugins/adminSelfRow.probe.test.tsx > QA-KB-109 probe: the signed-in admin's own row > [today] P3 the role pill sends the self-demote (the guard b2a621f84 removed)
+[P3] own-row role pill: disabled=false title="Click to remove admin access"
+
+stdout | ../evidence/qa-kb-109/analysis-plugins/adminSelfRow.probe.test.tsx > QA-KB-109 probe: the signed-in admin's own row > [today] P3 the role pill sends the self-demote (the guard b2a621f84 removed)
+[P3] PATCH role is_admin=false sent for own id; toast="You cannot remove your own admin access."
+
+stdout | ../evidence/qa-kb-109/analysis-plugins/adminSelfRow.probe.test.tsx > QA-KB-109 probe: the signed-in admin's own row > [today] P4 Disable sends the disable for the admin's own id
+[P4] POST disable sent for own id; toast="You cannot disable your own account."
+
+ ✓ ../evidence/qa-kb-109/analysis-plugins/adminSelfRow.probe.test.tsx > QA-KB-109 probe: the signed-in admin's own row > [today] P2 clicking Delete then confirming sends the DELETE for the admin's own id; the modal stays open on the 400 103ms
+ ✓ ../evidence/qa-kb-109/analysis-plugins/adminSelfRow.probe.test.tsx > QA-KB-109 probe: the signed-in admin's own row > [today] P3 the role pill sends the self-demote (the guard b2a621f84 removed) 54ms
+ ✓ ../evidence/qa-kb-109/analysis-plugins/adminSelfRow.probe.test.tsx > QA-KB-109 probe: the signed-in admin's own row > [today] P4 Disable sends the disable for the admin's own id 41ms
+stdout | ../evidence/qa-kb-109/analysis-plugins/adminSelfRow.probe.test.tsx > QA-KB-109 probe: the signed-in admin's own row > [today] P5 the tier dropdown keeps showing the refused tier after the server says 400
+[P5] before: trigger label="Enterprise" (server tier for this row: enterprise)
+
+stdout | ../evidence/qa-kb-109/analysis-plugins/adminSelfRow.probe.test.tsx > QA-KB-109 probe: the signed-in admin's own row > [today] P5 the tier dropdown keeps showing the refused tier after the server says 400
+[P5] after the 400 toast "You cannot change your own tier. Ask another administrator.": trigger label="Basic" (the mocked PATCH was rejected, so the server still holds enterprise)
+
+stdout | ../evidence/qa-kb-109/analysis-plugins/adminSelfRow.probe.test.tsx > QA-KB-109 probe: the signed-in admin's own row > [today] P5b the stale badge is cleared only when the row remounts: the refresh button does it (loading state replaces the table)
+[P5b] stale label="Basic"; after the refresh button (adminListUsers calls: 2) label="Enterprise"
+
+ ✓ ../evidence/qa-kb-109/analysis-plugins/adminSelfRow.probe.test.tsx > QA-KB-109 probe: the signed-in admin's own row > [today] P5 the tier dropdown keeps showing the refused tier after the server says 400 59ms
+stdout | ../evidence/qa-kb-109/analysis-plugins/adminSelfRow.probe.test.tsx > QA-KB-109 probe: the signed-in admin's own row > [today] P6 Reset password sends the reset for the admin's own id and the page reports success
+[P6] POST reset-password sent for own id; toast="Temporary password issued; user must change it at next login."
+
+ ✓ ../evidence/qa-kb-109/analysis-plugins/adminSelfRow.probe.test.tsx > QA-KB-109 probe: the signed-in admin's own row > [today] P5b the stale badge is cleared only when the row remounts: the refresh button does it (loading state replaces the table) 84ms
+ ✓ ../evidence/qa-kb-109/analysis-plugins/adminSelfRow.probe.test.tsx > QA-KB-109 probe: the signed-in admin's own row > [today] P6 Reset password sends the reset for the admin's own id and the page reports success 41ms
+ ✓ ../evidence/qa-kb-109/analysis-plugins/adminSelfRow.probe.test.tsx > QA-KB-109 probe: the signed-in admin's own row > [control, must stay green after the fix] P7 another admin's row and a plain row keep every control (the repo's T14 contract) 33ms
+ ✓ ../evidence/qa-kb-109/analysis-plugins/adminSelfRow.probe.test.tsx > QA-KB-109 probe: the signed-in admin's own row > [control, must stay green after the fix] P8 with getMe() carrying no id (as in the repo's T14 tests) no row is treated as the user's own 31ms
+ ✓ ../evidence/qa-kb-109/analysis-plugins/adminSelfRow.probe.test.tsx > QA-KB-109 probe: the signed-in admin's own row > [contract, RED today] C1 the own row has NO Delete control (S-11-04); other rows keep theirs 25ms
+ ✓ ../evidence/qa-kb-109/analysis-plugins/adminSelfRow.probe.test.tsx > QA-KB-109 probe: the signed-in admin's own row > [contract, RED today] C2 the own row offers no live Disable, role-demote, tier or Reset-password control 28ms
+
+ Test Files  1 passed (1)
+      Tests  9 passed | 2 expected fail (11)
+   Start at  16:34:10
+   Duration  1.90s (transform 141ms, setup 107ms, import 338ms, tests 664ms, environment 671ms)
+

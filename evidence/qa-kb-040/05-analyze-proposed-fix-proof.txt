@@ -1,0 +1,28 @@
+# Scratch copy of the REAL frontend/src/hooks/useWorkflow.waveWorkers.test.ts with ONLY lines 37 and 52 changed (toEqual -> toMatchObject).
+# (line 12 differs only because the fixture import was made absolute so the copy runs outside the repo)
+
+## diff repo-test vs fixed copy
+12c12
+< import { runFrames, type ReducerFrame } from "./__fixtures__/reducerHarness";
+---
+> import { runFrames, type ReducerFrame } from "/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/frontend/src/hooks/__fixtures__/reducerHarness";
+37c37
+<     expect(state.agents[0].waveWorkers).toEqual([
+---
+>     expect(state.agents[0].waveWorkers).toMatchObject([
+52c52
+<     expect(state.agents[0].waveWorkers).toEqual([
+---
+>     expect(state.agents[0].waveWorkers).toMatchObject([
+
+## FIXED copy run
+ Test Files  1 passed (1)
+      Tests  10 passed (10)
+
+## CONTROL: unmodified copy run in the same harness
+     × folds a worker's agent_start into the parent's waveWorkers, not a second agent row 9ms
+     × a worker's agent_complete marks its own child row done without touching the parent's status 2ms
+ FAIL  waveWorkers.control.test.ts > wave worker nesting (agent_start/agent_complete with task_id) > folds a worker's agent_start into the parent's waveWorkers, not a second agent row
+ FAIL  waveWorkers.control.test.ts > wave worker nesting (agent_start/agent_complete with task_id) > a worker's agent_complete marks its own child row done without touching the parent's status
+ Test Files  1 failed (1)
+      Tests  2 failed | 8 passed (10)

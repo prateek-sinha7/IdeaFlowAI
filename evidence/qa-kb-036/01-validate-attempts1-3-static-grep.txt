@@ -1,0 +1,28 @@
+# QA-KB-036 static repro, 3 cold runs 2026-10-01
+== run 1
+840:        # FIX-247: the degraded verdict must track only the LATEST pipeline_complete, not
+1031:# NULL" — plain ``None`` could not carry that distinction (FIX-247: _reconcile_terminal_status
+        degraded = bool(
+            _latest_complete is not None
+            and isinstance(_latest_complete.payload_json, dict)
+            and _latest_complete.payload_json.get("status") == "degraded"
+        )
+140:                        "degraded: agent(s) failed: " + ", ".join(degraded_agents)
+== run 2
+840:        # FIX-247: the degraded verdict must track only the LATEST pipeline_complete, not
+1031:# NULL" — plain ``None`` could not carry that distinction (FIX-247: _reconcile_terminal_status
+        degraded = bool(
+            _latest_complete is not None
+            and isinstance(_latest_complete.payload_json, dict)
+            and _latest_complete.payload_json.get("status") == "degraded"
+        )
+140:                        "degraded: agent(s) failed: " + ", ".join(degraded_agents)
+== run 3
+840:        # FIX-247: the degraded verdict must track only the LATEST pipeline_complete, not
+1031:# NULL" — plain ``None`` could not carry that distinction (FIX-247: _reconcile_terminal_status
+        degraded = bool(
+            _latest_complete is not None
+            and isinstance(_latest_complete.payload_json, dict)
+            and _latest_complete.payload_json.get("status") == "degraded"
+        )
+140:                        "degraded: agent(s) failed: " + ", ".join(degraded_agents)

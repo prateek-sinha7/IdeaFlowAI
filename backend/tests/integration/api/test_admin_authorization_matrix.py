@@ -1041,6 +1041,28 @@ class TestDisableUserAuthorization:
         assert second.status_code == 409
 
 
+class TestResetPasswordSelfAction:
+    """POST /api/admin/users/{user_id}/reset-password under the FIX-310
+    self-action policy that tier, role, disable and delete already meet."""
+
+    @pytest.mark.issue("ISS-1170")
+    def test_reset_password_cannot_target_self(self, admin_api_client, admin_user):
+        """Accepting it revokes the admin's own session and replaces their
+        password with a temporary one nobody is shown."""
+        admin_id, token = admin_user
+        headers = {"Authorization": f"Bearer {token}"}
+
+        resp = admin_api_client.post(
+            f"/api/admin/users/{admin_id}/reset-password", json={}, headers=headers
+        )
+        assert resp.status_code == 400
+        assert "own" in resp.json().get("detail", "").lower()
+
+        # Nothing was done to the account: the admin's session still works.
+        probe = admin_api_client.get("/api/auth/me", headers=headers)
+        assert probe.status_code == 200
+
+
 class TestEnableUserAuthorization:
     """Test POST /api/admin/users/{user_id}/enable (Phase 3, Decision 6)."""
 

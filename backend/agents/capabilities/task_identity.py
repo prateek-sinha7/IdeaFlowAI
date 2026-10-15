@@ -168,3 +168,21 @@ def common_prefix_length(current_keys: list[str], completed_ordered: list[str]) 
             break
         p += 1
     return p
+
+
+def parse_step_tasks(
+    parser, reply_text: str, *, sandbox=None, target: str | None = None
+) -> list[Task]:
+    """Parse a step's task list the ONE way every ``task_parser`` consumer must (ISS-685).
+
+    A parser that can read the task file the producer wrote (``parse_preferring_target``,
+    FIX-545) reads ``target`` from ``sandbox`` first and falls back to ``reply_text``;
+    any other parser parses the reply. The strategies AND the engine's resume
+    reconcilers route through here, so a reconciler recomputes its task keys from the
+    same list the strategy persisted them from. ``sandbox`` is duck-typed (``.read``).
+    """
+    if hasattr(parser, "parse_preferring_target"):
+        return parser.parse_preferring_target(
+            reply_text, sandbox=sandbox, target=target
+        )
+    return parser.parse(reply_text)

@@ -1,0 +1,164 @@
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - ESM syntax in a file loaded as CommonJS (vitest.config.ts:1:1). Use a `.mjs` extension or set `"type": "module"` in the closest package.json
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+
+ RUN  v4.1.11 /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/frontend
+
+ ❯ src/app/[...view]/runTabShallowNav.test.ts (3 tests | 1 failed) 8ms
+     × the tab handler pushes history directly, never through the router 6ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/app/[...view]/runTabShallowNav.test.ts > BUG-030 — run tab switching stays shallow > the tab handler pushes history directly, never through the router
+AssertionError: expected 'const handlePreviewPanelTabSelect = u…' not to contain 'router.push'
+
+- Expected
++ Received
+
+- router.push
++ const handlePreviewPanelTabSelect = useCallback((tab: string, version?: string | null) => {
++     if (!contentSourceRunId) return;
++
++     const pin = version === undefined ? pinnedVersion : (version ?? undefined);
++
++     const routeMap: Record<string, string> = {
++       "preview": routes.runDetail(contentSourceRunId, pin),
++       "thinking": routes.runSteps(contentSourceRunId, pin),
++       "files": routes.runFiles(contentSourceRunId, pin),
++       "workspace": routes.runWorkspace(contentSourceRunId, pin),
++       "audit": routes.runAudit(contentSourceRunId, pin),
++     };
++
++     const targetRoute = routeMap[tab];
++     if (!targetRoute || targetRoute === window.location.pathname) return;
++
++     window.history.pushState(null, "", targetRoute);
++   }, [contentSourceRunId, pinnedVersion]);
++
++   const handleOpenLiveRun = useCallback((runId: string, tab: string) => {
++     const routeFor: Record<string, (id: string) => string> = {
++       preview: routes.runDetail, thinking: routes.runSteps, files: routes.runFiles,
++       workspace: routes.runWorkspace, audit: routes.runAudit,
++     };
++     router.push((routeFor[tab] ?? routes.runDetail)(runId));
++   }, [router]);
++
++   const runConnection = useRunConnection();
++   const chainInto = useWorkflowChaining();
++   const [mainView, setMainView] = useState<MainView>(() => {
++     if (initialMainView) {
++       return initialMainView;
++     }
++     if (typeof window !== "undefined" && (
++       sessionStorage.getItem("prototype.pending") ||
++       sessionStorage.getItem("ppt.pending")
++     )) {
++       return "execution";
++     }
++     return "home";
++   });
++   useEffect(() => {
++     if (initialMainView && initialMainView !== mainView) {
++       setMainView(initialMainView);
++     }
++   }, [initialMainView, mainView]);
++
++   useEffect(() => {
++     if (mainView === "history") rememberBackOrigin("runs", window.location.pathname + window.location.search);
++     else if (mainView === "home") rememberBackOrigin("dashboard", routes.dashboard());
++   }, [mainView]);
++
++   const [settingsRequest, setSettingsRequest] = useState<{ section: SettingsSection; nonce: number }>(
++     () => ({ section: initialSettingsSection ?? "profile", nonce: 0 }),
++   );
++   useEffect(() => {
++     if (initialSettingsSection && initialSettingsSection !== settingsRequest.section) {
++       setSettingsRequest((prev) => ({ section: initialSettingsSection, nonce: prev.nonce + 1 }));
++     }
++   }, [initialSettingsSection, settingsRequest.section]);
++   const [workflowType, setWorkflowType] = useState<WorkflowType>(() => {
++     if (initialWorkflowType) return initialWorkflowType as WorkflowType;
++     if (typeof window !== "undefined") {
++       if (sessionStorage.getItem("prototype.pending")) return "prototype";
++       if (sessionStorage.getItem("ppt.pending")) return "ppt";
++     }
++     return "user_stories";
++   });
++   const [workflowInput, setWorkflowInput] = useState("");
++   const [completedPipelineTypes, setCompletedPipelineTypes] = useState<WorkflowType[]>([]);
++   const [lastPipelineOutput, setLastPipelineOutput] = useState<string>("");
++   const [resumeError, setResumeError] = useState<string | null>(null);
++   const [runRestarting, setRunRestarting] = useState(false);
++   const [questionnaireQuestions, setQuestionnaireQuestions] = useState<{
++     id: string; question: string; options: string[]; answerType?: string;
++     recommendedAnswer?: string; recommendedReasoning?: string;
++     recommendedDisplay?: string; ambiguityCategory?: string; impactLevel?: string;
++   }[]>([]);
++   const [questionnaireLoading, setQuestionnaireLoading] = useState(false);
++   const [clarifyPreparing, setClarifyPreparing] = useState(false);
++   const [pendingPipelineRun, setPendingPipelineRun] = useState<{
++     type: WorkflowType;
++     message: string;
++     agentIds?: string[];
++     extraParams?: {
++       template_id?: string;
++       design_system_id?: string;
++       custom_ds_body?: string;
++       custom_template_body?: string;
++       discovery?: unknown;
++     };
++   } | null>(null);
++
++   const {
++     attachedHooks,
++     attachHook,
++     clearAll: clearAttachedSkillsHooks,
++   } = useSkillsHooks();
++
++   const {
++     notifications,
++     unreadCount,
++     addRunningNotification,
++     updateProgress,
++     updateAgentsTotal,
++     markCompleted,
++     markFailed,
++     markCancelled,
++     markGatePaused,
++     markGateResumed,
++     setNotifWorkflowRunId,
++     markAllRead,
++     dismissOne,
++     clearAll,
++   } = useNotifications();
++   const [toasts, setToasts] = useState<ToastItem[]>([]);
++   const currentPipelineNotifId = useRef<string | null>(null);
++   const currentPipelineNotifRunId = useRef<string | null>(null);
++   const odProtoNotifId = useRef<string | null>(null);
++   const odPptNotifId = useRef<string | null>(null);
++   const cancelNavigatingHomeRef = useRef(false);
++
++   const [runFamily, setRunFamily] = useState<RunFamily | null>(null);
++   useEffect(() => {
++     if (!contentSourceRunId) { setRunFamily(null); return; }
++     getRunFamily(getToken() || "", contentSourceRunId)
++       .then(setRunFamily)
++       .catch(() => setRunFamily(null));
++   
+
+ ❯ src/app/[...view]/runTabShallowNav.test.ts:44:22
+     42|     const body = tabSelectBody();
+     43|     expect(body).toContain("window.history.pushState");
+     44|     expect(body).not.toContain("router.push");
+       |                      ^
+     45|   });
+     46|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 2 passed (3)
+   Start at  03:15:26
+   Duration  591ms (transform 20ms, setup 52ms, import 10ms, tests 8ms, environment 417ms)
+

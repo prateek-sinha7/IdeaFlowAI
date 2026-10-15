@@ -1,0 +1,71 @@
+interpreters: OLD=/usr/bin/python3 (3.9.6)  GOOD=/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/.venv/bin/python (3.13.14)
+sandbox: /private/tmp/claude-502/qa-kb-051-sandbox.2r2YGK
+
+== 1. converge under GOOD interpreter
+exit=0
+  INDEX.md   sha=e2116eb2d753  header: 1774 cards. 
+  state.yaml sha=f0ab0b9e82e1  cards_count: 1774 | last_sync_date: '2026-10-01' | last_sync_commit: 3b08b2ba8457
+  CONTEXT.md sha=10ea72e310b4  cards_indexed: 1774
+
+== 2. add one card, cards-only rebuild under OLD interpreter
+Rebuilding .knowledge/ (3 stages)
+
+[1/3] index  (build_index.py)
+  Related blocks: 0 card(s) updated
+  INDEX.md: updated
+    note: no git HEAD (no commits yet, or not a checkout) -- recording an empty commit in state.yaml
+  state.yaml: updated
+  INDEX.md total lines: 1792
+  cards indexed: 1775
+  by_type: {'adr': 57, 'bug': 147, 'fix': 702, 'issue': 869} sum=1775
+  description source counts: {'compact_summary': 1767, 'title': 2, 'body': 6, 'none': 0}
+  cards with no usable description: []
+  state.yaml parses OK: True
+
+[2/3] context  (build_context.py)
+  Wrote /private/tmp/claude-502/qa-kb-051-sandbox.2r2YGK/.knowledge/CONTEXT.md (12388 chars, ~3097 tokens)
+  cards_indexed=1775 modules_indexed=37
+    adr: 57 total, 6 open/active
+    issue: 869 total, 210 open/active
+    bug: 147 total, 8 open/active
+    fix: 702 total, 157 open/active
+
+[3/3] validate  (validate_links.py)
+  Card filenames checked: 1775
+  Card cross-refs checked: 4949
+  Total local links checked: 19425
+  Resolved: 19425
+  Broken: 0
+
+All stages completed.
+Regenerated files are uncommitted -- review and commit them yourself.
+exit=0
+
+== 3. state after the failed run (expect INDEX/state advanced, CONTEXT stale)
+  INDEX.md   sha=62f3bb96569e  header: 1775 cards. 
+  state.yaml sha=cb8cde35784e  cards_count: 1775 | last_sync_date: '2026-10-01' | last_sync_commit: 3b08b2ba8457
+  CONTEXT.md sha=04583095f633  cards_indexed: 1775
+
+== 4. sync-point stamp under OLD interpreter (watermark = last_sync_*)
+before:
+last_sync_commit: 3b08b2ba84575d405b6e97f8006f053ca6b5b30d
+last_sync_date: '2026-10-01'
+exit=0
+after (sandbox has no HEAD so the commit is '' here; in the real repo it is HEAD's sha):
+last_sync_commit: ''
+last_sync_date: '2026-10-02'
+CONTEXT.md still: cards_indexed: 1776
+
+== 5. patch ONLY the sandbox copy (write_bytes keeps LF on every OS) and re-run under OLD interpreter
+build_context.py no longer carries the newline= call - already fixed? nothing to patch
+[1/3] index  (build_index.py)
+[2/3] context  (build_context.py)
+[3/3] validate  (validate_links.py)
+  Resolved: 19432
+  Broken: 0
+All stages completed.
+exit=0
+  INDEX.md   sha=fb9547e658bc  header: 1776 cards. 
+  state.yaml sha=73bfc06bbe6a  cards_count: 1776 | last_sync_date: '2026-10-02' | last_sync_commit: ''
+  CONTEXT.md sha=945680b8278c  cards_indexed: 1776
+  CR bytes in CONTEXT.md: 0

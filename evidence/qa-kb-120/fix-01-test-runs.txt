@@ -1,0 +1,59 @@
+QA-KB-120 fix phase, 2026-10-09T15:27Z, HEAD ef84b09a3, from backend/, ./.venv/bin/python -m pytest <file> -q -p no:cacheprovider
+BEFORE = agents.execution_engine.engine exec'd from HEAD source (fix-00-run-with-head-engine.py, working tree untouched); AFTER = working tree
+
+== red test tests/agents/test_flat_payload_unmaterialized_output.py
+BEFORE: 3 xfailed, 4 warnings in 2.22s
+AFTER:  [XPASS(strict)] ISS-1159 unfixed [XPASS(strict)] ISS-1159 unfixed WARNING  agents.execution_engine.engine:engine.py:1656 build_flat_payload: failed to copy output file for run=e4b4396a-5c8c-4693-9cc7-2c53815e07ee [XPASS(strict)] ISS-1159 unfixed 3 failed, 5 warnings in 2.16s 
+AFTER PYTHONHASHSEED=0: XPASS(strict) count=3
+AFTER PYTHONHASHSEED=1: XPASS(strict) count=3
+AFTER PYTHONHASHSEED=2: XPASS(strict) count=3
+AFTER PYTHONHASHSEED=3: XPASS(strict) count=3
+AFTER PYTHONHASHSEED=4: XPASS(strict) count=3
+AFTER PYTHONHASHSEED=5: XPASS(strict) count=3
+AFTER PYTHONHASHSEED=6: XPASS(strict) count=3
+AFTER PYTHONHASHSEED=7: XPASS(strict) count=3
+
+== the three FakeSandbox tests ISS-1179 says walk the failure: count of 'stage_exact failed' WARN records
+BEFORE: 3
+AFTER:  0
+
+== regression, AFTER, one file at a time
+tests/agents/test_finalizer_v2.py: 47 passed, 45 warnings in 21.99s
+tests/unit/app/test_binary_deliverable.py: 8 passed, 6 warnings in 1.73s
+tests/agents/test_streamed_text_payload_v3.py: 8 passed, 12 warnings in 4.09s
+tests/agents/test_serialized_sandbox_payload_v3.py: 3 passed, 6 warnings in 2.09s
+tests/agents/test_streamed_text_payload_parity.py: 3 passed, 6 warnings in 1.91s
+tests/agents/test_nameless_deliverable_v3.py: 3 passed, 6 warnings in 2.43s
+tests/agents/test_revision_ordinal_v3.py: 8 passed, 12 warnings in 14.05s
+tests/agents/test_version_family_v5.py: 2 passed, 14 warnings in 21.18s
+tests/unit/agents/test_phase3_cutover_verify.py: 4 passed, 2 warnings in 2.07s
+tests/agents/test_rollback_safety.py: 4 failed, 19 passed, 3 warnings in 4.37s
+
+== tests/agents/test_rollback_safety.py, the 4 failures, BEFORE vs AFTER (pre-existing: ImportError _render_summary_text, select_legacy_payload signature, list_prefix on its doubles)
+BEFORE: 4 failed, 19 passed, 2 warnings in 4.11s
+BEFORE FAILED tests/agents/test_rollback_safety.py::TestR1IgnoresUnknownChainFiles::test_legacy_payload_selection_ignores_flat_chain_files
+BEFORE FAILED tests/agents/test_rollback_safety.py::TestR4FeatureDetectionNoBooleanFlag::test_summary_md_carries_schema_version_field
+BEFORE FAILED tests/agents/test_rollback_safety.py::TestR6LegacySelectDoesNotConfuseV2Layout::test_flat_chain_files_not_selected_as_legacy_payload
+BEFORE FAILED tests/agents/test_rollback_safety.py::TestR6LegacySelectDoesNotConfuseV2Layout::test_chain_legacy_dir_selected_not_chain_flat
+AFTER  FAILED tests/agents/test_rollback_safety.py::TestR1IgnoresUnknownChainFiles::test_legacy_payload_selection_ignores_flat_chain_files
+AFTER  FAILED tests/agents/test_rollback_safety.py::TestR4FeatureDetectionNoBooleanFlag::test_summary_md_carries_schema_version_field
+AFTER  FAILED tests/agents/test_rollback_safety.py::TestR6LegacySelectDoesNotConfuseV2Layout::test_flat_chain_files_not_selected_as_legacy_payload
+AFTER  FAILED tests/agents/test_rollback_safety.py::TestR6LegacySelectDoesNotConfuseV2Layout::test_chain_legacy_dir_selected_not_chain_flat
+HEAD engine.py defines _render_summary_text: 0
+
+== lint-imports (AFTER)
+kernel imports only capability ports (scaffold) BROKEN
+agents.workflows must not import the execution kernel or the web layer KEPT
+agents.capabilities must not import the execution kernel or the web layer BROKEN
+agents.runtime must not import the execution kernel or the web layer KEPT
+shipped code must not import the build-time tooling package KEPT
+Contracts: 3 kept, 2 broken.
+
+== lint-imports BEFORE: git archive HEAD 179239efa (backend/agents app tools pyproject.toml) into the scratchpad, same venv
+kernel imports only capability ports (scaffold) BROKEN
+agents.workflows must not import the execution kernel or the web layer KEPT
+agents.capabilities must not import the execution kernel or the web layer BROKEN
+agents.runtime must not import the execution kernel or the web layer KEPT
+shipped code must not import the build-time tooling package KEPT
+Contracts: 3 kept, 2 broken.
+BEFORE engine edges: 3 lines; AFTER engine edges: 3 lines (same edges, line numbers +5)

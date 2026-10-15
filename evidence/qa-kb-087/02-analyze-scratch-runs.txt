@@ -1,0 +1,82 @@
+# Scratch variants of AccountSettings.iss372.test.tsx, built by make_variants.py from the official file (no repo file edited).
+# Config: vitest.config.mts (root = scratch dir, alias @ -> frontend/src, same setup file as frontend/vitest.config.ts).
+# Run at 2026-10-02 11:12 CEST, vitest v4.1.11
+
+### A  a1_asis: it.fails -> it only, :83 intact (BUGS.md reproduction step 2, on a scratch copy)
+$ vitest run --config vitest.config.mts a1_asis --reporter=verbose -t ISS-921
+ × a1_asis.test.tsx > ISS-921 — Constitution draft counts as unsaved work > reports dirty after the Constitution draft is edited (not before it loads) 1284ms
+   → expected "vi.fn()" to be called at least once
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+AssertionError: expected "vi.fn()" to be called at least once
+ ❯ a1_asis.test.tsx:83:39
+ Test Files  1 failed (1)
+      Tests  1 failed | 3 skipped (4)
+
+### A  DOM at the moment the :83 waitFor timed out (grep of the failure dump)
+191:              <textarea
+192:                aria-label="Constitution content"
+(a <textarea aria-label="Constitution content"> is present and there is no animate-spin spinner line: the load had finished and the textarea was mounted when waitFor(fetch) gave up)
+
+### B  b1_fixed: :83 deleted + waitFor import dropped + it.fails -> it (the proposed fix)
+$ vitest run --config vitest.config.mts b1_fixed --reporter=verbose  
+ ✓ b1_fixed.test.tsx > ISS-372 — AccountSettings reports unsaved work to the Back guard > reports dirty after Current password is typed 124ms
+ ✓ b1_fixed.test.tsx > ISS-372 — AccountSettings reports unsaved work to the Back guard > is not dirty on mount, and clears when the field is emptied 33ms
+ ✓ b1_fixed.test.tsx > ISS-372 — AccountSettings reports unsaved work to the Back guard > DashboardLayout feeds the AccountSettings mount into the guard 2ms
+ ✓ b1_fixed.test.tsx > ISS-921 — Constitution draft counts as unsaved work > reports dirty after the Constitution draft is edited (not before it loads) 212ms
+ Test Files  1 passed (1)
+      Tests  4 passed (4)
+
+### C  c1_delegated: :83 kept, :16 getConstitution delegated to fetch as AccountSettings.render.test.tsx:53-56 does
+$ vitest run --config vitest.config.mts c1_delegated --reporter=verbose  
+ ✓ c1_delegated.test.tsx > ISS-372 — AccountSettings reports unsaved work to the Back guard > reports dirty after Current password is typed 115ms
+ ✓ c1_delegated.test.tsx > ISS-372 — AccountSettings reports unsaved work to the Back guard > is not dirty on mount, and clears when the field is emptied 33ms
+ ✓ c1_delegated.test.tsx > ISS-372 — AccountSettings reports unsaved work to the Back guard > DashboardLayout feeds the AccountSettings mount into the guard 1ms
+ ✓ c1_delegated.test.tsx > ISS-921 — Constitution draft counts as unsaved work > reports dirty after the Constitution draft is edited (not before it loads) 216ms
+ Test Files  1 passed (1)
+      Tests  4 passed (4)
+
+### D  d1_nonempty: variant B with a saved constitution of 'saved rules', real component
+$ vitest run --config vitest.config.mts d1_nonempty --reporter=verbose -t ISS-921
+ ✓ d1_nonempty.test.tsx > ISS-921 — Constitution draft counts as unsaved work > reports dirty after the Constitution draft is edited (not before it loads) 312ms
+ Test Files  1 passed (1)
+      Tests  1 passed | 3 skipped (4)
+
+### E  e1_mutant_empty: variant B against a component whose load forgets setLoadedValue(loaded) (AccountSettings.tsx:635), saved constitution empty
+$ vitest run --config vitest.config.mts e1_mutant_empty --reporter=verbose  
+ ✓ e1_mutant_empty.test.tsx > ISS-372 — AccountSettings reports unsaved work to the Back guard > reports dirty after Current password is typed 121ms
+ ✓ e1_mutant_empty.test.tsx > ISS-372 — AccountSettings reports unsaved work to the Back guard > is not dirty on mount, and clears when the field is emptied 32ms
+ ✓ e1_mutant_empty.test.tsx > ISS-372 — AccountSettings reports unsaved work to the Back guard > DashboardLayout feeds the AccountSettings mount into the guard 1ms
+ ✓ e1_mutant_empty.test.tsx > ISS-921 — Constitution draft counts as unsaved work > reports dirty after the Constitution draft is edited (not before it loads) 220ms
+ Test Files  1 passed (1)
+      Tests  4 passed (4)
+
+### F  f1_mutant_nonempty: same mutant, saved constitution 'saved rules'
+$ vitest run --config vitest.config.mts f1_mutant_nonempty --reporter=verbose -t ISS-921
+ ✓ f1_mutant_nonempty.test.tsx > ISS-921 — Constitution draft counts as unsaved work > reports dirty after the Constitution draft is edited (not before it loads) 311ms
+ Test Files  1 passed (1)
+      Tests  1 passed | 3 skipped (4)
+
+### G  g1_mutant_sources: the FIX-704 sources file against the same mutant
+$ vitest run --config vitest.config.mts g1_mutant_sources --reporter=verbose  
+ ✓ g1_mutant_sources.test.tsx > ISS-372 — an unsaved model pick is unsaved work > picking a model is dirty, picking the saved one back is clean 122ms
+ ✓ g1_mutant_sources.test.tsx > ISS-921 — a saved or discarded Constitution draft is not unsaved work > a draft saved with surrounding whitespace is clean 86ms
+ ✓ g1_mutant_sources.test.tsx > ISS-921 — a saved or discarded Constitution draft is not unsaved work > a draft thrown away with Discard is clean 75ms
+ Test Files  1 passed (1)
+      Tests  3 passed (3)
+
+### H  h1_real_sources: the FIX-704 sources file against the real component (harness sanity)
+$ vitest run --config vitest.config.mts h1_real_sources --reporter=verbose  
+ ✓ h1_real_sources.test.tsx > ISS-372 — an unsaved model pick is unsaved work > picking a model is dirty, picking the saved one back is clean 124ms
+ ✓ h1_real_sources.test.tsx > ISS-921 — a saved or discarded Constitution draft is not unsaved work > a draft saved with surrounding whitespace is clean 86ms
+ ✓ h1_real_sources.test.tsx > ISS-921 — a saved or discarded Constitution draft is not unsaved work > a draft thrown away with Discard is clean 75ms
+ Test Files  1 passed (1)
+      Tests  3 passed (3)
+
+### D' d1_nonempty, the WHOLE file (not only the ISS-921 case): a saved constitution 'saved rules' leaves ISS-372 cases 1-3 untouched
+$ vitest run --config vitest.config.mts d1_nonempty --reporter=verbose
+ ✓ d1_nonempty.test.tsx > ISS-372 — AccountSettings reports unsaved work to the Back guard > reports dirty after Current password is typed 124ms
+ ✓ d1_nonempty.test.tsx > ISS-372 — AccountSettings reports unsaved work to the Back guard > is not dirty on mount, and clears when the field is emptied 35ms
+ ✓ d1_nonempty.test.tsx > ISS-372 — AccountSettings reports unsaved work to the Back guard > DashboardLayout feeds the AccountSettings mount into the guard 1ms
+ ✓ d1_nonempty.test.tsx > ISS-921 — Constitution draft counts as unsaved work > reports dirty after the Constitution draft is edited (not before it loads) 211ms
+ Test Files  1 passed (1)
+      Tests  4 passed (4)

@@ -359,4 +359,24 @@ describe('routes - round-trip tests', () => {
       expect(parsed).toEqual({ screen: 'unknown' });
     });
   });
+  // Arity guards: a sub-path under a single-segment screen must be `unknown` (-> 404).
+  // it.fails = red today; remove `.fails` when the fix lands.
+  describe('extra segments after single-segment screens', () => {
+    // ISS-348 / QA-KB-012: routes.ts head === 'login' lacks segments.length === 1
+    it('ISS-348: /login/<sub-path> is unknown', () => {
+      expect(parseViewPath(['login', 'x'])).toEqual({ screen: 'unknown' });
+    });
+    // ISS-349 / QA-KB-013: routes.ts head === 'admin' lacks segments.length === 1
+    it('ISS-349: /admin/<sub-path> is unknown', () => {
+      expect(parseViewPath(['admin', 'x'])).toEqual({ screen: 'unknown' });
+    });
+    // ISS-910: head === 'dashboard' lacks the guard
+    it('ISS-910: /dashboard/<sub-path> is unknown', () => {
+      expect(parseViewPath(['dashboard', 'x'])).toEqual({ screen: 'unknown' });
+    });
+    // ISS-911: trailing segment after a valid verb
+    it('ISS-911: /settings/profile/<extra> is unknown', () => {
+      expect(parseViewPath(['settings', 'profile', 'x'])).toEqual({ screen: 'unknown' });
+    });
+  });
 });

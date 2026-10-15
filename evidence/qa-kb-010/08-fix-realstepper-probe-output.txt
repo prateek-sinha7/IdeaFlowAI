@@ -1,0 +1,21 @@
+QA-KB-010 / ISS-189 fix — real-WizardStepper probe (source: 07-fix-realstepper-probe.test.tsx.txt).
+Scratch vitest config: jsdom, frontend/vitest.setup.ts, '@' -> frontend/src. 'current' = working-tree LaunchWizard.tsx (with the fix); 'head' = git show HEAD:frontend/src/components/workflow/LaunchWizard.tsx (pre-fix; differs from current only in the ISS-189 hunk).
+Only the two template galleries, DesignSystemPicker, ReviewGatesSection, AgentsPopup and NameWorkflowModal are stubbed; WizardStepper and Tabs are real.
+
+ ✓ realstepper.test.tsx > current ppt > DS-requiring template: DS tab mounts the picker, Continue enables, draft carries the DS 266ms
+ ✓ realstepper.test.tsx > current ppt > non-DS template: only the Template tab, Continue enables with no DS 102ms
+ ✓ realstepper.test.tsx > current ppt_v2 > DS-requiring template: DS tab mounts the picker, Continue enables, draft carries the DS 143ms
+ ✓ realstepper.test.tsx > current ppt_v2 > non-DS template: only the Template tab, Continue enables with no DS 105ms
+ × realstepper.test.tsx > head ppt > DS-requiring template: DS tab mounts the picker, Continue enables, draft carries the DS 107ms
+   → Unable to find an element by: [data-testid="tab-design-system"]
+ ✓ realstepper.test.tsx > head ppt > non-DS template: only the Template tab, Continue enables with no DS 86ms
+ × realstepper.test.tsx > head ppt_v2 > DS-requiring template: DS tab mounts the picker, Continue enables, draft carries the DS 59ms
+   → Unable to find an element by: [data-testid="tab-design-system"]
+ ✓ realstepper.test.tsx > head ppt_v2 > non-DS template: only the Template tab, Continue enables with no DS 60ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+ FAIL  realstepper.test.tsx > head ppt > DS-requiring template: DS tab mounts the picker, Continue enables, draft carries the DS
+TestingLibraryElementError: Unable to find an element by: [data-testid="tab-design-system"]
+ FAIL  realstepper.test.tsx > head ppt_v2 > DS-requiring template: DS tab mounts the picker, Continue enables, draft carries the DS
+TestingLibraryElementError: Unable to find an element by: [data-testid="tab-design-system"]
+ Test Files  1 failed (1)
+      Tests  2 failed | 6 passed (8)

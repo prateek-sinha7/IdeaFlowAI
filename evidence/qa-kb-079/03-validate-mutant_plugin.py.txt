@@ -1,0 +1,23 @@
+import os
+async def mutant(self, run_id, seq, event_id, type, payload_json, _max_attempts=8):
+    from sqlalchemy.exc import IntegrityError
+    attempt_seq = int(seq); last=None
+    for _ in range(max(1,_max_attempts)):
+        try:
+            await self.append_event(run_id, attempt_seq, event_id, type, payload_json)
+            return attempt_seq
+        except IntegrityError as r:
+            last=r
+            if self._session is not None: self._session.rollback()
+            tail = await self._max_event_seq(run_id)
+            if tail < attempt_seq: raise
+            attempt_seq = tail+1
+            if isinstance(payload_json, dict) and "seq" in payload_json:
+                if os.environ.get("MUT")=="inplace":
+                    payload_json["seq"] = attempt_seq
+                else:  # first hop only copy: restamp only once
+                    payload_json = {**payload_json, "seq": attempt_seq} if payload_json["seq"]==seq else payload_json
+    raise last
+def pytest_runtest_setup(item):
+    import agents.authz as authz
+    authz.ScopedStore.append_event_at_or_after = mutant

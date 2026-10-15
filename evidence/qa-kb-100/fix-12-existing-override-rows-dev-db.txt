@@ -1,0 +1,5 @@
+# QA-KB-100 fix 12: existing override rows in the dev DB (velocity-local-db on localhost:5432), and whether their steps pass the new trust="user" check (2026-10-08T12:44Z)
+# cmd: cd backend && PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=. .venv/bin/python ../evidence/qa-kb-100/fix-plugins/query_existing_override_rows.py
+# read-only: SET TRANSACTION READ ONLY, one SELECT, no write.
+query: SELECT id, user_id, overrides_pipeline_type, override_enabled, manifest_json (steps compiled below, not printed) FROM workflows WHERE overrides_pipeline_type IS NOT NULL ORDER BY overrides_pipeline_type, id
+0 override row(s)

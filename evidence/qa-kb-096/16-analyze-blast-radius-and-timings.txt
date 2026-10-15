@@ -1,0 +1,63 @@
+# QA-KB-096 analysis, 2026-10-07 — blast radius and timings (read-only GETs against :8000 as admin@velocity.ai; read-only greps; no token printed)
+
+## A. every non-test reader of the sandbox file endpoints and of the shared resolver (grep, HEAD 2005a0a6b)
+frontend/src/components/results/FilesTab.tsx:551:            ? await resolveRunDeliverable(getToken() || "", parentRunId, parentRun.deliverableFilename, parentGitTag)
+frontend/src/components/results/FilesTab.tsx:580:        const hit = await resolveRunDeliverable(token, runId, undefined, selectedRef);
+frontend/src/components/results/FilesTab.tsx:756:        const { getRunSandboxFileBlob, getToken } = await import("@/lib/api");
+frontend/src/components/results/FilesTab.tsx:757:        const blob = await getRunSandboxFileBlob(getToken() || "", file.workspace.runId, file.workspace.path, file.workspace.ref);
+frontend/src/components/results/FilesTab.tsx:859:          html = await getRunSandboxFile(getToken() || "", runId, "prototype.html", selectedRef);
+frontend/src/components/results/SandboxTab.tsx:68:  getRunSandboxFileBlob,
+frontend/src/components/results/SandboxTab.tsx:1212:          ? getRunSandboxFile(token, runId, file.path, ref).then(setContent)
+frontend/src/components/results/SandboxTab.tsx:1213:          : getRunSandboxFileBlob(token, runId, file.path, ref).then((blob) =>
+frontend/src/components/results/SandboxTab.tsx:1233:    getRunSandboxFileBlob(token, runId, active.path, selectedRef ?? undefined)
+frontend/src/components/preview/SandboxPdfPreview.tsx:5:import { getRunSandboxFileBlob, getToken } from "@/lib/api";
+frontend/src/components/preview/SandboxPdfPreview.tsx:27:    getRunSandboxFileBlob(getToken() || "", runId, path, selectedRef)
+frontend/src/components/preview/PreviewPanel.tsx:31:import { authedFetch, getToken, getWorkflow, getRunArtifacts, getRunSandbox, getRunSandboxFile, getRunSandboxFileBlob, getRunSandboxZip, resolveRunDeliverable } from "@/lib/api";
+frontend/src/components/preview/PreviewPanel.tsx:1502:        const hit = await resolveRunDeliverable(token, activeRunId, declared, displayRef ?? undefined);
+frontend/src/components/preview/PreviewPanel.tsx:1524:    getRunSandboxFile(token, activeRunId, deliverableFile, sandboxSelectedRef)
+frontend/src/components/preview/PreviewPanel.tsx:1553:        ? await getRunSandboxFileBlob(token, activeRunId, deliverableFile, displayRef ?? undefined)
+
+## B. the two SandboxPdfPreview call sites (path = the DECLARED name, verbatim)
+231:        path={deliverable.filename}
+1107:                      path={selectedRun.deliverableFilename as string}
+
+## C. the server-side reader of the declared root path (share route, backend/app/main.py:678-690)
+    if mimetype in BINARY_MIMETYPES and run.deliverable_filename:
+        # output holds the text form; the deliverable itself is the sandbox file.
+        from app.agents.sandbox import RunSandbox
+        from app.api.run_files import _resolve_chain_root_or_404
+
+        try:
+            root_id = _resolve_chain_root_or_404(run.id, run.user_id)
+            path = RunSandbox(run.user_id, root_id, runs_root=settings.RUNS_ROOT).path_for(
+                run.deliverable_filename
+            )
+            data = path.read_bytes()
+        except (ValueError, OSError):
+            raise HTTPException(status_code=404, detail="Share not found or expired.") from None
+
+## D. endpoint timings for run 78e185fb (the ~11s is not /family; the run record is 6.5 MB)
+family        try1: HTTP 200    0.11s       3501 bytes
+family        try2: HTTP 200    0.11s       3501 bytes
+run detail    try1: HTTP 200    0.06s    6585601 bytes
+run detail    try2: HTTP 200    0.05s    6585601 bytes
+sandbox refs  try1: HTTP 200    0.11s         93 bytes
+sandbox refs  try2: HTTP 200    0.11s         93 bytes
+
+## E. runs with an application/pdf deliverable in the dev DB, and the revision structure of their families
+runs listed: 57 | application/pdf deliverable: 10
+   b40eabd0 backlog_revision completed root: 78e185fb decl: Backlog.pdf
+   10dde796 backlog_revision completed root: 78e185fb decl: Backlog.pdf
+   48b0811e backlog_revision completed root: 78e185fb decl: Backlog.pdf
+   8d4d2d70 backlog_revision completed root: 78e185fb decl: Backlog.pdf
+   fa7bcb5f backlog_revision completed root: 78e185fb decl: Backlog.pdf
+   80054fbc backlog_revision completed root: 78e185fb decl: Backlog.pdf
+   78e185fb backlog completed root: 78e185fb decl: Backlog.pdf
+   3976f8ce backlog degraded root: 3976f8ce decl: Backlog.pdf
+   c4cbd381 backlog completed root: c4cbd381 decl: Backlog.pdf
+   53d022e9 backlog degraded root: 53d022e9 decl: Backlog.pdf
+families containing a pdf run: 4
+family 3976f8ce: 1 member(s) newest=v1 (degraded); older members: none
+family 53d022e9: 1 member(s) newest=v1 (degraded); older members: none
+family 78e185fb: 8 member(s) newest=v8 (completed); older members: v1:completed:tag=v1, v2:completed:tag=v2, v3:completed:tag=v3, v4:completed:tag=v4, v5:completed:tag=v5, v6:cancelled:tag=None, v7:completed:tag=v7
+family c4cbd381: 1 member(s) newest=v1 (completed); older members: none

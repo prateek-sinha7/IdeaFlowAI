@@ -1,0 +1,102 @@
+QA-KB-112 analysis evidence 08: git timeline of the /settings/security path (read-only git; no writes)
+Run at 2026-10-12T09:42:46+02:00 on branch feat/stale-bug-fixes @ 234b5a429
+
+====================================================================================================
+$ git log --full-history --format='%h %ad %an | %s' --date=short --name-status -- frontend/src/app/settings/security/page.tsx
+  (A = path added, D = path deleted; the path was a standalone page, was deleted into a tab, then re-created as a different page)
+----------------------------------------------------------------------------------------------------
+687ed0a1b 2026-09-23 Bilal Arshad | Merge feat/git-versioning into feat/stable
+68762968c 2026-09-23 Bilal Arshad | Merge feat/gpt-support into feat/stable
+1d95275b4 2026-09-23 Bilal Arshad | Merge origin/dev into feat/stable
+b2a621f84 2026-09-17 Gajera Sharad Nareshbhai | Fix/cognito login (#8)
+
+A	frontend/src/app/settings/security/page.tsx
+112244c9b 2026-08-07 sharas_hexaware | fix(auth): store auth-critical timestamps as timezone-aware to prevent token revocation bugs
+
+D	frontend/src/app/settings/security/page.tsx
+d94024425 2026-08-07 sharas_hexaware | Merge conflict resolved: deduplicate FIX-REGISTER.md (FIX-158..FIX-182 by ID)
+1b6ebe4f2 2026-08-07 sharas_hexaware | feat(auth): enable email OTP as primary MFA factor alongside TOTP
+
+A	frontend/src/app/settings/security/page.tsx
+
+====================================================================================================
+$ git blame -L26,35 -- frontend/src/components/settings/SecuritySection.tsx   (the tab component's docstring came from the deleted page, commit 112244c9b)
+----------------------------------------------------------------------------------------------------
+1b6ebe4f22 frontend/src/app/settings/security/page.tsx          (sharas_hexaware 2026-08-07 26)  * screen calls.
+1b6ebe4f22 frontend/src/app/settings/security/page.tsx          (sharas_hexaware 2026-08-07 27)  *
+112244c9b6 frontend/src/components/settings/SecuritySection.tsx (sharas_hexaware 2026-08-07 28)  * Lives as a TAB inside Account Settings rather than its own route: the
+112244c9b6 frontend/src/components/settings/SecuritySection.tsx (sharas_hexaware 2026-08-07 29)  * standalone `/settings/security` page duplicated the chrome (own back button,
+112244c9b6 frontend/src/components/settings/SecuritySection.tsx (sharas_hexaware 2026-08-07 30)  * own page title) that the settings surface already provides, and split account
+112244c9b6 frontend/src/components/settings/SecuritySection.tsx (sharas_hexaware 2026-08-07 31)  * concerns across two navigation models. This component therefore renders body
+112244c9b6 frontend/src/components/settings/SecuritySection.tsx (sharas_hexaware 2026-08-07 32)  * content only — the header, back affordance and tab strip are the parent's.
+112244c9b6 frontend/src/components/settings/SecuritySection.tsx (sharas_hexaware 2026-08-07 33)  *
+1b6ebe4f22 frontend/src/app/settings/security/page.tsx          (sharas_hexaware 2026-08-07 34)  * Email OTP is a TOGGLE, not a wizard, and that asymmetry with TOTP is real
+1b6ebe4f22 frontend/src/app/settings/security/page.tsx          (sharas_hexaware 2026-08-07 35)  * rather than a shortcut: Cognito provisions no secret for email codes (the
+
+====================================================================================================
+$ git blame -L170,174 -- frontend/src/lib/routes.ts   (the 'page is gone' comment pre-dates the re-added page)
+----------------------------------------------------------------------------------------------------
+7f269f37d6 (Bilal Arshad 2026-08-24 170)   // The MFA/two-factor controls that used to live at a standalone
+7f269f37d6 (Bilal Arshad 2026-08-24 171)   // /settings/security PAGE are now a tab on this surface. The page is gone
+7f269f37d6 (Bilal Arshad 2026-08-24 172)   // (dev's change, kept); the URL stays so the tab is addressable exactly
+7f269f37d6 (Bilal Arshad 2026-08-24 173)   // like the other four — /settings/{tab} maps to a tab, uniformly.
+7f269f37d6 (Bilal Arshad 2026-08-24 174)   settingsSecurity: (): string => '/settings/security',
+
+====================================================================================================
+$ git blame -L61,61 / -L278,279 -- frontend/src/components/settings/AccountSettings.tsx   (tab -> route mapping and the router.replace)
+----------------------------------------------------------------------------------------------------
+7f269f37d6 (Bilal Arshad 2026-08-24 61)   security: routes.settingsSecurity,
+c9ec0149cb (Bilal Arshad 2026-08-24 278)               setSection(next);
+c9ec0149cb (Bilal Arshad 2026-08-24 279)               router.replace(SECTION_ROUTE[next]());
+
+====================================================================================================
+$ git show --name-only --format= b2a621f84   (Fix/cognito login (#8), 2026-09-17, Gajera Sharad Nareshbhai): it re-added the page and touched NO e2e test, spec or velocity.json
+----------------------------------------------------------------------------------------------------
+files in b2a621f84: 788
+files under tests/integration/ or velocity.json: 0
+frontend/src files it changed (non-test):
+  frontend/src/app/admin/page.tsx
+  frontend/src/app/forgot-password/page.tsx
+  frontend/src/app/layout.tsx
+  frontend/src/app/login/page.tsx
+  frontend/src/app/register/page.tsx
+  frontend/src/app/settings/security/page.tsx
+  frontend/src/hooks/useHandoffSocket.ts
+  frontend/src/hooks/useRunStream.ts
+  frontend/src/lib/api.ts
+  frontend/src/lib/entitlements.ts
+  frontend/src/providers/AuthSessionProvider.tsx
+  frontend/src/store/api/admin.ts
+  frontend/src/store/api/auth.ts
+frontend tests it added/changed for the page: frontend/src/app/settings/security/page.tsx, frontend/src/app/settings/security/security.test.tsx
+
+====================================================================================================
+$ git log --format='%h %ad %s' --date=short -- tests/integration/e2e/suites/09_settings tests/integration/e2e/framework/locators/settings_page.py tests/integration/screens/09-settings.feature.md velocity.json   (commits that touched the consumers; the first e2e commit is e90346da2)
+----------------------------------------------------------------------------------------------------
+82241ee9d 2026-09-29 chore(test-accounts): move seeded dev/QA accounts to the velocity.ai domain
+827e6da19 2026-09-23 test(e2e): network-budget and navigation suites for the QA bug line
+14ce62c59 2026-09-22 test(integration): repair the offline suite, 57 failures to 2
+f3f4bbafc 2026-09-18 fix(bugs): close 6 QA-PS bugs, move the bug line to root registers
+da29bc318 2026-09-01 test: domain 04 tests·integration — fix stale markers, retarget ppt tests, tooltip hover, family-aware row selection (ISS-625/626/627/628)
+b87123e06 2026-09-01 fix(settings): domain-2 frontend┬╖settings ΓÇö ISS-354, ISS-482, ISS-430, ISS-581
+d233aa69e 2026-08-31 fix(workflow): domain-1 warmup ΓÇö close ISS-095, clean ISS-482 test, add Windows execution rules to all agents
+43c63e117 2026-08-31 Added kiro crew workflow.
+d027f16bd 2026-08-29 bug-hunter: close 80 bugs from the parallel validate/analyze/test/fix/verify batch
+6a2ace81a 2026-08-27 test(integration): fix two real failures the first offline sweep surfaced
+e90346da2 2026-08-27 test(integration): implement account settings
+fa0079f5a 2026-08-27 test(integration): build the runnable suite, and link every scenario to a test
+c9514f12e 2026-08-27 test(integration): cover text-only controls and MFA, and state plainly what this suite does not assert
+d50e86f38 2026-08-26 test(integration): audit the last commit, repair 13 dangling refs, close the overlay and tab gaps
+39d11f629 2026-08-26 test(integration): re-capture all 55 page URLs with a settle, and correct five claims read from source
+98bd90319 2026-08-26 test(integration): record every screen as a BDD spec, from a live browser sweep
+
+====================================================================================================
+$ git log -3 --format='%h %ad %s' --date=short -- frontend/src/app/admin/page.tsx   (and the redirect literal introduced by b2a621f84)
+----------------------------------------------------------------------------------------------------
+d33324723 2026-10-09 fix(QA-KB-109): the admin's own row drops the controls the server refuses for self
+14a675db4 2026-10-06 not_stable changes for stale fix cards
+687ed0a1b 2026-09-23 Merge feat/git-versioning into feat/stable
+
+$ git show b2a621f84 -- frontend/src/app/admin/page.tsx | grep -n '^+.*settings/security'
++        `/settings/security?enroll=${encodeURIComponent(detail.enroll_path)}`,
+

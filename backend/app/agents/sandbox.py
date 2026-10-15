@@ -17,7 +17,7 @@ import re
 import shutil
 import sys
 import time
-from collections.abc import Callable, Iterable
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -135,6 +135,13 @@ _AGENT_OUTPUTS_PREFIX = ".agents/"
 # ``.git/config`` or ``skills/writing/SKILL.md``.
 _GIT_PREFIX = ".git/"
 _SKILLS_PREFIX = "skills/"
+
+# Per-revision records (``revisions/<run_id>/``: the revision planner's plan.md and
+# the builder's working files). Revisions of one run share the root run's folder,
+# so each revision's records sit in their own subfolder; they are working state,
+# never part of the delivered artifact. Kept out of RESERVED_PATHS on purpose: the
+# agent write guard must still let the planner and builder write there.
+_REVISIONS_PREFIX = "revisions/"
 
 # Reserved sandbox prefix for the structured CHAIN PAYLOAD written by the engine
 # on the ``post_run`` terminal path (Requirement 20). Contents per run:
@@ -346,50 +353,6 @@ def _safe_segment(value: str, *, fallback: str) -> str:
     seg = _UNSAFE.sub("_", (value or "").strip())
     seg = seg.strip(".")  # ".", ".." → "" so they can never be a segment
     return (seg or fallback)[:128]
-
-
-def _dedupe_segment(safe: str, used: set[str]) -> str:
-    """Return ``safe`` — or ``safe`` with a ``-N`` suffix inserted before its extension —
-    that is not already in ``used`` (WR-01).
-
-    Two DISTINCT original filenames can sanitize to the same ``_safe_segment`` (e.g.
-    ``invoice#1.txt`` and ``invoice@1.txt`` both → ``invoice_1.txt``); without this the
-    second write silently clobbers the first's bytes + sidecar + manifest entry while the
-    response still reports both as stored. The first use keeps the bare name; each
-    subsequent collision takes the next free ``-2``, ``-3``… (``invoice_1.txt`` →
-    ``invoice_1-2.txt``), so no upload is ever silently overwritten and the caller is told
-    the ACTUAL stored name.
-    """
-    if safe not in used:
-        return safe
-    stem, dot, ext = safe.rpartition(".")
-    base, suffix = (stem, f".{ext}") if dot else (safe, "")
-    n = 2
-    while f"{base}-{n}{suffix}" in used:
-        n += 1
-    return f"{base}-{n}{suffix}"
-
-
-def stored_upload_namer() -> Callable[[str], str]:
-    """Return a mapper from an upload's original name to its ``.uploads/`` name.
-
-    Applies the write-side rule of ``app.api.run_files``: sanitize the basename
-    with ``_safe_segment``, then ``_dedupe_segment`` names that sanitize alike.
-    Each mapper keeps its own used-name set, so call it once per name, in order.
-    The set starts empty, so it matches ``run_files`` only for a sandbox with no
-    earlier uploads; ``run_files`` de-duplicates against the names already in
-    ``.uploads/manifest.json``, which stays the authoritative list.
-    """
-    used: set[str] = set()
-
-    def stored_name(name: str) -> str:
-        safe = _dedupe_segment(
-            _safe_segment(os.path.basename(name), fallback="upload"), used
-        )
-        used.add(safe)
-        return safe
-
-    return stored_name
 
 
 # ── Revision-family lock (sandbox-git-versioning-v2, Requirement 10) ─────────
@@ -973,11 +936,15 @@ class RunSandbox:
         NOT added to the Workspace Protocol.
 
         Returns a sorted list of tag name strings.  Returns ``[]`` when
-        ``has_git=False`` or when the underlying workspace does not support tag
-        listing (best-effort, non-raising — callers such as the ref-validation
-        gate receive an empty allow-list and correctly reject every ref).
+        ``has_git=False``, when the sandbox has no ``.git`` of its own, or when
+        the underlying workspace does not support tag listing (best-effort,
+        non-raising — callers such as the ref-validation gate receive an empty
+        allow-list and correctly reject every ref).
         """
-        if not self.has_git:
+        # ISS-678 / ISS-996: has_git is caller-asserted (API sites keep the default
+        # True). With no .git, git cannot find a repo here (FIX-522's ceiling), and
+        # _ws() would mkdir a TTL-swept sandbox — so answer [] before either runs.
+        if not self.has_git or not (self.root / ".git").exists():
             return []
         fn = getattr(self._ws(), "list_tags", None)
         if fn is None:
@@ -1103,11 +1070,18 @@ class RunSandbox:
             fn()
         except Exception as exc:  # noqa: BLE001 — best-effort, must never raise
             logger.warning(
-                "git_init_sandbox failed run=%s/%s: %s",
+                "git_init_sandbox failed run=%s/%s: %s — continuing without git",
                 self.user_seg,
                 self.run_seg,
                 exc,
             )
+            # Reflect reality (Task 3.6, sandbox-git-versioning-v2, Requirement 3).
+            # The engine's own fallback flips has_git only when this call RAISES,
+            # which it never does — so without this the sandbox kept claiming
+            # has_git=True over a failed init, and the finalizer degraded every
+            # otherwise-clean run on ref/tag creation instead of taking the no-git
+            # path the has_git=False branches exist for.
+            self.has_git = False
 
     def list_files_at_ref(self, ref: str) -> list[str]:
         """Return the list of file relpaths tracked at ``ref`` (Requirement 17 AC2).
@@ -1450,6 +1424,20 @@ class RunSandbox:
         shutil.rmtree(self.root, ignore_errors=False, onexc=_on_rm_error)
 
 
+def run_dir_expired(root: Path) -> bool:
+    """True when a run's sandbox directory is gone: absent, OR present but empty.
+
+    The one expiry test every workspace route uses. ISS-1072: a TTL-swept run dir
+    that a later read re-created EMPTY (ISS-996 / ISS-992) passed a bare
+    ``is_dir()`` as live, so ``?ref=vN`` reached ``_validate_ref`` and answered 400
+    where a swept dir answers "expired". Emptiness, never ``.git`` absence: a
+    legacy sandbox keeps its payload under ``.chain/`` with no ``.git`` and is live.
+    """
+    # ponytail: a live run's dir is also empty between ensure() and git_init_sandbox()
+    # (engine.py), so a listing in that instant reads expired; the Workspace Refresh re-lists.
+    return not root.is_dir() or not any(root.iterdir())
+
+
 def sweep_expired(
     *,
     ttl_hours: int | None = None,
@@ -1619,7 +1607,7 @@ def is_deliverable_relpath(
     exclude_set = frozenset(_DELIVERABLE_EXCLUDE if exclude is None else exclude)
     # Use the module-level pre-computed sets derived from RESERVED_PATHS and
     # GIT_METADATA_PATHS (V2-Q7, Requirement 18 AC 2). No independent literal list.
-    if relpath.startswith(_DELIVERABLE_EXCLUDED_PREFIXES):
+    if relpath.startswith(_DELIVERABLE_EXCLUDED_PREFIXES + (_REVISIONS_PREFIX,)):
         return False
     if relpath in _DELIVERABLE_EXCLUDED_EXACT:
         return False

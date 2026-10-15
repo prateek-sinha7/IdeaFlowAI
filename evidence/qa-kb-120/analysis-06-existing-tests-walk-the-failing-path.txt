@@ -1,0 +1,28 @@
+# QA-KB-120 analysis (3-analyzer, 2026-10-09): three EXISTING tests pass while walking the failing path
+# cd backend && ./.venv/bin/python -m pytest <3 node ids> -q -p no:cacheprovider -o log_cli=true --log-cli-level=WARNING
+# (one file, offline, ~3 s). The WARNING lines below are the QA-KB-120 symptom; every test is green.
+
+tests/agents/test_finalizer_v2.py::TestBuildFlatPayload::test_payload_materialized_false_when_output_absent 
+WARNING  agents.execution_engine.engine:engine.py:1762 build_flat_payload: stage_exact failed for run=e46508c6-4225-42e8-a956-1f53f58ba8d0
+    raise RuntimeError(f"git {' '.join(args)} failed:\n{result.stderr}")
+RuntimeError: git add --force -- .chain/output.html failed:
+fatal: pathspec '.chain/output.html' did not match any files
+PASSED                                                                   [ 33%]
+tests/agents/test_finalizer_v2.py::TestMetadataOnlySnapshot::test_c2_output_unmaterializable_yields_metadata_only 
+WARNING  agents.execution_engine.engine:engine.py:1762 build_flat_payload: stage_exact failed for run=ac50fb2e-f0b0-47d2-9522-6d3f8d2940dd
+    raise RuntimeError(f"git {' '.join(args)} failed:\n{result.stderr}")
+RuntimeError: git add --force -- .chain/output.html failed:
+fatal: pathspec '.chain/output.html' did not match any files
+PASSED                                                                   [ 66%]
+tests/agents/test_finalizer_v2.py::TestMetadataOnlySnapshot::test_c5_prior_run_stale_chain_path_untracked_tree_clean 
+WARNING  agents.execution_engine.engine:engine.py:1762 build_flat_payload: stage_exact failed for run=6082498c-d8be-4d5c-a26d-92aa871e800b
+    raise RuntimeError(f"git {' '.join(args)} failed:\n{result.stderr}")
+RuntimeError: git add --force -- .chain/output failed:
+fatal: pathspec '.chain/output' did not match any files
+PASSED                                                                   [100%]
+tests/agents/test_finalizer_v2.py::TestBuildFlatPayload::test_payload_materialized_false_when_output_absent
+tests/agents/test_finalizer_v2.py::TestMetadataOnlySnapshot::test_c2_output_unmaterializable_yields_metadata_only
+tests/agents/test_finalizer_v2.py::TestMetadataOnlySnapshot::test_c2_output_unmaterializable_yields_metadata_only
+tests/agents/test_finalizer_v2.py::TestMetadataOnlySnapshot::test_c5_prior_run_stale_chain_path_untracked_tree_clean
+tests/agents/test_finalizer_v2.py::TestMetadataOnlySnapshot::test_c5_prior_run_stale_chain_path_untracked_tree_clean
+======================== 3 passed, 7 warnings in 3.55s =========================

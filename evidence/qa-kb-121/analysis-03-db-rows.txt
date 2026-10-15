@@ -1,0 +1,26 @@
+QA-KB-121 analysis-03: persisted proof of what the user sees at the first model call. SELECT only, read 2026-10-12 ~09:40 CEST.
+database: postgresql://localhost/velocity-local-db (credentials not printed)
+Server clock is CEST (UTC+2); created_at / completed_at below are UTC.
+
+--- Q1: SELECT id, type, status, left(error, 170) AS err, completed_at FROM workflow_runs WHERE error ILIKE '%provider credential or permission problem%' ORDER BY completed_at DESC NULLS LAST LIMIT 8
+('95cb5ace-29be-4e04-bcc6-c73f3379eb2c', 'ex_A1_loop', 'failed', "The model could not be reached — a provider credential or permission problem (the run's cloud session may have expired).", datetime.datetime(2026, 10, 9, 17, 17, 0, 721028))
+('eb1d7551-cfc8-4265-8b06-154128cc124a', 'ex_A1_loop', 'failed', "The model could not be reached — a provider credential or permission problem (the run's cloud session may have expired).", datetime.datetime(2026, 10, 9, 11, 12, 23, 35481))
+('e9a9e2f0-174d-41dc-8444-5487ac935dc4', 'ex_A2_branch', 'failed', "The model could not be reached — a provider credential or permission problem (the run's cloud session may have expired).", datetime.datetime(2026, 10, 2, 0, 50, 25, 562623))
+('caddd53f-509b-4725-8014-4b2dd263dca5', 'backlog', 'failed', "The model could not be reached — a provider credential or permission problem (the run's cloud session may have expired).", datetime.datetime(2026, 9, 25, 23, 20, 47, 216779))
+
+--- Q2 (rid=eb1d7551-cfc8-4265-8b06-154128cc124a): SELECT seq, type, left(payload_json::text, 330) FROM run_events WHERE run_id = :rid AND type IN ('pipeline_start','agent_start','agent_error','pipeline_failed') ORDER BY seq
+(2, 'pipeline_start', '{"pipeline_type": "ex_A1_loop", "pipeline_run_id": "eb1d7551-cfc8-4265-8b06-154128cc124a", "agent_count": 4, "agents": [{"id": "custom-agent:emoji", "name": "Emoji Picker", "role": "A user-defined workflow agent", "icon": "\\ud83e\\udde9", "order": 10}, {"id": "custom-agent:greet", "name": "Greet", "role": "A user-defined workflow')
+(4, 'agent_start', '{"agent_id": "custom-agent:emoji", "name": "Emoji Picker", "role": "A user-defined workflow agent", "icon": "\\ud83e\\udde9", "index": 0, "total": 4, "model_id": "eu.anthropic.claude-haiku-4-5-20251001-v1:0", "seq": 4, "event_id": "bbfcefeb-83f7-4795-888a-760cf16918f3"}')
+(7, 'agent_error', '{"agent_id": "custom-agent:emoji", "error": "The model could not be reached \\u2014 a provider credential or permission problem (the run\'s cloud session may have expired).", "recoverable": true, "seq": 7, "event_id": "830badd8-5820-4eb1-b591-d0089f9dd383"}')
+(8, 'pipeline_failed', '{"pipeline_type": "ex_A1_loop", "pipeline_run_id": "eb1d7551-cfc8-4265-8b06-154128cc124a", "total_duration": 2.15, "agents_completed": 0, "agents_total": 4, "agents_failed": ["custom-agent:emoji"], "error": "The model could not be reached \\u2014 a provider credential or permission problem (the run\'s cloud session may have expire')
+
+--- Q2 (rid=95cb5ace-29be-4e04-bcc6-c73f3379eb2c): SELECT seq, type, left(payload_json::text, 330) FROM run_events WHERE run_id = :rid AND type IN ('pipeline_start','agent_start','agent_error','pipeline_failed') ORDER BY seq
+(2, 'pipeline_start', '{"pipeline_type": "ex_A1_loop", "pipeline_run_id": "95cb5ace-29be-4e04-bcc6-c73f3379eb2c", "agent_count": 4, "agents": [{"id": "custom-agent:emoji", "name": "Emoji Picker", "role": "A user-defined workflow agent", "icon": "\\ud83e\\udde9", "order": 10}, {"id": "custom-agent:greet", "name": "Greet", "role": "A user-defined workflow')
+(4, 'agent_start', '{"agent_id": "custom-agent:emoji", "name": "Emoji Picker", "role": "A user-defined workflow agent", "icon": "\\ud83e\\udde9", "index": 0, "total": 4, "model_id": "eu.anthropic.claude-haiku-4-5-20251001-v1:0", "seq": 4, "event_id": "cc2f7e08-e775-4623-bd4f-c51cebf1c1ce"}')
+(7, 'agent_error', '{"agent_id": "custom-agent:emoji", "error": "The model could not be reached \\u2014 a provider credential or permission problem (the run\'s cloud session may have expired).", "recoverable": true, "seq": 7, "event_id": "788e6013-4323-455d-858a-15f883758c51"}')
+(8, 'pipeline_failed', '{"pipeline_type": "ex_A1_loop", "pipeline_run_id": "95cb5ace-29be-4e04-bcc6-c73f3379eb2c", "total_duration": 3.77, "agents_completed": 0, "agents_total": 4, "agents_failed": ["custom-agent:emoji"], "error": "The model could not be reached \\u2014 a provider credential or permission problem (the run\'s cloud session may have expire')
+
+--- Q3: SELECT left(id,8) AS id, type, status, created_at, completed_at, left(coalesce(error,''), 70) AS err FROM workflow_runs WHERE created_at >= '2026-10-09 10:30:00' AND created_at < '2026-10-09 12:30:00' ORDER BY created_at
+('eb1d7551', 'ex_A1_loop', 'failed', datetime.datetime(2026, 10, 9, 11, 12, 20, 74793), datetime.datetime(2026, 10, 9, 11, 12, 23, 35481), 'The model could not be reached — a provider credential or permission p')
+('9a931a7a', 'ex_A1_loop', 'failed', datetime.datetime(2026, 10, 9, 11, 41, 56, 60687), datetime.datetime(2026, 10, 9, 11, 42, 13, 836824), "Check's conditional gate had nowhere to route: no matching outcome and")
+('41f50ae1', 'ex_A2_branch', 'completed', datetime.datetime(2026, 10, 9, 11, 43, 2, 187500), datetime.datetime(2026, 10, 9, 11, 43, 19, 719247), '')

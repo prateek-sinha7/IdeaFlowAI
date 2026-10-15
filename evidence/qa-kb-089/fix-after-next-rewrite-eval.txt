@@ -1,0 +1,4 @@
+### next.config.ts rewrites() evaluated by node v22.23.1 after the fix (2026-10-07T18:25:49Z)
+NEXT_PUBLIC_API_URL=""    -> {"source":"/s/:token","destination":"http://localhost:8000/s/:token"}
+NEXT_PUBLIC_API_URL unset -> {"source":"/s/:token","destination":"http://localhost:8000/s/:token"}
+NEXT_PUBLIC_API_URL=http://localhost:8001 -> {"source":"/s/:token","destination":"http://localhost:8001/s/:token"}

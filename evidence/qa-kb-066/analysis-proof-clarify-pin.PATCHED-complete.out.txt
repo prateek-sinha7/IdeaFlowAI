@@ -1,0 +1,10 @@
+
+ RUN  v4.1.11 /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/frontend
+
+
+ Test Files  1 passed (1)
+      Tests  7 passed (7)
+   Start at  05:15:27
+   Duration  1.90s (transform 311ms, setup 74ms, import 632ms, tests 448ms, environment 638ms)
+
+exit=0

@@ -119,8 +119,8 @@ def _register_and_login(
 ) -> str:
     """Create a fresh user directly in the test DB and return their JWT.
 
-    ``/api/auth/register`` is a permanent 403 (self-registration is disabled
-    by design — see app/api/auth.py). The account is created directly and
+    ``/api/auth/register`` was removed by the Cognito-only migration
+    (self-registration is disabled by design). The account is created directly and
     the JWT comes from the real ``/api/auth/login`` flow, which is what
     these tests actually need to exercise the handoff/API-key surface.
     """

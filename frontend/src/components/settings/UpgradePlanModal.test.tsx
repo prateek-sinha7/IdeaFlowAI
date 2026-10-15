@@ -7,13 +7,14 @@
  */
 
 import { describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { screen } from "@testing-library/react";
+import { renderWithProviders } from "@/test/renderWithProviders";
 import userEvent from "@testing-library/user-event";
 import { UpgradePlanModal } from "./UpgradePlanModal";
 
 describe("UpgradePlanModal", () => {
   it("offers the next tier and states the current plan when an upgrade path exists", () => {
-    render(<UpgradePlanModal tier="basic" onClose={() => {}} />);
+    renderWithProviders(<UpgradePlanModal tier="basic" onClose={() => {}} />);
 
     const dialog = screen.getByRole("dialog", { name: "Upgrade your plan" });
     expect(dialog).toHaveAttribute("aria-modal", "true");
@@ -23,7 +24,7 @@ describe("UpgradePlanModal", () => {
   });
 
   it("follows the configured path for other tiers (pro -> Enterprise)", () => {
-    render(<UpgradePlanModal tier="pro" onClose={() => {}} />);
+    renderWithProviders(<UpgradePlanModal tier="pro" onClose={() => {}} />);
 
     expect(screen.getByRole("dialog", { name: "Upgrade your plan" })).toHaveTextContent(
       /The Enterprise plan unlocks \d+ more deliverable types\./,
@@ -31,7 +32,7 @@ describe("UpgradePlanModal", () => {
   });
 
   it("says the account is on the highest plan when there is no next tier", () => {
-    render(<UpgradePlanModal tier="enterprise" onClose={() => {}} />);
+    renderWithProviders(<UpgradePlanModal tier="enterprise" onClose={() => {}} />);
 
     const dialog = screen.getByRole("dialog", { name: "Manage plan" });
     expect(screen.getByText("You are on the Enterprise plan")).toBeInTheDocument();
@@ -41,14 +42,14 @@ describe("UpgradePlanModal", () => {
   });
 
   it("renders into document.body so a header stacking context cannot trap it", () => {
-    const { container } = render(<UpgradePlanModal tier="basic" onClose={() => {}} />);
+    const { container } = renderWithProviders(<UpgradePlanModal tier="basic" onClose={() => {}} />);
 
     expect(container).toBeEmptyDOMElement();
     expect(screen.getByRole("dialog")).toBeInTheDocument();
   });
 
   it("focuses the Close button when it opens", () => {
-    render(<UpgradePlanModal tier="basic" onClose={() => {}} />);
+    renderWithProviders(<UpgradePlanModal tier="basic" onClose={() => {}} />);
 
     expect(screen.getByRole("button", { name: "Close" })).toHaveFocus();
   });
@@ -56,7 +57,7 @@ describe("UpgradePlanModal", () => {
   it("calls onClose when Close is clicked", async () => {
     const user = userEvent.setup();
     const onClose = vi.fn();
-    render(<UpgradePlanModal tier="basic" onClose={onClose} />);
+    renderWithProviders(<UpgradePlanModal tier="basic" onClose={onClose} />);
 
     await user.click(screen.getByRole("button", { name: "Close" }));
 
@@ -66,7 +67,7 @@ describe("UpgradePlanModal", () => {
   it("calls onClose when Escape is pressed", async () => {
     const user = userEvent.setup();
     const onClose = vi.fn();
-    render(<UpgradePlanModal tier="basic" onClose={onClose} />);
+    renderWithProviders(<UpgradePlanModal tier="basic" onClose={onClose} />);
 
     await user.keyboard("{Escape}");
 
@@ -76,7 +77,7 @@ describe("UpgradePlanModal", () => {
   it("ignores keys other than Escape", async () => {
     const user = userEvent.setup();
     const onClose = vi.fn();
-    render(<UpgradePlanModal tier="basic" onClose={onClose} />);
+    renderWithProviders(<UpgradePlanModal tier="basic" onClose={onClose} />);
 
     await user.keyboard("a{Tab}{ArrowDown}");
 
@@ -86,7 +87,7 @@ describe("UpgradePlanModal", () => {
   it("calls onClose when the backdrop is clicked", async () => {
     const user = userEvent.setup();
     const onClose = vi.fn();
-    render(<UpgradePlanModal tier="basic" onClose={onClose} />);
+    renderWithProviders(<UpgradePlanModal tier="basic" onClose={onClose} />);
 
     // The backdrop is the dialog's role="presentation" wrapper.
     await user.click(screen.getByRole("presentation"));
@@ -97,7 +98,7 @@ describe("UpgradePlanModal", () => {
   it("does not close when the dialog body itself is clicked", async () => {
     const user = userEvent.setup();
     const onClose = vi.fn();
-    render(<UpgradePlanModal tier="basic" onClose={onClose} />);
+    renderWithProviders(<UpgradePlanModal tier="basic" onClose={onClose} />);
 
     await user.click(screen.getByRole("heading", { name: "Upgrade your plan" }));
 
@@ -107,7 +108,7 @@ describe("UpgradePlanModal", () => {
   it("stops listening for Escape after it unmounts", async () => {
     const user = userEvent.setup();
     const onClose = vi.fn();
-    const { unmount } = render(<UpgradePlanModal tier="basic" onClose={onClose} />);
+    const { unmount } = renderWithProviders(<UpgradePlanModal tier="basic" onClose={onClose} />);
 
     unmount();
     await user.keyboard("{Escape}");

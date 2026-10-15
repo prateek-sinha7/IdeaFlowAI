@@ -1,0 +1,26 @@
+# QA-KB-102 fix — characterization goldens + SC-001 + cutover, one file per run, HEAD 2461935f5 (git archive scratch tree) vs HEAD + working tree
+## head
+tests/contract/agents/test_characterization_ppt.py: 2 passed, 3 warnings in 2.99s
+tests/contract/agents/test_characterization_app_builder.py: 2 passed, 3 warnings in 6.25s
+tests/contract/agents/test_characterization_prototype.py: 2 passed, 3 warnings in 22.10s
+tests/contract/agents/test_characterization_prototype_revision.py: 2 passed, 3 warnings in 8.19s
+tests/contract/agents/test_characterization_prototype_large_revision.py: 2 passed, 3 warnings in 28.03s
+tests/contract/agents/test_characterization_prototype_feature_revision.py: 4 passed, 5 warnings in 55.81s
+tests/agents/test_characterization_sample_subagents_parallel.py: 2 passed, 4 warnings in 2.84s
+tests/agents/test_defect_characterization_v2.py: 1 failed, 12 passed, 2 warnings in 1.81s
+tests/unit/agents/test_phase3_cutover_verify.py: 4 passed, 2 warnings in 1.68s
+tests/unit/agents/test_sc001_gate_flag.py: 9 passed, 1 warning in 0.94s
+## work
+tests/contract/agents/test_characterization_ppt.py: 2 passed, 3 warnings in 2.71s
+tests/contract/agents/test_characterization_app_builder.py: 2 passed, 3 warnings in 6.26s
+tests/contract/agents/test_characterization_prototype.py: 2 passed, 3 warnings in 20.70s
+tests/contract/agents/test_characterization_prototype_revision.py: 2 passed, 3 warnings in 7.12s
+tests/contract/agents/test_characterization_prototype_large_revision.py: 2 passed, 3 warnings in 25.95s
+tests/contract/agents/test_characterization_prototype_feature_revision.py: 4 passed, 5 warnings in 51.65s
+tests/agents/test_characterization_sample_subagents_parallel.py: 2 passed, 4 warnings in 2.68s
+tests/agents/test_defect_characterization_v2.py: 1 failed, 12 passed, 2 warnings in 1.77s
+tests/unit/agents/test_phase3_cutover_verify.py: 4 passed, 2 warnings in 1.50s
+tests/unit/agents/test_sc001_gate_flag.py: 9 passed, 1 warning in 0.88s
+# failing id, both sides:
+FAILED tests/agents/test_defect_characterization_v2.py::TestD1FindChainRootWalksSourceRunId::test_d1_canonical_resolver_walks_parent_run_id_FIXME
+FAILED tests/agents/test_defect_characterization_v2.py::TestD1FindChainRootWalksSourceRunId::test_d1_canonical_resolver_walks_parent_run_id_FIXME

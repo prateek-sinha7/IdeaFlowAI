@@ -1,0 +1,8 @@
+    _PortalFactoryType = Callable[[], AbstractContextManager[anyio.abc.BlockingPortal]]
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+XFAIL tests/integration/api/test_iss1112_override_writers_trust.py::test_post_insert_of_a_smuggled_override_is_refused - ISS-1112 unfixed
+XFAIL tests/integration/api/test_iss1112_override_writers_trust.py::test_post_upsert_of_a_smuggled_override_is_refused - ISS-1112 unfixed
+XFAIL tests/integration/api/test_iss1112_override_writers_trust.py::test_patch_of_an_override_to_a_smuggled_step_is_refused - ISS-1112 unfixed
+3 xfailed, 3 warnings in 1.36s

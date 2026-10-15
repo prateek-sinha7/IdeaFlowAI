@@ -7,6 +7,7 @@ import {
 } from "lucide-react";
 import { useClipboardCopy } from "@/hooks/useClipboardCopy";
 import { utf8Bytes } from "@/lib/byteSize";
+import { AGENT_HTML_SANDBOX, frameableAgentHtml, openAgentHtmlInNewTab } from "@/lib/agentHtml";
 import { TweaksPanel, DEFAULT_TOKENS, FONT_OPTIONS, type TokenMap } from "./TweaksPanel";
 
 interface PrototypePreviewProps {
@@ -321,7 +322,7 @@ export function PrototypePreview({ content, isStreaming, onRevise }: PrototypePr
   const [revisionText, setRevisionText] = useState("");
   const [baseHtml, setBaseHtml] = useState<string>("");
   const [renderedHtml, setRenderedHtml] = useState<string>("");
-  const [blobUrl, setBlobUrl] = useState<string | null>(null);
+  const [frame, setFrame] = useState<{ key: number; srcDoc: string } | null>(null);
   const [zoomIndex, setZoomIndex] = useState(DEFAULT_ZOOM_INDEX);
   const [showSource, setShowSource] = useState(false);
   const [showTweaks, setShowTweaks] = useState(false);
@@ -329,7 +330,6 @@ export function PrototypePreview({ content, isStreaming, onRevise }: PrototypePr
   const [tokens, setTokens] = useState<TokenMap>({ ...DEFAULT_TOKENS });
   const [tweaksActive, setTweaksActive] = useState(false);
 
-  const iframeRef = useRef<HTMLIFrameElement>(null);
   const rebuildTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const tokensRef = useRef<TokenMap>({ ...DEFAULT_TOKENS });
   const baseHtmlRef = useRef<string>("");
@@ -353,15 +353,13 @@ export function PrototypePreview({ content, isStreaming, onRevise }: PrototypePr
     setRenderedHtml(stripped); // start with clean HTML, no tweaks
   }, [content]);
 
-  // ── Build Blob URL whenever renderedHtml changes ────────────────────────
+  // ── Frame renderedHtml as srcdoc, opaque origin (ISS-1067) ──────────────
+  // A new key per document: Chrome leaves a frame blank when its srcdoc is
+  // rewritten after mount (PreviewPanel's generic iframe), so every Tweaks
+  // rebuild remounts the iframe, as `key={blobUrl}` did.
   useEffect(() => {
-    if (!renderedHtml) { setBlobUrl(null); return; }
     const isHtml = /<!DOCTYPE\s+html|<html[\s>]/i.test(renderedHtml);
-    if (!isHtml) { setBlobUrl(null); return; }
-    const blob = new Blob([renderedHtml], { type: "text/html" });
-    const url = URL.createObjectURL(blob);
-    setBlobUrl(url);
-    return () => URL.revokeObjectURL(url);
+    setFrame((prev) => (isHtml ? { key: (prev?.key ?? 0) + 1, srcDoc: frameableAgentHtml(renderedHtml) } : null));
   }, [renderedHtml]);
 
   // Cleanup
@@ -371,7 +369,7 @@ export function PrototypePreview({ content, isStreaming, onRevise }: PrototypePr
     };
   }, []);
 
-  // ── Rebuild blob with current tokens (debounced 400ms) ─────────────────
+  // ── Rebuild frame with current tokens (debounced 400ms) ────────────────
   const scheduleRebuild = useCallback(() => {
     if (rebuildTimerRef.current) clearTimeout(rebuildTimerRef.current);
     rebuildTimerRef.current = setTimeout(() => {
@@ -386,7 +384,7 @@ export function PrototypePreview({ content, isStreaming, onRevise }: PrototypePr
   const handleZoomIn = useCallback(() => setZoomIndex((i) => Math.min(i + 1, ZOOM_LEVELS.length - 1)), []);
   const handleZoomOut = useCallback(() => setZoomIndex((i) => Math.max(i - 1, 0)), []);
   const handleZoomReset = useCallback(() => setZoomIndex(DEFAULT_ZOOM_INDEX), []);
-  const handleOpenInNewTab = useCallback(() => { if (blobUrl) window.open(blobUrl, "_blank"); }, [blobUrl]);
+  const handleOpenInNewTab = useCallback(() => { if (frame) openAgentHtmlInNewTab(frame.srcDoc); }, [frame]);
 
   const handleCopySource = useCallback(() => {
     if (!renderedHtml) return;
@@ -465,7 +463,7 @@ export function PrototypePreview({ content, isStreaming, onRevise }: PrototypePr
     );
   }
 
-  if (!blobUrl) {
+  if (!frame) {
     const mightBeHtml = /<!DOCTYPE\s+html|<html[\s>]/i.test(renderedHtml || baseHtml);
     if (mightBeHtml) {
       return (
@@ -602,12 +600,11 @@ export function PrototypePreview({ content, isStreaming, onRevise }: PrototypePr
                 minHeight: "100%",
               }}>
                 <iframe
-                  ref={iframeRef}
-                  key={blobUrl}
-                  src={blobUrl}
+                  key={frame.key}
+                  srcDoc={frame.srcDoc}
                   className="w-full h-full border-0"
                   style={{ minHeight: "600px" }}
-                  sandbox="allow-scripts allow-same-origin"
+                  sandbox={AGENT_HTML_SANDBOX}
                   title="Prototype Preview"
                 />
               </div>

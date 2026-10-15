@@ -1,0 +1,60 @@
+QA-KB-121 analysis-01: what the user sees for a rejected Bedrock key, per surface. Offline, read-only, no network, no engine import.
+Probe: evidence/qa-kb-121/analysis-01-probe.py. It extracts the REAL constants and _sanitize_agent_error from backend/agents/execution_engine/engine.py with ast,
+builds the botocore ClientError a rejected bearer token could raise using the installed botocore's own RestJSONParser, and loads backend/app/agents/llm_errors.py by path.
+Run with: backend/.venv/bin/python -I evidence/qa-kb-121/analysis-01-probe.py   (2026-10-12)
+INFERRED inputs: the wire shape of Bedrock's rejection. Shape A (x-amzn-errortype header) matches the recorded A4 incident text; Shape B is what botocore produces when the header is absent.
+The message text 'API Key invalid' is the reporter's wording; the code is not recorded anywhere on disk.
+
+Unmapped Bedrock error code: 403
+Unmapped Bedrock error code: AccessDenied
+sanitizer extracted from backend/agents/execution_engine/engine.py (def at line 278)
+
+botocore 1.43.89
+----------------------------------------------------------------------------------------------------
+A  403 + x-amzn-ErrorType: AccessDeniedException, message 'API Key invalid'
+  code in ClientError.response : AccessDeniedException
+  str(exc) (what the runner yields): An error occurred (AccessDeniedException) when calling the ConverseStream operation: API Key invalid
+  engine _sanitize_agent_error  -> CREDENTIAL(cloud-session copy)
+     user sees: The model could not be reached — a provider credential or permission problem (the run's cloud session may have expired).
+  chat llm_errors.map_exception -> auth_error | recoverable = False
+     user sees: AI service rejected its credentials — the token may be expired or invalid. Please contact the administrator.
+----------------------------------------------------------------------------------------------------
+B  403, no error-type header, message 'API Key invalid'
+  code in ClientError.response : 403
+  str(exc) (what the runner yields): An error occurred (403) when calling the ConverseStream operation: API Key invalid
+  engine _sanitize_agent_error  -> GENERIC 'rejected this request'
+     user sees: The model rejected this request.
+  chat llm_errors.map_exception -> internal_error | recoverable = True
+     user sees: Something went wrong. Please try again.
+----------------------------------------------------------------------------------------------------
+C  ExpiredTokenException (existing credential bucket)
+  code in ClientError.response : ExpiredTokenException
+  str(exc) (what the runner yields): An error occurred (ExpiredTokenException) when calling the ConverseStream operation: The security token included in the request is expired
+  engine _sanitize_agent_error  -> CREDENTIAL(cloud-session copy)
+     user sees: The model could not be reached — a provider credential or permission problem (the run's cloud session may have expired).
+  chat llm_errors.map_exception -> auth_error | recoverable = False
+     user sees: AI service rejected its credentials — the token may be expired or invalid. Please contact the administrator.
+----------------------------------------------------------------------------------------------------
+D  A4 incident text, AccessDenied 'Authentication failed for the request.'
+  code in ClientError.response : AccessDeniedException
+  str(exc) (what the runner yields): An error occurred (AccessDeniedException) when calling the InvokeModelWithResponseStream operation: Authentication failed for the request.
+  engine _sanitize_agent_error  -> CREDENTIAL(cloud-session copy)
+     user sees: The model could not be reached — a provider credential or permission problem (the run's cloud session may have expired).
+  chat llm_errors.map_exception -> auth_error | recoverable = False
+     user sees: AI service rejected its credentials — the token may be expired or invalid. Please contact the administrator.
+----------------------------------------------------------------------------------------------------
+E  mid-run bearer expiry wording 'Bearer Token has expired' (wording from memory, INFERRED)
+  code in ClientError.response : AccessDeniedException
+  str(exc) (what the runner yields): An error occurred (AccessDeniedException) when calling the ConverseStream operation: Bearer Token has expired
+  engine _sanitize_agent_error  -> CREDENTIAL(cloud-session copy)
+     user sees: The model could not be reached — a provider credential or permission problem (the run's cloud session may have expired).
+  chat llm_errors.map_exception -> auth_error | recoverable = False
+     user sees: AI service rejected its credentials — the token may be expired or invalid. Please contact the administrator.
+----------------------------------------------------------------------------------------------------
+F  Shape B variant: code 'AccessDenied' (no Exception suffix)
+  code in ClientError.response : AccessDenied
+  str(exc) (what the runner yields): An error occurred (AccessDenied) when calling the ConverseStream operation: API Key invalid
+  engine _sanitize_agent_error  -> CREDENTIAL(cloud-session copy)
+     user sees: The model could not be reached — a provider credential or permission problem (the run's cloud session may have expired).
+  chat llm_errors.map_exception -> internal_error | recoverable = True
+     user sees: Something went wrong. Please try again.

@@ -71,6 +71,7 @@ import {
   type SandboxFile,
 } from "@/lib/api";
 import { stripStaticPreviewFallback } from "@/lib/deckHtml";
+import { AGENT_HTML_SANDBOX, frameableAgentHtml } from "@/lib/agentHtml";
 import { downloadBlob } from "./FilesTab";
 import { MermaidBlock, isMermaidFence } from "./MermaidBlock";
 
@@ -1655,9 +1656,9 @@ export function SandboxTab({ runId, agentNameById, hasDeliverable, selectedRef: 
               )}
               {content !== null && rendered && textFlavour(active.path) === "html" && (
                 <iframe
-                  srcDoc={stripStaticPreviewFallback(content)}
+                  srcDoc={frameableAgentHtml(stripStaticPreviewFallback(content))}
                   title={active.path}
-                  sandbox="allow-scripts"
+                  sandbox={AGENT_HTML_SANDBOX}
                   className="h-full min-h-[520px] w-full border-0 bg-white"
                 />
               )}

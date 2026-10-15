@@ -1,0 +1,8 @@
+#!/bin/bash
+# usage: repeat.sh <variant-stem> <n>   -> prints pass/fail per run of the ISS-921 case only
+cd "$(dirname "$0")"
+VT=/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/frontend/node_modules/.bin/vitest
+for i in $(seq 1 "$2"); do
+  r=$($VT run --config vitest.config.mts "$1" -t ISS-921 2>&1 | sed 's/\x1b\[[0-9;]*m//g' | grep -E "^      Tests " | sed 's/ *Tests *//')
+  echo "run $i: $r"
+done

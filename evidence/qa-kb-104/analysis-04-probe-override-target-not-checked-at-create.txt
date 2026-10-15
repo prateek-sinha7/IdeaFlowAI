@@ -1,0 +1,15 @@
+# QA-KB-104 analysis 04: sibling check, the override TARGET of POST /api/user-workflows is not entitlement-checked (HEAD c9c4c630a + working tree, 2026-10-08T19:26Z)
+# cmd: cd backend && PYTHONDONTWRITEBYTECODE=1 DATABASE_URL=sqlite:///:memory: .venv/bin/python -m pytest ../evidence/qa-kb-104/analysis-plugins/test_probe_sync_entitlement.py -c pyproject.toml --rootdir=. -p no:cacheprovider -q -s -W ignore -k 'probe_D'
+# probe, not a product test; _launch_run_core stubbed (nothing minted).
+
+
+[D] basic POST override of app_builder (base ppt, benign step) -> 201 
+    basic launches app_builder directly with that override stored -> 403 tier_not_entitled reached_mint=False
+.
+[D] basic POST override of sample_subagents_parallel (base ppt, benign step) -> 201 
+    basic launches sample_subagents_parallel directly with that override stored -> 403 tier_not_entitled reached_mint=False
+.
+[D] basic POST override of custom (base ppt, benign step) -> 201 
+    basic launches custom directly with that override stored -> 403 tier_not_entitled reached_mint=False
+.
+3 passed, 7 deselected in 1.93s

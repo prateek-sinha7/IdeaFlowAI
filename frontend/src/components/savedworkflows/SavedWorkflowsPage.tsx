@@ -13,6 +13,7 @@ import {
   deleteUserWorkflow, getToken, type UserWorkflowSummary,
 } from "@/lib/api";
 import { NameWorkflowModal } from "@/components/catalog/NameWorkflowModal";
+import { useEscapeToClose } from "@/hooks/useEscapeToClose";
 import { routes } from "@/lib/routes";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -61,7 +62,7 @@ function cleanBrief(raw: string): string {
   const fileMatches = [...raw.matchAll(/===\s*Attached:\s*([^=\n]+?)\s*===/g)];
   const stripped = raw
     .replace(/===\s*Attached:[^=]+===[\s\S]*?===\s*End:[^=]+===/g, "")
-    .replace(/\[Attached:[^\]]*\]/g, "")
+    .replace(/\[Attached:[^\n]*?\](?=\s|$)/g, "") // a filename may contain "]" (ISS-882)
     .trim();
   if (stripped) return stripped;
   // All content was file attachments — show filenames as a fallback
@@ -98,15 +99,12 @@ function KebabMenu({
   onDelete: () => void;
 }) {
   const triggerRef = useRef<HTMLButtonElement>(null);
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Escape" && isOpen) {
-      e.stopPropagation();
-      onClose();
-      triggerRef.current?.focus();
-    }
-  };
+  // BUG-104: a document listener, not a wrapper onKeyDown, so Escape still closes
+  // when the opening click left focus on BODY (Safari/Firefox on macOS). Gated on
+  // isOpen: one KebabMenu per card, only the open one may listen.
+  useEscapeToClose(() => { onClose(); triggerRef.current?.focus(); }, isOpen);
   return (
-    <div className="relative" onClick={(e) => e.stopPropagation()} onKeyDown={handleKeyDown}>
+    <div className="relative" onClick={(e) => e.stopPropagation()}>
       <button
         ref={triggerRef}
         aria-haspopup="menu"
@@ -169,6 +167,9 @@ export function SavedWorkflowsPage({ onLaunchSaved, onCreateNew }: SavedWorkflow
   // ref, not state, because this gates the handler rather than the render; a
   // Set, so duplicating a DIFFERENT row meanwhile is unaffected.
   const duplicatingRef = useRef(new Set<string>());
+  // ISS-932: the Delete confirm closes on Escape wherever focus is. The menu item
+  // that opened it unmounts, leaving focus on BODY, so a scrim onKeyDown never fires.
+  useEscapeToClose(() => setDeleteRow(null), deleteRow !== null);
 
   useEffect(() => {
     let cancelled = false;
@@ -417,8 +418,7 @@ export function SavedWorkflowsPage({ onLaunchSaved, onCreateNew }: SavedWorkflow
         {deleteRow && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
             className="fixed inset-0 z-[80] flex items-center justify-center bg-[var(--scrim)] backdrop-blur-sm"
-            onClick={() => setDeleteRow(null)}
-            onKeyDown={(e) => { if (e.key === "Escape") setDeleteRow(null); }}>
+            onClick={() => setDeleteRow(null)}>
             <motion.div initial={{ opacity: 0, scale: 0.96, y: 8 }} animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.96, y: 8 }} transition={{ duration: 0.15 }}
               role="dialog" aria-modal="true" aria-labelledby="delete-workflow-title"

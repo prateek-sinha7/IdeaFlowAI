@@ -46,6 +46,9 @@ paths = [
   # Documentation and planning artifacts (illustrative examples only).
   '''docs/.*''',
   '''\.planning/.*''',
+  # Bug-line proof store: raw pytest/probe output and mocked-API dumps. Run ids
+  # (UUIDs) beside the word "token" trip generic-api-key; none are credentials.
+  '''evidence/.*''',
   # Generated knowledge-store and search-index cards. Same class as `docs/` and
   # `.planning/` above: prose artifacts, never a credential store. Added after
   # `generic-api-key` fired on the literal path string `mcp/integrations` inside
@@ -55,6 +58,13 @@ paths = [
   '''\.searchable/.*''',
   # Committed local AI-tooling skills — example tokens in their docs.
   '''skills/.*''',
+  # Committed local AI-tooling agent definitions and orchestration workflows.
+  # These files contain dev-seed credentials (e.g. local login password for the
+  # dev instance) used by the AI-powered testing/bug-fixing agents. The values
+  # are the same dev-seed credentials already present in velocity.json and the
+  # env-templates; they are not live secrets. Same class of non-shipping tooling
+  # as `skills/.*` above.
+  '''^\.claude/.*''',
   # Env templates: placeholders only (CHANGE_ME / GENERATE-... / dev-secret-...).
   '''env-templates/.*''',
   # Any committed *.example template (e.g. app.env.example, *.tfvars.example).

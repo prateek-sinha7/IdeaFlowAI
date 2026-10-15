@@ -1,0 +1,11 @@
+T app_builder_revision             -> 200 parent_linked=True source_run_id=None
+T backlog_revision                 -> 200 parent_linked=True source_run_id=None
+T custom_revision                  -> 200 parent_linked=True source_run_id=None
+T ppt_revision                     -> 200 parent_linked=True source_run_id=None
+T prototype_feature_revision       -> 400 {"detail":{"error":"Pipeline 'prototype_feature_revision' agents ['prototype-plan', 'prototype-build'] declare template injection, so the run requires a templ
+T prototype_large_revision         -> 200 parent_linked=True source_run_id=None
+T prototype_revision               -> 200 parent_linked=True source_run_id=None
+T prototype_v2_feature_revision    -> 200 parent_linked=True source_run_id=None
+T prototype_v2_revision            -> 200 parent_linked=True source_run_id=None
+T user_stories_revision            -> 200 parent_linked=True source_run_id=None
+10 passed in 1.06s

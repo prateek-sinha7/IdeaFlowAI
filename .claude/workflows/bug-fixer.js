@@ -634,8 +634,13 @@ function restartBackendWhenIdle() {
 Backend :8000 must serve the fixes that just landed. Compare the running :8000 process start time
 (ps -o lstart -p $(lsof -tiTCP:8000 -sTCP:LISTEN)) with the newest mtime of any tracked or
 untracked change under backend/ (git status --porcelain backend). If a change is newer, restart
-ONLY :8000 from this checkout's backend/ with the same command and env (AWS_BEARER_TOKEN_BEDROCK
-present), wait for /health 200. Otherwise do nothing. Never touch :3000, code, git or .env.`,
+ONLY :8000 from this checkout's backend/ with EXACTLY this command (it keeps --reload, and it unsets
+the AWS keys from backend/.env, which are stale and make Cognito login fail with 503; credentials
+come from the user's SSO profile instead):
+  cd backend && env -u AWS_ACCESS_KEY_ID -u AWS_SECRET_ACCESS_KEY -u AWS_SESSION_TOKEN nohup .venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload > /tmp/velocity-8000.log 2>&1 &
+Never source backend/.env. Wait for /docs 200, then confirm POST /api/auth/login
+{"email":"admin@velocity.ai","password":"Velocity!Dev2026"} returns 200; if it does not, return
+action "failed" with the log tail. Otherwise do nothing. Never touch :3000, code, git or .env.`,
       {
         label: 'restart:backend',
         phase: 'Verify',
@@ -930,6 +935,8 @@ Only the phase agents write Status. If you believe a Status is wrong, SAY SO IN 
 change nothing. A sync agent once moved 4 rows ANALYZED->TESTED and the line recorded 4 bugs as
 tested that had no tests at all — statuses are pipeline state, and a wrong one is invisible.
 The ONLY cell in ${INDEX} you may touch is the Cards cell, and only to APPEND a missing link.
+NEVER run git checkout, git restore, git stash or git reset on ANY file. The register files carry
+uncommitted rows; a sync agent once ran "git checkout LEDGER.md" and wiped 46 live rows.
 
 Bring the root register files in line with ${INDEX} (${reason}).
 ${INDEX} is the truth. Read its Queue table. Then, for each of UNREPRODUCIBLE.md, ESCALATIONS.md,

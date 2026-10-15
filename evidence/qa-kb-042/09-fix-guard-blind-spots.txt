@@ -1,0 +1,24 @@
+# QA-KB-042 fix phase: comment lines in the guard's scanned files that carried a line-number cite in the PRE-EDIT
+# snapshot but that the guard regex (test_run_shutdown_stale_citations.py _LINE_CITE) does not match.
+# broad pattern: \b[\w./-]+\.(?:py|yml|sh) ?:\d+|(?<![\w/.]):\d{3,}
+run_shutdown.py:100: # teardown"); the durable chat_reply row is written at :1356 inside _drive's
+run_shutdown.py:101: # SECOND try, so a CancelledError raised inside converse() at :1347 skips it.
+run_shutdown.py:287: per-chunk (:2514/:3621), pre-agent (:2287), clarify-drain-heartbeat (:1943),
+run_shutdown.py:288: review-gate-race (:5155), task-loop (:4437/:4566) and wave (:5012) boundaries.
+run_shutdown.py:293: ``:2473`` revision), so the outcome is deterministic either way.
+run_engine.py:160: (run_commands.py :399/:421, :991/:1003, :1204/:1216, :1775/:1796, :2383/:2395;
+run_engine.py:161: engine.py :5372/:5388, :5440/:5457) -- so on a single-threaded event loop a
+run_engine.py:173: no callable ``done`` (``tests/unit/test_rest_resume.py:260`` seeds a bare ``object()``
+run_engine.py:196: # only -- NOT _CANCEL_EVENTS: ``launch_run`` registers the cancel event at :1734
+run_engine.py:197: # before the queue at :1775, so a lone cancel-event entry is a legitimate mid-launch
+run_engine.py:900: ``source_workflow_run_id`` link (``_handle_workflow_execution`` :1688) and
+run_engine.py:902: (``_handle_revision_execution`` :2247) — route their parent linkage through
+run_stream.py:335: member of ``REVIEW_RESOLUTIONS`` (``gate_pendency.py:53-62``). A ``seq`` tie -- the only
+run_stream.py:662: # :328-330 only closes owned sessions) — one leaked connection per live SSE stream.
+config.py:345: # inside serve() (server.py:326-330) after restoring the default disposition, so
+test_shutdown_reachability.py:6: ``None`` (``uvicorn/config.py:215``), and ``H11Protocol.shutdown()`` does NOT close a
+test_shutdown_reachability.py:8: (``uvicorn/protocols/http/h11_impl.py:328-337``). A live ``EventSourceResponse``
+test_shutdown_reachability.py:10: forever (``uvicorn/server.py:294-310``), and ``await self.lifespan.shutdown()`` on line
+test_shutdown_reachability.py:23: ``test_run_stream_pool_leak.py:196-238``: ``Server.capture_signals()`` installs its
+test_shutdown_reachability.py:67: # restore_non_terminal_runs() (main.py:238), which auto-resumes in-flight runs. This
+test_shutdown_reachability.py:84: # restore_non_terminal_runs() (main.py:238), which auto-resumes in-flight runs. This

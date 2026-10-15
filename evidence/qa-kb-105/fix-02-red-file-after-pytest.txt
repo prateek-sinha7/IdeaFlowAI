@@ -1,0 +1,20 @@
+# QA-KB-105 fix — the red file, HEAD eb84ce544 + working-tree change, 2026-10-08T22:46Z
+## .venv/bin/python -m pytest tests/integration/agents/test_qa_kb_105_unsatisfiable_resume.py -q -p no:cacheprovider -rfX
+[XPASS(strict)] ISS-1125 unfixed
+ERROR    agents.execution_engine.engine:engine.py:15541 resume(u-1b56d662) failed: Resume failed: Workflow DAG is unsatisfiable: Agent 'custom-agent:b' consumes 'x' but nothing produces it.
+_______ test_user_resume_of_cancelled_run_unsatisfiable_dag_ends_failed ________
+[XPASS(strict)] ISS-1125 unfixed
+ERROR    agents.execution_engine.engine:engine.py:15541 resume(c-7ebcfb34) failed: Resume failed: Workflow DAG is unsatisfiable: Agent 'custom-agent:b' consumes 'x' but nothing produces it.
+[XPASS(strict)] ISS-1125 unfixed
+ERROR    agents.execution_engine.engine:engine.py:15541 resume(r-b21f4da1) failed: Resume failed: Workflow DAG is unsatisfiable: Agent 'custom-agent:b' consumes 'x' but nothing produces it.
+FAILED tests/integration/agents/test_qa_kb_105_unsatisfiable_resume.py::test_user_resume_unsatisfiable_dag_records_new_failure_and_live_frame
+FAILED tests/integration/agents/test_qa_kb_105_unsatisfiable_resume.py::test_user_resume_of_cancelled_run_unsatisfiable_dag_ends_failed
+FAILED tests/integration/agents/test_qa_kb_105_unsatisfiable_resume.py::test_restart_auto_resume_unsatisfiable_dag_does_not_leave_running_ghost
+3 failed, 1 warning in 2.46s
+
+## same file with --runxfail (the assertions run as plain tests)
+3 passed, 1 warning in 2.13s
+
+## re-run 2026-10-08T22:58Z: engine.py now ALSO carries a concurrent QA-KB-103 change (other hunks: the resume_run / _replay_clarify_run manifest recompile, plus kernel_services.py, overrides.py, run_commands.py) — the ISS-1125 hunks are unchanged
+tests/integration/agents/test_qa_kb_105_unsatisfiable_resume.py: 3 x XPASS(strict); --runxfail: 3 passed, 1 warning in 2.09s
+tests/integration/agents/test_qa_kb_102_silent_resume.py: 6 passed; tests/integration/agents/test_restart_resume_db.py: 85 passed; tests/integration/api/test_rest_resume_api.py: 10 passed; tests/unit/app/test_gate_agent_ids_survives_resume.py: 6 passed; tests/agents/test_run_trace.py: 16 passed; tests/integration/agents/test_cancel_stops_resumed_run_db.py: 5 passed (observed 00:57-00:58 local, one file per run)

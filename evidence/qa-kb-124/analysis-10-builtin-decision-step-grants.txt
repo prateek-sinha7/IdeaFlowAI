@@ -1,0 +1,12 @@
+# QA-KB-124 re-analysis 10: every shipped workflow's decision steps and their effective grants (offline compile, no model)
+# date: 2026-10-09   cmd: cd backend && PYTHONPATH=. .venv/bin/python ../evidence/qa-kb-124/analysis-10-builtin-decision-step-grants.py 2>/dev/null
+ex_A1_loop | custom-agent:check | read=False write=False exec=False | gates=['conditional']
+ex_A2_branch | custom-agent:language | read=False write=False exec=False | gates=['conditional']
+ex_A3_divert | custom-agent:language | read=False write=False exec=False | gates=['conditional']
+ex_A4_human_divert | custom-agent:pick-language | read=False write=False exec=False | gates=['before-human', 'conditional']
+ex_A4_human_gate | custom-agent:ask | read=False write=False exec=False | gates=[]
+ex_A4_human_gate | custom-agent:pick-language | read=False write=False exec=False | gates=['before-human', 'conditional']
+ex_test_loop_reachable_skip | custom-agent:verdict | read=True write=False exec=False | gates=['conditional']
+ex_test_loop_reachable_skip | custom-agent:revise-route | read=True write=False exec=False | gates=['conditional']
+ex_test_transitive_skip | custom-agent:gate | read=True write=False exec=False | gates=['conditional']
+decision steps: 9; with a write grant (hurt by the delivery block): 0

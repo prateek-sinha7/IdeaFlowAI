@@ -5,7 +5,7 @@
  * These tests cover the UI-observable slice of the chain versioning feature.
  * Backend-persistence and reconnect-only behaviors are covered in
  * backend/tests/unit/test_chain_projection.py and
- * backend/tests/unit/test_duplicate_context_guard.py.
+ * backend/tests/integration/api/test_duplicate_context_guard_api.py.
  *
  * Cases:
  *  TS-V2-01  Version browse: a completed run with a git_tag shows the tag in the
@@ -54,7 +54,7 @@ test.describe("TS-V2 — Sandbox Git Versioning V2", () => {
     await dashboard.goto();
     await openRunHistory(page);
 
-    await expect(page.getByText("User story backlog v1")).toBeVisible();
+    await expect(page.getByText("User story backlog v1").first()).toBeVisible();
     // Completed run shows "Done" badge (not "Degraded", not "Queued")
     const row = page
       .locator("div")
@@ -82,7 +82,7 @@ test.describe("TS-V2 — Sandbox Git Versioning V2", () => {
     await dashboard.goto();
     await openRunHistory(page);
 
-    await expect(page.getByText("Degraded run output")).toBeVisible();
+    await expect(page.getByText("Degraded run output").first()).toBeVisible();
     // Title kept (renames need a migration plan). History now labels a degraded
     // run "Failed" (RevisionFamilyView THE RULE: an agent failed → the run failed,
     // no softer word) — and still never "Done" or "Queued".

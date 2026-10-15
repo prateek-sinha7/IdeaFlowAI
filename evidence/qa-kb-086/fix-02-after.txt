@@ -1,0 +1,29 @@
+# QA-KB-086 fix 2026-10-07 - AFTER the fix (designPicker.test.tsx:161 replaced per ISS-944; it.fails marker left in place for the 6-verifier)
+# cmd: cd frontend && npx vitest run src/components/workflow/IdeaInputPage.designPicker.test.tsx
+# expected signal: the it.fails test FAILS with 'Expect test to fail' = the body now passes (vitest's strict-xfail XPASS)
+
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - ESM syntax in a file loaded as CommonJS (vitest.config.ts:1:1). Use a `.mjs` extension or set `"type": "module"` in the closest package.json
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+
+ RUN  v4.1.11 /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/frontend
+
+stdout | src/components/workflow/IdeaInputPage.designPicker.test.tsx > IdeaInputPage — opendesign design-picker wiring > does not offer the picker for a workflow that never declares opendesign
+[wf] 4. roster for prototype_v2 { fromLibrary: 1, fromManifest: 0, using: 'library' }
+
+ ❯ src/components/workflow/IdeaInputPage.designPicker.test.tsx (2 tests | 1 failed) 385ms
+     × does not offer the picker for a workflow that never declares opendesign 108ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/components/workflow/IdeaInputPage.designPicker.test.tsx > IdeaInputPage — opendesign design-picker wiring > does not offer the picker for a workflow that never declares opendesign
+Error: Expect test to fail
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 1 passed (2)
+   Start at  20:05:38
+   Duration  1.79s (transform 168ms, setup 100ms, import 557ms, tests 385ms, environment 629ms)
+
+EXIT=1

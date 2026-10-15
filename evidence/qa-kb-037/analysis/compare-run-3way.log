@@ -1,0 +1,128 @@
+
+ RUN  v4.1.11 /private/tmp/claude-502/-Users-bilala-Developer-Projects-VELOCITY-AI-worktrees-feat-user-stories-v2/2d1a1575-310a-48fd-8155-2763a084604d/scratchpad/repro37
+
+ ❯ compare.test.tsx (24 tests | 10 failed) 1636ms
+     × A. older pick lands after a newer pick: newer selection must win 236ms
+     × B. pick vN then return to latest: late response must not re-pin vN 87ms
+     × C. older pick that FAILS late must not wipe the newer pick 77ms
+     × S2. pending window (Steps tab): previous version's agents stay under the new selection 56ms
+     × S1. URL-driven pin change (Back) while a pick is in flight 62ms
+     × S1b. Back to an UNPINNED url while a pick is in flight 58ms
+     × S2. pending window (Steps tab): previous version's agents stay under the new selection 45ms
+     × S1. URL-driven pin change (Back) while a pick is in flight 48ms
+     × S1b. Back to an UNPINNED url while a pick is in flight 43ms
+     × S2. pending window (Steps tab): previous version's agents stay under the new selection 46ms
+
+⎯⎯⎯⎯⎯⎯ Failed Tests 10 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  compare.test.tsx > CURRENT (unmodified) > A. older pick lands after a newer pick: newer selection must win
+AssertionError: expected 'Viewing v2 (read-only)' to match /Viewing v1/
+
+- Expected:
+/Viewing v1/
+
++ Received:
+"Viewing v2 (read-only)"
+
+ ❯ compare.test.tsx:146:26
+    144|     const after = snap();
+    145|     record("A out-of-order pick", { before, after });
+    146|     expect(after.banner).toMatch(/Viewing v1/);
+       |                          ^
+    147|     expect(after.chip).toMatch(/v1/);
+    148|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/10]⎯
+
+ FAIL  compare.test.tsx > CURRENT (unmodified) > B. pick vN then return to latest: late response must not re-pin vN
+AssertionError: expected 'Viewing v2 (read-only)' to be '(no banner)' // Object.is equality
+
+Expected: "(no banner)"
+Received: "Viewing v2 (read-only)"
+
+ ❯ compare.test.tsx:162:26
+    160|     const after = snap();
+    161|     record("B live-return", { before, after });
+    162|     expect(after.banner).toBe("(no banner)");
+       |                          ^
+    163|   });
+    164|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/10]⎯
+
+ FAIL  compare.test.tsx > CURRENT (unmodified) > C. older pick that FAILS late must not wipe the newer pick
+AssertionError: expected '(no banner)' to match /Viewing v1/
+
+- Expected:
+/Viewing v1/
+
++ Received:
+"(no banner)"
+
+ ❯ compare.test.tsx:178:26
+    176|     const after = snap();
+    177|     record("C late failure", { after });
+    178|     expect(after.banner).toMatch(/Viewing v1/);
+       |                          ^
+    179|   });
+    180|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/10]⎯
+
+ FAIL  compare.test.tsx > CURRENT (unmodified) > S2. pending window (Steps tab): previous version's agents stay under the new selection
+ FAIL  compare.test.tsx > AGREED FIX (scratch copy) > S2. pending window (Steps tab): previous version's agents stay under the new selection
+ FAIL  compare.test.tsx > AGREED FIX + URL-PIN BUMPS (scratch copy) > S2. pending window (Steps tab): previous version's agents stay under the new selection
+AssertionError: expected 'live-v3-agent' not to be 'live-v3-agent' // Object.is equality
+ ❯ compare.test.tsx:207:31
+    205|     const resolved = { ...snap(), steps: screen.getByTestId("thinking-…
+    206|     record("S2 pending window", { pending, resolved });
+    207|     expect(pending.steps).not.toBe("live-v3-agent");
+       |                               ^
+    208|   });
+    209|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/10]⎯
+
+ FAIL  compare.test.tsx > CURRENT (unmodified) > S1. URL-driven pin change (Back) while a pick is in flight
+ FAIL  compare.test.tsx > AGREED FIX (scratch copy) > S1. URL-driven pin change (Back) while a pick is in flight
+AssertionError: expected 'Viewing v2 (read-only)' to match /Viewing v1/
+
+- Expected:
+/Viewing v1/
+
++ Received:
+"Viewing v2 (read-only)"
+
+ ❯ compare.test.tsx:225:26
+    223|     const after = snap();
+    224|     record("S1 Back while pending", { urlPin: "1", before, after });
+    225|     expect(after.banner).toMatch(/Viewing v1/);
+       |                          ^
+    226|   });
+    227|   it("S1b. Back to an UNPINNED url while a pick is in flight", async (…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/10]⎯
+
+ FAIL  compare.test.tsx > CURRENT (unmodified) > S1b. Back to an UNPINNED url while a pick is in flight
+ FAIL  compare.test.tsx > AGREED FIX (scratch copy) > S1b. Back to an UNPINNED url while a pick is in flight
+AssertionError: expected 'Viewing v2 (read-only)' to be '(no banner)' // Object.is equality
+
+Expected: "(no banner)"
+Received: "Viewing v2 (read-only)"
+
+ ❯ compare.test.tsx:241:26
+    239|     const after = snap();
+    240|     record("S1b Back to unpinned while pending", { before, after });
+    241|     expect(after.banner).toBe("(no banner)");
+       |                          ^
+    242|   });
+    243|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/10]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  10 failed | 14 passed (24)
+   Start at  22:28:39
+   Duration  3.06s (transform 300ms, setup 64ms, import 712ms, tests 1.64s, environment 544ms)
+

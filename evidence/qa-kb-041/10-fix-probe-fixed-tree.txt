@@ -1,0 +1,73 @@
+QA-KB-041 fixer — scratch probes on the FIXED working tree (state right after Escape, then after waitFor).
+Config: scratch vitest config (copy of 07-analyze-probe-vitest.scratch.config.ts.txt), real frontend/src via @ alias; nothing under frontend/src created.
+First notif run (01:40:53) printed: [right after Escape] aria-expanded = false | dialog present = true | activeElement = Notifications
+Second notif run (01:51:31) printed dialog present = false: the synchronous node check is a race; aria-expanded is false in every run.
+
+################ header-debug.test.tsx (fixed working tree)
+
+ RUN  v4.1.11 /private/tmp/claude-502/-Users-bilala-Developer-Projects-VELOCITY-AI-worktrees-feat-user-stories-v2/2d1a1575-310a-48fd-8155-2763a084604d/scratchpad/qa-kb-041-fix
+
+[open] activeElement = BODY | aria-expanded = true | menu = true | raw [role=menu] = 1
+
+[right after Escape] aria-expanded = false | menu (a11y query) = false | raw [role=menu] = 0 | activeElement = Account menu
+
+[after waitFor] raw [role=menu] = 0
+
+ ✓ header-debug.test.tsx > debug ISS-928 > unfocused click then Escape 127ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  01:51:29
+   Duration  1.53s (transform 165ms, setup 75ms, import 551ms, tests 129ms, environment 666ms)
+
+################ notif-debug.test.tsx (fixed working tree)
+
+ RUN  v4.1.11 /private/tmp/claude-502/-Users-bilala-Developer-Projects-VELOCITY-AI-worktrees-feat-user-stories-v2/2d1a1575-310a-48fd-8155-2763a084604d/scratchpad/qa-kb-041-fix
+
+[open] activeElement = BODY | aria-expanded = true | dialog = true
+
+[right after Escape] aria-expanded = false | dialog present = false | activeElement = Notifications
+
+[after waitFor] aria-expanded = false | dialog present = false | activeElement = Notifications
+
+ ✓ notif-debug.test.tsx > debug ISS-929 > unfocused click then Escape: state right after, and after the exit animation 103ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  01:51:31
+   Duration  1.03s (transform 121ms, setup 52ms, import 372ms, tests 105ms, environment 403ms)
+
+################ admin-debug.test.tsx (fixed working tree)
+
+ RUN  v4.1.11 /private/tmp/claude-502/-Users-bilala-Developer-Projects-VELOCITY-AI-worktrees-feat-user-stories-v2/2d1a1575-310a-48fd-8155-2763a084604d/scratchpad/qa-kb-041-fix
+
+[open] activeElement = BODY | aria-expanded = true | menu = true
+
+[right after Escape] aria-expanded = false | menu present = true | trigger connected = true
+
+[after waitFor] aria-expanded = false | menu present = false
+
+ ✓ admin-debug.test.tsx > debug ISS-930 > unfocused click then Escape 259ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  01:51:32
+   Duration  1.18s (transform 113ms, setup 48ms, import 359ms, tests 260ms, environment 415ms)
+
+################ rowmenu-debug.test.tsx (fixed working tree)
+
+ RUN  v4.1.11 /private/tmp/claude-502/-Users-bilala-Developer-Projects-VELOCITY-AI-worktrees-feat-user-stories-v2/2d1a1575-310a-48fd-8155-2763a084604d/scratchpad/qa-kb-041-fix
+
+[open] aria-expanded = true | menu = true
+
+[right after Escape] held-ref aria-expanded = false | connected = true | re-queried aria-expanded = false | same node = true | menu present = true
+
+[after waitFor] re-queried aria-expanded = false | menu present = false
+
+ ✓ rowmenu-debug.test.tsx > debug ISS-931 > unfocused click then Escape 231ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  01:51:34
+   Duration  1.07s (transform 76ms, setup 53ms, import 264ms, tests 233ms, environment 426ms)
+

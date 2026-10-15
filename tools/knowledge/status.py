@@ -375,13 +375,14 @@ def main() -> int:
     # `status` is read on demand and reads frontmatter only, so this costs a
     # glob and no extractor. It is the signal that survives not being watched.
     arch_dir = K / "architecture"
-    stale_domains, unauthored_domains = [], []
+    stale_domains, unauthored_domains, unbuilt_domains = [], [], []
     for card in sorted(arch_dir.glob("DOMAIN-*.md")) if arch_dir.is_dir() else []:
-        head = card.read_text(encoding="utf-8", errors="replace")[:2000]
+        text = card.read_text(encoding="utf-8", errors="replace")[:2000]
         got = dict(
-            re.findall(r"^(prose_signature|code_signature):\s*(\S+)\s*$", head, re.M)
+            re.findall(r"^(prose_signature|code_signature):\s*(\S+)\s*$", text, re.M)
         )
         if not got.get("code_signature"):
+            unbuilt_domains.append(card.stem)
             continue
         if not got.get("prose_signature"):
             unauthored_domains.append(card.stem)
@@ -391,9 +392,19 @@ def main() -> int:
     checks.append(
         (
             "domain prose",
-            f"{n_domains - len(stale_domains) - len(unauthored_domains)}",
+            f"{n_domains - len(stale_domains) - len(unauthored_domains) - len(unbuilt_domains)}",
             str(n_domains),
-            "OK" if not (stale_domains or unauthored_domains) else "STALE",
+            # Both stamps freeze at the last architecture build, so equal stamps
+            # prove nothing while that build is behind the tree: UNKNOWN, not OK.
+            "STALE"
+            if (stale_domains or unauthored_domains or unbuilt_domains)
+            else "UNKNOWN"
+            if any(
+                c[0] in ("source files covered", "source files changed")
+                and c[3] == "STALE"
+                for c in checks
+            )
+            else "OK",
         )
     )
 
@@ -473,8 +484,8 @@ def main() -> int:
     print(f"\n{len(stale)} stale: " + ", ".join(c[0] for c in stale))
     # Name the cards and give the command. A count alone tells a reader
     # something is wrong and not what to do about it.
-    if stale_domains or unauthored_domains:
-        named = stale_domains + unauthored_domains
+    if stale_domains or unauthored_domains or unbuilt_domains:
+        named = stale_domains + unauthored_domains + unbuilt_domains
         print("  domain cards needing a pass: " + " ".join(named))
         print("  Fix: /velocity diagrams " + " ".join(named))
     needs_arch = any(

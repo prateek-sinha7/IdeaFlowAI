@@ -16,6 +16,7 @@ import { routes } from "@/lib/routes";
 // KAN-116 (Bug 3): clean === markers from titles stored in DB (safety net for existing data).
 import { parseRunInput } from "@/lib/runInput";
 import { isPlausibleFilePath } from "@/lib/parsers/filePath";
+import { AGENT_HTML_SANDBOX, frameableAgentHtml, openAgentHtmlInNewTab } from "@/lib/agentHtml";
 import { PPTPreview } from "@/components/preview/PPTPreview";
 import { UserStoryPreview } from "@/components/preview/UserStoryPreview";
 import { PrototypePreview } from "@/components/preview/PrototypePreview";
@@ -377,12 +378,17 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
   // prototypeContent, etc.) and re-populates by the selected version's type — identical
   // to what handleSelectRun does. Without this the page.tsx content state retains the
   // last-rendered type (e.g. prototype HTML) for every version click.
+  // ISS-940 — applied in CLICK order: a pick whose response lands after a newer
+  // pick's is dropped, so a slow earlier pick cannot win (or navigate) last.
+  const selectGen = useRef(0);
   const handleSelectVersion = useCallback(async (memberId: string) => {
+    const gen = ++selectGen.current;
     const token = getToken();
     if (!token) return;
     setLoadingDetail(true);
     try {
       const full = await getWorkflow(token, memberId);
+      if (gen !== selectGen.current) return;
       if (onOpenRun) {
         // Shared run screen path: route through onOpenRun so page.tsx correctly
         // clears stale content state and re-populates by full.type (Bug 1 fix).
@@ -987,10 +993,7 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
                   onClick={() => {
                     let html = selectedOutput.trim();
                     if (html.startsWith("```")) html = html.replace(/^```(?:html)?\s*\n?/, "").replace(/\n?```\s*$/, "");
-                    const blob = new Blob([html], { type: "text/html" });
-                    const url = URL.createObjectURL(blob);
-                    window.open(url, "_blank");
-                    setTimeout(() => URL.revokeObjectURL(url), 5000);
+                    openAgentHtmlInNewTab(html);
                   }}
                   className="flex items-center gap-1 rounded-md border border-line-border bg-surface-white px-2.5 py-1 text-[11px] text-ink-500 hover:border-line-control hover:text-ink-800 transition-colors"
                 >
@@ -1066,10 +1069,10 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
                     <div className="h-full flex flex-col overflow-hidden">
                       <div className="flex-1 min-h-0 overflow-hidden">
                         <iframe
-                          srcDoc={selectedOutput}
+                          srcDoc={frameableAgentHtml(selectedOutput)}
                           className="w-full h-full border-0"
                           title="Deliverable Preview"
-                          sandbox="allow-scripts"
+                          sandbox={AGENT_HTML_SANDBOX}
                         />
                       </div>
                     </div>

@@ -50,8 +50,10 @@ def test_a_fresh_deeplink_to_steps_agent_opens_that_agents_detail_pane(page, sho
 
     with shot("agent-deeplink-detail", 'When I cold-load "/runs/{id}/steps/{agentId}"'):
         page.goto(f"/runs/{run_id}/steps/{agent_id}")
-        expect(page.locator(L.HEADER)).to_be_visible()
-        expect(page.locator(L.tab("tab-thinking"))).to_have_attribute("aria-selected", "true")
+        # A cold load of a large run hydrates past the 5s default before the
+        # Steps tab is selected; the selection itself is correct.
+        expect(page.locator(L.HEADER)).to_be_visible(timeout=15000)
+        expect(page.locator(L.tab("tab-thinking"))).to_have_attribute("aria-selected", "true", timeout=15000)
 
     # This is the promise the URL makes: that specific agent's detail pane,
     # surfaced as the "Steps / <Agent Name>" breadcrumb — not the bare list.

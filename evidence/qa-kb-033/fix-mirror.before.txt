@@ -1,0 +1,91 @@
+repo: /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2   test files from: HEAD
+src/app/[...view]/workflowDetailCatch.source.test.ts:87:    expect(occurrences).toBe(5);
+src/app/[...view]/launchImageAndRecents.source.test.ts:34:    ).toBe(2);
+== BASE  idiom=5  guard=2
+ ✓ src/app/[...view]/launchImageAndRecents.source.test.ts > dashboard page.tsx launch-staging image carry (DEFECT 1) > spreads images through the launch setters, length-guarded
+ ✓ src/app/[...view]/launchImageAndRecents.source.test.ts > dashboard page.tsx launch-staging image carry (DEFECT 1) > carries images in BOTH the prototype and ppt setters
+ ✓ src/app/[...view]/launchImageAndRecents.source.test.ts > DashboardLayout recents chip opens the run (DEFECT 2) > switches to the execution view alongside onSelectWorkflowRun
+ ✓ src/app/[...view]/workflowDetailCatch.source.test.ts > page.tsx /workflows/{id} read-view catch block (F7, FR-009) > locates the T30 cold-mount effect
+ ✓ src/app/[...view]/workflowDetailCatch.source.test.ts > page.tsx /workflows/{id} read-view catch block (F7, FR-009) > still redirects a 401 via handleSessionExpiry before any other check (unchanged)
+ ✓ src/app/[...view]/workflowDetailCatch.source.test.ts > page.tsx /workflows/{id} read-view catch block (F7, FR-009) > gates setWorkflowDetail(null)/setWorkflowDetailFailed(true) behind the narrowed 403/404 check
+ ✓ src/app/[...view]/workflowDetailCatch.source.test.ts > page.tsx /workflows/{id} read-view catch block (F7, FR-009) > no longer sets workflowDetailFailed unconditionally for any non-401 error
+ ✓ src/app/[...view]/workflowDetailCatch.source.test.ts > page.tsx /workflows/{id} read-view catch block (F7, FR-009) > matches the exact narrowed pattern used at the run-detail and edit catch blocks (no drift)
+ Test Files  2 passed (2)
+      Tests  8 passed (8)
+== 442-S1  idiom=6  guard=2
+ ✓ src/app/[...view]/launchImageAndRecents.source.test.ts > dashboard page.tsx launch-staging image carry (DEFECT 1) > spreads images through the launch setters, length-guarded
+ ✓ src/app/[...view]/launchImageAndRecents.source.test.ts > dashboard page.tsx launch-staging image carry (DEFECT 1) > carries images in BOTH the prototype and ppt setters
+ ✓ src/app/[...view]/launchImageAndRecents.source.test.ts > DashboardLayout recents chip opens the run (DEFECT 2) > switches to the execution view alongside onSelectWorkflowRun
+ ✓ src/app/[...view]/workflowDetailCatch.source.test.ts > page.tsx /workflows/{id} read-view catch block (F7, FR-009) > locates the T30 cold-mount effect
+ ✓ src/app/[...view]/workflowDetailCatch.source.test.ts > page.tsx /workflows/{id} read-view catch block (F7, FR-009) > still redirects a 401 via handleSessionExpiry before any other check (unchanged)
+ ✓ src/app/[...view]/workflowDetailCatch.source.test.ts > page.tsx /workflows/{id} read-view catch block (F7, FR-009) > gates setWorkflowDetail(null)/setWorkflowDetailFailed(true) behind the narrowed 403/404 check
+ ✓ src/app/[...view]/workflowDetailCatch.source.test.ts > page.tsx /workflows/{id} read-view catch block (F7, FR-009) > no longer sets workflowDetailFailed unconditionally for any non-401 error
+ × src/app/[...view]/workflowDetailCatch.source.test.ts > page.tsx /workflows/{id} read-view catch block (F7, FR-009) > matches the exact narrowed pattern used at the run-detail and edit catch blocks (no drift)
+ Test Files  1 failed | 1 passed (2)
+      Tests  1 failed | 7 passed (8)
+== 442-S4  idiom=4  guard=2
+ ✓ src/app/[...view]/workflowDetailCatch.source.test.ts > page.tsx /workflows/{id} read-view catch block (F7, FR-009) > locates the T30 cold-mount effect
+ ✓ src/app/[...view]/workflowDetailCatch.source.test.ts > page.tsx /workflows/{id} read-view catch block (F7, FR-009) > still redirects a 401 via handleSessionExpiry before any other check (unchanged)
+ ✓ src/app/[...view]/workflowDetailCatch.source.test.ts > page.tsx /workflows/{id} read-view catch block (F7, FR-009) > gates setWorkflowDetail(null)/setWorkflowDetailFailed(true) behind the narrowed 403/404 check
+ ✓ src/app/[...view]/workflowDetailCatch.source.test.ts > page.tsx /workflows/{id} read-view catch block (F7, FR-009) > no longer sets workflowDetailFailed unconditionally for any non-401 error
+ × src/app/[...view]/workflowDetailCatch.source.test.ts > page.tsx /workflows/{id} read-view catch block (F7, FR-009) > matches the exact narrowed pattern used at the run-detail and edit catch blocks (no drift)
+ ✓ src/app/[...view]/launchImageAndRecents.source.test.ts > dashboard page.tsx launch-staging image carry (DEFECT 1) > spreads images through the launch setters, length-guarded
+ ✓ src/app/[...view]/launchImageAndRecents.source.test.ts > dashboard page.tsx launch-staging image carry (DEFECT 1) > carries images in BOTH the prototype and ppt setters
+ ✓ src/app/[...view]/launchImageAndRecents.source.test.ts > DashboardLayout recents chip opens the run (DEFECT 2) > switches to the execution view alongside onSelectWorkflowRun
+ Test Files  1 failed | 1 passed (2)
+      Tests  1 failed | 7 passed (8)
+== 442-S2  idiom=3  guard=2
+ ✓ src/app/[...view]/launchImageAndRecents.source.test.ts > dashboard page.tsx launch-staging image carry (DEFECT 1) > spreads images through the launch setters, length-guarded
+ ✓ src/app/[...view]/launchImageAndRecents.source.test.ts > dashboard page.tsx launch-staging image carry (DEFECT 1) > carries images in BOTH the prototype and ppt setters
+ ✓ src/app/[...view]/launchImageAndRecents.source.test.ts > DashboardLayout recents chip opens the run (DEFECT 2) > switches to the execution view alongside onSelectWorkflowRun
+ ✓ src/app/[...view]/workflowDetailCatch.source.test.ts > page.tsx /workflows/{id} read-view catch block (F7, FR-009) > locates the T30 cold-mount effect
+ ✓ src/app/[...view]/workflowDetailCatch.source.test.ts > page.tsx /workflows/{id} read-view catch block (F7, FR-009) > still redirects a 401 via handleSessionExpiry before any other check (unchanged)
+ ✓ src/app/[...view]/workflowDetailCatch.source.test.ts > page.tsx /workflows/{id} read-view catch block (F7, FR-009) > gates setWorkflowDetail(null)/setWorkflowDetailFailed(true) behind the narrowed 403/404 check
+ ✓ src/app/[...view]/workflowDetailCatch.source.test.ts > page.tsx /workflows/{id} read-view catch block (F7, FR-009) > no longer sets workflowDetailFailed unconditionally for any non-401 error
+ × src/app/[...view]/workflowDetailCatch.source.test.ts > page.tsx /workflows/{id} read-view catch block (F7, FR-009) > matches the exact narrowed pattern used at the run-detail and edit catch blocks (no drift)
+ Test Files  1 failed | 1 passed (2)
+      Tests  1 failed | 7 passed (8)
+== 442-S3  idiom=5  guard=2
+ ✓ src/app/[...view]/launchImageAndRecents.source.test.ts > dashboard page.tsx launch-staging image carry (DEFECT 1) > spreads images through the launch setters, length-guarded
+ ✓ src/app/[...view]/launchImageAndRecents.source.test.ts > dashboard page.tsx launch-staging image carry (DEFECT 1) > carries images in BOTH the prototype and ppt setters
+ ✓ src/app/[...view]/launchImageAndRecents.source.test.ts > DashboardLayout recents chip opens the run (DEFECT 2) > switches to the execution view alongside onSelectWorkflowRun
+ ✓ src/app/[...view]/workflowDetailCatch.source.test.ts > page.tsx /workflows/{id} read-view catch block (F7, FR-009) > locates the T30 cold-mount effect
+ ✓ src/app/[...view]/workflowDetailCatch.source.test.ts > page.tsx /workflows/{id} read-view catch block (F7, FR-009) > still redirects a 401 via handleSessionExpiry before any other check (unchanged)
+ ✓ src/app/[...view]/workflowDetailCatch.source.test.ts > page.tsx /workflows/{id} read-view catch block (F7, FR-009) > gates setWorkflowDetail(null)/setWorkflowDetailFailed(true) behind the narrowed 403/404 check
+ ✓ src/app/[...view]/workflowDetailCatch.source.test.ts > page.tsx /workflows/{id} read-view catch block (F7, FR-009) > no longer sets workflowDetailFailed unconditionally for any non-401 error
+ ✓ src/app/[...view]/workflowDetailCatch.source.test.ts > page.tsx /workflows/{id} read-view catch block (F7, FR-009) > matches the exact narrowed pattern used at the run-detail and edit catch blocks (no drift)
+ Test Files  2 passed (2)
+      Tests  8 passed (8)
+== 867-S1  idiom=5  guard=3
+ ✓ src/app/[...view]/workflowDetailCatch.source.test.ts > page.tsx /workflows/{id} read-view catch block (F7, FR-009) > locates the T30 cold-mount effect
+ ✓ src/app/[...view]/workflowDetailCatch.source.test.ts > page.tsx /workflows/{id} read-view catch block (F7, FR-009) > still redirects a 401 via handleSessionExpiry before any other check (unchanged)
+ ✓ src/app/[...view]/workflowDetailCatch.source.test.ts > page.tsx /workflows/{id} read-view catch block (F7, FR-009) > gates setWorkflowDetail(null)/setWorkflowDetailFailed(true) behind the narrowed 403/404 check
+ ✓ src/app/[...view]/workflowDetailCatch.source.test.ts > page.tsx /workflows/{id} read-view catch block (F7, FR-009) > no longer sets workflowDetailFailed unconditionally for any non-401 error
+ ✓ src/app/[...view]/workflowDetailCatch.source.test.ts > page.tsx /workflows/{id} read-view catch block (F7, FR-009) > matches the exact narrowed pattern used at the run-detail and edit catch blocks (no drift)
+ ✓ src/app/[...view]/launchImageAndRecents.source.test.ts > dashboard page.tsx launch-staging image carry (DEFECT 1) > spreads images through the launch setters, length-guarded
+ × src/app/[...view]/launchImageAndRecents.source.test.ts > dashboard page.tsx launch-staging image carry (DEFECT 1) > carries images in BOTH the prototype and ppt setters
+ ✓ src/app/[...view]/launchImageAndRecents.source.test.ts > DashboardLayout recents chip opens the run (DEFECT 2) > switches to the execution view alongside onSelectWorkflowRun
+ Test Files  1 failed | 1 passed (2)
+      Tests  1 failed | 7 passed (8)
+== 867-S4  idiom=5  guard=1
+ ✓ src/app/[...view]/workflowDetailCatch.source.test.ts > page.tsx /workflows/{id} read-view catch block (F7, FR-009) > locates the T30 cold-mount effect
+ ✓ src/app/[...view]/workflowDetailCatch.source.test.ts > page.tsx /workflows/{id} read-view catch block (F7, FR-009) > still redirects a 401 via handleSessionExpiry before any other check (unchanged)
+ ✓ src/app/[...view]/workflowDetailCatch.source.test.ts > page.tsx /workflows/{id} read-view catch block (F7, FR-009) > gates setWorkflowDetail(null)/setWorkflowDetailFailed(true) behind the narrowed 403/404 check
+ ✓ src/app/[...view]/workflowDetailCatch.source.test.ts > page.tsx /workflows/{id} read-view catch block (F7, FR-009) > no longer sets workflowDetailFailed unconditionally for any non-401 error
+ ✓ src/app/[...view]/workflowDetailCatch.source.test.ts > page.tsx /workflows/{id} read-view catch block (F7, FR-009) > matches the exact narrowed pattern used at the run-detail and edit catch blocks (no drift)
+ ✓ src/app/[...view]/launchImageAndRecents.source.test.ts > dashboard page.tsx launch-staging image carry (DEFECT 1) > spreads images through the launch setters, length-guarded
+ × src/app/[...view]/launchImageAndRecents.source.test.ts > dashboard page.tsx launch-staging image carry (DEFECT 1) > carries images in BOTH the prototype and ppt setters
+ ✓ src/app/[...view]/launchImageAndRecents.source.test.ts > DashboardLayout recents chip opens the run (DEFECT 2) > switches to the execution view alongside onSelectWorkflowRun
+ Test Files  1 failed | 1 passed (2)
+      Tests  1 failed | 7 passed (8)
+== 867-S3  idiom=5  guard=2
+ ✓ src/app/[...view]/launchImageAndRecents.source.test.ts > dashboard page.tsx launch-staging image carry (DEFECT 1) > spreads images through the launch setters, length-guarded
+ ✓ src/app/[...view]/launchImageAndRecents.source.test.ts > dashboard page.tsx launch-staging image carry (DEFECT 1) > carries images in BOTH the prototype and ppt setters
+ ✓ src/app/[...view]/launchImageAndRecents.source.test.ts > DashboardLayout recents chip opens the run (DEFECT 2) > switches to the execution view alongside onSelectWorkflowRun
+ ✓ src/app/[...view]/workflowDetailCatch.source.test.ts > page.tsx /workflows/{id} read-view catch block (F7, FR-009) > locates the T30 cold-mount effect
+ ✓ src/app/[...view]/workflowDetailCatch.source.test.ts > page.tsx /workflows/{id} read-view catch block (F7, FR-009) > still redirects a 401 via handleSessionExpiry before any other check (unchanged)
+ ✓ src/app/[...view]/workflowDetailCatch.source.test.ts > page.tsx /workflows/{id} read-view catch block (F7, FR-009) > gates setWorkflowDetail(null)/setWorkflowDetailFailed(true) behind the narrowed 403/404 check
+ ✓ src/app/[...view]/workflowDetailCatch.source.test.ts > page.tsx /workflows/{id} read-view catch block (F7, FR-009) > no longer sets workflowDetailFailed unconditionally for any non-401 error
+ ✓ src/app/[...view]/workflowDetailCatch.source.test.ts > page.tsx /workflows/{id} read-view catch block (F7, FR-009) > matches the exact narrowed pattern used at the run-detail and edit catch blocks (no drift)
+ Test Files  2 passed (2)
+      Tests  8 passed (8)

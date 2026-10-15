@@ -1,0 +1,26 @@
+# 21 — fix, live probe of :8000 AFTER the fix (2026-10-07 ~23:45, 5-fixer). Read-only GETs, signed in as admin@velocity.ai
+# (token used, never printed). The :8000 --reload worker (pid 76995) started 23:33:41, after the .py edits
+# (sandbox.py 23:31:33, run_files.py 23:31:42), so it serves this fix. Compare 06-analyze-live-probe-matrix.txt (before).
+
+$ ls -la runs/2d626ad9-ef1d-4a0c-8cd9-2a33affbc4e8/0f62f7bc-d3a2-4748-8004-0b534e1741ae   # the husk, untouched by the probe
+total 0
+drwx------@  2 bilala  staff   64 Oct  7 17:37 .
+drwxr-xr-x@ 16 bilala  staff  512 Oct  7 23:28 ..
+birth 17:37:20 | mtime 17:37:20 | ctime 17:43:34
+
+route                                                         before (06)              after (this probe)
+GET /api/runs/0f62f7bc.../sandbox/refs                        200 refs [] (BUGS.md)    200 {"refs":[]}
+GET /api/runs/0f62f7bc.../sandbox?ref=v1                      400 invalid ref          200 {"expired":true,"truncated":false,"files":[]}
+GET /api/runs/0f62f7bc.../sandbox                             200 expired:false        200 {"expired":true,"truncated":false,"files":[]}
+GET /api/runs/0f62f7bc.../sandbox/zip?ref=v1                  400                      404 {"detail":"Workspace expired"}
+GET /api/runs/0f62f7bc.../sandbox/file?path=prototype.html&ref=v1   400                404 {"detail":"Workspace expired"}
+
+Raw output:
+login 200, token present: True
+200 /api/runs/0f62f7bc-d3a2-4748-8004-0b534e1741ae/sandbox/refs {"run_id":"0f62f7bc-d3a2-4748-8004-0b534e1741ae","refs":[]}
+200 /api/runs/0f62f7bc-d3a2-4748-8004-0b534e1741ae/sandbox?ref=v1 {"run_id":"0f62f7bc-d3a2-4748-8004-0b534e1741ae","expired":true,"truncated":false,"files":[]}
+200 /api/runs/0f62f7bc-d3a2-4748-8004-0b534e1741ae/sandbox {"run_id":"0f62f7bc-d3a2-4748-8004-0b534e1741ae","expired":true,"truncated":false,"files":[]}
+404 /api/runs/0f62f7bc-d3a2-4748-8004-0b534e1741ae/sandbox/zip?ref=v1 {"detail":"Workspace expired"}
+404 /api/runs/0f62f7bc-d3a2-4748-8004-0b534e1741ae/sandbox/file?path=prototype.html&ref=v1 {"detail":"Workspace expired"}
+
+Not a browser repro: the page-level check (no 400 in the network tab, Workspace tab says "Workspace expired") is the 6-verifier's.

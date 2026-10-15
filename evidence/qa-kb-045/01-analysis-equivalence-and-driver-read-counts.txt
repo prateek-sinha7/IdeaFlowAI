@@ -1,0 +1,21 @@
+# cmd (cwd backend/, offline in-memory SQLite): .venv/bin/python ../evidence/qa-kb-045/analysis-probe-equivalence-and-read-counts.py
+# run: 2026-10-01 21:06 tree=feat/user-stories-v2 (engine.py unmodified: seeds still read_events(after_seq=0))
+=== EXP 1: max(read_events)+1  vs  _max_event_seq+1  (seeded fixture) ===
+  OK  owner='A'       ws='ws1'         run='r-with-rows'   rows_materialised=  7 old=  8 new=  8
+  OK  owner='A'       ws='ws2'         run='r-with-rows'   rows_materialised=  4 old= 51 new= 51
+  OK  owner='B'       ws='ws1'         run='r-with-rows'   rows_materialised= 12 old= 13 new= 13
+  OK  owner='A'       ws=None          run='r-with-rows'   rows_materialised=  0 old=  1 new=  1
+  OK  owner='A'       ws='ws-unknown'  run='r-with-rows'   rows_materialised=  0 old=  1 new=  1
+  OK  owner='nobody'  ws='ws1'         run='r-with-rows'   rows_materialised=  0 old=  1 new=  1
+  OK  owner='A'       ws='ws1'         run='r-empty'       rows_materialised=  0 old=  1 new=  1
+  OK  owner='A'       ws='ws1'         run='missing-run'   rows_materialised=  0 old=  1 new=  1
+  => mismatches: 0
+  => existence-probe (bool(read_events) vs _max_event_seq>0) mismatches: 0
+  SQL read_events      : SELECT run_events.id AS run_events_id, run_events.run_id AS run_events_run_id, run_events.owner_id AS run_events_owner_id, run_events.workspace_id AS run_events_workspace_id, run_events.seq AS run_events_seq, run_events.event_id A
+  SQL _max_event_seq   : SELECT max(run_events.seq) AS max_1 FROM run_events WHERE run_events.run_id = ? AND run_events.owner_id = ? AND run_events.workspace_id = ?
+
+=== EXP 2: pre-fix read_events(after_seq=0) calls on the REAL drivers ===
+  resume_run  (tail N=9): start_seq=10  expected N+1=10
+    store calls: [('read_events', 0)]
+  _replay_clarify_run (tail=8): start_seq=9  expected 9
+    store calls: [('read_events', 0), ('read_events', 0)]

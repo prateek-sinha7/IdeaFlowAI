@@ -1,0 +1,41 @@
+QA-KB-081 analyzer baseline, 2026-10-07: frontend/src/components/workflow/LaunchWizard.test.tsx at HEAD 2254c5ef5, unmodified, one file, offline.
+Command (from frontend/): npx vitest run src/components/workflow/LaunchWizard.test.tsx --reporter=verbose
+
+ ✓ src/components/workflow/LaunchWizard.test.tsx > LaunchWizard — real-component launch parity (byte-identical per mode) > prototype base launch writes the golden draft + pending and routes to /dashboard 293ms
+ ✓ src/components/workflow/LaunchWizard.test.tsx > LaunchWizard — real-component launch parity (byte-identical per mode) > prototype blank-canvas launch writes templateId:null 177ms
+ ✓ src/components/workflow/LaunchWizard.test.tsx > LaunchWizard — real-component launch parity (byte-identical per mode) > ppt base launch writes the golden draft + pending 101ms
+ ✓ src/components/workflow/LaunchWizard.test.tsx > LaunchWizard — real-component launch parity (byte-identical per mode) > ppt template not requiring a design system writes designSystemId:null 59ms
+ ✓ src/components/workflow/LaunchWizard.test.tsx > LaunchWizard — real-component launch parity (byte-identical per mode) > WR-06: ppt custom template launches customTemplateBody with designSystemId:null (no DS required) 58ms
+ ✓ src/components/workflow/LaunchWizard.test.tsx > LaunchWizard — SC-001 Web/Deck deliverable-mode toggle > toggling to Deck switches the agent pipeline + launch target to ppt 72ms
+ ✓ src/components/workflow/LaunchWizard.test.tsx > LaunchWizard — SC-001 Web/Deck deliverable-mode toggle > WR-05: page chrome (header title + brief label + save-modal title) follows the LIVE mode after toggle 40ms
+ ✓ src/components/workflow/LaunchWizard.test.tsx > LaunchWizard — ported behaviors > review gates: touching gates threads gateAgentIds into the draft 86ms
+ ✓ src/components/workflow/LaunchWizard.test.tsx > LaunchWizard — ported behaviors > discovery: filling a discovery answer writes prototype.discovery; empty clears it 110ms
+ ✓ src/components/workflow/LaunchWizard.test.tsx > LaunchWizard — ported behaviors > discovery: no answers → no prototype.discovery key written 110ms
+ ✓ src/components/workflow/LaunchWizard.test.tsx > LaunchWizard — ported behaviors > example-prompt: clicking 'Use template example' fills the brief 52ms
+ ✓ src/components/workflow/LaunchWizard.test.tsx > LaunchWizard — ported behaviors > save-workflow: composes base_pipeline_type + _wizard config 118ms
+ ✓ src/components/workflow/LaunchWizard.test.tsx > LaunchWizard — ported behaviors > draft restore: hydrates the brief from a mode draft then one-shot clears it 15ms
+ ✓ src/components/workflow/LaunchWizard.test.tsx > LaunchWizard — ported behaviors > IN-04: a restored workflow's legacy modelOverrides is NOT re-emitted on launch (selections is the single source) 37ms
+ ✓ src/components/workflow/LaunchWizard.test.tsx > LaunchWizard — ported behaviors > chaining: pre-fills the brief and hides the brief editor (topic from prior run) 12ms
+ × src/components/workflow/LaunchWizard.test.tsx > LaunchWizard — ported behaviors > WR-07: chaining launch threads sourceRunId and clears the key (v2: context block no longer injected into brief) 40ms
+ ✓ src/components/workflow/LaunchWizard.test.tsx > LaunchWizard — ported behaviors > a11y: the brief and back control expose accessible names 25ms
+ ✓ src/components/workflow/LaunchWizard.test.tsx > LaunchWizard — BUG-014: chain.source_run_id must not leak into a fresh launch > a fresh launch (no chain.from → isChaining=false) does not leak a stale chain.source_run_id and clears the key 125ms
+ × src/components/workflow/LaunchWizard.test.tsx > LaunchWizard — BUG-014: chain.source_run_id must not leak into a fresh launch > a genuine chain (chain.from + chain.source_run_id → isChaining=true) still threads the source id and clears the key 34ms
+ ✓ src/components/workflow/LaunchWizard.test.tsx > LaunchWizard — SGV2 11.7: non-success chain-source warning (real CHAIN_SOURCE_STATUS_KEY values) > status 'failed': accessible warning names the status; Continue stays disabled while unacknowledged 40ms
+ ✓ src/components/workflow/LaunchWizard.test.tsx > LaunchWizard — SGV2 11.7: non-success chain-source warning (real CHAIN_SOURCE_STATUS_KEY values) > status 'degraded': warning names both the status and the partial-output risk; checkbox toggles both ways 24ms
+ ✓ src/components/workflow/LaunchWizard.test.tsx > UPLD-05 — the wizard stages raw documents, not only inlined text > carries the stage ids into the launch draft, in attach order 129ms
+ ✓ src/components/workflow/LaunchWizard.test.tsx > UPLD-05 — the wizard stages raw documents, not only inlined text > stages TEXT documents too — a .csv read client-side must still reach .uploads/ 133ms
+ ✓ src/components/workflow/LaunchWizard.test.tsx > UPLD-05 — the wizard stages raw documents, not only inlined text > still inlines the extracted text — staging ADDS a path, it does not replace one 127ms
+ ✓ src/components/workflow/LaunchWizard.test.tsx > UPLD-05 — the wizard stages raw documents, not only inlined text > omits the key entirely when nothing was attached (parity with the retired flow) 163ms
+ ✓ src/components/workflow/LaunchWizard.test.tsx > LaunchWizard — deck design-system step (ISS-189) > ppt: a DS-requiring deck template includes the design-system step 18ms
+ ✓ src/components/workflow/LaunchWizard.test.tsx > LaunchWizard — deck design-system step (ISS-189) > ppt_v2: a DS-requiring deck template includes the design-system step 18ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+ FAIL  src/components/workflow/LaunchWizard.test.tsx > LaunchWizard — ported behaviors > WR-07: chaining launch threads sourceRunId and clears the key (v2: context block no longer injected into brief)
+TypeError: Cannot read properties of null (reading 'brief')
+ ❯ src/components/workflow/LaunchWizard.test.tsx:455:18
+ FAIL  src/components/workflow/LaunchWizard.test.tsx > LaunchWizard — BUG-014: chain.source_run_id must not leak into a fresh launch > a genuine chain (chain.from + chain.source_run_id → isChaining=true) still threads the source id and clears the key
+TypeError: Cannot read properties of null (reading 'sourceRunId')
+ ❯ src/components/workflow/LaunchWizard.test.tsx:498:18
+ Test Files  1 failed (1)
+      Tests  2 failed | 25 passed (27)
+   Start at  22:44:06
+   Duration  3.77s (transform 267ms, setup 83ms, import 682ms, tests 2.22s, environment 685ms)

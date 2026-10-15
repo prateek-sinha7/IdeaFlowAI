@@ -194,8 +194,7 @@ def test_the_user_stories_panel_names_its_own_workflow(page, shot):
 def test_a_catalog_workflow_cold_loads_onto_the_right_panel(page, shot):
     """Scenario: A catalog workflow cold-loads onto the right panel"""
     # This is the create-workflow branch of parseViewPath, which carries the raw
-    # pipelineType through initialWorkflowTypeFor. It is the ONLY create route
-    # that resolves its type correctly on a cold load — see S-03-09.
+    # pipelineType through initialWorkflowTypeFor.
     with shot("branch-by-language", 'When I cold-load "/create/ex_A2_branch"'):
         page.goto("/create/ex_A2_branch")
         expect(page.get_by_text(L.SIMPLE_HEADING)).to_be_visible()
@@ -207,25 +206,18 @@ def test_a_catalog_workflow_cold_loads_onto_the_right_panel(page, shot):
 
 
 @pytest.mark.scenario("S-03-09")
-@pytest.mark.defect
-def test_cold_loading_create_app_shows_the_user_stories_panel(page, shot):
-    """Scenario: Cold-loading /create/app shows the user-stories panel"""
-    # D-01, asserted AS-IS. /create/app is supposed to launch app_builder. It
-    # renders the user_stories panel instead, because initialWorkflowTypeFor
-    # returns a type only for `create-workflow`, so the two hand-written screens
-    # reach the panel with no type and fall back to the default.
-    #
-    # D-01 is OPEN — the defect still exists. The user_stories roster is now 6
-    # agents instead of 7, which is why this test's assertion changed.
+def test_cold_loading_create_app_shows_the_app_builder_panel(page, shot):
+    """Scenario: Cold-loading /create/app shows the app-builder panel"""
+    # D-01, resolved (BUG-023): initialWorkflowTypeFor maps `create-app` to
+    # app_builder. The copy is app_builder's curated panel copy
+    # (IdeaInputPage.tsx TYPE_CONFIG), not the Home card's display_name. No agent
+    # count: an account's "My app_builder" override changes it.
     with shot("create-app", 'When I cold-load "/create/app"'):
         page.goto("/create/app")
-        expect(page.get_by_text(L.SIMPLE_HEADING)).to_be_visible()
+        expect(page.get_by_text("Describe the application")).to_be_visible()
 
-    assert agent_count(page) == 6, (
-        "D-01 appears to be FIXED — /create/app no longer shows the user_stories "
-        "roster. Rewrite this scenario to assert the correct behaviour and drop "
-        "the @defect tag."
-    )
+    expect(page.get_by_text("Generate a full-stack application")).to_be_visible()
+    expect(page.get_by_text(L.SIMPLE_HEADING)).to_have_count(0)
 
 
 # ── shared behaviour ─────────────────────────────────────────────────────────
@@ -349,6 +341,7 @@ def test_save_as_my_version_creates_a_user_override_of_a_built_in(page, shot):
 
 
 @pytest.mark.issue("ISS-247")
+@pytest.mark.issue("ISS-1157")
 def test_checking_a_review_gate_sets_that_agents_gate_in_the_advanced_modal(page, shot):
     """ISS-247 — checking an agent in the "Review gates" checklist must be
     reflected as that same agent's Gate in the Advanced modal's Config tab.
@@ -356,8 +349,11 @@ def test_checking_a_review_gate_sets_that_agents_gate_in_the_advanced_modal(page
     ReviewGatesSection writes a separate `gateAgentIds` ref; CanvasConfigRail's
     Gate combobox reads only `agent.gates`. The two never sync.
     """
-    with shot("fresh", 'Given a fresh "/create/app" load'):
-        page.goto("/create/app")
+    # /create/user-stories: Domain Discovery Agent (`domain-analyst`) is only in
+    # the user_stories roster. This test used /create/app, which rendered that
+    # roster only because of D-01 (BUG-023).
+    with shot("fresh", 'Given a fresh "/create/user-stories" load'):
+        page.goto("/create/user-stories")
         expect(page.locator(L.REVIEW_GATES)).to_contain_text("no gates")
 
     with shot("checked", 'When I check "Domain Discovery Agent" in Review gates'):

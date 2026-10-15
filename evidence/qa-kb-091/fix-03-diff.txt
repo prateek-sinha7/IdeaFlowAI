@@ -1,0 +1,58 @@
+diff --git a/frontend/src/components/preview/PreviewPanel.tsx b/frontend/src/components/preview/PreviewPanel.tsx
+index eaa21f90d..18b30ed1b 100644
+--- a/frontend/src/components/preview/PreviewPanel.tsx
++++ b/frontend/src/components/preview/PreviewPanel.tsx
+@@ -1098,6 +1098,10 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
+   // ppt → ppt, prototype → prototype); otherwise the live content flows through
+   // unchanged. onRevise* are suppressed while viewing older (read-only).
+   const overrideActive = viewingVersion != null;
++  // ISS-952 / ISS-1032 — the shell signals below (pipelineState, reopenedRunStatus,
++  // isStreaming) describe the run the SHELL shows (unpinnedRunId). They stop
++  // applying only when a DIFFERENT run is pinned; a self-pin keeps them.
++  const shellOnScreen = viewingVersion == null || viewingVersion.id === unpinnedRunId;
+   const overrideContent = viewingVersion?.content;
+   const effUserStoryContent = overrideActive && (renderType === "user_stories" || renderType === "app_builder") ? overrideContent : userStoryContent;
+   const effPptContent = overrideActive && renderType === "ppt" ? overrideContent : pptContent;
+@@ -1163,28 +1167,28 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
+   //   • history path — the reopened run's persisted status ("failed"/"cancelled").
+   const isStillRunning = !!(isStreaming || pipelineState?.isRunning);
+   const isTerminal = !isStillRunning;
+-  const liveFailureSignal = !!(pipelineState?.failed || pipelineState?.degraded);
++  const liveFailureSignal = shellOnScreen && !!(pipelineState?.failed || pipelineState?.degraded);
+   // WR-01 (16 review): "degraded" is a terminal failure-signal status ISS-016 now
+   // persists. A degraded run reopened with NO partial deliverable must surface the
+   // affordance (CONTEXT A2: on BOTH the live and history paths) — not the neutral
+   // empty-state. Keyed on the SERVER status, never a client empty==failed guess.
+-  const reopenFailureSignal =
++  const reopenFailureSignal = shellOnScreen && (
+     reopenedRunStatus === "failed" ||
+     reopenedRunStatus === "cancelled" ||
+-    reopenedRunStatus === "degraded";
++    reopenedRunStatus === "degraded");
+   const terminalFailure = liveFailureSignal || reopenFailureSignal;
+   const showFailureAffordance = !hasContent && isTerminal && terminalFailure;
+   // IN-03 (16 review): a cancelled run is a deliberate user Stop, not a failure —
+   // the affordance copy must say so rather than "failed or degraded". Live cancel
+   // carries no failed/degraded flag (useWorkflow resets agents to idle), so the
+   // cancelled signal is the reopened server status only.
+-  const isCancelledTerminal = reopenedRunStatus === "cancelled";
++  const isCancelledTerminal = shellOnScreen && reopenedRunStatus === "cancelled";
+   // ISS-390: a diverted run is terminal and non-resumable with no deliverable, but
+   // it is a hand-off, not a failure — so it gets its OWN affordance branch instead
+   // of joining reopenFailureSignal, which would mislabel the header as failed
+   // (headerFailed below) and drop the Preview tab entirely
+   // (terminalFailureNoDeliverable). Same carve-out shape as isCancelledTerminal.
+-  const isDivertedTerminal = reopenedRunStatus === "diverted";
++  const isDivertedTerminal = shellOnScreen && reopenedRunStatus === "diverted";
+   const showDivertedAffordance = !hasContent && isTerminal && isDivertedTerminal;
+   // ─── Phase 42-03 (§D / Group D) — terminal-FAILED run surface ────────────────
+   // A terminal FAILED run (failed/degraded with NO deliverable, and NOT a
+@@ -1875,7 +1879,7 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
+                   cancelled={isCancelledTerminal}
+                   diverted={isDivertedTerminal}
+                 />
+-              ) : isStillRunning ? (
++              ) : isStillRunning && shellOnScreen ? (
+                 // Streaming build — the mock's chrome with a "building …" URL + an
+                 // indeterminate progress bar (ND-F: no screenshot placeholder). The
+                 // live renderer streams inside; a calm building state fills until then.

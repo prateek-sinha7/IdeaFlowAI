@@ -1,0 +1,23 @@
+# V2 = V0 (no principal override) + hardened helper/tests;  V3 = V1 (principal override) + the same hardening.
+# Hardening = _save_override asserts 201; test 2 asserts is_overridden after the save; test 6 asserts the owner sees the override before switching users.
+# Expectation: V2 fails 7/7 (no vacuous pass left); V3 passes 7/7 (hardening is compatible with the real behaviour).
+
+## test_v2_hardened_without_principal_override
+FAILED ::test_saving_an_override_then_reading_ppt_returns_my_steps - Assertio...
+FAILED ::test_workflow_level_fields_still_come_from_the_file - AssertionError...
+FAILED ::test_original_query_param_shows_the_system_version - AssertionError:...
+FAILED ::test_switching_the_override_off_restores_the_system_steps - Assertio...
+FAILED ::test_saving_twice_updates_one_row - AssertionError: {"detail":"Not a...
+FAILED ::test_another_users_override_is_invisible - AssertionError: {"detail"...
+FAILED ::test_the_listing_reports_the_override_too - AssertionError: {"detail...
+7 failed in 1.08s
+
+## test_v3_hardened_with_principal_override
+PASSED ::test_saving_an_override_then_reading_ppt_returns_my_steps
+PASSED ::test_workflow_level_fields_still_come_from_the_file
+PASSED ::test_original_query_param_shows_the_system_version
+PASSED ::test_switching_the_override_off_restores_the_system_steps
+PASSED ::test_saving_twice_updates_one_row
+PASSED ::test_another_users_override_is_invisible
+PASSED ::test_the_listing_reports_the_override_too
+7 passed in 1.35s

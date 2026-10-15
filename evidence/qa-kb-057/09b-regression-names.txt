@@ -1,0 +1,25 @@
+# 09b failing/skipped test names, after vs before
+tests/integration/api/test_rest_run_launch_api.py
+  after:
+    FAILED tests/integration/api/test_rest_run_launch_api.py::test_driver_persists_full_agent_history_like_ws
+    FAILED tests/integration/api/test_rest_run_launch_api.py::test_foreign_source_drops_the_link_but_still_launches
+    FAILED tests/integration/api/test_rest_run_launch_api.py::test_unknown_source_drops_the_link_but_still_launches
+    FAILED tests/integration/api/test_rest_run_launch_api.py::test_driver_persists_model_id_and_prices_non_circular
+  before:
+    FAILED tests/integration/api/test_rest_run_launch_api.py::test_driver_persists_full_agent_history_like_ws
+    FAILED tests/integration/api/test_rest_run_launch_api.py::test_foreign_source_drops_the_link_but_still_launches
+    FAILED tests/integration/api/test_rest_run_launch_api.py::test_unknown_source_drops_the_link_but_still_launches
+    FAILED tests/integration/api/test_rest_run_launch_api.py::test_driver_persists_model_id_and_prices_non_circular
+tests/agents/test_chain_context_v3.py
+  after:
+    FAILED tests/agents/test_chain_context_v3.py::TestFR020SourceRunIdWritten::test_revision_mint_writes_source_run_id_equals_parent
+  before:
+    FAILED tests/agents/test_chain_context_v3.py::TestFR020SourceRunIdWritten::test_revision_mint_writes_source_run_id_equals_parent
+tests/agents/test_prompt_ledger_v2.py
+  after:
+    FAILED tests/agents/test_prompt_ledger_v2.py::TestLedgerAC4NoRequestMd::test_request_md_absence_documented_in_engine
+  before:
+    FAILED tests/agents/test_prompt_ledger_v2.py::TestLedgerAC4NoRequestMd::test_request_md_absence_documented_in_engine
+    SKIPPED [1] tests/agents/test_prompt_ledger_v2.py:1410: AgentDetailPanel.tsx not found — skipping frontend test
+    SKIPPED [1] tests/agents/test_prompt_ledger_v2.py:1423: AgentDetailPanel.tsx not found
+    SKIPPED [1] tests/agents/test_prompt_ledger_v2.py:1443: AgentDetailPanel.tsx not found

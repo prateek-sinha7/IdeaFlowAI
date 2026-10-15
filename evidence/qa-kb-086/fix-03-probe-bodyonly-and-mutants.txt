@@ -1,0 +1,49 @@
+# QA-KB-086 fix 2026-10-07 - scratchpad probes of the FIXED test body (no repo file touched by these probes)
+# Each probe is a scratch copy of frontend/src/components/workflow/IdeaInputPage.designPicker.test.tsx AS FIXED, with
+#   it.fails("does not offer ...") -> it("does not offer ...")  (so the body's own pass/fail is visible)
+#   relative imports/mocks (./IdeaInputPage, ./AgentsPopup, ./ReviewGatesSection, ./composer/DesignPickerModal) -> @/components/workflow/... aliases
+# config: same shape as evidence/qa-kb-086/02-analyze-probe-config.mjs.txt (root=frontend, jsdom, vitest.setup.ts, @ -> frontend/src); node_modules symlinked into the scratch dir
+# run, one file at a time: cd frontend && npx vitest run --config <scratch>/probe.config.mjs <scratch>/<probe>.probe.test.tsx
+
+## a_bodyonly  - fixed body against the REAL IdeaInputPage.tsx
+## b_mutTemplate - fixed body against a scratch MUTANT of IdeaInputPage.tsx whose non-opendesign branch leaks template_id
+## c_mutDs       - fixed body against a scratch MUTANT of IdeaInputPage.tsx whose non-opendesign branch leaks design_system_id
+## mutant diffs vs the real page (after the same alias rewrite of its 3 relative imports):
+1506c1506
+<     if (!designDeclared) return {};
+---
+>     if (!designDeclared) return { template_id: "leak" };
+1506c1506
+<     if (!designDeclared) return {};
+---
+>     if (!designDeclared) return { design_system_id: "leak" };
+
+## observed output (filtered to result lines)
+######## a_bodyonly
+ Test Files  1 passed (1)
+      Tests  2 passed (2)
+EXIT=0
+######## b_mutTemplate
+     × does not offer the picker for a workflow that never declares opendesign 106ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+AssertionError: expected { gate_agent_ids: [], …(1) } to not have property "template_id"
+ ❯ ../../../../../../..<scratch>/b_mutTemplate.probe.test.tsx:161:35
+    159|     expect(onRun).toHaveBeenCalledTimes(1);
+    161|     expect(extraParams ?? {}).not.toHaveProperty("template_id");
+    162|     expect(extraParams ?? {}).not.toHaveProperty("design_system_id");
+ Test Files  1 failed (1)
+      Tests  1 failed | 1 passed (2)
+EXIT=1
+######## c_mutDs
+     × does not offer the picker for a workflow that never declares opendesign 122ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+AssertionError: expected { gate_agent_ids: [], …(1) } to not have property "design_system_id"
+ ❯ ../../../../../../..<scratch>/c_mutDs.probe.test.tsx:162:35
+    161|     expect(extraParams ?? {}).not.toHaveProperty("template_id");
+    162|     expect(extraParams ?? {}).not.toHaveProperty("design_system_id");
+ Test Files  1 failed (1)
+      Tests  1 failed | 1 passed (2)
+EXIT=1
+
+# Reading: the fixed body is green on its own against the real page (a), and each of the two new assertions goes red
+# when the page leaks the param it guards (b -> :161 template_id, c -> :162 design_system_id). The assertion is not vacuous.

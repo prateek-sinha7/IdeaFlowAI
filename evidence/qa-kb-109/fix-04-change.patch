@@ -1,0 +1,218 @@
+diff --git a/backend/app/api/admin.py b/backend/app/api/admin.py
+index 3406cfa41..0aee5fff1 100644
+--- a/backend/app/api/admin.py
++++ b/backend/app/api/admin.py
+@@ -520,6 +520,15 @@ def reset_user_password(
+     self-service reset's revocation: stamps ``tokens_valid_from`` so every access
+     token issued before now is rejected on its next request.
+     """
++    # Self-action policy (FIX-310), as on tier, role, disable and delete: a
++    # self-reset revokes the admin's own session and leaves a password nobody
++    # is shown (ISS-1170). Their own password changes from their account.
++    if user_id == admin.id:
++        raise HTTPException(
++            status_code=status.HTTP_400_BAD_REQUEST,
++            detail="You cannot reset your own password here. Change it from your account settings.",
++        )
++
+     user = db.query(User).filter(User.id == user_id).first()
+     if not user:
+         raise HTTPException(
+diff --git a/backend/tests/integration/api/test_admin_authorization_matrix.py b/backend/tests/integration/api/test_admin_authorization_matrix.py
+index 04dbabc4a..1caa2659d 100644
+--- a/backend/tests/integration/api/test_admin_authorization_matrix.py
++++ b/backend/tests/integration/api/test_admin_authorization_matrix.py
+@@ -1002,6 +1002,29 @@ class TestDisableUserAuthorization:
+         assert second.status_code == 409
+ 
+ 
++class TestResetPasswordSelfAction:
++    """POST /api/admin/users/{user_id}/reset-password under the FIX-310
++    self-action policy that tier, role, disable and delete already meet."""
++
++    @pytest.mark.issue("ISS-1170")
++    @pytest.mark.xfail(reason="ISS-1170 unfixed", strict=True)
++    def test_reset_password_cannot_target_self(self, admin_api_client, admin_user):
++        """Accepting it revokes the admin's own session and replaces their
++        password with a temporary one nobody is shown."""
++        admin_id, token = admin_user
++        headers = {"Authorization": f"Bearer {token}"}
++
++        resp = admin_api_client.post(
++            f"/api/admin/users/{admin_id}/reset-password", json={}, headers=headers
++        )
++        assert resp.status_code == 400
++        assert "own" in resp.json().get("detail", "").lower()
++
++        # Nothing was done to the account: the admin's session still works.
++        probe = admin_api_client.get("/api/auth/me", headers=headers)
++        assert probe.status_code == 200
++
++
+ class TestEnableUserAuthorization:
+     """Test POST /api/admin/users/{user_id}/enable (Phase 3, Decision 6)."""
+ 
+diff --git a/frontend/src/app/admin/page.tsx b/frontend/src/app/admin/page.tsx
+index cdf816fcf..6993e7df5 100644
+--- a/frontend/src/app/admin/page.tsx
++++ b/frontend/src/app/admin/page.tsx
+@@ -55,10 +55,11 @@ function TierBadge({ tier }: { tier: string }) {
+   );
+ }
+ 
+-function TierDropdown({ userId, currentTier, onUpdate }: {
++function TierDropdown({ userId, currentTier, onUpdate, disabled = false }: {
+   userId: string;
+   currentTier: string;
+   onUpdate: (userId: string, tier: string) => Promise<void>;
++  disabled?: boolean;
+ }) {
+   const [open, setOpen] = useState(false);
+   const [loading, setLoading] = useState(false);
+@@ -89,7 +90,8 @@ function TierDropdown({ userId, currentTier, onUpdate }: {
+     >
+       <button
+         onClick={() => setOpen(!open)}
+-        disabled={loading}
++        disabled={loading || disabled}
++        title={disabled ? "You cannot change your own plan" : undefined}
+         aria-haspopup="menu"
+         aria-expanded={open}
+         className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-[var(--radius-button)] border border-line-control bg-surface-white hover:bg-surface-warm transition-colors text-[11px] font-medium text-ink-700 disabled:opacity-50"
+@@ -130,6 +132,9 @@ function TierDropdown({ userId, currentTier, onUpdate }: {
+ 
+ export default function AdminPage() {
+   const router = useRouter();
++  // ISS-1153: the signed-in admin's id, so the own row can drop the controls
++  // the server refuses for self (b2a621f84 removed this with its role guard).
++  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+   const [users, setUsers] = useState<AdminUser[]>([]);
+   const [loading, setLoading] = useState(true);
+   const [search, setSearch] = useState("");
+@@ -221,6 +226,7 @@ export default function AdminPage() {
+     // back through login (they ARE authenticated, just not authorized here).
+     getMe(token).then(user => {
+       if (!user.is_admin) { router.replace(routes.dashboard()); return; }
++      setCurrentUserId(user.id);
+       loadUsers(token);
+     }).catch((err: unknown) => {
+       // FR-015: on a 401 getMe() has ALREADY gone through lib/api.ts's shared
+@@ -245,6 +251,7 @@ export default function AdminPage() {
+     } catch (err: unknown) {
+       const msg = err instanceof Error ? err.message : "Failed to update tier";
+       showToast("error", msg);
++      throw err; // ISS-1169: TierDropdown's catch reverts its optimistic badge
+     }
+   };
+ 
+@@ -511,6 +518,7 @@ export default function AdminPage() {
+               <tbody>
+                 {filtered.map((user, i) => {
+                   const isDisabled = user.status === "disabled";
++                  const isSelf = user.id === currentUserId;
+                   return (
+                   <motion.tr
+                     key={user.id}
+@@ -541,6 +549,7 @@ export default function AdminPage() {
+                         userId={user.id}
+                         currentTier={user.tier}
+                         onUpdate={handleUpdateTier}
++                        disabled={isSelf}
+                       />
+                     </td>
+                     <td className="px-4 py-3.5 text-center">
+@@ -549,10 +558,16 @@ export default function AdminPage() {
+                     <td className="px-4 py-3.5 text-center">
+                       <button
+                         onClick={() => handleUpdateRole(user.id, !user.is_admin)}
+-                        disabled={rolePending.includes(user.id)}
++                        disabled={rolePending.includes(user.id) || (isSelf && user.is_admin)}
+                         aria-label={user.is_admin ? `Remove admin access from ${user.email}` : `Grant admin access to ${user.email}`}
+-                        className="inline-flex items-center"
+-                        title={user.is_admin ? "Click to remove admin access" : "Click to grant admin access"}
++                        className="inline-flex items-center disabled:cursor-not-allowed disabled:opacity-60"
++                        title={
++                          isSelf && user.is_admin
++                            ? "You cannot remove your own admin access"
++                            : user.is_admin
++                              ? "Click to remove admin access"
++                              : "Click to grant admin access"
++                        }
+                       >
+                         {user.is_admin ? (
+                           <Pill className="!bg-brand-fill !border-brand-border !text-brand text-[9px] font-bold uppercase px-1.5 py-0.5">
+@@ -580,7 +595,7 @@ export default function AdminPage() {
+                       </span>
+                     </td>
+                     <td className="px-5 py-3.5 text-right">
+-                      <div className="flex items-center justify-end gap-1">
++                      {!isSelf && <div className="flex items-center justify-end gap-1">
+                         <button
+                           onClick={() => handleResetPassword(user.id)}
+                           aria-label={`Reset password for ${user.email}`}
+@@ -616,7 +631,7 @@ export default function AdminPage() {
+                         >
+                           <Trash2 className="h-3.5 w-3.5" />
+                         </button>
+-                      </div>
++                      </div>}
+                     </td>
+                   </motion.tr>
+                   );
+diff --git a/frontend/src/app/admin/admin.iss1169.test.tsx b/frontend/src/app/admin/admin.iss1169.test.tsx
+new file mode 100644
+index 000000000..e4cd12db5
+--- /dev/null
++++ b/frontend/src/app/admin/admin.iss1169.test.tsx
+@@ -0,0 +1,51 @@
++// ISS-1169 (QA-KB-109 sibling): a refused tier change must put the row's badge back on the tier the
++// server still holds. Another user's row with the PATCH rejected, so the test does not depend on the
++// own-row guard. No motion mock: real motion keeps the row mounted, the repo's Proxy mock remounts it
++// and would reset the badge by itself.
++// it.fails: red today by design; remove `.fails` when the fix lands.
++import { describe, expect, it, vi, beforeEach } from "vitest";
++import { render, screen, waitFor, within } from "@testing-library/react";
++import userEvent from "@testing-library/user-event";
++import React from "react";
++
++const { routerObj, api } = vi.hoisted(() => ({
++  routerObj: { replace: vi.fn(), push: vi.fn(), prefetch: vi.fn() },
++  api: {
++    getToken: vi.fn(() => "tok"), getMe: vi.fn(), logout: vi.fn(), adminListUsers: vi.fn(),
++    adminUpdateTier: vi.fn(), adminCreateUser: vi.fn(), adminDeleteUser: vi.fn(), adminUpdateRole: vi.fn(),
++    adminDisableUser: vi.fn(), adminEnableUser: vi.fn(), onAdminMfaRequired: vi.fn(() => () => {}),
++  },
++}));
++vi.mock("next/navigation", () => ({ useRouter: () => routerObj }));
++vi.mock("@/lib/api", () => api);
++
++import AdminPage from "@/app/admin/page";
++
++const ALICE = {
++  id: "aaaa1111-2222-3333-4444-555566667777", email: "alice@example.com", tier: "pro" as const,
++  is_admin: false, status: "active" as const, created_at: "2026-01-15T09:00:00Z", workflow_run_count: 12,
++};
++beforeEach(() => {
++  vi.clearAllMocks();
++  api.getToken.mockReturnValue("tok");
++  api.getMe.mockResolvedValue({ is_admin: true, email: "admin@example.com" });
++  api.adminListUsers.mockResolvedValue([ALICE]);
++  api.adminUpdateTier.mockRejectedValue(new Error("Identity provider unavailable"));
++});
++describe("ISS-1169 admin TierDropdown after a refused change", () => {
++  it.fails("ISS-1169: the badge returns to the server's tier when the tier change is refused", async () => {
++    render(<AdminPage />);
++    await screen.findByText(ALICE.email);
++    const user = userEvent.setup();
++    const row = screen.getByText(ALICE.email).closest("tr") as HTMLElement;
++    const trigger = row.querySelector('[aria-haspopup="menu"]') as HTMLElement;
++    expect(trigger).toHaveTextContent("Pro");
++
++    await user.click(trigger);
++    await user.click(within(screen.getByRole("menu")).getByRole("menuitem", { name: /basic/i }));
++
++    await screen.findByText("Identity provider unavailable");
++    expect(api.adminUpdateTier).toHaveBeenCalledWith("tok", ALICE.id, "basic");
++    await waitFor(() => expect(trigger).toHaveTextContent("Pro"));
++  });
++});

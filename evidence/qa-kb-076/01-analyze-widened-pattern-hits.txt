@@ -1,0 +1,61 @@
+# QA-KB-076 analyze: widened citation patterns run over the six files test_run_shutdown_stale_citations.py scans
+# tree: /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2   HEAD: 8a0128685   date: 2026-10-07 22:06 CEST
+# run:  backend/.venv/bin/python scan_cites.py $PWD      (script source follows, then output)
+
+########## scan_cites.py
+import re, sys
+from pathlib import Path
+
+ROOT = Path(sys.argv[1])
+API = ROOT / "backend" / "app" / "api"
+SCANNED = [
+    API / "run_shutdown.py",
+    API / "run_engine.py",
+    API / "run_stream.py",
+    ROOT / "backend" / "app" / "core" / "config.py",
+    ROOT / "backend" / "docker-entrypoint.sh",
+    ROOT / "backend" / "tests" / "unit" / "services" / "test_shutdown_reachability.py",
+]
+CURRENT = re.compile(
+    r"\b(?:run_commands|engine|model_factory|run_engine|run_stream|run_shutdown|"
+    r"authz|websocket|checkpointer|docker-compose)\.(?:py|yml):\d+"
+)
+# BUGS.md triage sketch
+SKETCH = re.compile(r"[\w./-]+\.(?:py|yml|sh) ?:\d+|(?<![\w/.]):\d{3,}")
+# evidence/qa-kb-042/09 "broad pattern"
+BROAD = re.compile(r"\b[\w./-]+\.(?:py|yml|sh) ?:\d+|(?<![\w/.]):\d{3,}")
+
+for name, rx in (("CURRENT _LINE_CITE", CURRENT), ("BUGS.md SKETCH", SKETCH), ("EVIDENCE-09 BROAD", BROAD)):
+    print(f"=== {name}: {rx.pattern}")
+    total = 0
+    for p in SCANNED:
+        if not p.exists():
+            print("  MISSING", p); continue
+        for n, line in enumerate(p.read_text().splitlines(), 1):
+            for m in rx.finditer(line):
+                total += 1
+                print(f"  {p.name}:{n}: {m.group(0)!r}   | {line.strip()[:110]}")
+    print(f"  -> {total} hit(s)\n")
+
+########## output
+=== CURRENT _LINE_CITE: \b(?:run_commands|engine|model_factory|run_engine|run_stream|run_shutdown|authz|websocket|checkpointer|docker-compose)\.(?:py|yml):\d+
+  -> 0 hit(s)
+
+=== BUGS.md SKETCH: [\w./-]+\.(?:py|yml|sh) ?:\d+|(?<![\w/.]):\d{3,}
+  test_shutdown_reachability.py:6: 'uvicorn/config.py:215'   | ``None`` (``uvicorn/config.py:215``), and ``H11Protocol.shutdown()`` does NOT close a
+  test_shutdown_reachability.py:8: 'uvicorn/protocols/http/h11_impl.py:328'   | (``uvicorn/protocols/http/h11_impl.py:328-337``). A live ``EventSourceResponse``
+  test_shutdown_reachability.py:10: 'uvicorn/server.py:294'   | forever (``uvicorn/server.py:294-310``), and ``await self.lifespan.shutdown()`` on line
+  test_shutdown_reachability.py:23: 'test_run_stream_pool_leak.py:196'   | ``test_run_stream_pool_leak.py:196-238``: ``Server.capture_signals()`` installs its
+  test_shutdown_reachability.py:67: 'main.py:238'   | # restore_non_terminal_runs() (main.py:238), which auto-resumes in-flight runs. This
+  test_shutdown_reachability.py:84: 'main.py:238'   | # restore_non_terminal_runs() (main.py:238), which auto-resumes in-flight runs. This
+  -> 6 hit(s)
+
+=== EVIDENCE-09 BROAD: \b[\w./-]+\.(?:py|yml|sh) ?:\d+|(?<![\w/.]):\d{3,}
+  test_shutdown_reachability.py:6: 'uvicorn/config.py:215'   | ``None`` (``uvicorn/config.py:215``), and ``H11Protocol.shutdown()`` does NOT close a
+  test_shutdown_reachability.py:8: 'uvicorn/protocols/http/h11_impl.py:328'   | (``uvicorn/protocols/http/h11_impl.py:328-337``). A live ``EventSourceResponse``
+  test_shutdown_reachability.py:10: 'uvicorn/server.py:294'   | forever (``uvicorn/server.py:294-310``), and ``await self.lifespan.shutdown()`` on line
+  test_shutdown_reachability.py:23: 'test_run_stream_pool_leak.py:196'   | ``test_run_stream_pool_leak.py:196-238``: ``Server.capture_signals()`` installs its
+  test_shutdown_reachability.py:67: 'main.py:238'   | # restore_non_terminal_runs() (main.py:238), which auto-resumes in-flight runs. This
+  test_shutdown_reachability.py:84: 'main.py:238'   | # restore_non_terminal_runs() (main.py:238), which auto-resumes in-flight runs. This
+  -> 6 hit(s)
+

@@ -1,0 +1,12 @@
+E       tests.unit.conftest.UnitIsolationError: Unit test spawned a subprocess: ['/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/.venv/bin/python', '-m', 'uvicorn', 'reachability_probe_app:app', '--host', '127.0.0.1', '--port', '64383', '--timeout-graceful-shutdown', '5', '--log-level', 'error']. Move it to tests/integration/ (suffix _external), or assert against the command it would have built instead of running it. Deliberate exception: @pytest.mark.allow_io("reason").
+
+tests/unit/conftest.py:129: UnitIsolationError
+=============================== warnings summary ===============================
+app/core/config.py:94
+  /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/app/core/config.py:94: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+    class Settings(BaseSettings):
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/unit/services/test_shutdown_reachability.py::test_sigterm_reaches_the_lifespan_shutdown_half_while_a_stream_is_live
+1 failed, 1 warning in 1.01s

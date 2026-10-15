@@ -493,6 +493,29 @@ def _aggregate(runs: list[WorkflowRun]) -> AnalyticsSummary:
     )
 
 
+#: ISS-289 — the set of WorkflowRun.type values that roll up under one pipeline
+#: filter label. v1 and v2 prototype pipelines share the single "Prototype" filter
+#: the UI exposes, so selecting it must count the whole family. Every other family
+#: is just its base type + the ``_revision`` variant. Membership is EXPLICIT (never
+#: a prefix match) so one family can never leak into another — "prototype" must not
+#: catch an unrelated "prototype_*" type it was never meant to include.
+_PIPELINE_FAMILIES: dict[str, tuple[str, ...]] = {
+    "prototype": (
+        "prototype",
+        "prototype_revision",
+        "prototype_v2",
+        "prototype_v2_revision",
+        "prototype_v2_feature_revision",
+    ),
+}
+
+
+def _pipeline_family(pipeline: str) -> tuple[str, ...]:
+    """The explicit ``type`` set a ``pipeline`` filter narrows to (SC-001: generic
+    column equality, never a workflow-name branch). Defaults to base + ``_revision``."""
+    return _PIPELINE_FAMILIES.get(pipeline, (pipeline, f"{pipeline}_revision"))
+
+
 @router.get("/summary", response_model=AnalyticsSummary)
 def get_analytics_summary(
     range: str = _DEFAULT_RANGE,
@@ -525,8 +548,10 @@ def get_analytics_summary(
         # Generic column equality, never a workflow-name branch (SC-001): the
         # value is whatever ``type`` the caller was handed back. The revision
         # variant rides along with its base type, mirroring the frontend's
-        # ``normalizeType`` so the breakdown keeps listing both rows.
-        query = query.filter(WorkflowRun.type.in_((pipeline, f"{pipeline}_revision")))
+        # ``normalizeType`` so the breakdown keeps listing both rows. ISS-289: the
+        # prototype family additionally spans v1 and v2 under the one "Prototype"
+        # filter the UI offers (see _pipeline_family — explicit set, no leak).
+        query = query.filter(WorkflowRun.type.in_(_pipeline_family(pipeline)))
 
     if model:
         # ``_aggregate`` buckets a null ``model_id`` under the "unknown" sentinel

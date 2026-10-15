@@ -1,0 +1,576 @@
+NOTE: frontend/src/lib/api.ts line numbers below (and in the cards) are the WORKING TREE at analysis time. Another change in the same tree (uncommitted, `@@ -324,0 +325,14 @@`) adds 14 lines at :325, so the same code is 14 lines lower-numbered in HEAD (refreshAccessToken 399-415, fetchWithAuth throw 558-564).
+
+=== backend/app/api/auth.py:341-367
+341:     try:
+342:         resp = cognito.admin_initiate_auth(request.email, request.password)
+343:     except ClientError as exc:
+344:         code = exc.response.get("Error", {}).get("Code", "")
+345:         if code in ("NotAuthorizedException", "UserNotFoundException"):
+346:             auth_events.emit(
+347:                 AuthEvent.LOGIN_FAILURE,
+348:                 provider="cognito",
+349:                 reason="not_authorized" if user else _REASON_UNKNOWN_USER,
+350:                 provider_error_code=code,
+351:                 **audit_identity,
+352:             )
+353:             raise HTTPException(
+354:                 status_code=status.HTTP_401_UNAUTHORIZED,
+355:                 detail="Invalid credentials",
+356:             )
+357:         logger.error("Cognito AdminInitiateAuth failed: %s", code)
+358:         auth_events.emit(
+359:             AuthEvent.LOGIN_FAILURE,
+360:             provider="cognito",
+361:             reason=f"provider_error:{code}",
+362:             **audit_identity,
+363:         )
+364:         raise HTTPException(
+365:             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+366:             detail="Authentication service unavailable",
+367:         )
+
+=== backend/app/api/auth.py:488-511
+488:     try:
+489:         resp = cognito.admin_respond_to_auth_challenge(
+490:             request.email, request.challenge, request.session, challenge_responses
+491:         )
+492:     except ClientError as exc:
+493:         code = exc.response.get("Error", {}).get("Code", "")
+494:         if code in (
+495:             "NotAuthorizedException",
+496:             "CodeMismatchException",
+497:             "ExpiredCodeException",
+498:         ):
+499:             raise HTTPException(
+500:                 status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials"
+501:             )
+502:         if code == "InvalidPasswordException":
+503:             raise HTTPException(
+504:                 status_code=status.HTTP_400_BAD_REQUEST,
+505:                 detail="New password does not meet the password policy.",
+506:             )
+507:         logger.error("Cognito AdminRespondToAuthChallenge failed: %s", code)
+508:         raise HTTPException(
+509:             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+510:             detail="Authentication service unavailable",
+511:         )
+
+=== backend/app/api/auth.py:667-681
+667:     try:
+668:         resp = cognito.refresh_auth(refresh_token, canonical_username)
+669:     except ClientError as exc:
+670:         code = exc.response.get("Error", {}).get("Code", "")
+671:         if code in ("NotAuthorizedException", "UserNotFoundException"):
+672:             _reconcile_status_on_refresh_rejection(user, db)
+673:             raise HTTPException(
+674:                 status_code=status.HTTP_401_UNAUTHORIZED,
+675:                 detail="Refresh token is no longer valid; please log in again.",
+676:             )
+677:         logger.error("Cognito REFRESH_TOKEN_AUTH failed: %s", code)
+678:         raise HTTPException(
+679:             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+680:             detail="Authentication service unavailable",
+681:         )
+
+=== backend/app/api/auth.py:835-860
+835:     try:
+836:         result = cognito.verify_software_token(
+837:             credentials.credentials, request.code, request.device_name
+838:         )
+839:         if result != "SUCCESS":
+840:             raise HTTPException(
+841:                 status_code=status.HTTP_400_BAD_REQUEST,
+842:                 detail="Could not verify that code. Try the current code from your app.",
+843:             )
+844:         # Preserves any email factor the user already has (email_enabled=None) --
+845:         # enrolling a second device must not silently remove the first.
+846:         cognito.apply_mfa_preference(
+847:             credentials.credentials, user.email, totp_enabled=True
+848:         )
+849:     except ClientError as exc:
+850:         code = exc.response.get("Error", {}).get("Code", "")
+851:         if code in ("CodeMismatchException", "EnableSoftwareTokenMFAException"):
+852:             raise HTTPException(
+853:                 status_code=status.HTTP_400_BAD_REQUEST,
+854:                 detail="Could not verify that code. Try the current code from your app.",
+855:             )
+856:         logger.error("Cognito VerifySoftwareToken failed: %s", code)
+857:         raise HTTPException(
+858:             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+859:             detail="Authentication service unavailable",
+860:         )
+
+=== backend/app/api/auth.py:943-953
+943:     try:
+944:         factors = cognito.apply_mfa_preference(
+945:             credentials.credentials, user.email, email_enabled=True
+946:         )
+947:     except ClientError as exc:
+948:         code = exc.response.get("Error", {}).get("Code", "")
+949:         logger.error("Cognito SetUserMFAPreference (email on) failed: %s", code)
+950:         raise HTTPException(
+951:             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+952:             detail="Authentication service unavailable",
+953:         )
+
+=== backend/app/api/auth.py:1010-1020
+1010:     try:
+1011:         factors = cognito.apply_mfa_preference(
+1012:             credentials.credentials, user.email, email_enabled=False
+1013:         )
+1014:     except ClientError as exc:
+1015:         code = exc.response.get("Error", {}).get("Code", "")
+1016:         logger.error("Cognito SetUserMFAPreference (email off) failed: %s", code)
+1017:         raise HTTPException(
+1018:             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+1019:             detail="Authentication service unavailable",
+1020:         )
+
+=== backend/app/api/auth.py:1082-1098
+1082:     try:
+1083:         cognito.forgot_password(email)
+1084:     except ClientError as exc:
+1085:         code = exc.response.get("Error", {}).get("Code", "")
+1086:         if code in ("UserNotFoundException", "InvalidParameterException"):
+1087:             # Swallow — see the enumeration note above.
+1088:             return generic
+1089:         if code == "LimitExceededException":
+1090:             raise HTTPException(
+1091:                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+1092:                 detail="Too many reset attempts. Please try again later.",
+1093:             )
+1094:         logger.error("Cognito ForgotPassword failed: %s", code)
+1095:         # Still generic to the caller — do not leak service state on this endpoint.
+1096:         return generic
+1097: 
+1098:     return generic
+
+=== backend/app/api/auth.py:1127-1150
+1127:     try:
+1128:         cognito.confirm_forgot_password(email, request.code, request.new_password)
+1129:     except ClientError as exc:
+1130:         code = exc.response.get("Error", {}).get("Code", "")
+1131:         if code in ("CodeMismatchException", "ExpiredCodeException"):
+1132:             raise HTTPException(
+1133:                 status_code=status.HTTP_400_BAD_REQUEST,
+1134:                 detail="That reset code is invalid or has expired.",
+1135:             )
+1136:         if code == "InvalidPasswordException":
+1137:             raise HTTPException(
+1138:                 status_code=status.HTTP_400_BAD_REQUEST,
+1139:                 detail="New password does not meet the password policy.",
+1140:             )
+1141:         if code == "LimitExceededException":
+1142:             raise HTTPException(
+1143:                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+1144:                 detail="Too many attempts. Please try again later.",
+1145:             )
+1146:         logger.error("Cognito ConfirmForgotPassword failed: %s", code)
+1147:         raise HTTPException(
+1148:             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+1149:             detail="Authentication service unavailable",
+1150:         )
+
+=== backend/app/api/auth.py:1198-1218
+1198:     try:
+1199:         cognito.change_password(
+1200:             credentials.credentials, request.current_password, request.new_password
+1201:         )
+1202:     except ClientError as exc:
+1203:         code = exc.response.get("Error", {}).get("Code", "")
+1204:         if code == "NotAuthorizedException":
+1205:             raise HTTPException(
+1206:                 status_code=status.HTTP_401_UNAUTHORIZED,
+1207:                 detail="Current password is incorrect",
+1208:             )
+1209:         if code == "InvalidPasswordException":
+1210:             raise HTTPException(
+1211:                 status_code=status.HTTP_400_BAD_REQUEST,
+1212:                 detail="New password does not meet the password policy",
+1213:             )
+1214:         logger.error("Cognito ChangePassword failed: %s", code)
+1215:         raise HTTPException(
+1216:             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+1217:             detail="Authentication service unavailable",
+1218:         )
+
+=== backend/app/api/auth.py:901-905
+901:     try:
+902:         factors = cognito.get_confirmed_mfa_factors(user.email)
+903:     except Exception as exc:  # noqa: BLE001 - see docstring: degrade, don't 503
+904:         logger.warning("Could not read MFA factors for %s: %s", user.id, exc)
+905:         factors = []
+
+=== backend/app/api/auth.py:985-1000
+985:         try:
+986:             has_totp = cognito.has_confirmed_totp(user.email)
+987:         except Exception as exc:  # noqa: BLE001 - fail CLOSED here, unlike the gate
+988:             # The admin gate itself fails open on a lookup error because the
+989:             # caller is already authenticated. This is the opposite case: we are
+990:             # about to REMOVE a control, and doing that on incomplete information
+991:             # is how someone locks themselves out. Refuse and let them retry.
+992:             logger.error(
+993:                 "Could not confirm TOTP before disabling email MFA for %s: %s",
+994:                 user.id,
+995:                 exc,
+996:             )
+997:             raise HTTPException(
+998:                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+999:                 detail="Could not verify your other factors right now. Please try again.",
+1000:             )
+
+=== backend/app/core/cognito.py:253-263
+253: def _client():
+254:     """Lazily construct the boto3 cognito-idp client.
+255: 
+256:     Imported lazily (function-local) so importing this module never requires
+257:     boto3 credentials to be configured -- verify_cognito_access_token has no
+258:     AWS-credential dependency at all, and only the Admin* wrappers below need
+259:     a real client.
+260:     """
+261:     import boto3
+262: 
+263:     return boto3.client("cognito-idp", region_name=_region())
+
+=== backend/app/core/cognito.py:579-579
+579:     return list(admin_get_user(email).get("UserMFASettingList", []) or [])
+
+=== backend/app/core/cognito.py:666-666
+666:     current = get_confirmed_mfa_factors(email)
+
+=== backend/app/core/cognito_admin.py : every 'except ClientError' (grep -n), plus the ProviderUnavailableError docstring
+112:class ProviderUnavailableError(CognitoAdminError):
+113-    """Cognito could not be reached, or returned a non-retryable server error."""
+130:        except ClientError as exc:
+131-            code = exc.response.get("Error", {}).get("Code", "")
+160:    except ClientError as exc:
+161-        code = exc.response.get("Error", {}).get("Code", "")
+211:    except ClientError as exc:
+212-        code = exc.response.get("Error", {}).get("Code", "")
+242:    except ClientError as exc:
+243-        code = exc.response.get("Error", {}).get("Code", "")
+332:    except ClientError as exc:
+333-        code = exc.response.get("Error", {}).get("Code", "")
+364:    except Exception as exc:  # noqa: BLE001
+365-        # On any failure (group assignment or otherwise), delete the pool user
+421:    except ClientError as exc:
+422-        code = exc.response.get("Error", {}).get("Code", "")
+455:    except ClientError as exc:
+456-        code = exc.response.get("Error", {}).get("Code", "")
+501:    except ClientError as exc:
+502-        code = exc.response.get("Error", {}).get("Code", "")
+606:    except ClientError as exc:
+607-        code = exc.response.get("Error", {}).get("Code", "")
+686:    except ClientError as exc:
+687-        code = exc.response.get("Error", {}).get("Code", "")
+
+=== backend/app/core/cognito_admin.py:364-381
+364:     except Exception as exc:  # noqa: BLE001
+365:         # On any failure (group assignment or otherwise), delete the pool user
+366:         # to maintain consistency — a partial user is not acceptable.
+367:         _tolerate_missing("AdminDeleteUser", cognito.admin_delete_user, email)
+368:         # If the original error was a ClientError, re-raise as ProviderUnavailableError;
+369:         # otherwise re-raise the exception as-is.
+370:         if isinstance(exc, ClientError):
+371:             code = exc.response.get("Error", {}).get("Code", "")
+372:             logger.error(
+373:                 "Group assignment failed for newly-created user %s: %s; compensated with AdminDeleteUser",
+374:                 email,
+375:                 code,
+376:             )
+377:             raise ProviderUnavailableError(
+378:                 "The user could not be fully created at the identity provider.",
+379:                 code=code,
+380:             )
+381:         raise
+
+=== backend/app/api/admin.py:59-79
+59: def _raise_for(exc: Exception) -> None:
+60:     """Map a ``cognito_admin`` typed error to the matching ``HTTPException``.
+61: 
+62:     ONE mapping, used by every route below, so a new failure mode added to
+63:     ``cognito_admin.py`` needs its status code decided once here rather than
+64:     at each of the (currently six) call sites that could raise it. Any
+65:     exception that is not one of ``cognito_admin``'s own types is re-raised
+66:     UNCHANGED -- this function only translates known failure modes, it never
+67:     swallows or reshapes a genuine bug into a misleading 503.
+68:     """
+69:     if isinstance(exc, LastAdminError):
+70:         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
+71:     if isinstance(exc, ConflictError):
+72:         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
+73:     if isinstance(exc, ValidationError):
+74:         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+75:     if isinstance(exc, ProviderUnavailableError):
+76:         raise HTTPException(
+77:             status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)
+78:         )
+79:     raise exc
+
+=== backend/app/main.py:474-476
+474: app.add_middleware(
+475:     CORSMiddleware,
+476:     allow_origins=_cors_origins,
+
+=== backend/app/main.py:491-492
+491: @app.middleware("http")
+492: async def _request_id_middleware(request: Request, call_next):
+
+=== backend/app/main.py:516-517
+516: @app.middleware("http")
+517: async def _slow_request_middleware(request: Request, call_next):
+
+=== backend/app/main.py:539-540
+539: @app.exception_handler(RequestValidationError)
+540: async def _validation_error_handler(request: Request, exc: RequestValidationError):
+
+=== backend/.venv/lib/python3.13/site-packages/starlette/applications.py:57-77
+57:     def build_middleware_stack(self) -> ASGIApp:
+58:         debug = self.debug
+59:         error_handler = None
+60:         exception_handlers: dict[Any, ExceptionHandler] = {}
+61: 
+62:         for key, value in self.exception_handlers.items():
+63:             if key in (500, Exception):
+64:                 error_handler = value
+65:             else:
+66:                 exception_handlers[key] = value
+67: 
+68:         middleware = (
+69:             [Middleware(ServerErrorMiddleware, handler=error_handler, debug=debug)]
+70:             + self.user_middleware
+71:             + [Middleware(ExceptionMiddleware, handlers=exception_handlers, debug=debug)]
+72:         )
+73: 
+74:         app = self.router
+75:         for cls, args, kwargs in reversed(middleware):
+76:             app = cls(app, *args, **kwargs)
+77:         return app
+
+=== backend/.venv/lib/python3.13/site-packages/starlette/_exception_handler.py:16-20
+16: def _lookup_exception_handler(exc_handlers: ExceptionHandlers, exc: Exception) -> ExceptionHandler | None:
+17:     for cls in type(exc).__mro__:
+18:         if cls in exc_handlers:
+19:             return exc_handlers[cls]
+20:     return None
+
+=== infra/terraform/modules/monitoring/main.tf:2118-2121
+2118: resource "aws_cloudwatch_log_metric_filter" "auth_login_failure" {
+2119:   name           = "${var.name_prefix}-auth-login-failure"
+2120:   log_group_name = aws_cloudwatch_log_group.groups["/velocityai/${var.environment}/app"].name
+2121:   pattern        = "{ $.auth_event = \"login_failure\" }"
+
+=== backend/tests/security/test_cognito_client_boundary.py:152-172
+152: def test_admin_api_imports_no_raw_provider_sdk():
+153:     """``api/admin.py`` must speak typed lifecycle errors, not botocore's.
+154: 
+155:     It previously imported ``botocore.exceptions.ClientError`` to catch a raw
+156:     error leaking out of ``is_last_admin``. That coupling is what made the leak
+157:     invisible: the route layer looked like it handled the failure, while a
+158:     ``ClientError`` from any OTHER call in the same block would fall through
+159:     ``_raise_for`` untranslated and surface as a 500.
+160:     """
+161:     tree = ast.parse(
+162:         (_APP_DIR / "api" / "admin.py").read_text(encoding="utf-8", errors="strict")
+163:     )
+164:     imported = _imported_modules(tree)
+165:     leaked = sorted(
+166:         m for m in imported if m.split(".")[0] in {"boto3", "botocore"}
+167:     )
+168: 
+169:     assert not leaked, (
+170:         "app/api/admin.py imports the raw AWS SDK: "
+171:         + ", ".join(leaked)
+172:         + ".\nCatch cognito_admin's ProviderUnavailableError instead — the "
+
+=== frontend/src/app/login/page.tsx:73-81
+73:   function describeApiError(err: unknown): string {
+74:     if (err instanceof ApiError && err.status === 401) {
+75:       return "Invalid email or password.";
+76:     }
+77:     if (err instanceof ApiError) {
+78:       return typeof err.detail === "string" ? err.detail : "An error occurred. Please try again.";
+79:     }
+80:     return "An unexpected error occurred. Please try again.";
+81:   }
+
+=== frontend/src/lib/api.ts:413-429
+413: export async function refreshAccessToken(): Promise<string | null> {
+414:   const current = getToken();
+415:   if (!current) return null;
+416:   try {
+417:     const res = await fetch(`${BASE_URL}${REFRESH_PATH}`, {
+418:       method: "POST",
+419:       headers: { Authorization: `Bearer ${current}` },
+420:     });
+421:     if (!res.ok) return null;
+422:     const body = (await res.json().catch(() => null)) as { token?: string } | null;
+423:     if (!body?.token) return null;
+424:     setToken(body.token);
+425:     return body.token;
+426:   } catch {
+427:     return null;
+428:   }
+429: }
+
+=== frontend/src/lib/api.ts:572-578
+572:     const body = await response.json().catch(() => ({
+573:       detail: response.statusText,
+574:     }));
+575:     if (response.status === 401 && !isSessionExpiryExempt(path)) {
+576:       handleSessionExpiry();
+577:     }
+578:     throw new ApiError(response.status, body.detail ?? body);
+
+=== frontend/src/providers/AuthSessionProvider.tsx:84-111
+84:     async function refreshOrExpire(expiresAt: number): Promise<void> {
+85:       const refreshedToken = await refreshOnce();
+86:       if (isDisposed) return;
+87: 
+88:       if (refreshedToken) {
+89:         scheduleRefresh();
+90:         return;
+91:       }
+92: 
+93:       // A network failure before the access token expires must not sign the
+94:       // user out early. Retry once at true expiry; if the provider session is
+95:       // still unavailable then, terminate the browser session.
+96:       const currentExpiry = getTokenExpiryMs(getToken());
+97:       if (currentExpiry !== expiresAt) {
+98:         scheduleRefresh();
+99:         return;
+100:       }
+101: 
+102:       const remainingLifetime = expiresAt - Date.now();
+103:       if (remainingLifetime > 0) {
+104:         refreshTimer = setTimeout(() => {
+105:           void refreshOrExpire(expiresAt);
+106:         }, remainingLifetime);
+107:         return;
+108:       }
+109: 
+110:       expireSession();
+111:     }
+
+=== botocore exception hierarchy (backend/.venv, botocore 1.43.89)
+TokenRetrievalError -> TokenRetrievalError > BotoCoreError > Exception
+NoCredentialsError -> NoCredentialsError > BotoCoreError > Exception
+PartialCredentialsError -> PartialCredentialsError > BotoCoreError > Exception
+CredentialRetrievalError -> CredentialRetrievalError > BotoCoreError > Exception
+SSOTokenLoadError -> SSOTokenLoadError > SSOError > BotoCoreError > Exception
+EndpointConnectionError -> EndpointConnectionError > ConnectionError > BotoCoreError > Exception
+ConnectTimeoutError -> ConnectTimeoutError > ConnectionError > BotoCoreError > ConnectTimeout > ConnectionError > Timeout > RequestException > OSError > Exception
+ReadTimeoutError -> ReadTimeoutError > HTTPClientError > BotoCoreError > ReadTimeout > Timeout > RequestException > OSError > ReadTimeoutError > TimeoutError > RequestError > PoolError > HTTPError > Exception
+ClientError -> ClientError > Exception
+=== backend/app/api/admin.py:319-325
+319: 
+320:     try:
+321:         cognito_admin.change_tier(user, request.tier, db)
+322:     except Exception as exc:  # noqa: BLE001 - re-raised as HTTPException below
+323:         _raise_for(exc)
+324: 
+325:     db.refresh(user)
+
+=== backend/app/api/admin.py:598-602
+598:         )
+599: 
+600:     cognito_admin.disable_user(user, db)
+601:     db.refresh(user)
+602: 
+
+=== backend/app/api/admin.py:710-740
+710: 
+711:     # Step 1-2: Disable the user (sign out, disable at Cognito, update local status)
+712:     cognito_admin.delete_user(user, db)
+713: 
+714:     # Step 3: one local transaction -- dependents, then the row itself.
+715:     deleted_id = user.id
+716:     deleted_email = user.email
+717:     deleted_cognito_sub = user.cognito_sub
+718:     dependent_counts = delete_user_dependents(db, user_id)
+719:     db.delete(user)
+720:     db.commit()
+721: 
+722:     # Step 4: the final Cognito delete, LAST and OUTSIDE the local transaction
+723:     # -- the local state is already committed and correct either way.
+724:     failure_code = cognito_admin.try_delete_pool_user(deleted_email)
+725:     if failure_code is not None:
+726:         pending = PendingCognitoDeletion(
+727:             user_id_snapshot=deleted_id,
+728:             cognito_sub=deleted_cognito_sub,
+729:             email_hash=auth_events.hash_email(deleted_email),
+730:             attempts=1,
+731:             last_error=failure_code,
+732:         )
+733:         db.add(pending)
+734:         db.commit()
+735:         logger.warning(
+736:             "AdminDeleteUser failed for deleted local user %s; queued for retry "
+737:             "(pending_cognito_deletions id=%s)",
+738:             deleted_id,
+739:             pending.id,
+740:         )
+
+=== backend/app/core/cognito_admin.py:674-691
+674: def try_delete_pool_user(email: str) -> str | None:
+675:     """Attempt the final ``AdminDeleteUser``. Returns an error code, or ``None``.
+676: 
+677:     Split out from :func:`delete_user` so the caller can persist a
+678:     ``PendingCognitoDeletion`` row using the RETURNED code rather than an
+679:     exception — the local user row is already gone by the time this runs (see
+680:     :func:`delete_user`'s docstring), so there is nothing left to roll back;
+681:     a failure here is purely "queue a retry", never "abort".
+682:     """
+683:     try:
+684:         _retry_on_throttle("AdminDeleteUser", cognito.admin_delete_user, email)
+685:         return None
+686:     except ClientError as exc:
+687:         code = exc.response.get("Error", {}).get("Code", "")
+688:         if code == "UserNotFoundException":
+689:             return None
+690:         logger.error("AdminDeleteUser failed for %s: %s", email, code)
+691:         return code
+
+=== backend/app/agents/llm_errors.py:98-123
+98:         if isinstance(
+99:             exc, (botocore_exc.ConnectTimeoutError, botocore_exc.ReadTimeoutError)
+100:         ):
+101:             return LLMErrorPayload(_message_for("timeout"), "timeout", True)
+102: 
+103:         if isinstance(
+104:             exc,
+105:             (
+106:                 botocore_exc.EndpointConnectionError,
+107:                 botocore_exc.ConnectionError,
+108:                 botocore_exc.ConnectionClosedError,
+109:             ),
+110:         ):
+111:             return LLMErrorPayload(
+112:                 _message_for("connection_error"), "connection_error", True
+113:             )
+114: 
+115:         # Credentials missing or partial — IAM/IMDS/profile misconfiguration.
+116:         # Not retryable: every subsequent agent in the same pipeline will hit
+117:         # the same wall, and the user can't fix it from the chat UI.
+118:         # `recoverable=False` so the orchestrator short-circuits the pipeline
+119:         # instead of plowing through six identical failures.
+120:         if isinstance(
+121:             exc, (botocore_exc.NoCredentialsError, botocore_exc.PartialCredentialsError)
+122:         ):
+123:             return LLMErrorPayload(_message_for("auth_error"), "auth_error", False)
+
+=== infra/terraform/modules/monitoring/main.tf:2131-2143
+2131: resource "aws_cloudwatch_metric_alarm" "auth_login_failure_spike" {
+2132:   alarm_name          = "${var.name_prefix}-auth-login-failure-spike"
+2133:   alarm_description   = "Sustained authentication failures - possible credential stuffing. nginx rate-limits /api/auth/login to 10/min per IP, so a sustained breach of th
+2134:   comparison_operator = "GreaterThanThreshold"
+2135:   evaluation_periods  = var.auth_login_failure_evaluation_periods
+2136:   metric_name         = "AuthLoginFailure"
+2137:   namespace           = var.cw_metric_namespace
+2138:   period              = 300
+2139:   statistic           = "Sum"
+2140:   threshold           = var.auth_login_failure_threshold
+2141:   treat_missing_data  = "notBreaching"
+2142:   alarm_actions       = [aws_sns_topic.alerts.arn]
+2143: 
+

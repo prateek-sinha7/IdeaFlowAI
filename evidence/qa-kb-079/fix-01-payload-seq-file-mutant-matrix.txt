@@ -1,0 +1,22 @@
+# QA-KB-079 fix-phase mutant matrix for tests/integration/repositories/test_run_events_payload_seq_db.py, 2026-10-07 19:17
+# baseline (no plugin):
+baseline summary=[8 passed, 1 warning in 1.48s] failed=[] psycopg_mentions=0
+KB079 mutant=R append_event_calls=23 tail_probes=16 real_hops=15
+mutant=R summary=[8 passed, 1 warning in 1.14s] failed=[] psycopg_mentions=0
+KB079 mutant=H append_event_calls=23 tail_probes=16 real_hops=15
+mutant=H summary=[4 failed, 4 passed, 1 warning in 1.18s] failed=[test_store_retry_restamps_payload_seq test_execute_wrapper_stored_payload_seq_matches_row test_retry_restamps_a_copy_and_leaves_the_callers_dict_alone test_two_hop_retry_restamps_the_final_landed_seq ] psycopg_mentions=0
+KB079 mutant=A append_event_calls=23 tail_probes=16 real_hops=15
+mutant=A summary=[3 failed, 5 passed, 1 warning in 1.33s] failed=[test_retry_restamps_a_copy_and_leaves_the_callers_dict_alone test_exhaustion_raises_the_dbs_own_rejection_and_keeps_the_callers_seq test_sink_degrades_on_exhaustion_and_the_live_frame_keeps_its_seq ] psycopg_mentions=0
+KB079 mutant=B append_event_calls=23 tail_probes=16 real_hops=15
+mutant=B summary=[1 failed, 7 passed, 1 warning in 1.37s] failed=[test_two_hop_retry_restamps_the_final_landed_seq ] psycopg_mentions=0
+KB079 mutant=C append_event_calls=23 tail_probes=16 real_hops=15
+mutant=C summary=[2 failed, 6 passed, 1 warning in 1.27s] failed=[test_exhaustion_raises_the_dbs_own_rejection_and_keeps_the_callers_seq test_sink_degrades_on_exhaustion_and_the_live_frame_keeps_its_seq ] psycopg_mentions=0
+KB079 mutant=D append_event_calls=23 tail_probes=16 real_hops=15
+mutant=D summary=[1 failed, 7 passed, 1 warning in 1.40s] failed=[test_payload_without_a_seq_key_is_stored_untouched_on_a_retry ] psycopg_mentions=0
+KB079 mutant=E append_event_calls=30 tail_probes=23 real_hops=23
+mutant=E summary=[1 failed, 7 passed, 1 warning in 1.11s] failed=[test_a_rejection_no_tail_explains_is_not_retried ] psycopg_mentions=0
+KB079 mutant=F append_event_calls=23 tail_probes=16 real_hops=15
+mutant=F summary=[2 failed, 6 passed, 1 warning in 1.29s] failed=[test_exhaustion_raises_the_dbs_own_rejection_and_keeps_the_callers_seq test_sink_degrades_on_exhaustion_and_the_live_frame_keeps_its_seq ] psycopg_mentions=0
+KB079 mutant=P append_event_calls=23 tail_probes=16 real_hops=15
+mutant=P summary=[8 passed, 1 warning in 1.20s] failed=[] psycopg_mentions=0
+# done

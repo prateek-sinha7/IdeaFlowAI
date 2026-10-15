@@ -1,12 +1,11 @@
 """tests/agents/test_resume_marker_seq_allocation.py — ISS-125.
 
-``_stamp_resume_marker`` allocates its seq through ``ScopedStore.append_event_next_seq``
-(FIX-240/DB-001), which fixed the non-retrying append but NOT the read cost: that method
-still derives the next seq via ``read_events(run_id, after_seq=0)`` — an unbounded read of
-every row for the run — instead of the bounded ``_max_event_seq`` aggregate the same file
-already exposes (and that ``append_event_at_or_after`` uses for its own tail probe). The
-marker is a best-effort audit row; it should never need to materialise a run's entire
-event log to compute one integer.
+ISS-125 found that ``_stamp_resume_marker`` allocated its seq through
+``ScopedStore.append_event_next_seq`` (FIX-240/DB-001), which then derived the next seq
+from ``read_events(run_id, after_seq=0)`` — an unbounded read of every row for the run.
+The marker now uses the bounded ``_max_event_seq`` probe plus ``append_event_at_or_after``
+(FIX-499), and ``append_event_next_seq`` no longer reads the log either (FIX-688). The
+marker is a best-effort audit row; this test pins that it never calls ``read_events``.
 
 Offline / in-memory SQLite / no API key / no network — the ``backend:characterization`` job.
 """

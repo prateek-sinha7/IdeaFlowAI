@@ -1,0 +1,10 @@
+DB: velocity-local-db on localhost:5432, read-only session, SELECT only, 2026-10-02 (3-analyzer, QA-KB-048)
+
+SELECT count(*) FROM workflows;
+-> 1 row(s): [(0,)]
+
+SELECT source, base_pipeline_type, overrides_pipeline_type IS NOT NULL AS is_override, count(*) FROM workflows GROUP BY 1,2,3 ORDER BY 1,2,3;
+-> 0 row(s): []
+
+SELECT base_pipeline_type, id, name, agents FROM workflows WHERE base_pipeline_type IN ('prototype','ppt','ppt_v2','prototype_v2');
+-> 0 row(s): []

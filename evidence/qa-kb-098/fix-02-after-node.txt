@@ -1,0 +1,14 @@
+# QA-KB-098 fix-02: the one node AFTER the fix (test_per_run_paths_v3.py: deleted the _SANDBOX save at old :427 and restore at old :444), HEAD 50f269502 + working tree, 2026-10-08 14:29:22
+$ cd backend && .venv/bin/python -m pytest 'tests/agents/test_per_run_paths_v3.py::TestPerRunPathsDistinct::test_revision_browser_dir_writer_driven' -q -p no:cacheprovider -rA
+.                                                                        [100%]
+=============================== warnings summary ===============================
+app/core/config.py:94
+
+tests/conftest.py:484
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+==================================== PASSES ====================================
+=========================== short test summary info ============================
+PASSED tests/agents/test_per_run_paths_v3.py::TestPerRunPathsDistinct::test_revision_browser_dir_writer_driven
+1 passed, 2 warnings in 3.68s
+exit=0

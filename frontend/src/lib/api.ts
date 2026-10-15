@@ -322,6 +322,20 @@ export function isNotFoundError(e: unknown): boolean {
   return e instanceof ApiError && e.status === 404;
 }
 
+/**
+ * ISS-1137 — the text to show for a refused launch (POST /api/runs). A
+ * `_reject` body carries it in `detail.error`; `ApiError.message` would be the
+ * whole body as raw JSON, because errorMessageFromDetail declines objects.
+ * Null for a capacity refusal: ServiceBusyProvider already shows that one.
+ */
+export function launchRefusalMessage(err: unknown): string | null {
+  const detail = err instanceof ApiError ? err.detail : undefined;
+  if (isCapacityRejectionDetail(detail)) return null;
+  const text = (detail as { error?: unknown } | null | undefined)?.error;
+  if (typeof text === "string" && text) return text;
+  return errorMessageFromDetail(detail) ?? "The run could not be started. Please try again.";
+}
+
 // BUG-013 Part B — fail-fast timeout for the REST client. When the browser's
 // ~6-connections-per-origin pool is saturated (per-run SSE streams), a call can
 // hang forever with no free socket → a silent idle screen. Wrap every request in
@@ -329,13 +343,6 @@ export function isNotFoundError(e: unknown): boolean {
 // rejects with a typed, catchable ApiError instead of hanging. Generous (~30s) so
 // it never aborts a legitimately-slow brief ingest / large-deliverable fetch.
 const REQUEST_TIMEOUT_MS = 30_000;
-// Document uploads (stage + extract-text) carry multi-MB bodies; on a slow uplink
-// 30s aborts a legitimate upload. This is an END-TO-END client limit (body upload
-// plus server response): a 10 MiB document needs an uplink above ~85 KB/s to
-// finish in time. It is unrelated to nginx's `client_body_timeout 120s` on those
-// routes (infra/scripts/reconcile-host-config.sh), which only bounds the idle gap
-// between two successive body reads, not the whole upload.
-const UPLOAD_TIMEOUT_MS = 120_000;
 
 /** Path of the refresh endpoint — never itself retried (see `fetchWithAuth`). */
 const REFRESH_PATH = "/api/auth/refresh";
@@ -1445,6 +1452,11 @@ export interface RunEventsResponse {
   workflow_id: string;
   after: number;
   events: RunEventRow[];
+  /** ISS-1155: the reply is ONE page; true when rows past it remain. Optional so
+   *  an old backend or a mock envelope without it reads as the last page. */
+  has_more?: boolean;
+  /** ISS-1155: the `after` of the next page (the last returned seq). */
+  next_after?: number;
 }
 
 /** A durable event frame shaped like the WS/SSE `{ type, data }` envelope the
@@ -1466,23 +1478,37 @@ export interface DurableFrame {
  * DEFENSIVELY tolerates a missing/empty `events` array (a mock catch-all `{}`
  * or a legacy shape yields `[]` rather than throwing). Does NOT normalize the
  * payload — consumers key on the snake_case `event_id`/`seq` inside it.
+ *
+ * ISS-1155: the endpoint returns one bounded page, so this follows
+ * `next_after` while `has_more` holds and returns every page concatenated.
+ * An envelope without `has_more` (old backend, mock `{}`) is the last page.
  */
 export async function getRunEvents(
   token: string,
   runId: string,
   afterSeq = 0,
 ): Promise<DurableFrame[]> {
-  // ISS-871 / FIX-647: use singleFlightGet so concurrent identical calls
-  // (e.g. handleSelectWorkflowRun firing once pre-remount and again from the
-  // cold-mount T11 effect post-remount) share one in-flight request rather
-  // than launching a second 2+ MB fetch.  The key includes the afterSeq
-  // fragment so a cursor-advancing call (afterSeq > 0) never coalesces with
-  // the full-history call (afterSeq == 0).  Mirrors getRunFamily/getWorkflow.
-  const res = await singleFlightGet<RunEventsResponse>(
-    `/api/runs/${encodeURIComponent(runId)}/events?after=${afterSeq}`,
-    token,
-  );
-  return (res?.events ?? []).map((row) => ({
+  const pages: RunEventRow[][] = [];
+  let after = afterSeq;
+  for (;;) {
+    // ISS-871 / FIX-647: singleFlightGet so concurrent identical calls (e.g.
+    // handleSelectWorkflowRun firing once pre-remount and again from the
+    // cold-mount T11 effect post-remount) share one in-flight request rather
+    // than launching a second multi-MB fetch. The key carries the page cursor,
+    // so a page never coalesces with a different page. Mirrors getRunFamily.
+    // limit=5000 is the server's max page (runs.py get_run_events, le=5000).
+    const res = await singleFlightGet<RunEventsResponse>(
+      `/api/runs/${encodeURIComponent(runId)}/events?after=${after}&limit=5000`,
+      token,
+    );
+    pages.push(res?.events ?? []);
+    // Only a cursor that moves forward continues: a missing has_more, a missing
+    // or stuck next_after, or a NaN cursor ends the loop, never a request storm.
+    const next = res?.next_after;
+    if (!res?.has_more || typeof next !== "number" || !(next > after)) break;
+    after = next;
+  }
+  return pages.flat().map((row) => ({
     type: row.type,
     // Merge the row's authoritative `event_id` + `seq` COLUMNS over payload_json
     // (BUG-018): a durable Concierge chat_reply carries its DISTINCT event_id
@@ -1505,21 +1531,25 @@ export async function getRunEvents(
 }
 
 /** A single artifact node from GET /api/runs/{id}/artifacts (mirrors the
- *  backend node shape, runs.py:590-608). `content` is present ONLY when the
- *  request was made with include=content. NOTE: nodes carry NO created_at. */
+ *  backend node shape, `_build_lineage_tree._node` in backend/app/api/runs.py).
+ *  `content` is present ONLY when the request was made with include=content.
+ *  NOTE: nodes carry NO created_at. */
 export interface ArtifactNode {
   id: string;
   kind: string;
   producer_step: string;
   producer_agent: string;
-  task_id: string;
+  task_id: string | null;
   content_hash: string;
   version: number;
   visibility: string;
+  retention: string;
   location: string;
   parents: string[];
-  derived_from: string[];
-  children: string[];
+  /** Id of the version this one supersedes; may be a PARENT run's artifact and then absent from this response. */
+  derived_from: string | null;
+  /** Nested nodes derived from this one, not ids. */
+  children: ArtifactNode[];
   content?: string;
 }
 
@@ -1568,6 +1598,10 @@ export interface SandboxFile {
    *  a copy of `_DELIVERABLE_EXCLUDE` here that drifts from the backend's.
    *  Absent on a listing that predates the field. */
   deliverable?: boolean;
+  /** ISS-665 — the git tag this file was resolved at (absent: the live tree).
+   *  Set by `resolveRunDeliverable`, so a row is downloaded at the ref it was
+   *  named and sized from. */
+  ref?: string;
 }
 
 export interface SandboxListing {
@@ -1611,11 +1645,16 @@ export async function getRunSandbox(
  *
  *  Presence is the gate: null when nothing is declared, nothing is listed, or
  *  neither candidate is on disk — the honest state, since we cannot name a file
- *  we have not seen. */
+ *  we have not seen.
+ *
+ *  ISS-665 — `ref` (a version tag) resolves against that version's own tree.
+ *  A revision family shares ONE sandbox whose live tree is the NEWEST member's,
+ *  so an older member's file exists only at its tag. */
 export async function resolveRunDeliverable(
   token: string,
   runId: string,
   declared?: string | null,
+  ref?: string,
 ): Promise<SandboxFile | null> {
   const name = declared ?? (await getWorkflow(token, runId)).deliverableFilename ?? null;
   if (!name) return null;
@@ -1627,7 +1666,7 @@ export async function resolveRunDeliverable(
     : ext === "pptx" ? [name, `${stem}.html`]
     : [name],
   )];
-  const listing = await getRunSandbox(token, runId);
+  const listing = await getRunSandbox(token, runId, ref);
   const at = (p: string) => listing.files.find((f) => f.path === p);
   // ISS-768/ISS-774 — for the NOMINAL-name strategies (`streamed_text`,
   // `serialized_sandbox`, `ppt`) the declared basename is never a root file:
@@ -1640,9 +1679,10 @@ export async function resolveRunDeliverable(
   // still beats a chained `.html`). `.chain/` is listed and served like every
   // reserved subtree (only git metadata is hidden), and both callers already take
   // the basename of the returned path for display and for the download filename.
-  return candidates.map(at).find(Boolean)
+  const hit = candidates.map(at).find(Boolean)
     ?? candidates.map((c) => at(`.chain/${c}`)).find(Boolean)
     ?? null;
+  return hit && ref ? { ...hit, ref } : hit;
 }
 
 /** The URL a workspace file's bytes are served from.
@@ -2772,15 +2812,11 @@ export async function extractFileText(
 ): Promise<ExtractTextResponse> {
   const form = new FormData();
   form.append("file", file);
-  return request<ExtractTextResponse>(
-    "/api/files/extract-text",
-    {
-      method: "POST",
-      headers: { Authorization: `Bearer ${token}` },
-      body: form,
-    },
-    UPLOAD_TIMEOUT_MS,
-  );
+  return request<ExtractTextResponse>("/api/files/extract-text", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    body: form,
+  });
 }
 
 /**
@@ -2795,15 +2831,11 @@ export async function stageRunFile(
 ): Promise<{ stage_id: string; files: string[] }> {
   const form = new FormData();
   form.append("files", file);
-  return request<{ stage_id: string; files: string[] }>(
-    "/api/runs/uploads/stage",
-    {
-      method: "POST",
-      headers: { Authorization: `Bearer ${token}` },
-      body: form,
-    },
-    UPLOAD_TIMEOUT_MS,
-  );
+  return request<{ stage_id: string; files: string[] }>("/api/runs/uploads/stage", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    body: form,
+  });
 }
 
 // ── Audit / hook-runs endpoint (KAN-73) ─────────────────────────────────────

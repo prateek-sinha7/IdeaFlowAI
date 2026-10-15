@@ -1,0 +1,10 @@
+python 3.9.6
+apply_summaries.py           compiles; newline= on write_text/read_text: none
+build_architecture.py        compiles; newline= on write_text/read_text: none
+build_context.py             compiles; newline= on write_text/read_text: none
+build_index.py               compiles; newline= on write_text/read_text: none
+normalize_card_ids.py        compiles; newline= on write_text/read_text: none
+rebuild_knowledge.py         compiles; newline= on write_text/read_text: none
+status.py                    compiles; newline= on write_text/read_text: none
+validate_links.py            compiles; newline= on write_text/read_text: none
+RESULT: clean

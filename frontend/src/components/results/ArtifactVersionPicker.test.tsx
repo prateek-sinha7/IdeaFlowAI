@@ -26,7 +26,7 @@ vi.mock("@/lib/api", () => ({
   getToken: () => "test-token",
 }));
 
-/** A node in the shape `_node()` returns (runs.py:907-925) — no created_at. */
+/** A node in the shape `_build_lineage_tree._node()` returns (backend/app/api/runs.py) — no created_at. */
 function node(over: Partial<Record<string, unknown>> = {}) {
   return {
     id: "id-1",

@@ -1,0 +1,147 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+___________ test_resume_dispatch_carries_rehydrated_planning_context ___________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10a355480>
+
+    @pytest.mark.asyncio
+    async def test_resume_dispatch_carries_rehydrated_planning_context(monkeypatch):
+        """D2 wiring: driving the REAL resume tier on a run holding durable
+        `planning_context` + `clarifications` rows, the resumed run's PLANNER.md carries the
+        planner's intent and the user's answer — not the truncated stub. Phase Z (3e09aef2c)
+        removed the planning-context paste from the composed message; agents read
+        PLANNER.md instead (ISS-1104).
+    
+        The unit test above would pass against a helper nobody calls; this is the proof
+        that the skip-planner branch actually routes through it.
+        """
+        from agents.artifacts.graph import ArtifactRef
+        from agents.authz import ScopedStore
+        from agents.execution_engine.engine import PLANNER_AGENT_ID
+    
+        session, db_engine = _make_session()
+        run_id = f"rh-{uuid.uuid4().hex[:8]}"
+        owner = "rh-user"
+        ws = "ws-rh"
+        # The seeded brief IS the resumed run's user_message, so the stub intent the fix
+        # must displace (`user_message[:200]`) is a real, assertable string in the prompt.
+        user_message = "Run the wave workflow."
+        _seed_workflow_run(
+            session,
+            run_id,
+            owner=owner,
+            status="failed",
+            workspace_id=ws,
+            input_=user_message,
+        )
+    
+        # One durable run_events row = the in-flight evidence the resume classifier needs,
+        # WITHOUT an open review gate — so the resume re-enters step 0 and DISPATCHES it
+        # (a gate re-entry would skip the model call, and with it the compose under test).
+        pre_store = ScopedStore(owner_id=owner, workspace_id=ws, session=session)
+        await pre_store.append_event(
+            run_id,
+            seq=1,
+            event_id="rh-1",
+            type="agent_start",
+            payload_json={"agent_id": "sample-wave-plan"},
+        )
+    
+        planner_json = _rehydrate_planner_json()
+        await pre_store.write_ref(
+            ArtifactRef(
+                id=str(uuid.uuid4()),
+                run_id=run_id,
+                owner_id=owner,
+                workspace_id=ws,
+                kind="planning_context",
+                producer_step="planner",
+                producer_agent=PLANNER_AGENT_ID,
+                task_id=None,
+                content=planner_json,
+                content_hash=_pb_hash(planner_json),
+                location="artifact_refs/planning_context",
+                version=1,
+                visibility="workspace",
+            )
+        )
+        clar_json = _rehydrate_clarifications_json(
+            1, "r1_q1", _REHYDRATE_QUESTION, _REHYDRATE_ANSWER
+        )
+        await pre_store.write_ref(
+            ArtifactRef(
+                id=str(uuid.uuid4()),
+                run_id=run_id,
+                owner_id=owner,
+                workspace_id=ws,
+                kind="clarifications",
+                producer_step="clarify_round_1",
+                producer_agent="clarify-agent",
+                task_id=None,
+                content=clar_json,
+                content_hash=_pb_hash(clar_json),
+                location="artifact_refs/clarifications",
+                version=1,
+                visibility="workspace",
+            )
+        )
+        session.commit()
+    
+        composed: list[str] = []
+    
+        with _ResumeHarness(session, {}, fail_on=set(), db_engine=db_engine) as h:
+            engine_b = h.make_engine()
+    
+            _orig_compose = engine_b._compose_context_message
+    
+            async def _spy_compose(*a, **k):
+                msg = await _orig_compose(*a, **k)
+                composed.append(msg)
+                return msg
+    
+            engine_b._compose_context_message = _spy_compose  # type: ignore[assignment]
+    
+            rc = _wire_user_resume_drive(monkeypatch, db_engine, engine_b)
+            await rc._drive_user_resume(run_id, user=_ResumeUser(owner))
+    
+        assert composed, "the resumed run dispatched no agent — nothing to assert on"
+        from app.agents.sandbox import RunSandbox
+    
+        planner_md = (RunSandbox(owner, run_id).root / "PLANNER.md").read_text()
+>       assert _REHYDRATE_ANSWER in planner_md, (
+            "D2: a resumed run's PLANNER.md must carry the user's clarification answers; "
+            f"got:\n{planner_md[:1500]}"
+        )
+E       AssertionError: D2: a resumed run's PLANNER.md must carry the user's clarification answers; got:
+E         # PLANNER.md — Deep Planner Analysis
+E         
+E         **Inferred Intent**: Run the wave workflow.
+E         
+E         **Gate Verdict**: PROCEED
+E         
+E       assert 'SPINNAKER-SENTINEL' in '# PLANNER.md — Deep Planner Analysis\n\n**Inferred Intent**: Run the wave workflow.\n\n**Gate Verdict**: PROCEED\n'
+
+tests/integration/agents/test_restart_resume_db.py:5014: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  app.agents.checkpointer:checkpointer.py:61 Checkpointer: DATABASE_URL is not Postgres — using InMemorySaver. HITL pauses work within the process but do NOT survive a restart.
+WARNING  agents.artifacts.graph:graph.py:155 artifact kind 'sample-wave-plan' is outside ARTIFACT_KINDS — typed consumes routing and the FR-014 revision lookup match kinds EXACTLY, so a typo here is silently unroutable (IN-01 advisory; write proceeds)
+WARNING  app.agents.sandbox:sandbox.py:878 commit_all: nothing to commit (empty diff at step boundary) run=rh-user/rh-c8a1ce4e message='step: sample-wave-plan'
+WARNING  agents.execution_engine.engine:engine.py:832 commit_in_sandbox: no changes staged for run=rh-c8a1ce4e step=sample-wave-plan (has_git=true)
+WARNING  agents.artifacts.graph:graph.py:155 artifact kind 'sample-wave-worker' is outside ARTIFACT_KINDS — typed consumes routing and the FR-014 revision lookup match kinds EXACTLY, so a typo here is silently unroutable (IN-01 advisory; write proceeds)
+WARNING  agents.artifacts.graph:graph.py:155 artifact kind 'sample-wave-worker' is outside ARTIFACT_KINDS — typed consumes routing and the FR-014 revision lookup match kinds EXACTLY, so a typo here is silently unroutable (IN-01 advisory; write proceeds)
+WARNING  agents.artifacts.graph:graph.py:155 artifact kind 'sample-wave-worker' is outside ARTIFACT_KINDS — typed consumes routing and the FR-014 revision lookup match kinds EXACTLY, so a typo here is silently unroutable (IN-01 advisory; write proceeds)
+WARNING  agents.artifacts.graph:graph.py:155 artifact kind 'sample-wave-worker' is outside ARTIFACT_KINDS — typed consumes routing and the FR-014 revision lookup match kinds EXACTLY, so a typo here is silently unroutable (IN-01 advisory; write proceeds)
+ERROR    agents.execution_engine.engine:engine.py:2603 finalize_terminal_run: create_run_ref FAILED run=rh-c8a1ce4e (run_id must be a UUID (hex digits and hyphens only): 'rh-c8a1ce4e')
+=============================== warnings summary ===============================
+app/core/config.py:94
+  /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/app/core/config.py:94: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+    class Settings(BaseSettings):
+
+tests/integration/agents/test_restart_resume_db.py::test_resume_dispatch_carries_rehydrated_planning_context
+  /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/agents/execution_engine/engine.py:1324: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    _ts = _dt.datetime.utcnow().isoformat(timespec="seconds") + "Z"
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/integration/agents/test_restart_resume_db.py::test_resume_dispatch_carries_rehydrated_planning_context
+1 failed, 2 warnings in 2.96s

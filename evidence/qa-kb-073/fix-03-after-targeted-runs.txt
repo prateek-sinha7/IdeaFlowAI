@@ -1,0 +1,11 @@
+# AFTER (QA-KB-073 fixer, 2026-10-07), cd backend, backend/.venv/bin/python -m pytest <target> -q -p no:cacheprovider, one at a time
+## tests/integration/agents/test_restart_resume_db.py::test_apply_terminal_output_columns_populates_all_columns + ::test_apply_terminal_output_columns_captures_per_agent_model_id
+2 passed, 1 warning in 1.06s
+## tests/integration/api/test_rest_revisions_api.py::test_driver_happy_path_persists_output_columns (ISS-900; stub edit landed by FIX-722 in afa86af79, verified only)
+1 passed, 3 warnings in 1.00s
+## tests/integration/api/test_rest_revisions_api.py (whole file)
+25 passed, 3 warnings in 1.26s
+## tests/unit/app/test_run_row_token_usage.py (collector guard)
+3 passed, 1 warning in 0.94s
+## ruff check tests/integration/agents/test_restart_resume_db.py
+All checks passed!

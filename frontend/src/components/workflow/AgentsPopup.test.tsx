@@ -1404,7 +1404,7 @@ describe("AdvancedExpander (additional behaviour)", () => {
       });
     });
 
-    it("keeps the json parser and target when the source changes in wave mode", async () => {
+    it("keeps the json parser when the source changes in wave mode", async () => {
       const user = userEvent.setup();
       const onSelectionsChange = vi.fn();
       await enableFanout(user, onSelectionsChange);
@@ -1412,10 +1412,11 @@ describe("AdvancedExpander (additional behaviour)", () => {
 
       await user.selectOptions(screen.getByLabelText("Source list for Agent C"), "agent-a");
 
+      // A target is set only when the source step declares its JSON task file
+      // (jsonTasksTarget); agent-a declares none, so no "tasks.json" is guessed.
       expect(lastSelections(onSelectionsChange)["agent-c"].task_source).toEqual({
         kind: "parsed",
         parser: "json_tasks",
-        target: "tasks.json",
         source_step: "agent-a",
       });
       expect(lastSelections(onSelectionsChange)["agent-c"].on_conflict).toBe("human_gate");

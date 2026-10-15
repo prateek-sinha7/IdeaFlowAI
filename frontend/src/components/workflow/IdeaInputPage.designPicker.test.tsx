@@ -145,6 +145,7 @@ describe("IdeaInputPage — opendesign design-picker wiring", () => {
     });
   });
 
+  // ISS-944: mocked gates section sends gate_agent_ids: []; assert the picker params are absent.
   it("does not offer the picker for a workflow that never declares opendesign", async () => {
     const user = userEvent.setup();
     const { onRun } = renderPage(vi.fn(), []);

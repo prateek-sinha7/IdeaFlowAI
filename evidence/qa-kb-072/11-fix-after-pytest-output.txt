@@ -1,0 +1,100 @@
+.F                                                                       [100%]
+=================================== FAILURES ===================================
+__________ test_non_redoable_declared_gate_unaffected_by_redo_action ___________
+[XPASS(strict)] ISS-899 unfixed
+------------------------------ Captured log call -------------------------------
+WARNING  agents.execution_engine.engine:engine.py:3588 _resolve_root_id: unresolved for run=no-redo-gate-4c44bba3 reason=missing_or_cross_owner visited=1 repeated=None — degrading to run_id
+WARNING  agents.execution_engine.engine:engine.py:3588 _resolve_root_id: unresolved for run=no-redo-gate-4c44bba3 reason=missing_or_cross_owner visited=1 repeated=None — degrading to run_id
+WARNING  agents.execution_engine.engine:engine.py:4895 execute(): workspace/capabilities persist failed ((sqlite3.IntegrityError) FOREIGN KEY constraint failed
+[SQL: INSERT INTO run_capabilities (id, run_id, owner_id, workspace_id, runtime, model_overrides, skills, hooks, integrations, mcp_servers, versions, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)]
+[parameters: ('d8750329-c0ca-4734-a8cc-33a9434cc860', 'no-redo-gate-4c44bba3', 'harness-user', 'a45b323a-ed1b-498e-820f-ce3007569a60', 'langchain_deepagents', 'null', 'null', 'null', 'null', 'null', 'null', '2026-10-07 20:32:49.362064')]
+(Background on this error at: https://sqlalche.me/e/20/gkpj)) — proceeding (typed-substrate DB writes degrade; deliverable/events unaffected)
+WARNING  app.agents.checkpointer:checkpointer.py:61 Checkpointer: DATABASE_URL is not Postgres — using InMemorySaver. HITL pauses work within the process but do NOT survive a restart.
+WARNING  agents.execution_engine.engine:engine.py:3355 run_events persist failed for run no-redo-gate-4c44bba3 seq 1 ((sqlite3.IntegrityError) FOREIGN KEY constraint failed
+[SQL: INSERT INTO run_events (id, run_id, owner_id, workspace_id, seq, event_id, type, payload_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)]
+[parameters: ('cb3d7d24-7ad3-4297-8b27-e08edb97d59d', 'no-redo-gate-4c44bba3', 'harness-user', 'a45b323a-ed1b-498e-820f-ce3007569a60', 1, '8802a1ac-b77a-4631-b13a-8324e250da25', 'workflow_validated', '{"pipeline_run_id": "no-redo-gate-4c44bba3", "satisfiable": true, "dag_edges": [], "unresolved_edges": [], "timestamp": "2026-10-07T20:32:49.363060+00:00", "seq": 1, "event_id": "8802a1ac-b77a-4631-b13a-8324e250da25"}', '2026-10-07 20:32:49.363257')]
+(Background on this error at: https://sqlalche.me/e/20/gkpj)) — DB write degraded (offline harness / schema unavailable); stream unaffected (PERSIST-03 best-effort)
+WARNING  agents.execution_engine.engine:engine.py:3355 run_events persist failed for run no-redo-gate-4c44bba3 seq 2 ((sqlite3.IntegrityError) FOREIGN KEY constraint failed
+[SQL: INSERT INTO run_events (id, run_id, owner_id, workspace_id, seq, event_id, type, payload_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)]
+[parameters: ('ee436ce6-beb6-4755-b008-e30ac96c6a7f', 'no-redo-gate-4c44bba3', 'harness-user', 'a45b323a-ed1b-498e-820f-ce3007569a60', 2, 'a996eb8f-7288-4417-93c7-1e1e888d296d', 'pipeline_start', '{"pipeline_type": "custom", "pipeline_run_id": "no-redo-gate-4c44bba3", "agent_count": 1, "agents": [{"id": "domain-analyst", "name": "Domain Discove ... (40 characters truncated) ... earch", "icon": "\\ud83d\\udd0d", "order": 1}], "resume_offset": 0, "created_at": null, "seq": 2, "event_id": "a996eb8f-7288-4417-93c7-1e1e888d296d"}', '2026-10-07 20:32:49.366974')]
+(Background on this error at: https://sqlalche.me/e/20/gkpj)) — DB write degraded (offline harness / schema unavailable); stream unaffected (PERSIST-03 best-effort)
+WARNING  agents.execution_engine.kernel_services:kernel_services.py:480 record_hook_run(hook=audit_logger event=before_step outcome=continue) failed: (sqlite3.IntegrityError) FOREIGN KEY constraint failed
+[SQL: INSERT INTO hook_runs (id, run_id, owner_id, workspace_id, hook, event, outcome, detail, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)]
+[parameters: ('52c9b986-a384-4d82-9f7d-31a857e90f7f', 'no-redo-gate-4c44bba3', 'harness-user', 'a45b323a-ed1b-498e-820f-ce3007569a60', 'audit_logger', 'before_step', 'continue', '{"agent_id": "domain-analyst", "agent_name": "Domain Discovery Agent", "event": "before_step", "step_index": 0, "timestamp": "2026-10-07T20:32:49.367687+00:00", "outcome": "continue", "summary": "Domain Discovery Agent started", "severity": "info", "hook_type": "logging"}', '2026-10-07 20:32:49.367850')]
+(Background on this error at: https://sqlalche.me/e/20/gkpj)
+WARNING  agents.execution_engine.engine:engine.py:3355 run_events persist failed for run no-redo-gate-4c44bba3 seq 3 ((sqlite3.IntegrityError) FOREIGN KEY constraint failed
+[SQL: INSERT INTO run_events (id, run_id, owner_id, workspace_id, seq, event_id, type, payload_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)]
+[parameters: ('20ec7d2c-e725-4fc2-9646-54262d7c6463', 'no-redo-gate-4c44bba3', 'harness-user', 'a45b323a-ed1b-498e-820f-ce3007569a60', 3, '0b27cf6f-2ae2-4d7d-9978-1ed9e984e670', 'agent_start', '{"agent_id": "domain-analyst", "name": "Domain Discovery Agent", "role": "Market & Persona Research", "icon": "\\ud83d\\udd0d", "index": 0, "total": 1, "model_id": "eu.anthropic.claude-haiku-4-5-20251001-v1:0", "seq": 3, "event_id": "0b27cf6f-2ae2-4d7d-9978-1ed9e984e670"}', '2026-10-07 20:32:49.368258')]
+(Background on this error at: https://sqlalche.me/e/20/gkpj)) — DB write degraded (offline harness / schema unavailable); stream unaffected (PERSIST-03 best-effort)
+WARNING  agents.execution_engine.engine:engine.py:3588 _resolve_root_id: unresolved for run=no-redo-gate-4c44bba3 reason=missing_or_cross_owner visited=1 repeated=None — degrading to run_id
+WARNING  agents.execution_engine.engine:engine.py:3355 run_events persist failed for run no-redo-gate-4c44bba3 seq 4 ((sqlite3.IntegrityError) FOREIGN KEY constraint failed
+[SQL: INSERT INTO run_events (id, run_id, owner_id, workspace_id, seq, event_id, type, payload_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)]
+[parameters: ('76bc41aa-2536-441e-95b4-1cab7b527e6b', 'no-redo-gate-4c44bba3', 'harness-user', 'a45b323a-ed1b-498e-820f-ce3007569a60', 4, '2910c7ba-9c8a-4a36-87f5-7c1150d2746c', 'agent_input', '{"agent_id": "domain-analyst", "pipeline_run_id": "no-redo-gate-4c44bba3", "timestamp": "2026-10-07T20:32:49.381996+00:00", "context_message": "=== O ... (3973 characters truncated) ... e realistic details, not generic placeholders\\n- Keep total response under 400 words", "seq": 4, "event_id": "2910c7ba-9c8a-4a36-87f5-7c1150d2746c"}', '2026-10-07 20:32:49.382278')]
+(Background on this error at: https://sqlalche.me/e/20/gkpj)) — DB write degraded (offline harness / schema unavailable); stream unaffected (PERSIST-03 best-effort)
+WARNING  agents.execution_engine.engine:engine.py:3355 run_events persist failed for run no-redo-gate-4c44bba3 seq 5 ((sqlite3.IntegrityError) FOREIGN KEY constraint failed
+[SQL: INSERT INTO run_events (id, run_id, owner_id, workspace_id, seq, event_id, type, payload_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)]
+[parameters: ('7738eb55-96ee-4930-9eec-4009fad26e4b', 'no-redo-gate-4c44bba3', 'harness-user', 'a45b323a-ed1b-498e-820f-ce3007569a60', 5, 'cf463867-c607-4d3b-ba6f-6a7d77faee34', 'agent_skills', '{"agent_id": "domain-analyst", "attached_skills": [], "attached_hooks": [], "skills_load_errors": [], "estimated_tokens": 0, "seq": 5, "event_id": "cf463867-c607-4d3b-ba6f-6a7d77faee34"}', '2026-10-07 20:32:49.383474')]
+(Background on this error at: https://sqlalche.me/e/20/gkpj)) — DB write degraded (offline harness / schema unavailable); stream unaffected (PERSIST-03 best-effort)
+WARNING  agents.execution_engine.engine:engine.py:3355 run_events persist failed for run no-redo-gate-4c44bba3 seq 6 ((sqlite3.IntegrityError) FOREIGN KEY constraint failed
+[SQL: INSERT INTO run_events (id, run_id, owner_id, workspace_id, seq, event_id, type, payload_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)]
+[parameters: ('5c195fc0-0cf8-4da1-a9b4-f42e5fb3db75', 'no-redo-gate-4c44bba3', 'harness-user', 'a45b323a-ed1b-498e-820f-ce3007569a60', 6, 'a5afc362-2d43-49fb-87b1-05fb1d114e52', 'agent_chunk', '{"agent_id": "domain-analyst", "chunk": "only pass output. ", "seq": 6, "event_id": "a5afc362-2d43-49fb-87b1-05fb1d114e52"}', '2026-10-07 20:32:49.406602')]
+(Background on this error at: https://sqlalche.me/e/20/gkpj)) — DB write degraded (offline harness / schema unavailable); stream unaffected (PERSIST-03 best-effort)
+WARNING  agents.execution_engine.kernel_services:kernel_services.py:480 record_hook_run(hook=secret_scan event=before_write outcome=continue) failed: (sqlite3.IntegrityError) FOREIGN KEY constraint failed
+[SQL: INSERT INTO hook_runs (id, run_id, owner_id, workspace_id, hook, event, outcome, detail, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)]
+[parameters: ('76c3550a-85bc-4cfe-95b7-69d2f2c0f5ab', 'no-redo-gate-4c44bba3', 'harness-user', 'a45b323a-ed1b-498e-820f-ce3007569a60', 'secret_scan', 'before_write', 'continue', '{"matched": false}', '2026-10-07 20:32:49.409303')]
+(Background on this error at: https://sqlalche.me/e/20/gkpj)
+WARNING  agents.execution_engine.engine:engine.py:13963 artifact_refs persist failed for run no-redo-gate-4c44bba3 kind summary ((sqlite3.IntegrityError) FOREIGN KEY constraint failed
+[SQL: INSERT INTO artifact_refs (id, run_id, owner_id, workspace_id, kind, producer_step, producer_agent, task_id, content, content_hash, location, version, parents, derived_from, visibility, retention, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)]
+[parameters: ('17718af4-8d2b-4c32-aaad-03da4bce85cb', 'no-redo-gate-4c44bba3', 'harness-user', 'a45b323a-ed1b-498e-820f-ce3007569a60', 'summary', 'domain-analyst', 'domain-analyst', None, 'only pass output. ', '62551e5bb37aa4bb716e0319d788d8e644ad3fbd1b8e9246e705b99407856bfc', 'artifact_refs/domain-analyst', 1, '[]', None, 'private', 'run_ttl', '2026-10-07 20:32:49.409974')]
+(Background on this error at: https://sqlalche.me/e/20/gkpj)) — DB write degraded (offline harness / schema unavailable); typed graph unaffected (PERSIST-02 best-effort)
+WARNING  agents.artifacts.graph:graph.py:155 artifact kind 'domain-analyst' is outside ARTIFACT_KINDS — typed consumes routing and the FR-014 revision lookup match kinds EXACTLY, so a typo here is silently unroutable (IN-01 advisory; write proceeds)
+WARNING  agents.execution_engine.engine:engine.py:13963 artifact_refs persist failed for run no-redo-gate-4c44bba3 kind domain-analyst ((sqlite3.IntegrityError) FOREIGN KEY constraint failed
+[SQL: INSERT INTO artifact_refs (id, run_id, owner_id, workspace_id, kind, producer_step, producer_agent, task_id, content, content_hash, location, version, parents, derived_from, visibility, retention, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)]
+[parameters: ('ad0a2796-d0a0-41e3-9e56-2d4b7ecdd14b', 'no-redo-gate-4c44bba3', 'harness-user', 'a45b323a-ed1b-498e-820f-ce3007569a60', 'domain-analyst', 'domain-analyst', 'domain-analyst', None, 'only pass output. ', '62551e5bb37aa4bb716e0319d788d8e644ad3fbd1b8e9246e705b99407856bfc', 'artifact_refs/domain-analyst', 1, '[]', None, 'workspace', 'run_ttl', '2026-10-07 20:32:49.410577')]
+(Background on this error at: https://sqlalche.me/e/20/gkpj)) — DB write degraded (offline harness / schema unavailable); typed graph unaffected (PERSIST-02 best-effort)
+WARNING  agents.execution_engine.engine:engine.py:3355 run_events persist failed for run no-redo-gate-4c44bba3 seq 7 ((sqlite3.IntegrityError) FOREIGN KEY constraint failed
+[SQL: INSERT INTO run_events (id, run_id, owner_id, workspace_id, seq, event_id, type, payload_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)]
+[parameters: ('bccf15cf-09f4-4871-a1a5-7fb0f1b9ccb0', 'no-redo-gate-4c44bba3', 'harness-user', 'a45b323a-ed1b-498e-820f-ce3007569a60', 7, '5173f927-974e-4602-becb-594d83f804d7', 'agent_complete', '{"agent_id": "domain-analyst", "name": "Domain Discovery Agent", "duration": 0.04, "output_length": 18, "index": 0, "total": 1, "input_tokens": 5, "o ... (77 characters truncated) ... -5-20251001-v1:0", "cache_read_tokens": 0, "cache_write_tokens": 0, "usage_version": 2, "seq": 7, "event_id": "5173f927-974e-4602-becb-594d83f804d7"}', '2026-10-07 20:32:49.411504')]
+(Background on this error at: https://sqlalche.me/e/20/gkpj)) — DB write degraded (offline harness / schema unavailable); stream unaffected (PERSIST-03 best-effort)
+WARNING  agents.execution_engine.kernel_services:kernel_services.py:480 record_hook_run(hook=audit_logger event=after_step outcome=continue) failed: (sqlite3.IntegrityError) FOREIGN KEY constraint failed
+[SQL: INSERT INTO hook_runs (id, run_id, owner_id, workspace_id, hook, event, outcome, detail, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)]
+[parameters: ('51789760-c804-4120-b579-0a6035cfeff3', 'no-redo-gate-4c44bba3', 'harness-user', 'a45b323a-ed1b-498e-820f-ce3007569a60', 'audit_logger', 'after_step', 'continue', '{"agent_id": "domain-analyst", "agent_name": "Domain Discovery Agent", "event": "after_step", "step_index": 0, "timestamp": "2026-10-07T20:32:49.412306+00:00", "outcome": "continue", "summary": "Domain Discovery Agent completed", "severity": "info", "hook_type": "logging"}', '2026-10-07 20:32:49.412453')]
+(Background on this error at: https://sqlalche.me/e/20/gkpj)
+WARNING  agents.execution_engine.engine:engine.py:3355 run_events persist failed for run no-redo-gate-4c44bba3 seq 8 ((sqlite3.IntegrityError) FOREIGN KEY constraint failed
+[SQL: INSERT INTO run_events (id, run_id, owner_id, workspace_id, seq, event_id, type, payload_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)]
+[parameters: ('c2c4ffb4-8490-4f60-8f1d-5734bdd939f7', 'no-redo-gate-4c44bba3', 'harness-user', 'a45b323a-ed1b-498e-820f-ce3007569a60', 8, 'cfb12c5f-0ad8-479c-95cb-59dc275c6d14', 'review_gate_ready', '{"pipeline_run_id": "no-redo-gate-4c44bba3", "agent_id": "domain-analyst", "agent_name": "Domain Discovery Agent", "gate_key": "no-redo-gate-4c44bba3 ... (135 characters truncated) ... ycle": 0, "revision_in_flight": false, "timestamp": "2026-10-07T20:32:49.537831+00:00", "seq": 8, "event_id": "cfb12c5f-0ad8-479c-95cb-59dc275c6d14"}', '2026-10-07 20:32:49.538340')]
+(Background on this error at: https://sqlalche.me/e/20/gkpj)) — DB write degraded (offline harness / schema unavailable); stream unaffected (PERSIST-03 best-effort)
+WARNING  agents.execution_engine.engine:engine.py:12531 Review gate redo REFUSED: pipeline=no-redo-gate-4c44bba3 agent=domain-analyst — this firing published redoable=False; gate stays open (ISS-090)
+WARNING  agents.execution_engine.engine:engine.py:3355 run_events persist failed for run no-redo-gate-4c44bba3 seq 9 ((sqlite3.IntegrityError) FOREIGN KEY constraint failed
+[SQL: INSERT INTO run_events (id, run_id, owner_id, workspace_id, seq, event_id, type, payload_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)]
+[parameters: ('628ceea5-4123-4e52-9ca7-f5113fecd421', 'no-redo-gate-4c44bba3', 'harness-user', 'a45b323a-ed1b-498e-820f-ce3007569a60', 9, 'eb9294b5-9bbe-473e-b357-7e4df181e594', 'review_gate_approved', '{"pipeline_run_id": "no-redo-gate-4c44bba3", "agent_id": "domain-analyst", "edited": false, "timestamp": "2026-10-07T20:32:49.539931+00:00", "seq": 9, "event_id": "eb9294b5-9bbe-473e-b357-7e4df181e594"}', '2026-10-07 20:32:49.540098')]
+(Background on this error at: https://sqlalche.me/e/20/gkpj)) — DB write degraded (offline harness / schema unavailable); stream unaffected (PERSIST-03 best-effort)
+WARNING  agents.execution_engine.kernel_services:kernel_services.py:408 record_gate_event(step=domain-analyst gate=human outcome=pass) failed: (sqlite3.IntegrityError) FOREIGN KEY constraint failed
+[SQL: INSERT INTO gate_events (id, run_id, owner_id, workspace_id, step, gate, outcome, detail, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)]
+[parameters: ('78091568-ba47-4e8e-8887-2111397231b3', 'no-redo-gate-4c44bba3', 'harness-user', 'a45b323a-ed1b-498e-820f-ce3007569a60', 'domain-analyst', 'human', 'pass', 'null', '2026-10-07 20:32:49.541058')]
+(Background on this error at: https://sqlalche.me/e/20/gkpj)
+ERROR    agents.execution_engine.engine:engine.py:2603 finalize_terminal_run: create_run_ref FAILED run=no-redo-gate-4c44bba3 (run_id must be a UUID (hex digits and hyphens only): 'no-redo-gate-4c44bba3')
+WARNING  agents.execution_engine.engine:engine.py:13963 artifact_refs persist failed for run no-redo-gate-4c44bba3 kind deliverable ((sqlite3.IntegrityError) FOREIGN KEY constraint failed
+[SQL: INSERT INTO artifact_refs (id, run_id, owner_id, workspace_id, kind, producer_step, producer_agent, task_id, content, content_hash, location, version, parents, derived_from, visibility, retention, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)]
+[parameters: ('26dc9ef8-8729-4bfb-9ce8-a3306d37d055', 'no-redo-gate-4c44bba3', 'harness-user', 'a45b323a-ed1b-498e-820f-ce3007569a60', 'deliverable', 'deliverable', 'domain-analyst', None, 'only pass output. ', '62551e5bb37aa4bb716e0319d788d8e644ad3fbd1b8e9246e705b99407856bfc', 'artifact_refs/deliverable', 1, '[]', None, 'workspace', 'run_ttl', '2026-10-07 20:32:49.809845')]
+(Background on this error at: https://sqlalche.me/e/20/gkpj)) — DB write degraded (offline harness / schema unavailable); typed graph unaffected (PERSIST-02 best-effort)
+WARNING  agents.execution_engine.engine:engine.py:3355 run_events persist failed for run no-redo-gate-4c44bba3 seq 10 ((sqlite3.IntegrityError) FOREIGN KEY constraint failed
+[SQL: INSERT INTO run_events (id, run_id, owner_id, workspace_id, seq, event_id, type, payload_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)]
+[parameters: ('7b3f3b2f-b45e-4ec8-ba4a-8fe26523d34b', 'no-redo-gate-4c44bba3', 'harness-user', 'a45b323a-ed1b-498e-820f-ce3007569a60', 10, 'c843ed5e-b9f9-42d6-ab9d-382bf01d24e1', 'pipeline_complete', '{"pipeline_type": "custom", "pipeline_run_id": "no-redo-gate-4c44bba3", "total_duration": 0.54, "agents_completed": 1, "agents_total": 1, "final_outp ... (347 characters truncated) ... claude-haiku-4-5-20251001-v1:0", "status": "degraded", "published_status": "degraded", "seq": 10, "event_id": "c843ed5e-b9f9-42d6-ab9d-382bf01d24e1"}', '2026-10-07 20:32:49.810619')]
+(Background on this error at: https://sqlalche.me/e/20/gkpj)) — DB write degraded (offline harness / schema unavailable); stream unaffected (PERSIST-03 best-effort)
+=============================== warnings summary ===============================
+app/core/config.py:94
+  /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/app/core/config.py:94: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+    class Settings(BaseSettings):
+
+tests/conftest.py:484
+  /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/tests/conftest.py:484: PytestUnknownMarkWarning: Unknown pytest.mark.agents - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    item.add_marker(getattr(pytest.mark, suite))
+
+tests/agents/test_declared_gate_redo.py::test_redoable_step_re_runs_with_instructions_and_rearms_gate
+tests/agents/test_declared_gate_redo.py::test_non_redoable_declared_gate_unaffected_by_redo_action
+  /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/agents/execution_engine/engine.py:1324: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    _ts = _dt.datetime.utcnow().isoformat(timespec="seconds") + "Z"
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+1 failed, 1 passed, 4 warnings in 2.88s

@@ -1,0 +1,109 @@
+# 1. HEAD behaviour, the two files the card lists
+
+### launch file, as shipped
+FAILED tests/integration/api/test_rest_run_launch_api.py::test_driver_persists_full_agent_history_like_ws
+FAILED tests/integration/api/test_rest_run_launch_api.py::test_owned_source_links_the_child
+FAILED tests/integration/api/test_rest_run_launch_api.py::test_foreign_source_drops_the_link_but_still_launches
+FAILED tests/integration/api/test_rest_run_launch_api.py::test_unknown_source_drops_the_link_but_still_launches
+FAILED tests/integration/api/test_rest_run_launch_api.py::test_driver_persists_model_id_and_prices_non_circular
+5 failed, 20 passed in 1.93s
+
+### revisions file, as shipped
+FAILED tests/integration/api/test_rest_revisions_api.py::test_driver_happy_path_persists_output_columns
+1 failed, 24 passed in 1.48s
+
+# 2. Proposed fix A in-process: _launch_run_core resolves the parent from (request_source_workflow_run_id or source_workflow_run_id)
+
+### launch file, fix A only
+FAILED tests/integration/api/test_rest_run_launch_api.py::test_driver_persists_full_agent_history_like_ws
+FAILED tests/integration/api/test_rest_run_launch_api.py::test_foreign_source_drops_the_link_but_still_launches
+FAILED tests/integration/api/test_rest_run_launch_api.py::test_unknown_source_drops_the_link_but_still_launches
+FAILED tests/integration/api/test_rest_run_launch_api.py::test_driver_persists_model_id_and_prices_non_circular
+4 failed, 21 passed in 1.66s
+
+# 3. Fixture fix C in-process: events after agent_start carry the open agent_id
+
+### launch file, fix C only
+FAILED tests/integration/api/test_rest_run_launch_api.py::test_owned_source_links_the_child
+FAILED tests/integration/api/test_rest_run_launch_api.py::test_foreign_source_drops_the_link_but_still_launches
+FAILED tests/integration/api/test_rest_run_launch_api.py::test_unknown_source_drops_the_link_but_still_launches
+3 failed, 22 passed in 1.64s
+
+### revisions file, fix C only
+25 passed in 1.38s
+
+### launch file, fix A + C
+FAILED tests/integration/api/test_rest_run_launch_api.py::test_foreign_source_drops_the_link_but_still_launches
+FAILED tests/integration/api/test_rest_run_launch_api.py::test_unknown_source_drops_the_link_but_still_launches
+2 failed, 23 passed in 1.61s
+
+# 4. Sibling and stale-test probes (B1-B4 stale-test direction, S1/S1b/S3 siblings)
+
+### probes at HEAD behaviour
+B1 user_stories + foreign source -> 404 {"detail":"Workflow run not found"}
+B2 user_stories + unknown source -> 404 {"detail":"Workflow run not found"}
+B3 user_stories_revision + foreign source -> 200
+B4 user_stories_revision + unknown source -> 200
+S1 response body -> {'run_id': 'e81521b1-d520-429d-b51b-d2f82fdfd4c5'}
+S1b child parent_run_id=None source_run_id=None
+S3 POST /{id}/revisions with an active sibling -> 409 {"detail":{"error":"a revision is already in progress","code":"revision_already_in_progress","recoverable":false}}
+S3 POST /api/runs revision with an active sibling -> 200
+S3 family members under the parent (status, parent): [('running', True)]
+7 passed in 0.86s
+
+### probes with fix A applied
+B1 user_stories + foreign source -> 404 {"detail":"Workflow run not found"}
+B2 user_stories + unknown source -> 404 {"detail":"Workflow run not found"}
+B3 user_stories_revision + foreign source -> 200
+B4 user_stories_revision + unknown source -> 200
+S1 response body -> {'run_id': '497f863f-1e17-4a99-bcde-3f11e96784d0'}
+S1b child parent_run_id='35d159a0-9fb1-477b-8616-2c8784e51da6' source_run_id=None
+S3 POST /{id}/revisions with an active sibling -> 409 {"detail":{"error":"a revision is already in progress","code":"revision_already_in_progress","recoverable":false}}
+S3 POST /api/runs revision with an active sibling -> 200
+S3 family members under the parent (status, parent): [('running', True), ('completed', True)]
+7 passed in 0.84s
+
+# 5. Which *_revision types does POST /api/runs accept, and is the owned source linked as parent_run_id?
+
+### all ten *_revision types at HEAD behaviour
+T app_builder_revision             -> 200 parent_linked=False source_run_id=None
+T backlog_revision                 -> 200 parent_linked=False source_run_id=None
+T custom_revision                  -> 200 parent_linked=False source_run_id=None
+T ppt_revision                     -> 200 parent_linked=False source_run_id=None
+T prototype_feature_revision       -> 400 {"detail":{"error":"Pipeline 'prototype_feature_revision' agents ['prototype-plan', 'prototype-build'] declare template injection, so the run requires a template (template_id) — no template body could be loaded.","c
+T prototype_large_revision         -> 200 parent_linked=False source_run_id=None
+T prototype_revision               -> 200 parent_linked=False source_run_id=None
+T prototype_v2_feature_revision    -> 200 parent_linked=False source_run_id=None
+T prototype_v2_revision            -> 200 parent_linked=False source_run_id=None
+T user_stories_revision            -> 200 parent_linked=False source_run_id=None
+10 passed in 0.95s
+
+### all ten *_revision types with fix A applied
+T app_builder_revision             -> 200 parent_linked=True source_run_id=None
+T backlog_revision                 -> 200 parent_linked=True source_run_id=None
+T custom_revision                  -> 200 parent_linked=True source_run_id=None
+T ppt_revision                     -> 200 parent_linked=True source_run_id=None
+T prototype_feature_revision       -> 400 {"detail":{"error":"Pipeline 'prototype_feature_revision' agents ['prototype-plan', 'prototype-build'] declare template injection, so the run requires a template (template_id) — no template body could be loaded.","c
+T prototype_large_revision         -> 200 parent_linked=True source_run_id=None
+T prototype_revision               -> 200 parent_linked=True source_run_id=None
+T prototype_v2_feature_revision    -> 200 parent_linked=True source_run_id=None
+T prototype_v2_revision            -> 200 parent_linked=True source_run_id=None
+T user_stories_revision            -> 200 parent_linked=True source_run_id=None
+10 passed in 0.99s
+
+# 6. Found while regression-checking fix A: three stale _mint_revision_row tests (caller_tier). Fix D = pass caller_tier in-process.
+
+### test_phase5_chaining.py as shipped
+FAILED tests/agents/test_phase5_chaining.py::TestSourceRunIdWritten::test_mint_revision_row_writes_source_run_id
+FAILED tests/agents/test_phase5_chaining.py::TestSourceRunIdWritten::test_source_run_id_written_on_revision_row
+2 failed, 17 passed in 1.57s
+
+### test_chain_context_v3.py as shipped
+FAILED tests/agents/test_chain_context_v3.py::TestFR020SourceRunIdWritten::test_revision_mint_writes_source_run_id_equals_parent
+1 failed, 14 passed in 2.23s
+
+### test_phase5_chaining.py, fix D
+19 passed in 1.17s
+
+### test_chain_context_v3.py, fix D
+15 passed in 2.17s

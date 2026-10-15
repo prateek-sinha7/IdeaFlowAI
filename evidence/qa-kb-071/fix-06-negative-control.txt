@@ -1,0 +1,48 @@
+# QA-KB-071 fix negative control, 2026-10-07 19:06 CEST. Scratch copies only; repo page.tsx (sha1 cea0847ef49a) not edited.
+# Mutation: evidence/qa-kb-071/03-analyze-mutate-reopen-block.cjs (reconcile block moved before the reopen loop).
+
+## FIXED test vs current page.tsx copy
+ ✓ terminalReopenReconcile.source.test.ts > ISS-126 reopen reconciles a terminal run (source-lock) > imports the shared terminal reducer rather than re-deriving markers inline 1ms
+ ✓ terminalReopenReconcile.source.test.ts > ISS-126 reopen reconciles a terminal run (source-lock) > gates the reconciliation on the EXISTING REOPEN_TERMINAL_STATUSES set 0ms
+ ✓ terminalReopenReconcile.source.test.ts > ISS-126 reopen reconciles a terminal run (source-lock) > reconciles BOTH containers — the store AND the legacy reducer state 0ms
+ ✓ terminalReopenReconcile.source.test.ts > ISS-126 reopen reconciles a terminal run (source-lock) > clears the lingering clarify panel — the one branch not gated on isRunning 0ms
+ ✓ terminalReopenReconcile.source.test.ts > ISS-126 reopen reconciles a terminal run (source-lock) > does NOT clear reviewGateData — that would erase the historical gate card 0ms
+ ✓ terminalReopenReconcile.source.test.ts > ISS-126 reopen reconciles a terminal run (source-lock) > writes to the run STORE — the state the UI actually reads 0ms
+ ✓ terminalReopenReconcile.source.test.ts > ISS-126 reopen reconciles a terminal run (source-lock) > runs AFTER the durable replay loop, never before it 0ms
+ ✓ terminalReopenReconcile.source.test.ts > ISS-126 reopen reconciles a terminal run (source-lock) > stays inside the reopen handler, after the durable fetch 0ms
+ ✓ terminalReopenReconcile.source.test.ts > ISS-126 reopen reconciles a terminal run (source-lock) > deleted the formerly-unreachable pipeline_cancelled/pipeline_failed switch arm (ISS-139) 1ms
+ ✓ terminalReopenReconcile.source.test.ts > page.tsx pipelineTypes includes hook_run (ISS-870) > lists hook_run 0ms
+ Test Files  1 passed (1)
+      Tests  10 passed (10)
+
+## FIXED test vs mutated page.tsx copy
+ ✓ terminalReopenReconcile.source.test.ts > ISS-126 reopen reconciles a terminal run (source-lock) > imports the shared terminal reducer rather than re-deriving markers inline 1ms
+ ✓ terminalReopenReconcile.source.test.ts > ISS-126 reopen reconciles a terminal run (source-lock) > gates the reconciliation on the EXISTING REOPEN_TERMINAL_STATUSES set 0ms
+ ✓ terminalReopenReconcile.source.test.ts > ISS-126 reopen reconciles a terminal run (source-lock) > reconciles BOTH containers — the store AND the legacy reducer state 0ms
+ ✓ terminalReopenReconcile.source.test.ts > ISS-126 reopen reconciles a terminal run (source-lock) > clears the lingering clarify panel — the one branch not gated on isRunning 0ms
+ ✓ terminalReopenReconcile.source.test.ts > ISS-126 reopen reconciles a terminal run (source-lock) > does NOT clear reviewGateData — that would erase the historical gate card 0ms
+ ✓ terminalReopenReconcile.source.test.ts > ISS-126 reopen reconciles a terminal run (source-lock) > writes to the run STORE — the state the UI actually reads 0ms
+ × terminalReopenReconcile.source.test.ts > ISS-126 reopen reconciles a terminal run (source-lock) > runs AFTER the durable replay loop, never before it 2ms
+ ✓ terminalReopenReconcile.source.test.ts > ISS-126 reopen reconciles a terminal run (source-lock) > stays inside the reopen handler, after the durable fetch 0ms
+ ✓ terminalReopenReconcile.source.test.ts > ISS-126 reopen reconciles a terminal run (source-lock) > deleted the formerly-unreachable pipeline_cancelled/pipeline_failed switch arm (ISS-139) 1ms
+ ✓ terminalReopenReconcile.source.test.ts > page.tsx pipelineTypes includes hook_run (ISS-870) > lists hook_run 0ms
+AssertionError: expected 170957 to be greater than 172262
+ Test Files  1 failed (1)
+      Tests  1 failed | 9 passed (10)
+   nostore mutation: reopen apply call line 3130 now inside setLegacyPipelineState; nearest earlier runStore.updatePipelineState( is line 3005 (another handler)
+
+## FIXED test vs nostore page.tsx copy (reopen store write replaced by a legacy setter; the run STORE case should fail and does not)
+ ✓ terminalReopenReconcile.source.test.ts > ISS-126 reopen reconciles a terminal run (source-lock) > imports the shared terminal reducer rather than re-deriving markers inline 1ms
+ ✓ terminalReopenReconcile.source.test.ts > ISS-126 reopen reconciles a terminal run (source-lock) > gates the reconciliation on the EXISTING REOPEN_TERMINAL_STATUSES set 0ms
+ ✓ terminalReopenReconcile.source.test.ts > ISS-126 reopen reconciles a terminal run (source-lock) > reconciles BOTH containers — the store AND the legacy reducer state 0ms
+ ✓ terminalReopenReconcile.source.test.ts > ISS-126 reopen reconciles a terminal run (source-lock) > clears the lingering clarify panel — the one branch not gated on isRunning 0ms
+ ✓ terminalReopenReconcile.source.test.ts > ISS-126 reopen reconciles a terminal run (source-lock) > does NOT clear reviewGateData — that would erase the historical gate card 0ms
+ ✓ terminalReopenReconcile.source.test.ts > ISS-126 reopen reconciles a terminal run (source-lock) > writes to the run STORE — the state the UI actually reads 0ms
+ ✓ terminalReopenReconcile.source.test.ts > ISS-126 reopen reconciles a terminal run (source-lock) > runs AFTER the durable replay loop, never before it 0ms
+ ✓ terminalReopenReconcile.source.test.ts > ISS-126 reopen reconciles a terminal run (source-lock) > stays inside the reopen handler, after the durable fetch 0ms
+ ✓ terminalReopenReconcile.source.test.ts > ISS-126 reopen reconciles a terminal run (source-lock) > deleted the formerly-unreachable pipeline_cancelled/pipeline_failed switch arm (ISS-139) 1ms
+ ✓ terminalReopenReconcile.source.test.ts > page.tsx pipelineTypes includes hook_run (ISS-870) > lists hook_run 0ms
+ Test Files  1 passed (1)
+      Tests  10 passed (10)
+current: proposed ISS-1060 assertion passes (gap 67 chars)
+nostore: proposed ISS-1060 assertion FAILS (gap 8305 chars)

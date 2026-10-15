@@ -350,7 +350,7 @@ Feature: Clarifying questions
     When I cold-load "/runs/{id}"
     Then "chat-clarify-actions" is shown
     And the lane message reads
-        "Before I build, I need to lock a few things down."
+        "Round <n>: Before I build, I need to lock a few things down."
 
   @S-22-24
   @sourced
@@ -359,7 +359,7 @@ Feature: Clarifying questions
     Then one "chat-clarify-chip" is offered per suggestion
     When I select chips and submit with "chat-clarify-submit"
     Then the run continues
-    And the lane records "Clarifications answered"
+    And the lane records "Clarifications round <n> answered"
 
   @S-22-25
   @sourced

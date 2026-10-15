@@ -7,9 +7,8 @@
  *
  * The crux is the EXACT `sandbox` attribute on each render channel:
  *   • generic text/html (custom pipeline) → "allow-scripts"  (NO same-origin) — T-18-05
- *   • non-od PPT deck                     → "allow-scripts"  (NO same-origin)
- *   • od_ppt deck                         → "allow-scripts allow-same-origin"
- *   • prototype                           → "allow-scripts allow-same-origin"
+ *   • PPT deck                            → "allow-scripts"  (NO same-origin)
+ *   • prototype                           → "allow-scripts"
  *   • markdown                            → NO iframe at all (escaped via react-markdown)
  *   • unknown mimetype                    → NO iframe — a safe download affordance
  *
@@ -121,16 +120,14 @@ test.describe("TS-P — generic deliverable dispatch + iframe sandbox matrix", (
     await expect(dashboard.genericIframe()).toHaveCount(0);
   });
 
-  test("TS-P-05a od_ppt deck → iframe sandbox = allow-scripts allow-same-origin", async ({ dashboard, mockSse }) => {
-    // od_ppt was folded into `ppt` — the single HTML-deck pipeline
-    // (backend/agents/workflows has no od_* manifest; PPTPreview isOdPpt = true).
+  test("TS-P-05a ppt deck → iframe sandbox = allow-scripts (NO same-origin)", async ({ dashboard, mockSse }) => {
     await runThenComplete(mockSse, "ppt", { finalOutput: SAMPLE_DECK });
 
     const deck = dashboard.deckIframe();
     await expect(deck).toBeVisible();
     const sandbox = await deck.getAttribute("sandbox");
-    // od_ppt is a trusted Flowin-authored deck → same-origin is granted.
-    expect(sandbox).toBe("allow-scripts allow-same-origin");
+    // Agent HTML never gets same-origin, whichever pipeline wrote it (ISS-1067, AGENT_HTML_SANDBOX).
+    expect(sandbox).toBe("allow-scripts");
   });
 
   test("TS-P-05b plain ppt deck → iframe sandbox = allow-scripts (NO same-origin)", async ({ dashboard, mockSse }) => {
@@ -146,14 +143,13 @@ test.describe("TS-P — generic deliverable dispatch + iframe sandbox matrix", (
     expect(sandbox || "").not.toContain("allow-same-origin");
   });
 
-  test("TS-P-05c prototype → iframe sandbox = allow-scripts allow-same-origin", async ({ dashboard, mockSse }) => {
-    // od_prototype was folded into `prototype` (no od_* manifest remains).
+  test("TS-P-05c prototype → iframe sandbox = allow-scripts (NO same-origin)", async ({ dashboard, mockSse }) => {
     await runThenComplete(mockSse, "prototype", { finalOutput: PROTOTYPE_HTML });
 
     const proto = dashboard.prototypeIframe();
     await expect(proto).toBeVisible();
     const sandbox = await proto.getAttribute("sandbox");
-    expect(sandbox).toBe("allow-scripts allow-same-origin");
+    expect(sandbox).toBe("allow-scripts");
   });
 
   test("TS-P-06 XSS containment — custom HTML script cannot reach the parent window", async ({ dashboard, page, mockSse }) => {

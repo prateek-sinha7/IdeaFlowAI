@@ -1,0 +1,10 @@
+$ cd backend && ./.venv/bin/lint-imports   (shared uncommitted tree, after the store.py fix; the fix adds no import)
+kernel imports only capability ports (scaffold) BROKEN
+agents.workflows must not import the execution kernel or the web layer KEPT
+agents.capabilities must not import the execution kernel or the web layer BROKEN
+agents.runtime must not import the execution kernel or the web layer KEPT
+shipped code must not import the build-time tooling package KEPT
+Contracts: 3 kept, 2 broken.
+
+$ git diff -U0 -- backend/agents/artifact_store/store.py | grep -cE '^[+-].*import'   (import lines added or removed by the fix)
+0

@@ -1,7 +1,7 @@
 # prototype_v2_feature_revision — Depth revision of a prototype_v2 run (spec 022 §6).
 #
 # Same shape as prototype_feature_revision: the reused analyzer, then specify, plan,
-# build and validate. The planning documents go to revisions/<slug>/ only; the work
+# build and validate. The planning documents go to revisions/<run_id>/ only; the work
 # lands in prototype.html. The revision shares the parent's git folder (ADR-0040):
 # spec.md, design.md, synthesis.md, build/** and parts/** are read, never written.
 #
@@ -43,7 +43,7 @@ steps:
   produces_solution_plan: true
   tools: {read_files: true}
 
-# Step 2: Specify the change in spec.md's own format -> revisions/<slug>/change.md.
+# Step 2: Specify the change in spec.md's own format -> revisions/<run_id>/change.md.
 - agent: custom-agent
   instance_id: v2-specify
   name: Change Analyst
@@ -64,16 +64,16 @@ steps:
       Phase 1 - Read     the request, the analyzer's plan, the spec, the design
       Phase 2 - Decide   new screens, changed screens, flows, requirements
       Phase 3 - Name     the change folder and every new id
-      Phase 4 - Write    revisions/<slug>/change.md
+      Phase 4 - Write    revisions/<run_id>/change.md
       Phase 5 - Check    change.md against the request and the spec
 
     HOW TO WRITE A PATH
 
-    Paths have no leading slash: `spec.md`, `revisions/<slug>/change.md`. If a tool hands you a path starting with `/`, drop the slash.
+    Paths have no leading slash: `spec.md`, `revisions/<run_id>/change.md`. If a tool hands you a path starting with `/`, drop the slash.
 
     WHAT YOU MAY WRITE
 
-    - ONE new file, `revisions/<slug>/change.md`, with ONE write_file call.
+    - ONE new file, `revisions/<run_id>/change.md`, with ONE write_file call.
     - Never write `spec.md`, `design.md`, `synthesis.md`, `prototype.html`, anything under `build/` or anything under `parts/`. They are the finished run's record; you read them.
 
     HOW TO READ A BIG FILE
@@ -87,13 +87,14 @@ steps:
     - The request wins where the analyzer and the request differ.
 
     Steps
-    1. grep `.context/user-prompt.md` for `=== REVISION INSTRUCTION ===` with output_mode "content", then read_file it from that line with a limit of 60: that is the person's request. Never read that file whole: above that line the engine pasted the finished prototype as it was BEFORE this revision — work from the files on disk, never from that copy.
-    2. read_file `.agents/01-prototype-revision-analyzer.md`: the analyzer's `## Solution Plan`.
-    3. If the request mentions an attached file: `ls .uploads/`, then read_file the `.txt` file beside it.
-    4. read_file `design.md` to its end: `## Transition table`, `## Screen states`, `## Coverage` (each screen's kind and nav group).
-    5. read_file `build/screens.json`: every screen's `id`, `kind`, `section` and `tab`. These are the menu sections a new page can join.
-    6. grep `spec.md` for `^### ` with output_mode "content": every screen and use-case heading. Read the sections of the screens the change touches, and the `## Flows` the change joins.
-    7. grep `spec.md` for `^REQ-` and note the highest number.
+    1. read_file `.context/run-id.txt`: that is <run_id>, this revision's id. This revision's files live under `revisions/<run_id>/`; never read or write any other folder under `revisions/` — those belong to earlier revisions.
+    2. grep `.context/user-prompt.md` for `=== REVISION INSTRUCTION ===` with output_mode "content", then read_file it from that line with a limit of 60: that is the person's request. Never read that file whole: above that line the engine pasted the finished prototype as it was BEFORE this revision — work from the files on disk, never from that copy.
+    3. read_file `.agents/01-prototype-revision-analyzer.md`: the analyzer's `## Solution Plan`.
+    4. If the request mentions an attached file: `ls .uploads/`, then read_file the `.txt` file beside it.
+    5. read_file `design.md` to its end: `## Transition table`, `## Screen states`, `## Coverage` (each screen's kind and nav group).
+    6. read_file `build/screens.json`: every screen's `id`, `kind`, `section` and `tab`. These are the menu sections a new page can join.
+    7. grep `spec.md` for `^### ` with output_mode "content": every screen and use-case heading. Read the sections of the screens the change touches, and the `## Flows` the change joins.
+    8. grep `spec.md` for `^REQ-` and note the highest number.
 
     Phase 2 - Decide
 
@@ -113,17 +114,16 @@ steps:
     Phase 3 - Name
 
     Rules
-    - The slug is a short lowercase kebab-case name of the change, like `export-to-csv`. `ls revisions/`: a slug that already exists is taken; add `-2`, `-3` until it is new.
     - A new screen id is a short lowercase kebab-case slug of the screen's own name. grep `prototype.html` for `id="<id>"` and `build/screens.json` for `"<id>"`: an id that is already there is taken.
     - New requirements are numbered from the highest `REQ-` in `spec.md` plus one.
 
     Steps
-    1. Pick the slug and every new id.
+    1. Pick every new id.
 
     Phase 4 - Write
 
     Steps
-    1. write_file `revisions/<slug>/change.md` with these sections, in this order, in `spec.md`'s own formats:
+    1. write_file `revisions/<run_id>/change.md` with these sections, in this order, in `spec.md`'s own formats:
 
     # <what the change is, in a few words>
        One paragraph restating the request as you understood it.
@@ -146,16 +146,16 @@ steps:
     Phase 5 - Check
 
     Steps
-    1. read_file `revisions/<slug>/change.md`. Check, and fix with edit_file anything that fails:
+    1. read_file `revisions/<run_id>/change.md`. Check, and fix with edit_file anything that fails:
        a. everything the request asks for is in a new or changed screen;
        b. every new screen has a `Reached by` control that appears as an Actions row on its source screen and as a `## Transitions` row;
        c. every `Navigates to` screen id exists in `build/screens.json` or under `## New screens`;
        d. every REQ line meets the EARS rules above.
-    2. Reply with ONE line: `revisions/<slug>/change.md` — new screens, changed screens, requirements, transitions, assumed lines.
+    2. Reply with ONE line: `revisions/<run_id>/change.md` — new screens, changed screens, requirements, transitions, assumed lines.
 
     HOW TO DELIVER
 
-    Your work file is `revisions/<slug>/change.md`. Then deliver the step file the engine asks for with ONE line — your report, starting with the path `revisions/<slug>/change.md`. It never holds the work. If the tool says the step file already exists, you are done: an earlier revision of this run wrote one under the same name. Your reply is what the next step reads, so make it that same line.
+    Your work file is `revisions/<run_id>/change.md`. Then deliver the step file the engine asks for with ONE line — your report, starting with the path `revisions/<run_id>/change.md`. It never holds the work. If the tool says the step file already exists, an earlier revision left it: read_file it, then edit_file its whole content to your one-line report. Never stop on that message. Your reply is what the next step reads, so make it that same line.
   tools:
     read_files: true
     write_files: true
@@ -163,7 +163,7 @@ steps:
     tool_sets: []
   gates: []
 
-# Step 3: Plan the build -> the task list, in the reply (and a copy in revisions/<slug>/).
+# Step 3: Plan the build -> the task list, in the reply (and a copy in revisions/<run_id>/).
 - agent: custom-agent
   instance_id: v2-plan
   name: Planner
@@ -192,7 +192,7 @@ steps:
 
     WHAT YOU MAY WRITE
 
-    - ONE new file, `revisions/<slug>/tasks.md`, with ONE write_file call — `<slug>` is the change's own folder.
+    - ONE new file, `revisions/<run_id>/tasks.md`, with ONE write_file call — `<run_id>` is the change's own folder.
     - Never write `prototype.html`, `spec.md`, `design.md`, `synthesis.md`, anything under `build/` or anything under `parts/`.
 
     HOW THE PROTOTYPE IS BUILT (the shell, fixed code, and its markup)
@@ -206,10 +206,11 @@ steps:
     Phase 1 - Read
 
     Steps
-    1. read_file `.agents/02-custom-agent_v2-specify.md`: its report names the change file, `revisions/<slug>/change.md`. read_file that file to its end.
-    2. read_file `design.md`: its `## Transition table`.
-    3. grep `prototype.html` with output_mode "content" for `id="slot-nav"`, `id="slot-tabs"`, `var PLACE =` and `id="slot-overlays"`, and read_file a few lines around each: whether the menu, the tabs and the PLACE map exist, and their exact markup.
-    4. For each new screen, pick the EXISTING screen most like it (a form like a form, a list like a list, a dialog like a dialog). grep `prototype.html` for `id="<that screen id>"` so the Builder can copy its classes; you do not copy them yourself.
+    1. read_file `.context/run-id.txt`: that is <run_id>, this revision's id. This revision's files live under `revisions/<run_id>/`; never read or write any other folder under `revisions/` — those belong to earlier revisions.
+    2. read_file `revisions/<run_id>/change.md` to its end.
+    3. read_file `design.md`: its `## Transition table`.
+    4. grep `prototype.html` with output_mode "content" for `id="slot-nav"`, `id="slot-tabs"`, `var PLACE =` and `id="slot-overlays"`, and read_file a few lines around each: whether the menu, the tabs and the PLACE map exist, and their exact markup.
+    5. For each new screen, pick the EXISTING screen most like it (a form like a form, a list like a list, a dialog like a dialog). grep `prototype.html` for `id="<that screen id>"` so the Builder can copy its classes; you do not copy them yourself.
 
     Phase 2 - Cut
 
@@ -226,16 +227,16 @@ steps:
     Rules
     - Each task is a block that starts with a line of EXACTLY this form: `## Task <N>: <title>`, N counting 1, 2, 3 … with no gap, and ends where the next `## ` line starts.
     - Inside a block, NO line starts with `#`. Use `- ` bullet lines and plain lines only. A `##` line inside a block would cut the task short.
-    - Each block holds these lines: `- Screen: <id> (<kind>)`; `- Build from: revisions/<slug>/change.md, ### <id> — <Name>`; `- Copy classes from: <existing screen id>`; `- Transitions: <each exact attribute string, on which control>`; for wiring, `- Menu/tabs/PLACE: <the exact entries to add>`; `- Done when:` followed by `  - ` lines, each a check the Builder can make with grep.
+    - Each block holds these lines: `- Screen: <id> (<kind>)`; `- Build from: revisions/<run_id>/change.md, ### <id> — <Name>`; `- Copy classes from: <existing screen id>`; `- Transitions: <each exact attribute string, on which control>`; for wiring, `- Menu/tabs/PLACE: <the exact entries to add>`; `- Done when:` followed by `  - ` lines, each a check the Builder can make with grep.
 
     Steps
-    1. write_file `revisions/<slug>/tasks.md` with the task blocks.
+    1. write_file `revisions/<run_id>/tasks.md` with the task blocks.
 
     Phase 4 - Reply
 
     Rules
     - The Builder reads your REPLY, not the file. Your final message is the task list.
-    - Its first line is `Change: revisions/<slug>/change.md`. Then every task block, exactly as in `revisions/<slug>/tasks.md`. Nothing after the last block, and no other line in the whole message starts with `## `.
+    - Its first line is `Change: revisions/<run_id>/change.md`. Then every task block, exactly as in `revisions/<run_id>/tasks.md`. Nothing after the last block, and no other line in the whole message starts with `## `.
 
     Steps
     1. Deliver the step file the engine asks for (HOW TO DELIVER) BEFORE your final message.
@@ -243,7 +244,7 @@ steps:
 
     HOW TO DELIVER
 
-    Your work file is `revisions/<slug>/tasks.md`. Deliver the step file the engine asks for with ONE line — `revisions/<slug>/tasks.md: <N> tasks` — then send the task list as your final message. If the tool says the step file already exists, you are done: an earlier revision of this run wrote one under the same name.
+    Your work file is `revisions/<run_id>/tasks.md`. Deliver the step file the engine asks for with ONE line — `revisions/<run_id>/tasks.md: <N> tasks` — then send the task list as your final message. If the tool says the step file already exists, an earlier revision left it: read_file it, then edit_file its whole content to your one-line report. Never stop on that message.
   tools:
     read_files: true
     write_files: true
@@ -299,18 +300,19 @@ steps:
 
     STEPS
 
-    1. read_file `.agents/03-custom-agent_v2-plan.md`: the Planner's reply. Its first line names `revisions/<slug>/change.md`; the rest is the task list, one `## Task <N>: <title>` block per task.
-    2. read_file `revisions/<slug>/change.md` to its end.
-    3. For each task, in order:
+    1. read_file `.context/run-id.txt`: that is <run_id>, this revision's id. This revision's files live under `revisions/<run_id>/`; never read or write any other folder under `revisions/` — those belong to earlier revisions.
+    2. read_file `revisions/<run_id>/tasks.md` to its end: the task list, one `## Task <N>: <title>` block per task.
+    3. read_file `revisions/<run_id>/change.md` to its end.
+    4. For each task, in order:
        a. grep `prototype.html` again for everything the task touches;
        b. make the task's edits with edit_file;
        c. grep again and check the task's `Done when:` list line by line; fix what fails.
-    4. When the last task is done, grep `prototype.html` for every new screen id: each has exactly one `<section class="screen" id="<id>">`, at least one control that leads to it, and — for a page in a menu section — its PLACE entry.
-    5. Reply with ONE line: tasks done / total, screens added, screens changed, entry points wired, and anything a task asked for that you could not build.
+    5. When the last task is done, grep `prototype.html` for every new screen id: each has exactly one `<section class="screen" id="<id>">`, at least one control that leads to it, and — for a page in a menu section — its PLACE entry.
+    6. Reply with ONE line: tasks done / total, screens added, screens changed, entry points wired, and anything a task asked for that you could not build.
 
     HOW TO DELIVER
 
-    Your work is the edits to `prototype.html`. Then deliver the step file the engine asks for with ONE line — your report. It never holds the work. If the tool says the step file already exists, you are done: an earlier revision of this run wrote one under the same name.
+    Your work is the edits to `prototype.html`. Then deliver the step file the engine asks for with ONE line — your report. It never holds the work. If the tool says the step file already exists, an earlier revision left it: read_file it, then edit_file its whole content to your one-line report. Never stop on that message.
   tools:
     read_files: true
     write_files: true
@@ -341,11 +343,11 @@ steps:
       Phase 3 - Walk       every new and changed screen, every transition, their states
       Phase 4 - Fix        in prototype.html, smallest edit first
       Phase 5 - Re-check   every fix, in the browser
-      Phase 6 - Record     revisions/<slug>/bugs.json, then one line
+      Phase 6 - Record     revisions/<run_id>/bugs.json, then one line
 
     HOW TO WRITE A PATH
 
-    Paths have no leading slash: `prototype.html`, `revisions/<slug>/bugs.json`. If a tool hands you a path starting with `/`, drop the slash.
+    Paths have no leading slash: `prototype.html`, `revisions/<run_id>/bugs.json`. If a tool hands you a path starting with `/`, drop the slash.
 
     HOW TO USE THE BROWSER
 
@@ -369,11 +371,12 @@ steps:
     Phase 1 - Read
 
     Steps
-    1. read_file `.agents/03-custom-agent_v2-plan.md`: its first line names `revisions/<slug>/change.md`, the rest is the task list. Your NEW and CHANGED screens are the ones its tasks name.
-    2. read_file `revisions/<slug>/change.md` to its end: each new and changed screen's Fields and Actions, and the `## Transitions` the change adds.
-    3. read_file `design.md`. Its `## Transition table` is the route list you click, together with the change's `## Transitions`. Its `## Screen states` are the states you trigger.
-    4. read_file `.agents/04-custom-agent_v2-build.md`: the Builder's report, including anything it could not build.
-    5. List, before you open anything: new screens (N), changed screens (N), routes (N), states on those screens (N).
+    1. read_file `.context/run-id.txt`: that is <run_id>, this revision's id. This revision's files live under `revisions/<run_id>/`; never read or write any other folder under `revisions/` — those belong to earlier revisions.
+    2. read_file `revisions/<run_id>/tasks.md` to its end: the task list, one `## Task <N>: <title>` block per task. Your NEW and CHANGED screens are the ones its tasks name.
+    3. read_file `revisions/<run_id>/change.md` to its end: each new and changed screen's Fields and Actions, and the `## Transitions` the change adds.
+    4. read_file `design.md`. Its `## Transition table` is the route list you click, together with the change's `## Transitions`. Its `## Screen states` are the states you trigger.
+    5. read_file `.agents/04-custom-agent_v2-build.md`: the Builder's report, including anything it could not build.
+    6. List, before you open anything: new screens (N), changed screens (N), routes (N), states on those screens (N).
 
     Phase 2 - Open
 
@@ -428,7 +431,7 @@ steps:
     - Be honest about what you left. An open fault named is worth more than a silent one.
 
     Steps
-    1. write_file `revisions/<slug>/bugs.json`:
+    1. write_file `revisions/<run_id>/bugs.json`:
     {"rounds": N,
      "screens_new": N, "screens_changed": N, "screens_reached": N, "routes_total": N, "routes_working": N, "states_total": N, "states_reachable": N,
      "found": [{"screen": "<id>", "element": "<what>", "fault": "<one line>", "status": "fixed" | "open"}],
@@ -440,7 +443,7 @@ steps:
 
     HOW TO DELIVER
 
-    Your work is the edits to `prototype.html`, `revisions/<slug>/bugs.json` and the screenshot. As the last step you may be told to deliver `prototype.html` as your step file: it already holds your work, so never write_file or edit_file it to deliver — your one-line reply is your report. When the step file the engine asks for has any other name, write_file it with ONE line — your report. It never holds the work. If the tool says the step file already exists, you are done: an earlier revision of this run wrote one under the same name.
+    Your work is the edits to `prototype.html`, `revisions/<run_id>/bugs.json` and the screenshot. As the last step you may be told to deliver `prototype.html` as your step file: it already holds your work, so never write_file or edit_file it to deliver — your one-line reply is your report. When the step file the engine asks for has any other name, write_file it with ONE line — your report. It never holds the work. If the tool says the step file already exists, an earlier revision left it: read_file it, then edit_file its whole content to your one-line report. Never stop on that message.
   tools:
     read_files: true
     write_files: true

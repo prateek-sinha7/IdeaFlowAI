@@ -354,8 +354,9 @@ async def run_fanout(
     ``event_queue`` (optional, default None): when a caller supplies a queue, each
     worker's own per-agent events (agent_start/agent_chunk/tool_call/tool_result/
     agent_complete — normally discarded here) are ALSO pushed onto it as a side
-    channel, for a caller that wants to forward live per-worker streaming (e.g.
-    ``parallel_group``). None (every other caller today) is a no-op — byte-identical.
+    channel, for a caller that wants to forward live per-worker streaming
+    (``parallel_group`` and ``wave_scheduler`` both pass one). None (``fanout_batch``,
+    the engine tool-result path) is a no-op — byte-identical.
     """
 
     runner = ctx.runner
@@ -569,7 +570,8 @@ async def run_fanout(
 
                     # Optional side channel (additive, default-off): a caller that
                     # supplied event_queue gets this worker's raw per-agent event too.
-                    # None for every existing caller — dead branch, zero behavior change.
+                    # parallel_group and wave_scheduler supply one on every fan-out;
+                    # fanout_batch and the engine tool-result path pass None.
                     # RESUME-06 companion: stamp worker identity at PUSH time (this loop is
                     # the only place that knows it) on a COPY — never mutate the dict
                     # ``run_worker`` yields, it may be re-read/re-yielded elsewhere.

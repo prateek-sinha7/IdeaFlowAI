@@ -1,0 +1,27 @@
+# QA-KB-098 analysis 08: blast radius on the test side - every private-name reach into app/agents/tools/playwright.py from backend/tests
+# HEAD 165c40316, 2026-10-07T23:22Z; read-only greps
+
+$ grep -rnoE "(playwright_tools|playwright)\._[A-Za-z_]+" backend/tests --include=*.py | sort | uniq -c
+  13 backend/tests/agents/test_playwright_tools.py: playwright_tools._SANDBOX_VAR
+   4 backend/tests/agents/test_playwright_session.py: playwright._AGENT_KEY_VAR
+   3 backend/tests/agents/test_playwright_tools.py: playwright_tools._AGENT_KEY_VAR
+   2 backend/tests/agents/test_playwright_tools.py: playwright._get_session
+   2 backend/tests/agents/test_per_run_paths_v3.py: playwright_tools._SANDBOX
+   1 backend/tests/agents/test_playwright_tools.py: playwright_tools._BROWSER_DIR
+
+# does each name exist in backend/app/agents/tools/playwright.py?
+OK      _AGENT_KEY_VAR
+OK      _BROWSER_DIR
+OK      _get_session
+MISSING _SANDBOX   <- only test_per_run_paths_v3.py:427 and :444 reach for it
+OK      _SANDBOX_VAR
+
+# the exact stale lines
+427:        _orig_sandbox = playwright_tools._SANDBOX
+444:            playwright_tools._SANDBOX = _orig_sandbox
+
+# same-shape pins that are still valid today (module still has the global)
+backend/tests/agents/test_per_run_paths_v3.py:313:        _orig_sandbox = pptx_tools._SANDBOX
+backend/tests/agents/test_per_run_paths_v3.py:323:            pptx_tools._SANDBOX = _orig_sandbox
+backend/tests/agents/test_pptx_tools.py:140:    assert pptx_tools._SANDBOX is sb
+backend/tests/agents/test_pptx_tools.py:282:        pptx_tools._SANDBOX = None

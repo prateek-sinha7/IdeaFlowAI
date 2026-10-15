@@ -1,0 +1,10 @@
+.
+V1B trace: ['redo_posted', 'rearm_seen_inline=False', 'approve_posted']
+V1B REFUSED logged: False
+V1B types: ['workflow_validated', 'pipeline_start', 'agent_start', 'agent_input', 'agent_skills', 'agent_chunk', 'agent_complete', 'review_gate_ready', 'review_gate_approved', 'pipeline_complete']
+.
+V2 trace: ['redo_posted', 'rearm_seen_bg=True', 'approve_posted']
+V2 REFUSED logged: True
+V2 types: ['workflow_validated', 'pipeline_start', 'agent_start', 'agent_input', 'agent_skills', 'agent_chunk', 'agent_complete', 'review_gate_ready', 'review_gate_approved', 'pipeline_complete']
+.
+3 passed in 12.47s

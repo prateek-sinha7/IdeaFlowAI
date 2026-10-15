@@ -25,7 +25,20 @@ export function formatTokenCount(n: number): string {
 }
 
 type UsageField = "inputTokens" | "outputTokens" | "totalTokens" | "cacheReadTokens" | "cacheWriteTokens" | "estimatedCostUsd";
-type WithUsage = { waveWorkers?: WaveWorkerEntry[] } & Partial<Record<UsageField, number>>;
+type WithUsage = {
+  waveWorkers?: WaveWorkerEntry[];
+  priorPassInputTokens?: number;
+  priorPassOutputTokens?: number;
+  priorPassTotalTokens?: number;
+} & Partial<Record<UsageField, number>>;
+
+/** What a step's EARLIER passes spent (a loop-back re-ran it), for the token fields
+ *  only; the step's own fields are last-pass-only (QA-KB-093). */
+const PRIOR_PASS: Partial<Record<UsageField, "priorPassInputTokens" | "priorPassOutputTokens" | "priorPassTotalTokens">> = {
+  inputTokens: "priorPassInputTokens",
+  outputTokens: "priorPassOutputTokens",
+  totalTokens: "priorPassTotalTokens",
+};
 
 /** Sum one usage field across a wave step's members (0 for a plain step). */
 export function sumWorkers(agent: { waveWorkers?: WaveWorkerEntry[] }, field: UsageField): number {
@@ -41,5 +54,6 @@ export function stepUsage(agent: WithUsage, field: UsageField): number {
 /** A run's usage so far, every field from the same steps — so a live split never
  *  compares a running wave's cache against input that leaves the wave out. */
 export function runUsage(agents: WithUsage[] | undefined, field: UsageField): number {
-  return (agents ?? []).reduce((n, a) => n + stepUsage(a, field), 0);
+  const prior = PRIOR_PASS[field];
+  return (agents ?? []).reduce((n, a) => n + stepUsage(a, field) + (prior ? a[prior] ?? 0 : 0), 0);
 }

@@ -1,0 +1,9 @@
+tests/integration/e2e/framework/locators/home_catalog.py:53  "Pitch an idea (Detailed)"   (workflow.yaml for ppt_v2/prototype_v2 and backend/app/api/run_commands.py carry "(Depth)")
+tests/integration/e2e/framework/locators/composer.py:52     AGENT_SUBTABS = ["Overview","Skills","Hooks","Tools","Config"]   (frontend CanvasConfigRail.dataTab.test.tsx:45-46 asserts tab "Data" exists, "Hooks" absent)
+frontend/src/components/workflow/composer/stepKind.ts:20    label: "AI agent"  (test_composer_canvas.py:271 still expects /Agent . step 1 of/)
+suites/04_composer_canvas/test_iss796_capabilities_double_fetch.py:23  xfail strict ISS-796 (card resolved, FIX-617)
+suites/05_saved_workflows/test_qa_kb_060_edit_seed_failure_save_creates_row.py:47,65  xfail strict ISS-923 / ISS-1033
+suites/06_run_history/test_run_history_pagination.py:187  xfail strict ISS-213
+suites/12_shell_nav/test_shell_nav.py:343  xfail strict ISS-190
+suites/21_run_families_and_versions/test_iss_230_version_pin_survives_tab_switch.py:22-23  ROOT_RUN_ID 2708dbf1..., V2_RUN_ID 23bd9c67...
+suites/24_api_contract/test_api_contract.py:657  test_the_reserved_subtrees_are_never_listed

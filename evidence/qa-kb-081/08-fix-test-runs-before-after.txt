@@ -1,0 +1,44 @@
+QA-KB-081 fix-phase test runs, 2026-10-07, 5-fixer. One vitest process per file, from frontend/, offline.
+"before" = working tree with LaunchWizard.tsx identical to HEAD 2005a0a6b (blob 42fa4728d) plus the test-writer's
+untracked LaunchWizard.iss909.test.tsx. "after" = the same tree with the diff in 11-fix-diff.txt.
+Command: npx vitest run <file>   (vitest v4.1.11)
+
+src/components/workflow/LaunchWizard.iss909.test.tsx   (the card's verification.test_files; 2 it.fails tests)
+  before (Start at 23:25:59):  Test Files  1 passed (1) / Tests  2 expected fail (2)
+  after  (Start at 23:32:31):  Test Files  1 failed (1) / Tests  2 failed (2)
+         × ISS-909 unfixed: a rejected registry fetch shows an error with Retry, not a skeleton
+         × ISS-909 unfixed: an empty registry shows an empty message with Retry, not a skeleton
+         Error: Expect test to fail
+  -> both bodies now pass, so it.fails reports them: the pass signal. The it.fails markers are left for the 6-verifier.
+
+src/components/workflow/LaunchWizard.test.tsx   (27 tests)
+  before: Tests  2 failed | 25 passed (27)
+  after:  Tests  2 failed | 25 passed (27)
+  The same 2 both times, pre-existing and unrelated (also in 07-analyze-baseline and in FIX-695):
+    WR-07: chaining launch threads sourceRunId ...   TypeError: Cannot read properties of null (reading 'brief')
+    BUG-014 genuine chain ...                        TypeError: Cannot read properties of null (reading 'sourceRunId')
+
+Sibling files, before -> after:
+  src/components/workflow/LaunchWizard.chain.test.tsx              3 passed -> 3 passed
+  src/components/workflow/LaunchWizard.iss837.test.tsx             1 passed -> 1 passed
+  src/components/workflow/LaunchWizard.iss917.test.tsx             5 passed -> 5 passed
+  src/components/workflow/LaunchWizard.savedRoster.iss943.test.tsx 3 passed -> 3 passed
+  src/components/workflow/LaunchWizard.saveRace.iss284.test.tsx    4 passed -> 4 passed
+  after only (files not touched, not baselined):
+  src/components/workflow/WizardStepper.test.tsx                   4 passed
+  src/components/workflow/composer/DesignPickerModal.defaultLabel.test.tsx 1 passed
+
+eslint src/components/workflow/LaunchWizard.tsx (-f json):
+  before: 10 problems; after: 10 problems; the rule+message set is identical (only line numbers shift).
+  The DS effect keeps its pre-existing "React Hook useEffect has a missing dependency: 'mode'" on purpose:
+  adding mode would re-run the fetch on a family toggle (FIX-630 locked constraint). No new set-state-in-effect:
+  the Retry sets "loading" in its click handler, never synchronously inside the effect.
+
+npx tsc --noEmit -p . (after): 13 errors, all in 7 test files this change does not touch
+  (AnalyticsPage.test 1, DashboardLayout.chain.test 2, WorkflowHistory.modelChip.test 3, PreviewPanel.liveVersion.test 1,
+   AgentDetailPanel.waveWorkerStatus.test 4, useWorkflow.imagePayload.test 1, RunConnectionProvider.test 1).
+  None in LaunchWizard.tsx or LaunchWizard.iss909.test.tsx. FIX-695 recorded the same count and file set.
+
+Scratch probe + Retry checks (not repo tests): 09-fix-probe-and-retry-HEAD-vs-working-tree.txt
+  HEAD:         Tests  8 failed | 9 passed (17)
+  working tree: Tests  2 failed | 15 passed (17)   (the 2 are probe OBSERVE tests that pinned the defect's shape)

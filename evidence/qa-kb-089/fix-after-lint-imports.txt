@@ -1,0 +1,8 @@
+### lint-imports from backend/ on the working tree (2026-10-07T18:28:08Z), exit 1
+kernel imports only capability ports (scaffold) BROKEN
+agents.workflows must not import the execution kernel or the web layer KEPT
+agents.capabilities must not import the execution kernel or the web layer BROKEN
+agents.runtime must not import the execution kernel or the web layer KEPT
+shipped code must not import the build-time tooling package KEPT
+Contracts: 3 kept, 2 broken.
+import lines in this fix's diff: 0

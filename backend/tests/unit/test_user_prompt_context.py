@@ -1,7 +1,9 @@
 """The user's request is persisted to .context/user-prompt.md for any agent to read."""
 
 from agents.execution_engine.user_prompt import (
+    RUN_ID_PATH,
     USER_PROMPT_PATH,
+    write_run_id_to_sandbox,
     write_user_prompt_to_sandbox,
 )
 from app.agents.sandbox import AGENT_READABLE_RESERVED, RESERVED_PATHS
@@ -41,6 +43,29 @@ def test_write_failure_never_raises():
 
     write_user_prompt_to_sandbox(_Broken(), "hi")
     write_user_prompt_to_sandbox(None, "hi")
+
+
+def test_writes_run_id_with_newline():
+    sb = _FakeSandbox()
+    write_run_id_to_sandbox(sb, "3f2a9c1e-0000-4000-8000-000000000001")
+    assert sb.files == {".context/run-id.txt": "3f2a9c1e-0000-4000-8000-000000000001\n"}
+    assert sb.files[RUN_ID_PATH].endswith("\n")
+
+
+def test_empty_run_id_writes_nothing():
+    sb = _FakeSandbox()
+    write_run_id_to_sandbox(sb, "")
+    write_run_id_to_sandbox(sb, None)
+    assert sb.files == {}
+
+
+def test_run_id_write_failure_never_raises():
+    class _Broken:
+        def write(self, path, content):
+            raise OSError("disk full")
+
+    write_run_id_to_sandbox(_Broken(), "abc")
+    write_run_id_to_sandbox(None, "abc")
 
 
 def test_path_is_reserved_and_agent_readable():

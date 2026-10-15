@@ -1,0 +1,15 @@
+FF                                                                       [100%]
+=================================== FAILURES ===================================
+_____________________ test_offset_log_uses_plan_step_count _____________________
+[XPASS(strict)] ISS-950 unfixed
+------------------------------ Captured log call -------------------------------
+INFO     agents.execution_engine.engine:engine.py:15752 resume_run(r1): resuming pipeline=prototype_v2_revision at step offset 1/3
+________________ test_no_all_steps_complete_while_steps_remain _________________
+[XPASS(strict)] ISS-950 unfixed
+------------------------------ Captured log call -------------------------------
+INFO     agents.execution_engine.engine:engine.py:15752 resume_run(r1): resuming pipeline=prototype_v2_revision at step offset 2/3
+
+
+2 failed, 2 warnings in 1.36s
+##### --runxfail (assertions evaluated directly), working tree:
+2 passed, 2 warnings in 1.20s

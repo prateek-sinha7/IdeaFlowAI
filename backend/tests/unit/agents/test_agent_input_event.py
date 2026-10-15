@@ -4,7 +4,7 @@ Tests:
   - agent_input event is emitted for every agent before agent_start
   - context_sources populated correctly for consumed upstream outputs
   - compression ratio fields present (summary_length, full_output_length)
-  - planning_context injected into context_message for all agents
+  - planning_context NOT pasted into context_message (Phase Z; agents read PLANNER.md)
   - engine._build_context_sources returns correct shape
 """
 
@@ -117,14 +117,16 @@ def test_build_context_sources_skips_missing_accumulated():
 # ---------------------------------------------------------------------------
 # _compose_context_message — planning_context injection (the generic injector that
 # replaced the deleted per-pipeline _build_context_message in 07-05, L12). Async,
-# index-threaded (index 0 == first agent). Behavior is unchanged: it composes the
-# agnostic base (user brief + planning context + consumed outputs + CURRENT TASK)
-# plus the declared context_provider blocks.
+# index-threaded (index 0 == first agent). It composes the agnostic base (user brief +
+# consumed outputs + CURRENT TASK) plus the declared context_provider blocks; the
+# planning-context paste was removed in Phase Z (3e09aef2c).
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_planning_context_injected_into_context_message():
+async def test_planning_context_not_pasted_into_context_message():
+    """Phase Z (3e09aef2c) removed the planning-context paste: agent 0 gets the brief,
+    and reads the planning context from PLANNER.md (ISS-1105)."""
     engine = ExecutionEngine()
     spec = _Spec("agent-a", consumes=[])
     agents = [spec]
@@ -161,6 +163,7 @@ async def test_planning_context_not_injected_when_timed_out():
     )
     # Timed-out context has planner_timed_out=True — no Planning Context block
     assert "## Planning Context" not in msg
+    assert "Build a login feature" not in msg
 
 
 @pytest.mark.asyncio

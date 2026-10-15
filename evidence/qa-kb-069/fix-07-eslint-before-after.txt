@@ -1,0 +1,15 @@
+# fix-07 — eslint on RunHeader.tsx, HEAD 64d7b8429 vs working tree (cwd frontend/). Same 3 pre-existing errors; none on the changed line 314.
+
+######## git show HEAD:frontend/src/components/preview/RunHeader.tsx | npx eslint --stdin --stdin-filename src/components/preview/RunHeader.tsx
+  289:10  error  'copied' is assigned a value but never used. Allowed unused elements of array destructuring must match /^_/u  @typescript-eslint/no-unused-vars
+  306:25  error  Error: Calling setState synchronously within an effect can trigger cascading renders
+  336:9  error  'handleShare' is assigned a value but never used. Allowed unused vars must match /^_/u  @typescript-eslint/no-unused-vars
+✖ 3 problems (3 errors, 0 warnings)
+
+######## npx eslint src/components/preview/RunHeader.tsx src/components/results/AgentDetailPanel.artifactVersions.test.tsx
+/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/frontend/src/components/preview/RunHeader.tsx
+  289:10  error  'copied' is assigned a value but never used. Allowed unused elements of array destructuring must match /^_/u  @typescript-eslint/no-unused-vars
+  306:25  error  Error: Calling setState synchronously within an effect can trigger cascading renders
+/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/frontend/src/components/preview/RunHeader.tsx:306:25
+  336:9  error  'handleShare' is assigned a value but never used. Allowed unused vars must match /^_/u  @typescript-eslint/no-unused-vars
+✖ 3 problems (3 errors, 0 warnings)

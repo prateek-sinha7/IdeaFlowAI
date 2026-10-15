@@ -1,0 +1,70 @@
+# QA-KB-099 analysis 07: when did this test become un-runnable, and why did nobody see it
+# HEAD f06129262, 2026-10-08T11:56Z. git + file reads only.
+
+$ git log --follow --name-status --format="--- %h %ad %s" --date=short -- backend/tests/unit/services/test_shutdown_reachability.py | head -22
+--- 9ef547e74 2026-10-07 fix(QA-KB-076): shutdown-path citation guard catches every line-cite shape; stale cites converted
+
+M	backend/tests/unit/services/test_shutdown_reachability.py
+--- 14a675db4 2026-10-06 not_stable changes for stale fix cards
+
+M	backend/tests/unit/services/test_shutdown_reachability.py
+--- 09270703b 2026-09-22 Fix/testcases (#9)
+
+R099	backend/tests/unit/test_shutdown_reachability.py	backend/tests/unit/services/test_shutdown_reachability.py
+--- b2a621f84 2026-09-17 Fix/cognito login (#8)
+
+M	backend/tests/unit/test_shutdown_reachability.py
+--- 835793a99 2026-08-31 fix(engine): close gate, resume and roster defects from bug-hunt domain 15
+
+M	backend/tests/unit/test_shutdown_reachability.py
+--- 22bbe1bfb 2026-08-31 Apply ruff==0.7.4 format to backend (pinned CI version, 418 files); fix misplaced noqa: E402 in chat_router.py
+
+M	backend/tests/unit/test_shutdown_reachability.py
+--- 732adc245 2026-08-26 fix(backend): repair the render validator, composed-run dispatch and two authz gaps
+
+M	backend/tests/unit/test_shutdown_reachability.py
+--- 7a8530627 2026-08-20 feat(agents): add coverage instrumentation, postgres integration tests, and characterization golden files
+
+$ git show 09270703b^:backend/tests/unit/conftest.py | sed -n 1,5p      (the unit conftest BEFORE the batch)
+"""Shared fixtures for the unit suite.
+
+Currently one concern: keeping the LangGraph checkpointer from leaking across
+event loops. See ``_in_process_checkpointer`` below.
+"""
+
+$ git show 09270703b:backend/tests/unit/conftest.py | grep -n "_deny_popen\|def _unit_io_guard\|allow_io\|_deny_connect"      (AFTER: the guard exists in this same commit)
+17:Opting out requires an explicit reason: ``@pytest.mark.allow_io("why")``. Audit those
+86:        "Deliberate exception: @pytest.mark.allow_io(\"reason\")."
+91:def _unit_io_guard(request, monkeypatch):
+118:    marker = request.node.get_closest_marker("allow_io")
+127:    def _deny_popen(self, *args, **kwargs):
+133:            'Deliberate exception: @pytest.mark.allow_io("reason").'
+136:    monkeypatch.setattr(subprocess.Popen, "__init__", _deny_popen)
+152:    def _deny_connect(self, address, *args, **kwargs):
+158:            'tests/integration/. Deliberate exception: @pytest.mark.allow_io("reason").'
+161:    def _deny_connect_ex(self, address, *args, **kwargs):
+166:            'move the test to tests/integration/. Exception: @pytest.mark.allow_io("…").'
+170:    monkeypatch.setattr(socket.socket, "connect", _deny_connect)
+
+$ git show 09270703b:backend/tests/unit/services/test_shutdown_reachability.py | grep -c "allow_io"      (the moved test carries no opt-out)
+0
+
+$ git show 09270703b:backend/tests/README.md | grep -n "Spawns a process\|exactly ONE"      (the rule that says where it belongs landed in the same commit)
+76:8. **Spawns a process or needs an external binary** (`git`, `ruff`, Chromium/Playwright,
+103:  There is exactly ONE in the suite (the guard's own escape-hatch test). Adding a second
+
+$ git show 09270703b --format=%B -s | grep -n "Verified"      (what that commit actually ran)
+113:Verified: 4807 collected 0 errors; every test carries exactly one suite marker;
+114-the relocated test_restart_resume_db.py runs 68 passed in 23s (-n auto); the 11
+115-touched files 398 passed 3 xfailed; ruff clean.
+
+$ git log --format="%h %ad %s" --date=short -- UNIT-TESTS.md | tail -1 ; sed -n 358p UNIT-TESTS.md | cut -c1-330      (the red was written down the next day)
+c502369a2 2026-09-23 docs(qa): make LEDGER queue table render; add offline failing-test report
+| 325 | `backend/tests/unit/services/test_shutdown_reachability.py` | `test_sigterm_reaches_the_lifespan_shutdown_half_while_a_stream_is_live` | tests.unit.conftest.UnitIsolationError: Unit test spawned a subprocess: ['/Users/bilala/Developer/Projects/VELOCITY-AI/backend/.venv/bin/python', '-m', 'uvicorn', 'reachability_pro |
+
+$ sed -n "1,5p" UNIT-TESTS.md | cut -c1-160
+# Failing tests — `dev` @ `3e0c40f14`
+
+**Run:** 2026-09-23 03:51– · offline tier only (no live / API-key / Postgres tests), serial.
+
+## Summary

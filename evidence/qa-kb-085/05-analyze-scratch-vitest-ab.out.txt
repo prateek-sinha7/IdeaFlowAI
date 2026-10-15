@@ -1,0 +1,26 @@
+b2_iss844_deps_changed: window L932 -> L3440 = 2508 lines
+b3_iss844_guard_removed: window L932 -> L957 = 25 lines
+b4_iss844_guard_removed_and_deps_changed: window L932 -> L3437 = 2505 lines
+b1_iss844_real_page: window L932 -> L960 = 28 lines; second '}, [router, dispatch]);' at L3440
+=== a1_current_anchor
+   × the tab handler pushes history directly, never through the router 7ms
+   AssertionError: expected 'const handlePreviewPanelTabSelect = u…' not to contain 'router.push'
+   Tests  1 failed | 2 passed (3)
+=== a2_fixed_anchor
+   Tests  3 passed (3)
+=== a3_fixed_anchor_vs_router_push_injected
+   × the tab handler pushes history directly, never through the router 5ms
+   AssertionError: expected 'const handlePreviewPanelTabSelect = u…' not to contain 'router.push'
+   Tests  1 failed | 2 passed (3)
+=== a4_fixed_anchor_vs_new_dep_added
+   Tests  3 passed (3)
+=== b1_iss844_real_page
+   Tests  1 passed (1)
+=== b2_iss844_deps_changed
+   Tests  1 passed (1)
+=== b3_iss844_guard_removed
+   × guards dispatch(signedIn(...)) against a second effect invocation 5ms
+   AssertionError: expected false to be true // Object.is equality
+   Tests  1 failed (1)
+=== b4_iss844_guard_removed_and_deps_changed
+   Tests  1 passed (1)

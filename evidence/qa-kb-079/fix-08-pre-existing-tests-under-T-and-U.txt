@@ -1,0 +1,8 @@
+# QA-KB-079 fix phase: the PRE-EXISTING 9 tests of test_run_events_db.py (the new ISS-1025 twin deselected = the file as it was before this fix), 2026-10-07 19:22
+=== KB079_MUTANT=R, -k 'not test_resume_driver_restamps'
+9 passed, 1 deselected, 1 warning in 1.35s
+=== KB079_MUTANT=T, -k 'not test_resume_driver_restamps'
+9 passed, 1 deselected, 1 warning in 1.14s
+=== KB079_MUTANT=U, -k 'not test_resume_driver_restamps'
+FAILED tests/integration/repositories/test_run_events_db.py::test_execute_restamps_seq_onto_the_frame_it_yields
+1 failed, 8 passed, 1 deselected, 1 warning in 1.34s

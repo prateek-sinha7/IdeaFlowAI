@@ -1,0 +1,73 @@
+# QA-KB-076 fix: ISS-1085 anchor test probe (temp copy, real tree untouched) and ISS-1083 six-site before/after
+# tree: /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2   HEAD: 2254c5ef5   date: 2026-10-07 22:42 CEST
+# run: cd backend && .venv/bin/python anchor_probe.py guard_head.py tests/unit/test_run_shutdown_stale_citations.py   (guard_head.py = git show HEAD:backend/tests/unit/test_run_shutdown_stale_citations.py)
+
+########## ISS-1085 output
+temp copy: _drain_then_cancel renamed to _drain_and_cancel in run_shutdown.py
+  HEAD  lint over the renamed run_shutdown.py: PASSED (guard green)
+  HEAD  has an anchor test: False
+  FIXED anchor test over the temp copy: FAILED -> anchors the comments name are gone: | backend/app/api/run_shutdown.py: 'def _drain_then_cancel'
+  FIXED anchor test over the real tree: PASSED (guard green)
+
+########## ISS-1083 BEFORE (grep of the six sites, captured before the edit)
+tests/unit/test_checkpointer_shutdown_budget.py:55:            "(checkpointer.py:140-144)."
+tests/conftest.py:197:# ``AWS_REGION`` (app/core/config.py:130), ``BEDROCK_INFERENCE_PROFILE_ID`` (:123)
+tests/conftest.py:198:# and ``BEDROCK_MODEL_ID`` (:118) are hardcoded CODE defaults and there is no
+agents/authz.py:445:        SESSION-LESS ``ScopedStore`` (``run_stream.py:251-265``, BUG-004), so each
+tests/integration/api/test_sse_stream_api.py:902:# (run_stream.py:197) hangs until its socket drops. The dict pop cannot reach it:
+tests/integration/api/test_sse_stream_api.py:903:# the endpoint bound the queue OBJECT at run_stream.py:281 before the generator ran.
+tests/unit/app/test_iss102_live_model_guard.py:5:(``app/core/config.py:118/:123/:130``) and there is no ``backend/.env``, so no amount of env
+
+########## ISS-1083 AFTER (same grep, now)
+grep exit 1 (1 = no match)
+
+########## ISS-1083 the replacement text, now
+            "close_checkpointer() did not return within the shutdown budget "
+            "when pool.close() hung — it has no internal timeout wrapper "
+            "(the asyncio.wait_for(pool.close(), ...) in close_checkpointer)."
+# NO prior None sentinel, so a client parked at `await live_queue.get()`
+# (in _iter_sse_frames) hangs until its socket drops. The dict pop cannot reach it:
+# stream_run_events bound the queue OBJECT before the generator body ran.
+        -- MANDATORY, because the SSE streaming generator is deliberately fed a
+        SESSION-LESS ``ScopedStore`` (``stream_store`` in ``stream_run_events``,
+        BUG-004), so each read must open AND close its own ``SessionLocal``.
+# ``AWS_REGION``, ``BEDROCK_INFERENCE_PROFILE_ID`` and ``BEDROCK_MODEL_ID``
+# (``Settings`` in app/core/config.py) are hardcoded CODE defaults and there is no
+offline suite and a real AWS bill: the Bedrock ids and region are **hardcoded code defaults**
+(``app.core.config.Settings``: ``BEDROCK_MODEL_ID``, ``BEDROCK_INFERENCE_PROFILE_ID``,
+``AWS_REGION``) and there is no ``backend/.env``, so no amount of env unsetting makes
+``build_model()`` offline.
+
+########## anchor_probe.py
+"""QA-KB-076 fix probe for ISS-1085: rename an anchor in a TEMP copy of the tree; the real tree is never touched."""
+import importlib.util, shutil, sys, tempfile
+from pathlib import Path
+
+def load(name, path):
+    spec = importlib.util.spec_from_file_location(name, path)
+    mod = importlib.util.module_from_spec(spec); spec.loader.exec_module(mod); return mod
+
+head = load("guard_head", sys.argv[1])
+fixed = load("guard_fixed", sys.argv[2])
+real_root = fixed._ROOT
+tmp_root = Path(tempfile.mkdtemp())
+for rel in fixed._ANCHORS:
+    (tmp_root / rel).parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy(real_root / rel, tmp_root / rel)
+rs = tmp_root / "backend/app/api/run_shutdown.py"
+rs.write_text(rs.read_text().replace("_drain_then_cancel", "_drain_and_cancel"))
+print("temp copy: _drain_then_cancel renamed to _drain_and_cancel in run_shutdown.py")
+
+def call(fn):
+    try:
+        fn(); return "PASSED (guard green)"
+    except AssertionError as e:
+        return "FAILED -> " + str(e).replace("\n", " | ")
+
+head._SCANNED = [rs]
+print("  HEAD  lint over the renamed run_shutdown.py:", call(head.test_no_line_number_cites_in_shutdown_path_files))
+print("  HEAD  has an anchor test:", hasattr(head, "test_symbols_named_by_shutdown_path_comments_still_exist"))
+fixed._ROOT = tmp_root
+print("  FIXED anchor test over the temp copy:", call(fixed.test_symbols_named_by_shutdown_path_comments_still_exist))
+fixed._ROOT = real_root
+print("  FIXED anchor test over the real tree:", call(fixed.test_symbols_named_by_shutdown_path_comments_still_exist))

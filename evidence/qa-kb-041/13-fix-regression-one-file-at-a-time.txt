@@ -1,0 +1,22 @@
+QA-KB-041 fixer — regression, existing area test files, FIXED working tree, one file per run (vitest 4.1.11).
+
+src/components/savedworkflows/SavedWorkflowsPage.test.tsx: Tests  9 passed (9)
+src/components/layout/AppHeader.a11y.test.tsx: Tests  9 passed (9)
+src/components/layout/AppHeader.iss647.test.tsx: Tests  2 passed (2)
+src/components/layout/AppHeader.iss757.test.tsx: Tests  2 passed (2)
+src/components/layout/AppHeader.runningDropdownSnapshot.test.tsx: Tests  1 passed (1)
+src/components/ui/NotificationPanel.a11y.test.tsx: Tests  4 passed (4)
+src/components/ui/NotificationPanel.fix195.test.tsx: Tests  14 passed (14)
+src/components/ui/NotificationPanel.iss658.test.tsx: Tests  1 skipped (1)
+src/app/admin/admin.reskin.test.tsx: Tests  8 passed (8)
+src/app/admin/admin.actions.test.tsx: Tests  7 passed (7)
+src/components/history/RevisionFamilyView.statusBadge.test.tsx: Tests  11 passed (11)
+src/components/history/RevisionFamilyView.warnings.test.tsx: Tests  6 passed (6)
+src/components/history/WorkflowHistory.family.test.tsx: Tests  6 passed (6)
+src/components/history/WorkflowHistory.test.tsx: Tests  1 failed | 16 passed (17)
+
+WorkflowHistory.test.tsx failing id: 'the row''s Chain menu action reaches the chain panel (bypassing onOpenRun) and fires onChainPipeline with the source run id'
+  -> TestingLibraryElementError: Unable to find role="menuitem" and name /chain/i
+Baseline: same file run against git HEAD 024c03ef8 copies of WorkflowHistory.tsx + RevisionFamilyView.tsx + RunDetailPage.tsx (scratch, vitest.hist.config.ts):
+  Tests  1 failed | 16 passed (17), same id. At HEAD, RowMenu's only role="menuitem" is Delete (RevisionFamilyView.tsx:476) and WorkflowHistory.tsx has none.
+  Pre-existing, not caused by this fix (FIX-709 recorded the same failure).

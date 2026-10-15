@@ -1,0 +1,35 @@
+# QA-KB-099 analysis 02: does the SIGTERM test PASS once the guard is lifted for it? (settles the gap ISS-896 left open)
+# HEAD 3af414bc6, 2026-10-08T11:49Z. The marker is added by a scratch plugin OUTSIDE the repo (collection hook, item.add_marker),
+# so the real tests/unit/conftest.py::_unit_io_guard runs unchanged and sees what a @pytest.mark.allow_io(...) decorator would give it. No repo file edited.
+# pytest-timeout (installed dev dep) bounds the run; macOS has no timeout(1).
+
+$ cd backend && PYTHONPATH=<scratchpad>/qa_kb_099_probe .venv/bin/python -m pytest 'tests/unit/services/test_shutdown_reachability.py::test_sigterm_reaches_the_lifespan_shutdown_half_while_a_stream_is_live' -p allow_io_probe -p no:cacheprovider --timeout=120 -q -rA --tb=short --durations=3
+.                                                                        [100%]
+=============================== warnings summary ===============================
+app/core/config.py:94
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+==================================== PASSES ====================================
+============================= slowest 3 durations ==============================
+6.77s call     tests/unit/services/test_shutdown_reachability.py::test_sigterm_reaches_the_lifespan_shutdown_half_while_a_stream_is_live
+1.04s setup    tests/unit/services/test_shutdown_reachability.py::test_sigterm_reaches_the_lifespan_shutdown_half_while_a_stream_is_live
+
+(1 durations < 0.005s hidden.  Use -vv to show these durations.)
+=========================== short test summary info ============================
+PASSED tests/unit/services/test_shutdown_reachability.py::test_sigterm_reaches_the_lifespan_shutdown_half_while_a_stream_is_live
+1 passed, 1 warning in 7.90s
+
+$ pgrep -fl reachability_probe_app   (leftover uvicorn children after the run)
+(none - probe uvicorn exited)
+
+# ---- appended: the whole file, same scratch plugin, plus the sibling tests that guard its citations ----
+$ cd backend && PYTHONPATH=<scratchpad>/qa_kb_099_probe .venv/bin/python -m pytest tests/unit/services/test_shutdown_reachability.py -p allow_io_probe -p no:cacheprovider --timeout=120 -q --tb=short
+  /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/app/core/config.py:94: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict i
+8 passed, 1 warning in 7.93s
+
+$ cd backend && .venv/bin/python -m pytest tests/unit/test_run_shutdown_stale_citations.py -p no:cacheprovider -q --tb=short   (the guard that reads this file by path; today, unmodified)
+  /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/app/core/config.py:94: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict i
+15 passed, 1 warning in 1.70s
+
+$ pgrep -fl reachability_probe_app
+(none)

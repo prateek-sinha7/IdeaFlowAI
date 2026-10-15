@@ -1,0 +1,76 @@
+diff --git a/backend/tests/integration/repositories/test_run_events_db.py b/backend/tests/integration/repositories/test_run_events_db.py
+index d3ac74829..24351a51b 100644
+--- a/backend/tests/integration/repositories/test_run_events_db.py
++++ b/backend/tests/integration/repositories/test_run_events_db.py
+@@ -417,3 +417,71 @@ async def test_execute_restamps_seq_onto_the_frame_it_yields(db_session, monkeyp
+     # collision does not collide in turn.
+     assert by_type["pipeline_cancelled"] == 3
+     assert by_type["agent_chunk"] == 4
++
++
++@pytest.mark.asyncio
++@pytest.mark.issue("ISS-1025")
++async def test_resume_driver_restamps_live_frame_and_stored_payload_after_a_collision(
++    db_session, monkeypatch, tmp_path
++):
++    """The resume twin of the test above. ``_drive_resumed_stream`` is the shared re-entry
++    stream of every restart driver and the second feeder of ``_RunEventSink.persist`` with
++    a seq-carrying payload; it re-stamps ``data["seq"]`` and advances its allocator on the
++    same contract as ``execute()``. A coroutine, not a generator: its frames are read off
++    ``live_queue``. A chat turn takes the seq the resumed engine's counter still owns: for
++    every engine event the live frame seq == the row seq == the stored payload seq.
++    """
++    import asyncio
++
++    from agents.execution_engine.engine import ExecutionEngine
++    from app.agents import sandbox as _sandbox_mod
++
++    # The driver builds a RunTrace under settings.RUNS_ROOT — land it under tmp.
++    monkeypatch.setattr(_sandbox_mod.settings, "RUNS_ROOT", str(tmp_path))
++    _seed_run(db_session, run_id="run-1", owner_id="alice", workspace_id="ws-1")
++    store = ScopedStore(owner_id="alice", workspace_id="ws-1", session=db_session)
++
++    async def _scripted_impl(self, **kwargs):
++        kwargs["_sink"].arm(store, "run-1")
++        yield {"type": "review_gate_ready", "data": {"gate_key": "run-1:a"}}
++        await store.append_event_next_seq(
++            "run-1", event_id="chat:m1", type="chat_message", payload_json={"t": "stop"}
++        )
++        yield {"type": "pipeline_cancelled", "data": {}}
++        yield {"type": "agent_chunk", "data": {}}
++
++    monkeypatch.setattr(ExecutionEngine, "_execute_impl", _scripted_impl)
++    queue: asyncio.Queue = asyncio.Queue()
++    await ExecutionEngine()._drive_resumed_stream(
++        "run-1",
++        agents=[],
++        user_message="",
++        pipeline_type="prototype",
++        user_id="alice",
++        session_id=None,
++        parent_run_id=None,
++        selections=None,
++        start_seq=1,
++        live_queue=queue,
++    )
++    frames = []
++    while not queue.empty():
++        item = queue.get_nowait()
++        if item is not None:  # the None sentinel ends the live drainer
++            frames.append(item)
++
++    # Re-read the STORED rows: the loop's re-stamp mutates the live dict in memory.
++    db_session.expire_all()
++    by_type = {
++        r.type: r
++        for r in db_session.query(RunEvent).order_by(RunEvent.seq.asc()).all()
++    }
++    # The collision really happened (the control): the chat row took seq 2, so the engine's
++    # pipeline_cancelled (requested 2) landed at 3 and the allocator moved past it.
++    assert by_type["chat_message"].seq == 2
++    assert by_type["pipeline_cancelled"].seq == 3
++    assert by_type["agent_chunk"].seq == 4
++    live = {f["type"]: f["data"]["seq"] for f in frames}
++    for kind in ("review_gate_ready", "pipeline_cancelled", "agent_chunk"):
++        row = by_type[kind]
++        assert live[kind] == row.seq == row.payload_json["seq"], kind

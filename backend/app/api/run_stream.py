@@ -19,7 +19,7 @@ projection's ``assert_wire_parity`` to guard against accidental divergence.
 Handshake + gate re-arm on attach:
   * After replaying the durable tail past the client cursor, the stream emits
     ``stream_attached {live, replayed_through_seq}`` — the new-transport replacement
-    for the legacy ``pipeline_reconnected`` ack (``websocket.py:1157``);
+    for the legacy ``pipeline_reconnected`` ack (the deleted WebSocket transport);
     ``replayed_through_seq`` mirrors the last replayed ``seq`` (== the legacy
     ``pipeline_reconnected.replayed_through_seq`` value).
   * D-14g: when the run is paused at a still-open human review gate (a durable
@@ -333,7 +333,7 @@ async def _dangling_review_gate(store: Any, run_id: str) -> Optional[Any]:
     the last still-open ready. If it is a resolution, that resolution follows EVERY ready,
     so the old loop's ``last_ready`` is ``None`` at exit. If ``V`` is empty both return
     ``None``. The branches are mutually exclusive because ``review_gate_ready`` is not a
-    member of ``REVIEW_RESOLUTIONS`` (``gate_pendency.py:53-62``). A ``seq`` tie -- the only
+    member of ``REVIEW_RESOLUTIONS`` (``gate_pendency.py``). A ``seq`` tie -- the only
     place stable ``sorted()`` and ``ORDER BY ... LIMIT 1`` could differ -- is unreachable:
     ``uq_run_events_scope_seq`` is UNIQUE on exactly the scope ``_scope_owner_ws`` filters.
     """
@@ -659,11 +659,11 @@ async def stream_run_events(
     # normally. It must NOT back the streaming generator: FastAPI >= 0.106 tears the
     # get_db yield-dependency down (db.close()) BEFORE the streaming body runs, so a
     # read_events INSIDE _iter_sse_frames would re-acquire a FRESH pool connection on the
-    # closed session with owned=False (authz.py:95-99) and NEVER release it (authz.py
-    # :328-330 only closes owned sessions) — one leaked connection per live SSE stream.
+    # closed session with owned=False and NEVER release it (ScopedStore in authz.py only
+    # closes the sessions it owns) — one leaked connection per live SSE stream.
     # Build a SEPARATE session-less store for the generator so each read_events opens+closes
     # its own SessionLocal (owned=True), mirroring the safe post_message idiom
-    # (run_commands.py:758). Only the session-acquisition mode changes — frames/replay/
+    # (run_commands.py). Only the session-acquisition mode changes — frames/replay/
     # handshake/gate re-arm stay byte/event-identical (INV-3 parity).
     stream_store = ScopedStore(
         owner_id=current_user.id,

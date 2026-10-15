@@ -1,0 +1,43 @@
+### QA-KB-125 wrapper probe, 2026-10-09T13:45:09Z
+browser: Google Chrome 151.0.7922.138 headless=True (channel=chrome, fresh temp profile)
+app localStorage.auth_token = SECRET-JWT-VALUE (canary), app origin http://app.test (route interception)
+
+[E  today: agent HTML IS the top-level blob document]  window.open features: ''
+    top-level origin: http://app.test
+    top-level window.opener is present
+    agent HTML runs in: the top-level document
+        sees origin: http://app.test
+        sees app_localStorage_auth_token: SECRET-JWT-VALUE
+        sees top_document_title: agent
+        sees top_localStorage_auth_token: SECRET-JWT-VALUE
+        sees top_opener_is_object: object
+        sees top_opener_localStorage: SECRET-JWT-VALUE
+        sees own_opener_localStorage: SECRET-JWT-VALUE
+        after clicking <a href="#/p2">: {'hash': '#/p2', 'href': 'blob:http://app.test/7fbc7281-8361-4396-', 'hc': 1}
+
+[G1 proposed: script-free wrapper + nested sandbox=allow-scripts srcdoc + <base href=about:srcdoc>]  window.open features: ''
+    top-level origin: http://app.test
+    top-level window.opener is present
+    agent HTML runs in: nested sandboxed srcdoc frame
+        sees origin: null
+        sees app_localStorage_auth_token: THREW SecurityError
+        sees top_document_title: THREW SecurityError
+        sees top_localStorage_auth_token: THREW SecurityError
+        sees top_opener_is_object: object
+        sees top_opener_localStorage: THREW SecurityError
+        sees own_opener_localStorage: THREW TypeError
+        after clicking <a href="#/p2">: {'hash': '#/p2', 'href': 'about:srcdoc#/p2', 'hc': 1}
+
+[G2 proposed + noopener]  window.open features: 'noopener,noreferrer'
+    top-level origin: http://app.test
+    top-level window.opener is null
+    agent HTML runs in: nested sandboxed srcdoc frame
+        sees origin: null
+        sees app_localStorage_auth_token: THREW SecurityError
+        sees top_document_title: THREW SecurityError
+        sees top_localStorage_auth_token: THREW SecurityError
+        sees top_opener_is_object: object
+        sees top_opener_localStorage: THREW TypeError
+        sees own_opener_localStorage: THREW TypeError
+        after clicking <a href="#/p2">: {'hash': '#/p2', 'href': 'about:srcdoc#/p2', 'hc': 1}
+

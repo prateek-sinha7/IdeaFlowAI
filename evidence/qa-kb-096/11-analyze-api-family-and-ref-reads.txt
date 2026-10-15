@@ -1,0 +1,41 @@
+family root_id=78e185fb-c032-4154-8552-774781b6e5df  members=8  (HTTP 200)
+  idx=1 id=78e185fb git_tag='v1'   status=completed  pipeline_type=None deliverable_filename='Backlog.pdf' deliverable_mimetype='application/pdf'
+  idx=2 id=80054fbc git_tag='v2'   status=completed  pipeline_type=None deliverable_filename='Backlog.pdf' deliverable_mimetype='application/pdf'
+  idx=3 id=fa7bcb5f git_tag='v3'   status=completed  pipeline_type=None deliverable_filename='Backlog.pdf' deliverable_mimetype='application/pdf'
+  idx=4 id=8d4d2d70 git_tag='v4'   status=completed  pipeline_type=None deliverable_filename='Backlog.pdf' deliverable_mimetype='application/pdf'
+  idx=5 id=48b0811e git_tag='v5'   status=completed  pipeline_type=None deliverable_filename='Backlog.pdf' deliverable_mimetype='application/pdf'
+  idx=6 id=0924fe8a git_tag=None   status=cancelled  pipeline_type=None deliverable_filename=None deliverable_mimetype=None
+  idx=7 id=10dde796 git_tag='v7'   status=completed  pipeline_type=None deliverable_filename='Backlog.pdf' deliverable_mimetype='application/pdf'
+  idx=8 id=b40eabd0 git_tag='v8'   status=completed  pipeline_type=None deliverable_filename='Backlog.pdf' deliverable_mimetype='application/pdf'
+
+GET /sandbox/refs -> HTTP 200 {"run_id":"78e185fb-c032-4154-8552-774781b6e5df","refs":["v1","v2","v3","v4","v5","v7","v8"]}
+
+[v1] member=78e185fb  listing HTTP 200; Backlog.* in listing at ref: ['.chain/backlog.md', 'backlog.md']
+    GET sandbox/file?path=Backlog.pdf&ref=v1 -> HTTP 404 {"detail":"File not found"}
+    GET sandbox/file?path=.chain/Backlog.pdf&ref=v1 -> HTTP 404 {"detail":"File not found"}
+
+[v2] member=80054fbc  listing HTTP 200; Backlog.* in listing at ref: ['.chain/Backlog.pdf', 'backlog.md']
+    GET sandbox/file?path=Backlog.pdf&ref=v2 -> HTTP 404 {"detail":"File not found"}
+    GET sandbox/file?path=.chain/Backlog.pdf&ref=v2 -> HTTP 200 (content-length 23010668, starts b'%PDF-1.4')
+
+[v3] member=fa7bcb5f  listing HTTP 200; Backlog.* in listing at ref: ['.chain/Backlog.pdf', 'backlog.md']
+    GET sandbox/file?path=Backlog.pdf&ref=v3 -> HTTP 404 {"detail":"File not found"}
+    GET sandbox/file?path=.chain/Backlog.pdf&ref=v3 -> HTTP 200 (content-length 23553059, starts b'%PDF-1.4')
+
+[v4] member=8d4d2d70  listing HTTP 200; Backlog.* in listing at ref: ['.chain/Backlog.pdf', '.chain/backlog.md', 'backlog.md']
+    GET sandbox/file?path=Backlog.pdf&ref=v4 -> HTTP 404 {"detail":"File not found"}
+    GET sandbox/file?path=.chain/Backlog.pdf&ref=v4 -> HTTP 200 (content-length 23558186, starts b'%PDF-1.4')
+
+[v5] member=48b0811e  listing HTTP 200; Backlog.* in listing at ref: ['.chain/Backlog.pdf', '.chain/backlog.md', 'backlog.md']
+    GET sandbox/file?path=Backlog.pdf&ref=v5 -> HTTP 404 {"detail":"File not found"}
+    GET sandbox/file?path=.chain/Backlog.pdf&ref=v5 -> HTTP 200 (content-length 23558181, starts b'%PDF-1.4')
+
+[v7] member=10dde796  listing HTTP 200; Backlog.* in listing at ref: ['.chain/Backlog.pdf', '.chain/backlog.md', 'backlog.md']
+    GET sandbox/file?path=Backlog.pdf&ref=v7 -> HTTP 404 {"detail":"File not found"}
+    GET sandbox/file?path=.chain/Backlog.pdf&ref=v7 -> HTTP 200 (content-length 23593271, starts b'%PDF-1.4')
+
+[v8] member=b40eabd0  listing HTTP 200; Backlog.* in listing at ref: ['.chain/Backlog.pdf', '.chain/backlog.md', 'backlog.md']
+    GET sandbox/file?path=Backlog.pdf&ref=v8 -> HTTP 404 {"detail":"File not found"}
+    GET sandbox/file?path=.chain/Backlog.pdf&ref=v8 -> HTTP 200 (content-length 23626760, starts b'%PDF-1.4')
+
+live (no ref) GET /api/runs/78e185fb/sandbox/file?path=Backlog.pdf -> HTTP 200 (content-length 23626760, starts b'%PDF-1.4')

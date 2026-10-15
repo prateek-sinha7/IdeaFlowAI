@@ -1,0 +1,10 @@
+== app_builder.events.json
+events: 100 -> 100; type sequence identical
+leaves: removed=0 changed=1 added=0
+  NOT-AN-ADDITION: $[95].data.final_output "```filename: .family.lock\n\n```\n\n```filename: README.md\n# Generated App\n\n```\n\n```filename: src/app.py\nprint('h -> "```filename: README.md\n# Generated App\n\n```\n\n```filename: src/app.py\nprint('hello')\n\n```"
+added keys: {}
+== app_builder.wsframes.json
+events: 100 -> 100; type sequence identical
+leaves: removed=0 changed=1 added=0
+  NOT-AN-ADDITION: $[95].data.final_output "```filename: .family.lock\n\n```\n\n```filename: README.md\n# Generated App\n\n```\n\n```filename: src/app.py\nprint('h -> "```filename: README.md\n# Generated App\n\n```\n\n```filename: src/app.py\nprint('hello')\n\n```"
+added keys: {}

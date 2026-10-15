@@ -1,0 +1,26 @@
+# QA-KB-086 fix 2026-10-07 - the whole source diff of this fix (git diff of the one file touched)
+diff --git a/frontend/src/components/workflow/IdeaInputPage.designPicker.test.tsx b/frontend/src/components/workflow/IdeaInputPage.designPicker.test.tsx
+index d4b68ab52..53dfb5e5d 100644
+--- a/frontend/src/components/workflow/IdeaInputPage.designPicker.test.tsx
++++ b/frontend/src/components/workflow/IdeaInputPage.designPicker.test.tsx
+@@ -158,6 +158,7 @@ describe("IdeaInputPage — opendesign design-picker wiring", () => {
+ 
+     expect(onRun).toHaveBeenCalledTimes(1);
+     const [, , , extraParams] = onRun.mock.calls[0];
+-    expect(extraParams).toBeUndefined();
++    expect(extraParams ?? {}).not.toHaveProperty("template_id");
++    expect(extraParams ?? {}).not.toHaveProperty("design_system_id");
+   });
+ });
+
+# git status of frontend/ and backend/ after the fix. Only IdeaInputPage.designPicker.test.tsx is this fix; every other
+# line is a concurrent session's uncommitted work (other bugs), present in the shared tree and not touched here:
+ M backend/tests/integration/api/test_settings_model_gate_effective_tier_api.py
+ M frontend/src/app/[...view]/authEffectGuard.iss844.source.test.ts
+ M frontend/src/app/[...view]/page.tsx
+ M frontend/src/app/[...view]/runTabShallowNav.test.ts
+ M frontend/src/app/preview-fullscreen/page.previewPayloadShape.test.tsx
+ M frontend/src/components/workflow/IdeaInputPage.designPicker.test.tsx
+ M frontend/src/lib/routes.ts
+
+# eslint, single file: cd frontend && npx eslint src/components/workflow/IdeaInputPage.designPicker.test.tsx -> no output, exit 0

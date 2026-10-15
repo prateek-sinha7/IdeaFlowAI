@@ -1,0 +1,44 @@
+# fix-03 (QA-KB-103 / ISS-1118, 2026-10-09): test files run one at a time, offline (cd backend && .venv/bin/python -m pytest <file> -q -p no:cacheprovider)
+
+== tests/unit/test_iss1118_override_baseline_refs.py
+[XPASS(strict)] ISS-1118 unfixed
+[XPASS(strict)] ISS-1118 unfixed
+[XPASS(strict)] ISS-1118 unfixed
+[XPASS(strict)] ISS-1118 unfixed
+[XPASS(strict)] ISS-1118 unfixed
+FAILED tests/unit/test_iss1118_override_baseline_refs.py::test_unchanged_builtin_steps_pass_user_trust_override[app_builder]
+FAILED tests/unit/test_iss1118_override_baseline_refs.py::test_unchanged_builtin_steps_pass_user_trust_override[prototype]
+FAILED tests/unit/test_iss1118_override_baseline_refs.py::test_unchanged_builtin_steps_pass_user_trust_override[prototype_feature_revision]
+FAILED tests/unit/test_iss1118_override_baseline_refs.py::test_unchanged_builtin_steps_pass_user_trust_override[prototype_large_revision]
+FAILED tests/unit/test_iss1118_override_baseline_refs.py::test_unchanged_builtin_steps_pass_user_trust_override[prototype_revision]
+5 failed, 1 passed, 1 warning in 1.67s
+
+== tests/unit/test_workflow_override.py
+8 passed, 1 warning in 1.41s
+
+== tests/integration/api/test_iss1112_override_writers_trust.py
+3 passed, 6 warnings in 1.67s
+
+== tests/integration/api/test_iss1113_override_row_launch_trust.py
+1 passed, 4 warnings in 1.15s
+
+== tests/integration/api/test_workflow_override_e2e_api.py
+7 passed, 3 warnings in 2.66s
+
+== tests/integration/api/test_workflow_override_api.py
+17 passed, 1 warning in 1.29s
+
+== tests/integration/api/test_user_workflows_api.py
+39 passed, 22 warnings in 2.61s
+
+== tests/integration/agents/test_qa_kb_102_silent_resume.py
+6 passed, 1 warning in 2.17s
+
+== tests/integration/agents/test_restart_resume_db.py
+85 passed, 17 warnings in 24.09s
+
+== tests/agents/test_conditional_trigger_budget_t33.py
+1 passed, 2 warnings in 1.22s
+
+== tests/agents/test_conditional_trigger_depth_v4_ac06.py
+1 passed, 2 warnings in 1.27s

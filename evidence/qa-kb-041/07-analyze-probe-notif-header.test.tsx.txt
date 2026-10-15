@@ -1,0 +1,76 @@
+// SCRATCH PROBE (outside the repo) — QA-KB-041 analyzer siblings: NotificationPanel bell + AppHeader profile menu.
+// Green run == "unfocused-trigger Escape no-op reproduced"; each has a focused-click control.
+import { describe, expect, it, vi } from "vitest";
+import { renderWithProviders, screen, fireEvent, waitFor } from "@/test/renderWithProviders";
+import userEvent from "@testing-library/user-event";
+
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: vi.fn(), replace: vi.fn(), prefetch: vi.fn() }),
+}));
+
+import { NotificationPanel } from "@/components/ui/NotificationPanel";
+import { AppHeader } from "@/components/layout/AppHeader";
+
+const where = () => (document.activeElement === document.body ? "BODY" : document.activeElement?.getAttribute("aria-label") ?? document.activeElement?.tagName);
+
+describe("sibling: NotificationPanel bell (NotificationPanel.tsx:233-239, wrapper onKeyDown :262)", () => {
+  const mount = () =>
+    renderWithProviders(
+      <NotificationPanel notifications={[]} unreadCount={0} onMarkAllRead={vi.fn()} onClearAll={vi.fn()}
+        onGoToPipeline={vi.fn()} onViewResults={vi.fn()} />,
+    );
+
+  it("CONTROL: focused (Chrome-like) click then Escape closes", async () => {
+    const user = userEvent.setup();
+    mount();
+    const bell = screen.getByRole("button", { name: /notifications/i });
+    await user.click(bell);
+    console.log("[bell control] activeElement =", where());
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+  });
+
+  it("REPRO: unfocused click then Escape leaves the panel open", async () => {
+    const user = userEvent.setup();
+    mount();
+    const bell = screen.getByRole("button", { name: /notifications/i });
+    fireEvent.click(bell);
+    console.log("[bell repro] activeElement =", where(), "| aria-expanded =", bell.getAttribute("aria-expanded"));
+    await user.keyboard("{Escape}");
+    await new Promise((r) => setTimeout(r, 400));
+    console.log("[bell repro] after Escape: aria-expanded =", bell.getAttribute("aria-expanded"), "| dialog present =", !!screen.queryByRole("dialog"));
+    expect(bell).toHaveAttribute("aria-expanded", "true");
+    expect(screen.queryByRole("dialog")).not.toBeNull();
+  });
+});
+
+describe("sibling: AppHeader profile menu (AppHeader.tsx:176-182, wrapper onKeyDown :529)", () => {
+  const mount = () =>
+    renderWithProviders(
+      <AppHeader currentPage="saved-workflows" onNavigate={vi.fn()} onLogout={vi.fn()}
+        userEmail="qa@flowin.test" userTier="basic" />,
+    );
+
+  it("CONTROL: focused click then Escape closes and refocuses the trigger", async () => {
+    const user = userEvent.setup();
+    mount();
+    const trigger = screen.getByRole("button", { name: /account menu/i });
+    await user.click(trigger);
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("menu")).not.toBeInTheDocument());
+    expect(trigger).toHaveFocus();
+  });
+
+  it("REPRO: unfocused click then Escape leaves the profile menu open", async () => {
+    const user = userEvent.setup();
+    mount();
+    const trigger = screen.getByRole("button", { name: /account menu/i });
+    fireEvent.click(trigger);
+    console.log("[profile repro] activeElement =", where(), "| aria-expanded =", trigger.getAttribute("aria-expanded"));
+    await user.keyboard("{Escape}");
+    await new Promise((r) => setTimeout(r, 400));
+    console.log("[profile repro] after Escape: aria-expanded =", trigger.getAttribute("aria-expanded"), "| menu present =", !!screen.queryByRole("menu"));
+    expect(trigger).toHaveAttribute("aria-expanded", "true");
+    expect(screen.queryByRole("menu")).not.toBeNull();
+  });
+});

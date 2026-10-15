@@ -1,0 +1,27 @@
+# QA-KB-077 fix — static checks, 2026-10-07T17:37Z
+
+## ruff check (touched python files)
+
+Found 1 error.
+[*] 1 fixable with the `--fix` option.
+
+## py_compile live spec
+ok
+
+## capture/_scenarios.py (spec <-> test id links)
+scenarios with an id: 511
+  implemented:        511
+  awaiting a test:    0
+still untagged:       0
+
+## API-CONTRACT.json vs source (python3 tests/integration/capture/_api.py --json, stdout only)
+snapshot endpoints: 110 | public: 17 | auth module: 13
+in snapshot, not in source (removed): []
+register still in snapshot: False
+(added/changed drift NOT touched by this fix: 10 added, 4 changed)
+
+## ruff note: the one finding (F541 at test_api_contract.py:377, f"/api/admin/users") is pre-existing at HEAD — same finding on 'git show HEAD:<file> | ruff check -'; the fix's hunks are at :144 and :187-206 only. All other touched files: clean.
+
+## lint-imports (cd backend && .venv/bin/lint-imports)
+Contracts: 3 kept, 2 broken — the same 3/2 split FIX-691 recorded as the HEAD baseline; this fix edits no module under app/, agents/ or tools/ (tests and docs only), so no contract input changed.
+SC-001: nothing under backend/agents/execution_engine/ edited. Migrations: none.

@@ -1,0 +1,45 @@
+# QA-KB-103 analysis 07: unchanged Save-as-my-version payload, every built-in (39), by roster seed, at the shared trust=user check (2026-10-08T20:32Z, HEAD 135e6ea9b)
+# payloads: analysis-07-serializer-payloads-all-39.json from analysis-plugins/serializer_payloads_all.mjs (the REAL canvas serializer, GET /api/workflows/{id}?original=true and GET /api/agents/library on :8000)
+# cmd: cd backend && PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=. DATABASE_URL=sqlite:///:memory: .venv/bin/python ../evidence/qa-kb-103/analysis-plugins/summary_all_builtins.py ../evidence/qa-kb-103/analysis-07-serializer-payloads-all-39.json
+# columns: plan-seeded = agentsFromManifest (carries AgentDef.extra) + the manifest's declared gates; library-seeded = the /api/agents/library roster; IdeaInputPage manifestAgents = the hand-rolled projection at IdeaInputPage.tsx:1284-1310 (no extra, tools/skills/prompt/route kept)
+# 422 = engineer-only reference refused (CAP-03 / grant rejection). '201 LOSES n' = accepted, but n step keys of the built-in own steps are absent from the stored override (gates/depends_on/subagents/tools ignored)
+built-in                       | plan-seeded (agentsFromManifest, declared gates kept) | library-seeded | IdeaInputPage manifestAgents
+app_builder                    | 422 | 201 LOSES 1 key(s), ALTERS 0: ['app-infra-generator.post_step'] | 201 LOSES 1 key(s), ALTERS 0: ['app-infra-generator.post_step']
+app_builder_revision           | 201 faithful | 201 faithful | 201 faithful
+backlog                        | 201 faithful | n/a (no library roster) | 201 LOSES 50 key(s), ALTERS 2: ['custom-agent:us-ui-extract.mechanical', 'custom-agent:us-planner.model', 'custom-agent:us-planner.produces', 'custom-agent:us-planner.consumes']
+backlog_revision               | 201 faithful | n/a (no library roster) | 201 LOSES 10 key(s), ALTERS 1: ['custom-agent:blr-analyst.model', 'custom-agent:blr-analyst.reply', 'custom-agent:blr-plan.model', 'custom-agent:blr-plan.produces']
+chat                           | 201 faithful | 201 faithful | 201 faithful
+custom                         | 201 faithful | 201 faithful | 201 faithful
+custom_revision                | 201 faithful | 201 faithful | 201 faithful
+dotnet_to_azure                | 201 faithful | 201 faithful | 201 faithful
+ex_A1_loop                     | 201 LOSES 0 key(s), ALTERS 1: ['custom-agent:check.route'] | n/a (no library roster) | 201 LOSES 3 key(s), ALTERS 0: ['custom-agent:greet.produces', 'custom-agent:check.consumes', 'custom-agent:done.consumes']
+ex_A2_branch                   | 201 LOSES 0 key(s), ALTERS 1: ['custom-agent:language.route'] | n/a (no library roster) | 201 faithful
+ex_A3_b_spanish                | 201 faithful | n/a (no library roster) | 201 faithful
+ex_A3_c_dutch                  | 201 faithful | n/a (no library roster) | 201 faithful
+ex_A3_divert                   | 201 LOSES 0 key(s), ALTERS 1: ['custom-agent:language.route'] | n/a (no library roster) | 201 faithful
+ex_A4_human_divert             | 201 LOSES 0 key(s), ALTERS 1: ['custom-agent:pick-language.route'] | n/a (no library roster) | 201 LOSES 2 key(s), ALTERS 0: ['custom-agent:ask.produces', 'custom-agent:pick-language.consumes']
+ex_A4_human_gate               | 201 LOSES 0 key(s), ALTERS 1: ['custom-agent:pick-language.route'] | n/a (no library roster) | 201 LOSES 2 key(s), ALTERS 0: ['custom-agent:pick-language.produces', 'custom-agent:pick-language.consumes']
+ex_playwright_smoke_test       | 201 LOSES 1 key(s), ALTERS 0: ['playwright-smoke-test.instance_id'] | 201 LOSES 1 key(s), ALTERS 0: ['playwright-smoke-test.instance_id'] | 201 LOSES 1 key(s), ALTERS 0: ['playwright-smoke-test:<step>']
+ex_publish_step                | 201 faithful | n/a (no library roster) | 201 LOSES 1 key(s), ALTERS 0: ['custom-agent:publish.mechanical']
+ex_test_loop_reachable_skip    | 201 LOSES 0 key(s), ALTERS 2: ['custom-agent:verdict.route', 'custom-agent:revise-route.route'] | n/a (no library roster) | 201 faithful
+ex_test_transitive_skip        | 201 LOSES 0 key(s), ALTERS 1: ['custom-agent:gate.route'] | n/a (no library roster) | 201 faithful
+ex_validation_retry            | 201 faithful | n/a (no library roster) | 201 faithful
+mulesoft_to_springboot         | 201 faithful | 201 faithful | 201 faithful
+ppt                            | 201 faithful | 201 faithful | 201 faithful
+ppt_revision                   | 201 faithful | 201 faithful | 201 faithful
+ppt_v2                         | 201 faithful | 201 LOSES 2 key(s), ALTERS 0: ['ppt-brief-analyst:<step>', 'ppt-composer:<step>'] | 201 faithful
+prototype                      | 422 | 201 LOSES 5 key(s), ALTERS 1: ['prototype-specify.skills', 'prototype-build.task_source', 'prototype-build.validators', 'prototype-build.require_render'] | 201 LOSES 4 key(s), ALTERS 1: ['prototype-build.task_source', 'prototype-build.validators', 'prototype-build.require_render', 'prototype-build.compaction']
+prototype_feature_revision     | 422 | 201 LOSES 6 key(s), ALTERS 1: ['prototype-revision-analyzer.produces_solution_plan', 'prototype-build.task_source', 'prototype-build.validators', 'prototype-build.require_render'] | 201 LOSES 6 key(s), ALTERS 1: ['prototype-revision-analyzer.produces_solution_plan', 'prototype-build.task_source', 'prototype-build.validators', 'prototype-build.require_render']
+prototype_large_revision       | 422 | 201 LOSES 6 key(s), ALTERS 1: ['prototype-revision-analyzer.produces_solution_plan', 'prototype-build.task_source', 'prototype-build.validators', 'prototype-build.require_render'] | 201 LOSES 6 key(s), ALTERS 1: ['prototype-revision-analyzer.produces_solution_plan', 'prototype-build.task_source', 'prototype-build.validators', 'prototype-build.require_render']
+prototype_revision             | 422 | 201 LOSES 4 key(s), ALTERS 0: ['prototype-revision-analyzer.produces_solution_plan', 'prototype-revision-agent.validators', 'prototype-revision-agent.require_render', 'prototype-revision-agent.post_step'] | 201 LOSES 4 key(s), ALTERS 0: ['prototype-revision-analyzer.produces_solution_plan', 'prototype-revision-agent.validators', 'prototype-revision-agent.require_render', 'prototype-revision-agent.post_step']
+prototype_v2                   | 201 faithful | n/a (no library roster) | 201 LOSES 21 key(s), ALTERS 2: ['custom-agent:fi-planner.model', 'custom-agent:fi-readers.task_source', 'custom-agent:fi-readers.fanout', 'custom-agent:fi-readers.model']
+prototype_v2_feature_revision  | 201 faithful | n/a (no library roster) | 201 LOSES 5 key(s), ALTERS 0: ['prototype-revision-analyzer.produces_solution_plan', 'custom-agent:v2-specify.model', 'custom-agent:v2-plan.model', 'custom-agent:v2-build.model']
+prototype_v2_revision          | 201 faithful | n/a (no library roster) | 201 LOSES 3 key(s), ALTERS 0: ['prototype-revision-analyzer.produces_solution_plan', 'custom-agent:v2-fix.model', 'custom-agent:v2-validate.model']
+reverse_engineer               | 201 faithful | n/a (no library roster) | 201 faithful
+sample_brownfield              | 201 faithful | n/a (no library roster) | 201 faithful
+sample_fanout                  | 422 | n/a (no library roster) | 422
+sample_subagents_parallel      | 422 | n/a (no library roster) | 422
+sample_wave                    | 422 | n/a (no library roster) | 422
+sc001-test-fixture             | 201 faithful | 201 faithful | 201 faithful
+user_stories                   | 201 faithful | 201 faithful | 201 faithful
+user_stories_revision          | 201 faithful | 201 faithful | 201 faithful

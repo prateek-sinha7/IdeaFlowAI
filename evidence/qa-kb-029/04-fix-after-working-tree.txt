@@ -1,0 +1,69 @@
+# QA-KB-029 fix phase — AFTER the fix. Tree: the shared working tree (HEAD 024c03ef8 + concurrent fixers' uncommitted work + this fix). cwd: frontend/. Each test file run alone.
+
+$ ./node_modules/.bin/tsc -p typecheck/tsconfig.iss077.json
+EXIT=0
+
+$ ./node_modules/.bin/vitest run src/components/results/ArtifactVersionPicker.iss869.test.tsx   (it.fails now red = XPASS signal; marker left for the verifier)
+     × counts a derived version nested under children (v2 of 2) 55ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+Error: Expect test to fail
+ Test Files  1 failed (1)
+      Tests  1 failed (1)
+EXIT=1
+
+$ ./node_modules/.bin/vitest run src/components/results/ArtifactVersionPicker.test.tsx
+ Test Files  1 passed (1)
+      Tests  8 passed (8)
+EXIT=0
+
+$ ./node_modules/.bin/vitest run src/lib/api.getRunArtifacts.test.ts
+ Test Files  1 passed (1)
+      Tests  2 passed (2)
+EXIT=0
+
+$ ./node_modules/.bin/vitest run src/components/results/ArtifactVersionPicker.iss802.test.tsx
+ Test Files  1 passed (1)
+      Tests  1 expected fail (1)
+EXIT=0
+
+$ ./node_modules/.bin/vitest run src/components/history/WorkflowHistory.runInput.test.tsx
+ Test Files  1 passed (1)
+      Tests  3 passed (3)
+EXIT=0
+
+$ ./node_modules/.bin/vitest run src/lib/clarifications.test.ts
+ Test Files  1 passed (1)
+      Tests  23 passed (23)
+EXIT=0
+
+$ ./node_modules/.bin/vitest run src/components/results/AgentDetailPanel.artifactVersions.test.tsx
+⎯⎯⎯⎯⎯⎯ Failed Tests 10 ⎯⎯⎯⎯⎯⎯⎯
+Error: [vitest] No "getCapabilities" export is defined on the "@/lib/api" mock. Did you forget to return it from "vi.mock"?
+ ❯ src/components/results/AgentDetailPanel.tsx:1325:5
+ Test Files  1 failed (1)
+      Tests  10 failed (10)
+EXIT=1
+
+$ ./node_modules/.bin/tsc --noEmit --incremental false -p tsconfig.json   (repo-wide; gate = no new errors, none naming ArtifactNode)
+EXIT=2
+error count after: 13  (before the fix, same tree: 13)
+error lines before vs after: IDENTICAL
+   1 src/components/analytics/AnalyticsPage.test.tsx
+   2 src/components/DashboardLayout.chain.test.tsx
+   3 src/components/history/WorkflowHistory.modelChip.test.tsx
+   1 src/components/preview/PreviewPanel.liveVersion.test.tsx
+   4 src/components/results/AgentDetailPanel.waveWorkerStatus.test.tsx
+   1 src/hooks/useWorkflow.imagePayload.test.ts
+   1 src/providers/RunConnectionProvider.test.tsx
+errors naming ArtifactNode|RunArtifactsResponse|lib/api.ts|store/api/runs|ArtifactVersionPicker|getRunArtifacts: 0
+
+$ ./node_modules/.bin/eslint <the 5 touched files>
+EXIT=0
+
+$ NODE_PATH=frontend/node_modules node <scratchpad>/qakb029-fixed-picker-check.cjs   (transpiles the FIXED picker; real wire dumps wire-429dc032.json / wire-8d4d2d70.json from the analyze phase + synthetic 3-deep chain)
+real run 429dc032 custom-agent:ask: top-level nodes=4, versions=2 -> v1:summary:81ad50fc v2:summary:a2a45acf
+real run 8d4d2d70 custom-agent:blr-analyst: top-level nodes=9, versions=2 -> v1:summary:8f6e5a63 v2:summary:8467b3a5
+synthetic 3-deep + interleaved: v1:a1:spec v2:a2:spec v3:a3:spec
+select() middle-version find over flattened ?kind= rows: a1,a2,a3 -> found a2
+ALL ASSERTIONS PASSED
+EXIT=0

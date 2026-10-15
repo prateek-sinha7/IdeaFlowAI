@@ -1,0 +1,39 @@
+# Mutation probe for QA-KB-092 / ISS-953 (scratch copies outside the repo; no repo source was edited)
+# control = working-tree copies of WorkflowHistory.tsx, RunDetailPage.tsx, RevisionFamilyView.tsx + the rewritten WorkflowHistory.test.tsx
+# mutant  = same, with one line added to RowMenu in RevisionFamilyView.tsx after the Delete item:
+482a483
+>             <button type="button" role="menuitem">Chain</button>
+
+# scratch config:
+import { defineConfig } from "vitest/config";
+import path from "path";
+const FE = "/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/frontend";
+// Scratch-only probe config: lives outside the repo, points at the real src via the @ alias.
+export default defineConfig({
+  root: path.join("/private/tmp/claude-502/-Users-bilala-Developer-Projects-VELOCITY-AI-worktrees-feat-user-stories-v2/2d1a1575-310a-48fd-8155-2763a084604d/scratchpad/probe", "mutant"),
+  resolve: { alias: { "@": path.join(FE, "src") } },
+  server: { fs: { strict: false } },
+  test: {
+    environment: "jsdom",
+    globals: true,
+    setupFiles: [path.join(FE, "vitest.setup.ts")],
+    include: ["*.test.tsx"],
+    coverage: { enabled: false },
+  },
+});
+
+===== CONTROL (npx vitest run --config vitest.control.config.ts) =====
+
+ Test Files  1 passed (1)
+      Tests  17 passed (17)
+   Start at  20:41:04
+   Duration  2.48s (transform 425ms, setup 71ms, import 834ms, tests 838ms, environment 637ms)
+
+
+===== MUTANT (npx vitest run --config vitest.mutant.config.ts) =====
+     × the run-actions menu offers only Delete — no Chain item (FIX-584), even with onChainPipeline wired as in production 49ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+ FAIL  WorkflowHistory.test.tsx > WorkflowHistory — row actions with onOpenRun wired (T3-chaining-reachable; Chain item removed by FIX-584) > the run-actions menu offers only Delete — no Chain item (FIX-584), even with onChainPipeline wired as in production
+AssertionError: expected [ <button …(3)>…(1)</button>, …(1) ] to have a length of 1 but got 2
+ Test Files  1 failed (1)
+      Tests  1 failed | 16 passed (17)

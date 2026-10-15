@@ -1,0 +1,50 @@
+--- a/frontend/src/components/preview/PreviewPanel.tsx
++++ b/frontend/src/components/preview/PreviewPanel.tsx
+@@ -812,6 +812,7 @@
+   // reset effect below). This avoids threading git_tag through VersionView or
+   // changing handleSelectVersion's signature.
+   const intendedSandboxRef = useRef<string | null>(null);
++  const selectGen = useRef(0);
+   // Phase 42-02 (§B / RUNUI-06) — latch for the state-keyed default-tab effect: the
+   // last generic run-state we auto-applied a tab for. Keyed on the state VALUE so the
+   // auto-select fires once per state transition and never overrides a later manual
+@@ -882,6 +883,7 @@
+   // version never also changes which tab is showing), and is passed explicitly
+   // by the chat deep-link consumer, which switches BOTH at once.
+   const handleSelectVersion = useCallback(async (memberId: string, tab: PanelTab = activeTab) => {
++    const gen = ++selectGen.current;
+     // ISS-296 — the menu is the primary way a version gets pinned, so it must
+     // WRITE the pin into the URL, not only into local state: the
+     // `/versions/{v}` segment is what makes a pin shareable, refreshable and
+@@ -911,12 +913,12 @@
+     const token = getToken();
+     try {
+       const run = await getWorkflow(token || "", memberId);
+-      setViewingVersion(versionViewFrom(run));
++      if (gen === selectGen.current) setViewingVersion(versionViewFrom(run));
+     } catch (err) {
+       // Read-only view is best-effort — never throw into the preview surface.
+       // Dev-observability only: log the swallowed failure; fallback unchanged.
+       console.warn("[revision-family] read-only version fetch failed", err);
+-      setViewingVersion(null);
++      if (gen === selectGen.current) setViewingVersion(null);
+     }
+   }, [unpinnedRunId, sortedMembers, onTabSelect, onOpenLiveRun, activeTab]);
+ 
+@@ -980,7 +982,7 @@
+   // this still supersedes in every case the old comment meant, and in none of the
+   // ones it did not. With nothing pinned the effect is a no-op, so FIX-088's
+   // "revision completes → follow to latest" path is untouched.
+-  useEffect(() => { if (!pinnedVersion) setViewingVersion(null); }, [pinnedVersion]);
++  useEffect(() => { if (!pinnedVersion) { selectGen.current++; setViewingVersion(null); } }, [pinnedVersion]);
+ 
+   // ─── ISS-230 — the URL's `/versions/{v}` pin, applied ────────────────────────
+   // A pinned deep link opens the family ROOT in the shell (contentSourceRunId →
+@@ -998,6 +1000,7 @@
+   const pinnedMemberTag = pinnedMember?.git_tag ?? null;
+   useEffect(() => {
+     if (!pinnedMemberId) return;
++    selectGen.current++;
+     // QA-PS-056 — the URL pin has to carry its git TAG as well as its run id.
+     // SandboxTab already threads `selectedRef` through every one of its reads
+     // (SandboxTab.tsx:1046/1085/1106/1119) and the version MENU already stages the

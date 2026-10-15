@@ -1,0 +1,21 @@
+# Sibling IdeaInputPage test files, each run alone. cwd frontend/, HEAD 024c03ef8 + uncommitted tree, 2026-10-02 00:37 CEST
+declaredCapabilities:  Tests 2 passed (2)
+designPicker:  Tests 1 failed | 1 passed (2)
+imageInput:  Tests 2 passed (2)
+iss766:  Tests 2 passed (2)
+iss777:  Tests 2 passed (2)
+modelOverrides:  Tests 2 passed (2)
+selections:  Tests 4 passed (4)
+staleExtractionBrief:  Tests 3 passed (3)
+textTruncation:  Tests 1 passed (1)
+
+## designPicker failure detail (working tree)
+     × does not offer the picker for a workflow that never declares opendesign 116ms
+AssertionError: expected { gate_agent_ids: [] } to be undefined
+ ❯ src/components/workflow/IdeaInputPage.designPicker.test.tsx:159:25
+
+## designPicker against HEAD's IdeaInputPage.tsx (pre-fix; same short-lived-sibling method as 09)
+     × does not offer the picker for a workflow that never declares opendesign 101ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+AssertionError: expected { gate_agent_ids: [] } to be undefined
+      Tests  1 failed | 1 passed (2)

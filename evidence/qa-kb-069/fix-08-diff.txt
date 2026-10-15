@@ -1,0 +1,26 @@
+# fix-08 — the complete diff of this fix (git diff, 2026-10-07)
+diff --git a/frontend/src/components/preview/RunHeader.tsx b/frontend/src/components/preview/RunHeader.tsx
+index df4249121..14eb97a59 100644
+--- a/frontend/src/components/preview/RunHeader.tsx
++++ b/frontend/src/components/preview/RunHeader.tsx
+@@ -311,7 +311,7 @@ export function RunHeader({
+       getRunSandboxRefs(token, activeRunId)
+         .then((t) => { if (!cancelled) setTags(t); })
+         .catch(() => { if (!cancelled) setTags([]); });
+-    });
++    }).catch(() => {});
+     return () => { cancelled = true; };
+   }, [activeRunId]);
+   const hasTags = tags.length > 0;
+diff --git a/frontend/src/components/results/AgentDetailPanel.artifactVersions.test.tsx b/frontend/src/components/results/AgentDetailPanel.artifactVersions.test.tsx
+index 6aeb03be6..346c288e8 100644
+--- a/frontend/src/components/results/AgentDetailPanel.artifactVersions.test.tsx
++++ b/frontend/src/components/results/AgentDetailPanel.artifactVersions.test.tsx
+@@ -16,6 +16,7 @@ const getRunArtifacts = vi.fn();
+ vi.mock("@/lib/api", () => ({
+   getRunArtifacts: (...args: unknown[]) => getRunArtifacts(...args),
+   getToken: () => "test-token",
++  getCapabilities: async () => ({ capabilities: [], model_catalog: [] }),
+ }));
+ 
+ function specNode(over: Record<string, unknown>): Record<string, unknown> {

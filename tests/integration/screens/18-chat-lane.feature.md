@@ -55,13 +55,16 @@ for phase 2 — but the non-narrator branches are unverified.
 
 | Message | Action offered |
 |---|---|
-| "Before I build, I need to lock a few things down." | `Answer in Steps` |
-| "Clarifications answered" | `Answer in Steps` |
+| "Round <n>: Before I build, I need to lock a few things down." | `Answer in Steps` |
+| "Clarifications round <n> answered" | `Answer in Steps` |
 | "Run started" | `Open in Steps` |
 | "Review approved — build continues" | *(none)* |
 | "Cancelled by you" | `Open in Steps` |
 | "What went wrong" | `Open in Steps` |
 | "Deliverable" / "Delivered — open in Preview →" | `Open in Preview` |
+
+`<n>` is the clarify round (FIX-517). Rows recorded before that fix carry no round
+and read the same text without the round number.
 
 Note every action sends the user to a **tab**, never elsewhere. The lane narrates;
 the tabs hold the detail.
@@ -213,14 +216,16 @@ Feature: The concierge chat lane
   @defect
   # D-21. The prototype run's transcript repeats itself.
   Scenario: The clarification exchange is not duplicated
-    Given the completed prototype run
+    Given a completed run whose transcript asks for clarifications more than once
     When I cold-load "/runs/{id}"
-    Then "Before I build, I need to lock a few things down." appears once
-    And "Clarifications answered" appears once
-    # Today each appears TWICE, with different data-message-ids and identical
-    # text and actions. Two clarification rounds would explain it; two identical
-    # rounds reading as a repeat is the defect. Written as it SHOULD be, so this
-    # is red until resolved either way.
+    Then no two clarification requests read the same
+    And no two "Clarifications round <n> answered" notes read the same
+    # Today a run whose agents ask more than once shows one pair per ask, every
+    # one "Round 1", with different data-message-ids and identical text and
+    # actions: each ask_user pass numbers its rounds from 1 (ISS-993). Rounds of
+    # one pass are numbered (FIX-517), so a count cannot tell rounds from a
+    # repeat; identical text is the defect. Written as it SHOULD be, so this is
+    # red until resolved either way.
 
   @S-18-09
   @unverified

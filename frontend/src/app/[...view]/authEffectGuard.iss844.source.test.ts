@@ -32,7 +32,9 @@ describe("page.tsx auth-check effect — ISS-844 one-shot guard", () => {
     const startMarker = "// Auth check on mount";
     const start = src.indexOf(startMarker);
     expect(start).toBeGreaterThan(-1);
-    const endMarker = "}, [router, dispatch]);";
+    // The effect's own close, never its dependency list: "}, [router, dispatch]);"
+    // also closes a second effect further down page.tsx (ISS-1027).
+    const endMarker = "\n  }, [";
     const end = src.indexOf(endMarker, start);
     expect(end).toBeGreaterThan(start);
     const body = src.slice(start, end);
@@ -40,6 +42,7 @@ describe("page.tsx auth-check effect — ISS-844 one-shot guard", () => {
     // Sanity: this is genuinely the effect ISS-844 describes — if these
     // markers move, the slice above is no longer the right effect and this
     // test would otherwise pass/fail for the wrong reason.
+    expect(body.match(/\buseEffect\(/g)).toHaveLength(1);
     expect(body).toContain("dispatch(signedIn(");
     expect(body).toContain("getMe(storedToken)");
 

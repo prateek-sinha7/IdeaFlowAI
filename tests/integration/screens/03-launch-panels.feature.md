@@ -162,24 +162,18 @@ Feature: Launching a workflow
     Then I see the eyebrow "BRANCH BY LANGUAGE"
     And I see the agent control "Advanced 5 agents"
     # This is the create-workflow branch of parseViewPath, which carries the raw
-    # pipelineType through initialWorkflowTypeFor. It is the ONLY create route
-    # that resolves its type correctly on a cold load — see the next scenario.
+    # pipelineType through initialWorkflowTypeFor.
 
   @S-03-09
-  @defect
-  # D-01. /create/app is supposed to launch app_builder. It renders the
-  # user_stories panel instead, because initialWorkflowTypeFor
-  # (app/[...view]/page.tsx:307) returns a type only for `create-workflow`, so
-  # the two hand-written screens reach the panel with no type and fall back to
-  # the default. Written to today's behaviour so the fix turns this red.
-  Scenario: Cold-loading /create/app shows the user-stories panel
+  # D-01, resolved (BUG-023): initialWorkflowTypeFor maps `create-app` to
+  # app_builder. The copy is app_builder's curated panel copy, not the Home
+  # card's display_name. No agent count: an account's "My app_builder"
+  # override changes it.
+  Scenario: Cold-loading /create/app shows the app-builder panel
     When I cold-load "/create/app"
-    Then I see the eyebrow "GENERATE PRODUCT REQUIREMENTS"
-    And I see the agent control "Advanced 7 agents"
-    And the screen is identical to "/create/user-stories"
-    # CORRECT behaviour, once fixed:
-    #   Then I see the eyebrow "BUILD AN END-TO-END APPLICATION"
-    #   And I see the agent control "Advanced 1 agents"
+    Then I see the heading "Describe the application"
+    And I see the eyebrow "GENERATE A FULL-STACK APPLICATION"
+    And I do not see the heading "Provide the brief"
 
   # ---------- Shared behaviour ----------
 

@@ -1046,6 +1046,9 @@ describe("ComposerPage — drag reorder", () => {
     renderComposer(
       {
         workflowType: "user_stories",
+        // Lock roles follow the built-in canvas being edited (builtinCanvasType),
+        // not workflowType, on this branch: a blank canvas ("custom") locks nothing.
+        builtinCanvasType: "user_stories",
         initialAgentIds: ["domain-analyst", "epic-architect", "story-estimator"],
       },
     );

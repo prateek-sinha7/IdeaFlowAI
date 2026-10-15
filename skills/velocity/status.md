@@ -39,6 +39,7 @@ machine-readably.
 | `source files changed` | `backend/`+`frontend/` churn since the sync point — if non-zero the architecture needs a full rebuild, not `--skip-architecture` |
 | `ID scheme conformance` | cards whose ID prefix is a valid TYPE_CODE (`FIX`/`BUG`/`ISS`/`ADR`) |
 | `staged proposals` | files sitting in `.stage/` awaiting approval — reported as PENDING, never STALE, since staged work is deliberate |
+| `domain prose` | DOMAIN cards whose `prose_signature` matches their `code_signature`. STALE names the cards needing a pass, including any the architecture build never stamped. UNKNOWN means the architecture build is behind the tree (`source files covered` or `source files changed` is STALE): both stamps froze at that build, so they prove nothing until the full rebuild runs. UNKNOWN is never counted as stale itself |
 
 ## Two trees
 

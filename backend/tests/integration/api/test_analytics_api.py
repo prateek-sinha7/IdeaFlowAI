@@ -220,6 +220,44 @@ def test_owner_isolation(env):
 
 
 # ────────────────────────────────────────────────────────────────────────────
+# ISS-289 — the "Prototype" filter groups the whole prototype family (v1 + v2).
+# ────────────────────────────────────────────────────────────────────────────
+
+
+def test_pipeline_filter_groups_the_prototype_v1_and_v2_family(env):
+    """The single "Prototype" filter the UI exposes narrows to the whole prototype
+    family — v1 base + revision and v2 base + its two revision shapes — and never
+    leaks a run from another family, nor a same-prefix-but-unrelated type."""
+    a = _seed_user(env)
+    family = (
+        "prototype",
+        "prototype_revision",
+        "prototype_v2",
+        "prototype_v2_revision",
+        "prototype_v2_feature_revision",
+    )
+    for t in family:
+        _seed_run(env, a.id, type=t, token_usage=_token_usage(0.10, 100, 50))
+    # Decoys that must NOT leak in: another family, and a same-prefix-but-unrelated
+    # type the EXPLICIT family set deliberately excludes (no prefix matching).
+    _seed_run(env, a.id, type="ppt", token_usage=_token_usage(9.0, 999, 999))
+    _seed_run(
+        env, a.id, type="prototype_unrelated", token_usage=_token_usage(9.0, 999, 999)
+    )
+
+    env["state"]["user"] = a
+    resp = _get(env, range="all", pipeline="prototype")
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+
+    # Every prototype-family run is counted; the two decoys never enter the rollup.
+    assert body["kpis"]["total"] == len(family)
+    types = {p["type"] for p in body["pipelines"]}
+    assert types == set(family)
+    assert "ppt" not in types and "prototype_unrelated" not in types
+
+
+# ────────────────────────────────────────────────────────────────────────────
 # recompute — SC-1: ?range=7d totals == the hand-computed in-window sum only.
 # ────────────────────────────────────────────────────────────────────────────
 

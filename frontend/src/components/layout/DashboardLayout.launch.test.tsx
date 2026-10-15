@@ -423,7 +423,7 @@ describe("DashboardLayout launch", () => {
 
   describe("rejected launch", () => {
     it("returns to the input view when the launch is not accepted", async () => {
-      const onStartPipeline = vi.fn().mockResolvedValue(false);
+      const onStartPipeline = vi.fn().mockResolvedValue(null); // ISS-1137: null = the launch was refused
       renderLayout({ onStartPipeline });
       stageRun();
       let accepted: unknown;
@@ -432,13 +432,13 @@ describe("DashboardLayout launch", () => {
         accepted = await probe.ideaProps?.onRun("Build a todo app", ["a1"], "user_stories" as WorkflowType);
       });
 
-      expect(accepted).toBe(false);
+      expect(accepted).toBeNull();
       expect(await screen.findByRole("region", { name: "Idea input page" })).toBeInTheDocument();
       expect(screen.queryByRole("region", { name: "Run lane" })).not.toBeInTheDocument();
     });
 
     it("stays on the execution view when the launch is accepted", async () => {
-      const onStartPipeline = vi.fn().mockResolvedValue(true);
+      const onStartPipeline = vi.fn().mockResolvedValue("run-1"); // ISS-1137: the launched run id
       renderLayout({ onStartPipeline });
       let accepted: unknown;
 
@@ -446,7 +446,7 @@ describe("DashboardLayout launch", () => {
         accepted = await probe.ideaProps?.onRun("Build a todo app", ["a1"], "user_stories" as WorkflowType);
       });
 
-      expect(accepted).toBe(true);
+      expect(accepted).toBe("run-1");
       expect(region("Run lane")).toBeInTheDocument();
       expect(screen.queryByRole("region", { name: "Idea input page" })).not.toBeInTheDocument();
     });

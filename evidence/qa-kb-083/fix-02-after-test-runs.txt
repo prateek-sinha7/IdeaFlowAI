@@ -1,0 +1,38 @@
+# QA-KB-083 fix, AFTER the edit. HEAD 21191b09c + working tree. 2026-10-07T17:51Z
+# each file alone from backend/: .venv/bin/python -m pytest <file> -q -p no:cacheprovider [-rxXs]
+
+=== tests/integration/api/test_settings_model_gate_effective_tier_api.py
+FFF                                                                      [100%]
+=================================== FAILURES ===================================
+___ test_put_premium_model_refused_when_groups_say_basic_but_column_says_pro ___
+[XPASS(strict)] ISS-937 unfixed
+_ test_get_marks_premium_disallowed_when_groups_say_basic_but_column_says_pro __
+[XPASS(strict)] ISS-937 unfixed
+___ test_get_marks_premium_allowed_when_groups_say_pro_but_column_says_basic ___
+[XPASS(strict)] ISS-937 unfixed
+app/core/config.py:94
+
+.venv/lib/python3.13/site-packages/fastapi/testclient.py:1
+
+.venv/lib/python3.13/site-packages/starlette/testclient.py:53
+
+3 failed, 3 warnings in 1.09s
+exit: 1
+
+=== tests/security/test_no_projection_reads.py
+..                                                                       [100%]
+app/core/config.py:94
+
+2 passed, 1 warning in 1.29s
+exit: 0
+
+=== tests/integration/api/test_settings_preferences_race_api.py
+.                                                                        [100%]
+app/core/config.py:94
+
+1 passed, 1 warning in 1.00s
+exit: 0
+
+=== tests/integration/api/test_settings_model_gate_effective_tier_api.py --runxfail (assertions themselves)
+3 passed, 3 warnings in 1.47s
+exit: 0

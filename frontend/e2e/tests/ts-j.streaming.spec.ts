@@ -147,11 +147,11 @@ test.describe("TS-J — live streaming / planner / execution gate (Steps tab)", 
   });
 
   test("TS-J-06 generic overview renders the prototype pipeline (SC-001, no name gate)", async ({ dashboard, mockSse }) => {
-    // AGENTS.od_prototype carries the prototype-specify/-plan/-build/-validate
+    // AGENTS.prototype carries the prototype-specify/-plan/-build/-validate
     // ids; the bespoke PrototypePipelineView was retired (Phase 32 / SC-001), so
     // prototype runs now render through the SAME generic overview spine.
-    const agents = AGENTS.od_prototype;
-    mockSse.start(agents, { pipelineType: "od_prototype" });
+    const agents = AGENTS.prototype;
+    mockSse.start(agents, { pipelineType: "prototype" });
     mockSse.agentStart(agents[0].id); // prototype-specify (Spec Writer) running
     await dashboard.thinkingTab().click();
 

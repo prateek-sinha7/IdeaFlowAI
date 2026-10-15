@@ -46,9 +46,9 @@ def _uvicorn_graceful_window_seconds() -> float:
 # 1. Reachability — a real subprocess, a live stream, a real SIGTERM
 # ════════════════════════════════════════════════════════════════════════════
 # Deliberately NOT an import of app.main: booting the real application runs
-# restore_non_terminal_runs() (main.py:238), which auto-resumes in-flight runs. This
+# restore_non_terminal_runs() in its lifespan, which auto-resumes in-flight runs. This
 # app mirrors only the shape under test — a lifespan whose shutdown half records that
-# it ran, and the same sse_starlette.EventSourceResponse run_stream.py:421 uses.
+# it ran, and the same sse_starlette.EventSourceResponse stream_run_events uses.
 _PROBE_APP_SOURCE = """
 import asyncio, json, os, time
 from contextlib import asynccontextmanager

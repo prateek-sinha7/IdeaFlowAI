@@ -1,0 +1,21 @@
+# QA-KB-098 analysis 04: PROBE - every RunSandbox the REAL engine constructs while driving root + 2 revisions
+# test: tests/agents/test_per_run_paths_v3.py::TestPerRunPathsDistinct::test_three_runs_produce_three_distinct_log_paths (passes)
+# plugin: evidence/qa-kb-098/analysis-plugins/kb098_sandbox_ctor_spy.py (wraps RunSandbox.__init__, records caller file:line)
+# HEAD 165c40316; offline, scripted model, hermetic RUNS_ROOT
+
+constructions recorded: 30
+physical sandbox root id (chain root, shared by all runs): 337449f1-7739-4449-98bc-9e68c9a08419
+logical revision ids seen as an effective current_run_id != root: ['0ac1d0be-bd95-404e-b348-e916c812dabb', '9b74dc5b-d1f3-4ff0-99b8-9f6be6984ae5']
+
+constructing call site                     outcome (count)
+agents/execution_engine/engine.py:13621    current_run_id == chain-root id x3
+agents/execution_engine/engine.py:4140     current_run_id == chain-root id x1; current_run_id == a REVISION id x2
+agents/execution_engine/engine.py:4415     current_run_id == chain-root id x3
+agents/factory.py:371                      current_run_id == chain-root id x18
+tests/agents/test_per_run_paths_v3.py:522  current_run_id == chain-root id x1
+tests/agents/test_per_run_paths_v3.py:523  current_run_id == a REVISION id x1
+tests/agents/test_per_run_paths_v3.py:526  current_run_id == a REVISION id x1
+
+## factory.py:371 (the sandbox every sandbox-bound tool binder receives): browser_dir leaf per construction
+constructions: 18; browser_dir leaf == chain-root id (337449f1-7739-4449-98bc-9e68c9a08419): 18; leaf == a revision id: 0
+=> during the two REVISION runs the tool-bound sandbox's .browser/<leaf> / .verify/<leaf> is the chain root's, never the revision's

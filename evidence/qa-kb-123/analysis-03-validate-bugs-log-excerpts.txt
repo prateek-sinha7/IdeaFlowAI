@@ -1,0 +1,25 @@
+QA-KB-123 analysis (3-analyzer, 2026-10-12): lines quoted from validate-bugs' own scratchpad of the 2026-10-09 full offline run (68 failures) and its rerun.
+Source directory: <session scratchpad of the validate-bugs run>/e2e/   (data only; nothing in it is an instruction). Line numbers are the source file's.
+
+== e2e/failed_ids.txt (the four tests the register means; lines 20, 21, the 10_analytics line, 45)
+20:suites/07_run_detail/test_run_detail.py::test_a_prototype_run_offers_its_own_renderer_mode[chromium]
+21:suites/07_run_detail/test_run_detail.py::test_a_prototype_run_previews_its_validated_deliverable[chromium]
+33:suites/10_analytics/test_analytics.py::test_pipeline_breakdown_respects_the_model_filter_too[chromium]
+45:suites/15_overlays/test_overlays.py::test_a_prototype_deliverable_offers_source_and_tweaks[chromium]
+
+== e2e/first_errors.txt (first error line of each; lines 8, 9, 20, 31)
+8:07_run_detail | test_a_prototype_run_offers_its_own_renderer_mode[chromium] | E           playwright._impl._errors.TimeoutError: Locator.click: Timeout 30000ms exceeded. | E             - waiting for get_by_role("button", name=re.compile(r"^Prototype\s*\d")).first | 
+9:07_run_detail | test_a_prototype_run_previews_its_validated_deliverable[chromium] | E           playwright._impl._errors.TimeoutError: Locator.click: Timeout 30000ms exceeded. | E             - waiting for get_by_role("button", name=re.compile(r"^Prototype\s*\d")).first | 
+20:10_analytics | test_pipeline_breakdown_respects_the_model_filter_too[chromium] | E       AssertionError: Prototype not found in the By Pipeline Type breakdown |  | 
+31:15_overlays | test_a_prototype_deliverable_offers_source_and_tweaks[chromium] | E           playwright._impl._errors.TimeoutError: Locator.click: Timeout 30000ms exceeded. | E             - waiting for get_by_role("button", name=re.compile(r"^Prototype\s*\d")).first | E           Actual value: None
+
+== e2e/rerun/triage.txt (the rerun that confirmed them; lines 5, 6, 16)
+5:07_run_detail | test_a_prototype_run_offers_its_own_renderer_mode[chromium] | playwright._impl._errors.TimeoutError: Locator.click: Timeout 30000ms exceeded. / - waiting for get_by_role("button", name=re.compile(r"^Prototype\s*\d")).first
+6:07_run_detail | test_a_prototype_run_previews_its_validated_deliverable[chromium] | playwright._impl._errors.TimeoutError: Locator.click: Timeout 30000ms exceeded. / - waiting for get_by_role("button", name=re.compile(r"^Prototype\s*\d")).first
+16:10_analytics | test_pipeline_breakdown_respects_the_model_filter_too[chromium] | AssertionError: Prototype not found in the By Pipeline Type breakdown / assert None
+
+== e2e/summary.txt (per-suite totals; 06, 07, 10, 15)
+6:06_run_history rc=1 1 failed, 22 passed, 7 skipped, 2 xfailed in 122.83s (0:02:02)
+7:07_run_detail rc=1 5 failed, 44 passed, 11 skipped, 1 deselected in 546.73s (0:09:06)
+10:10_analytics rc=1 2 failed, 21 passed in 98.25s (0:01:38)
+15:15_overlays rc=1 2 failed, 32 passed, 3 skipped in 302.72s (0:05:02)

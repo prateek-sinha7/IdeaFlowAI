@@ -1,0 +1,14 @@
+# QA-KB-119 fix probe, 2026-10-09T14:49Z, backend :8000 serving the fix
+# Script: evidence/qa-kb-119/fix-02-paged-walk-probe.py (read-only: POST /api/auth/login, GET /health, GET /api/runs/{id}/events)
+
+##### run 78e185fb-c032-4154-8552-774781b6e5df, after=<next_after>&limit=5000 until has_more is false
+walk: limit=5000 pages=22 events=107409 bytes=52912219 total=6.68s
+worst page: 0.44s, largest page: 2593397 bytes
+seq contiguous 1..N, no duplicate: True
+/health during the walk: n=25 worst=392ms p50=218ms over 300ms=5
+
+##### same run, limit=1000 (the server default page), for comparison only: getRunEvents asks for 5000 as ISS-1155 specifies
+walk: limit=1000 pages=108 events=107409 bytes=52922019 total=12.67s
+worst page: 0.25s, largest page: 1417384 bytes
+seq contiguous 1..N, no duplicate: True
+/health during the walk: n=109 worst=208ms p50=58ms over 300ms=0

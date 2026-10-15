@@ -1,0 +1,64 @@
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - ESM syntax in a file loaded as CommonJS (vitest.config.ts:1:1). Use a `.mjs` extension or set `"type": "module"` in the closest package.json
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+
+ RUN  v4.1.11 /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/frontend
+
+ ❯ src/components/results/AgentDetailPanel.artifactVersions.test.tsx (10 tests | 10 failed) 93ms
+     × selecting v1 renders v1's content instead of agent.output 30ms
+     × shows the read-only banner while an older version is on screen, and Back to latest restores agent.output 5ms
+     × renders no picker and behaves exactly as before without a runId 5ms
+     × keeps an older version readable while the agent is re-running 3ms
+     × selecting v1 repaints the spec pages card, not just the raw output 5ms
+     × Back to latest returns the card to the newest version 5ms
+     × selecting v1 repaints the governance-checks card body (AnalysisPreview) 22ms
+     × derives the artifact TYPE from the selected version, so a mid-re-run agent still gets its card 3ms
+     × selecting v1 repaints the task rows and the 'N planned' count (run 6e38b9a7) 7ms
+     × repaints the task TITLES when both versions plan the same number (run 5ecb990f) 5ms
+
+⎯⎯⎯⎯⎯⎯ Failed Tests 10 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/components/results/AgentDetailPanel.artifactVersions.test.tsx > AgentDetailPanel — per-artifact version viewing > selecting v1 renders v1's content instead of agent.output
+ FAIL  src/components/results/AgentDetailPanel.artifactVersions.test.tsx > AgentDetailPanel — per-artifact version viewing > shows the read-only banner while an older version is on screen, and Back to latest restores agent.output
+ FAIL  src/components/results/AgentDetailPanel.artifactVersions.test.tsx > AgentDetailPanel — per-artifact version viewing > renders no picker and behaves exactly as before without a runId
+ FAIL  src/components/results/AgentDetailPanel.artifactVersions.test.tsx > AgentDetailPanel — per-artifact version viewing > keeps an older version readable while the agent is re-running
+ FAIL  src/components/results/AgentDetailPanel.artifactVersions.test.tsx > AgentDetailPanel — ISS-085: the artifact cards follow the selected version > selecting v1 repaints the spec pages card, not just the raw output
+ FAIL  src/components/results/AgentDetailPanel.artifactVersions.test.tsx > AgentDetailPanel — ISS-085: the artifact cards follow the selected version > Back to latest returns the card to the newest version
+ FAIL  src/components/results/AgentDetailPanel.artifactVersions.test.tsx > AgentDetailPanel — ISS-085: the artifact cards follow the selected version > selecting v1 repaints the governance-checks card body (AnalysisPreview)
+ FAIL  src/components/results/AgentDetailPanel.artifactVersions.test.tsx > AgentDetailPanel — ISS-085: the artifact cards follow the selected version > derives the artifact TYPE from the selected version, so a mid-re-run agent still gets its card
+ FAIL  src/components/results/AgentDetailPanel.artifactVersions.test.tsx > AgentDetailPanel — ISS-087: the tasks card follows the selected version > selecting v1 repaints the task rows and the 'N planned' count (run 6e38b9a7)
+ FAIL  src/components/results/AgentDetailPanel.artifactVersions.test.tsx > AgentDetailPanel — ISS-087: the tasks card follows the selected version > repaints the task TITLES when both versions plan the same number (run 5ecb990f)
+Error: [vitest] No "getCapabilities" export is defined on the "@/lib/api" mock. Did you forget to return it from "vi.mock"?
+If you need to partially mock a module, you can use "importOriginal" helper inside:
+
+vi.mock(import("@/lib/api"), async (importOriginal) => {
+  const actual = await importOriginal()
+  return {
+    ...actual,
+    // your mocked methods
+  }
+})
+
+ ❯ src/components/results/AgentDetailPanel.tsx:1325:5
+    1323|     if (!token) return;
+    1324|     let cancelled = false;
+    1325|     getCapabilities(token)
+       |     ^
+    1326|       .then((palette) => {
+    1327|         if (cancelled) return;
+ ❯ Object.react_stack_bottom_frame node_modules/react-dom/cjs/react-dom-client.development.js:25989:20
+ ❯ runWithFiberInDEV node_modules/react-dom/cjs/react-dom-client.development.js:874:13
+ ❯ commitHookEffectListMount node_modules/react-dom/cjs/react-dom-client.development.js:13249:29
+ ❯ commitHookPassiveMountEffects node_modules/react-dom/cjs/react-dom-client.development.js:13336:11
+ ❯ commitPassiveMountOnFiber node_modules/react-dom/cjs/react-dom-client.development.js:15484:13
+ ❯ recursivelyTraversePassiveMountEffects node_modules/react-dom/cjs/react-dom-client.development.js:15439:11
+ ❯ commitPassiveMountOnFiber node_modules/react-dom/cjs/react-dom-client.development.js:15519:11
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/10]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  10 failed (10)
+   Start at  03:08:47
+   Duration  1.24s (transform 142ms, setup 55ms, import 336ms, tests 93ms, environment 415ms)
+

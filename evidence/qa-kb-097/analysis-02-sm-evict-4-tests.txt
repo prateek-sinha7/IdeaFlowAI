@@ -1,0 +1,39 @@
+# EXPERIMENT: kb097_sm_evict plugin = wrap ExecutionEngine.resume_run so StateMachine.forget_run(run_id) runs first (what resume_run_endpoint step 6b does at run_commands.py:745)
+...F                                                                     [100%]
+=================================== FAILURES ===================================
+___________ test_resume_dispatch_carries_rehydrated_planning_context ___________
+tests/integration/agents/test_restart_resume_db.py:5027: in test_resume_dispatch_carries_rehydrated_planning_context
+    assert _REHYDRATE_ANSWER in first, (
+E   AssertionError: D2: a resumed dispatch must carry the user's clarification answers; got:
+E     === ORIGINAL USER REQUEST ===
+E     Run the wave workflow.
+E     === END REQUEST ===
+E   assert 'SPINNAKER-SENTINEL' in '=== ORIGINAL USER REQUEST ===\nRun the wave workflow.\n=== END REQUEST ==='
+------------------------------ Captured log call -------------------------------
+WARNING  app.agents.checkpointer:checkpointer.py:61 Checkpointer: DATABASE_URL is not Postgres — using InMemorySaver. HITL pauses work within the process but do NOT survive a restart.
+WARNING  agents.artifacts.graph:graph.py:155 artifact kind 'sample-wave-plan' is outside ARTIFACT_KINDS — typed consumes routing and the FR-014 revision lookup match kinds EXACTLY, so a typo here is silently unroutable (IN-01 advisory; write proceeds)
+WARNING  app.agents.sandbox:sandbox.py:878 commit_all: nothing to commit (empty diff at step boundary) run=rh-user/rh-13ee065a message='step: sample-wave-plan'
+WARNING  agents.execution_engine.engine:engine.py:832 commit_in_sandbox: no changes staged for run=rh-13ee065a step=sample-wave-plan (has_git=true)
+WARNING  agents.artifacts.graph:graph.py:155 artifact kind 'sample-wave-worker' is outside ARTIFACT_KINDS — typed consumes routing and the FR-014 revision lookup match kinds EXACTLY, so a typo here is silently unroutable (IN-01 advisory; write proceeds)
+WARNING  agents.artifacts.graph:graph.py:155 artifact kind 'sample-wave-worker' is outside ARTIFACT_KINDS — typed consumes routing and the FR-014 revision lookup match kinds EXACTLY, so a typo here is silently unroutable (IN-01 advisory; write proceeds)
+WARNING  agents.execution_engine.kernel_services:kernel_services.py:754 update_wave_run_merge_state(step=sample-wave-worker) failed: 'ScopedStore' object has no attribute '_acquire'
+WARNING  agents.artifacts.graph:graph.py:155 artifact kind 'sample-wave-worker' is outside ARTIFACT_KINDS — typed consumes routing and the FR-014 revision lookup match kinds EXACTLY, so a typo here is silently unroutable (IN-01 advisory; write proceeds)
+WARNING  agents.artifacts.graph:graph.py:155 artifact kind 'sample-wave-worker' is outside ARTIFACT_KINDS — typed consumes routing and the FR-014 revision lookup match kinds EXACTLY, so a typo here is silently unroutable (IN-01 advisory; write proceeds)
+WARNING  agents.execution_engine.kernel_services:kernel_services.py:754 update_wave_run_merge_state(step=sample-wave-worker) failed: 'ScopedStore' object has no attribute '_acquire'
+ERROR    agents.execution_engine.engine:engine.py:2603 finalize_terminal_run: create_run_ref FAILED run=rh-13ee065a (run_id must be a UUID (hex digits and hyphens only): 'rh-13ee065a')
+=============================== warnings summary ===============================
+app/core/config.py:94
+  /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/app/core/config.py:94: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+    class Settings(BaseSettings):
+
+tests/integration/agents/test_restart_resume_db.py::test_midwave_resume_does_not_reinvoke_completed_workers
+tests/integration/agents/test_restart_resume_db.py::test_failed_run_resumes_skips_completed_tasks
+tests/integration/agents/test_restart_resume_db.py::test_user_resume_persists_output_columns
+tests/integration/agents/test_restart_resume_db.py::test_resume_dispatch_carries_rehydrated_planning_context
+  /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/agents/execution_engine/engine.py:1324: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    _ts = _dt.datetime.utcnow().isoformat(timespec="seconds") + "Z"
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/integration/agents/test_restart_resume_db.py::test_resume_dispatch_carries_rehydrated_planning_context
+1 failed, 3 passed, 5 warnings in 6.37s

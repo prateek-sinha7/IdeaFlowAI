@@ -1,0 +1,27 @@
+# QA-KB-108 fix: card test file, run after the change (2026-10-09T11:06Z)
+# cmd (from backend/): .venv/bin/python -m pytest tests/unit/api/test_login_provider_outage.py -q -p no:cacheprovider -rA
+# baseline before the change, same cmd: 2 passed, 1 xfailed
+F..                                                                      [100%]
+=================================== FAILURES ===================================
+_______________ test_expired_sso_login_is_handled_503_with_cors ________________
+[XPASS(strict)] ISS-1144 unfixed
+------------------------------ Captured log call -------------------------------
+ERROR    app.api.auth:auth.py:357 Cognito AdminInitiateAuth failed: TokenRetrievalError
+WARNING  app.auth.events:auth_events.py:164 {"auth_event":"login_failure","email_hash":"bc9cdf2ae59d17f7","provider":"cognito","reason":"provider_error:TokenRetrievalError"}
+=============================== warnings summary ===============================
+
+
+
+==================================== PASSES ====================================
+_______________ test_control_client_error_provider_5xx_stays_503 _______________
+------------------------------ Captured log call -------------------------------
+ERROR    app.api.auth:auth.py:357 Cognito AdminInitiateAuth failed: InternalErrorException
+WARNING  app.auth.events:auth_events.py:164 {"auth_event":"login_failure","email_hash":"bc9cdf2ae59d17f7","provider":"cognito","reason":"provider_error:InternalErrorException"}
+____________________ test_control_not_authorized_stays_401 _____________________
+------------------------------ Captured log call -------------------------------
+WARNING  app.auth.events:auth_events.py:164 {"auth_event":"login_failure","email_hash":"bc9cdf2ae59d17f7","provider":"cognito","reason":"unknown_user","provider_error_code":"NotAuthorizedException"}
+=========================== short test summary info ============================
+PASSED tests/unit/api/test_login_provider_outage.py::test_control_client_error_provider_5xx_stays_503
+PASSED tests/unit/api/test_login_provider_outage.py::test_control_not_authorized_stays_401
+FAILED tests/unit/api/test_login_provider_outage.py::test_expired_sso_login_is_handled_503_with_cors
+1 failed, 2 passed, 3 warnings in 1.53s

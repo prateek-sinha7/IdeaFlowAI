@@ -1,0 +1,13 @@
+# 07 fix run, 2026-10-02T10:57:15Z, ISS-981 audit-edge file
+$ .venv/bin/python -m pytest tests/integration/api/test_duplicate_context_guard_audit_api.py -q -p no:cacheprovider --runxfail   (local env as-is)
+E       AssertionError: {"detail":{"error":"Bedrock bearer token expired at 2026-10-02T08:00Z — rotate AWS_BEARER_TOKEN_BEDROCK and restart the backend.","code":"model_provider_unavailable","recoverable":false}}
+E       assert 503 == 200
+1 failed, 1 passed, 5 warnings in 1.17s
+
+$ AWS_BEARER_TOKEN_BEDROCK= .venv/bin/python -m pytest tests/integration/api/test_duplicate_context_guard_audit_api.py -q -p no:cacheprovider -rxX
+[XPASS(strict)] ISS-981 unfixed
+[XPASS(strict)] ISS-981 unfixed
+2 failed, 5 warnings in 0.99s
+
+$ (same, --runxfail)
+2 passed, 5 warnings in 1.05s

@@ -1,0 +1,19 @@
+== tests/agents/test_mechanical_publish_step.py (ISS-684 guard PRESENT)
+E       AssertionError: assert 'degraded' != 'degraded'
+tests/agents/test_mechanical_publish_step.py:301: AssertionError
+ERROR    agents.execution_engine.engine:engine.py:2603 finalize_terminal_run: create_run_ref FAILED run=harness-ex_publish_step-7c7af91e (run_id must be a UUID (hex digits and hyphens only): 'harness-ex_publish_step-7c7af91e')
+ERROR    agents.execution_engine.engine:engine.py:2790 finalize_terminal_run: DB session creation FAILED run=harness-ex_publish_step-7c7af91e ((builtins.Exception) offline harness
+FAILED tests/agents/test_mechanical_publish_step.py::test_engine_runs_mechanical_publish_step_end_to_end
+1 failed, 13 passed, 3 warnings in 2.11s
+== tests/agents/test_mechanical_assemble_backlog.py (ISS-684 guard PRESENT)
+8 passed, 2 warnings in 0.85s
+== tests/agents/test_resume_mechanical_steps.py (ISS-684 guard PRESENT)
+4 passed, 2 warnings in 0.86s
+== tests/agents/test_assemble_step.py (ISS-684 guard PRESENT)
+65 passed, 2 warnings in 0.90s
+== tests/agents/test_prototype_ui_extract.py (ISS-684 guard PRESENT)
+9 passed, 2 warnings in 8.30s
+== tests/unit/agents/execution_engine/test_compiler.py (ISS-684 guard PRESENT)
+35 passed, 1 warning in 1.67s
+== tests/unit/agents/test_registry_capabilities.py (ISS-684 guard PRESENT)
+120 passed, 1 warning in 1.27s

@@ -1,0 +1,15 @@
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - ESM syntax in a file loaded as CommonJS (vitest.config.ts:1:1). Use a `.mjs` extension or set `"type": "module"` in the closest package.json
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+
+ RUN  v4.1.11 /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/frontend
+
+ ✓ src/app/[...view]/terminalReopenReconcileLock.meta.test.ts > ISS-126 source-lock stays in step with page.tsx (QA-KB-071) > ISS-898: every applyTerminalStatus/reconcileTerminalStatus anchor in the lock occurs in page.tsx 9ms
+ ✓ src/app/[...view]/terminalReopenReconcileLock.meta.test.ts > ISS-126 source-lock stays in step with page.tsx (QA-KB-071) > ISS-1009: the reviewGateData case guards that its anchor was found before slicing 1ms
+ ✓ src/app/[...view]/terminalReopenReconcileLock.meta.test.ts > ISS-126 source-lock stays in step with page.tsx (QA-KB-071) > ISS-1010: the ordering case searches the replay loop from the reopen fetch 0ms
+
+ Test Files  1 passed (1)
+      Tests  3 expected fail (3)
+   Start at  19:05:03
+   Duration  612ms (transform 20ms, setup 57ms, import 10ms, tests 12ms, environment 439ms)
+

@@ -1,0 +1,83 @@
+FFF.FFFF..F.FFFFF                                                        [100%]
+=================================== FAILURES ===================================
+E   assert 0 == 1
+     +  where 0 = len([])
+------------------------------ Captured log call -------------------------------
+WARNING  agents.capabilities.hooks.provenance_audit:provenance_audit.py:156 ProvenanceAuditObserver.handle failed for run=06d364f8-606d-447c-b9d4-4130ea5b9d9f: 'ScopedStore' object has no attribute '_acquire' — commit stands; observer failure is isolated
+/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/tests/agents/test_provenance_audit.py:161: assert 0 == 1
+E   assert 0 == 1
+     +  where 0 = len([])
+------------------------------ Captured log call -------------------------------
+WARNING  agents.capabilities.hooks.provenance_audit:provenance_audit.py:156 ProvenanceAuditObserver.handle failed for run=0b03905b-26de-47f8-874e-4af02ea96c52: 'ScopedStore' object has no attribute '_acquire' — commit stands; observer failure is isolated
+/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/tests/agents/test_provenance_audit.py:200: assert 0 == 1
+E   AttributeError: 'ScopedStore' object has no attribute '_acquire'
+/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/agents/authz.py:1266: AttributeError: 'ScopedStore' object has no attribute '_acquire'
+E   AttributeError: 'ScopedStore' object has no attribute '_acquire'
+/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/agents/authz.py:1266: AttributeError: 'ScopedStore' object has no attribute '_acquire'
+E   assert 0 == 1
+     +  where 0 = len([])
+------------------------------ Captured log call -------------------------------
+WARNING  agents.capabilities.hooks.provenance_audit:provenance_audit.py:156 ProvenanceAuditObserver.handle failed for run=9b5efda7-6a2b-479f-8f66-de370cd99f5e: 'ScopedStore' object has no attribute '_acquire' — commit stands; observer failure is isolated
+/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/tests/agents/test_provenance_audit.py:361: assert 0 == 1
+E   assert 0 == 1
+     +  where 0 = len([])
+------------------------------ Captured log call -------------------------------
+WARNING  agents.capabilities.hooks.provenance_audit:provenance_audit.py:156 ProvenanceAuditObserver.handle failed for run=066cb787-ff34-4a0f-abcc-ec71be5c43da: 'ScopedStore' object has no attribute '_acquire' — commit stands; observer failure is isolated
+/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/tests/agents/test_provenance_audit.py:404: assert 0 == 1
+E   assert 0 == 1
+     +  where 0 = len([])
+------------------------------ Captured log call -------------------------------
+WARNING  agents.capabilities.hooks.provenance_audit:provenance_audit.py:156 ProvenanceAuditObserver.handle failed for run=7c1cd264-6d57-423a-a742-b62c122ca0b9: 'ScopedStore' object has no attribute '_acquire' — commit stands; observer failure is isolated
+/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/tests/agents/test_provenance_audit.py:453: assert 0 == 1
+E   AttributeError: 'ScopedStore' object has no attribute '_acquire'
+/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/agents/authz.py:1266: AttributeError: 'ScopedStore' object has no attribute '_acquire'
+E   assert 0 == 1
+     +  where 0 = len([])
+------------------------------ Captured log call -------------------------------
+WARNING  agents.capabilities.hooks.provenance_audit:provenance_audit.py:156 ProvenanceAuditObserver.handle failed for run=418c98d9-5ff3-4e6b-b616-79b8eb1c72f2: 'ScopedStore' object has no attribute '_acquire' — commit stands; observer failure is isolated
+/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/tests/agents/test_provenance_audit.py:648: assert 0 == 1
+E   assert 0 == 1
+     +  where 0 = len([])
+------------------------------ Captured log call -------------------------------
+WARNING  agents.capabilities.hooks.provenance_audit:provenance_audit.py:156 ProvenanceAuditObserver.handle failed for run=90eb38e4-9205-4278-a5a4-464b6028ece1: 'ScopedStore' object has no attribute '_acquire' — commit stands; observer failure is isolated
+/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/tests/agents/test_provenance_audit.py:648: assert 0 == 1
+E   assert 0 == 1
+     +  where 0 = len([])
+------------------------------ Captured log call -------------------------------
+WARNING  agents.capabilities.hooks.provenance_audit:provenance_audit.py:156 ProvenanceAuditObserver.handle failed for run=a016b032-1c52-48a0-a503-20050b4db295: 'ScopedStore' object has no attribute '_acquire' — commit stands; observer failure is isolated
+/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/tests/agents/test_provenance_audit.py:648: assert 0 == 1
+E   assert 0 == 1
+     +  where 0 = len([])
+------------------------------ Captured log call -------------------------------
+WARNING  agents.capabilities.hooks.provenance_audit:provenance_audit.py:156 ProvenanceAuditObserver.handle failed for run=6eab6193-c0c7-4f07-880e-3d9ffdc0c93b: 'ScopedStore' object has no attribute '_acquire' — commit stands; observer failure is isolated
+/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/tests/agents/test_provenance_audit.py:648: assert 0 == 1
+E   assert 0 == 1
+     +  where 0 = len([])
+------------------------------ Captured log call -------------------------------
+WARNING  agents.capabilities.hooks.provenance_audit:provenance_audit.py:156 ProvenanceAuditObserver.handle failed for run=21616d47-8a2d-4113-899d-228a227e77c6: 'ScopedStore' object has no attribute '_acquire' — commit stands; observer failure is isolated
+/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/tests/agents/test_provenance_audit.py:648: assert 0 == 1
+=============================== warnings summary ===============================
+app/core/config.py:94
+  /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/app/core/config.py:94: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+    class Settings(BaseSettings):
+
+tests/conftest.py:484
+  /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/tests/conftest.py:484: PytestUnknownMarkWarning: Unknown pytest.mark.agents - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    item.add_marker(getattr(pytest.mark, suite))
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/agents/test_provenance_audit.py::test_completed_run_writes_snapshot_commit_row
+FAILED tests/agents/test_provenance_audit.py::test_degraded_run_writes_snapshot_commit_row
+FAILED tests/agents/test_provenance_audit.py::test_legacy_chain_read_writes_chain_payload_installed_row
+FAILED tests/agents/test_provenance_audit.py::test_restore_writes_row_and_lookup_idempotent_restore
+FAILED tests/agents/test_provenance_audit.py::test_crash_recovered_run_writes_recovery_commit_row
+FAILED tests/agents/test_provenance_audit.py::test_audit_row_has_only_typed_columns_no_raw_content
+FAILED tests/agents/test_provenance_audit.py::test_cross_owner_cannot_read_audit_rows
+FAILED tests/agents/test_provenance_audit.py::test_bidirectional_reconstruction_via_source_ref
+FAILED tests/agents/test_provenance_audit.py::test_each_audited_operation_class_writes_a_row[snapshot_commit]
+FAILED tests/agents/test_provenance_audit.py::test_each_audited_operation_class_writes_a_row[recovery_commit]
+FAILED tests/agents/test_provenance_audit.py::test_each_audited_operation_class_writes_a_row[fragment_merge]
+FAILED tests/agents/test_provenance_audit.py::test_each_audited_operation_class_writes_a_row[merge_agent_commit]
+FAILED tests/agents/test_provenance_audit.py::test_each_audited_operation_class_writes_a_row[restore]
+13 failed, 4 passed, 2 warnings in 1.15s

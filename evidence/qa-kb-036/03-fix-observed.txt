@@ -1,0 +1,46 @@
+# QA-KB-036 fix phase — raw observed output (2026-10-01 21:45 CEST, worktree feat/user-stories-v2, cwd backend/)
+
+## 1. ruff F841,F821 — PRE-FIX (HEAD text on stdin, same args/filename/config)
+$ git show HEAD:backend/app/api/run_commands.py | .venv/bin/python -m ruff check --select F841,F821 --output-format concise --stdin-filename app/api/run_commands.py -
+app/api/run_commands.py:838:9: F841 Local variable `failed` is assigned to but never used
+app/api/run_commands.py:851:9: F841 Local variable `degraded` is assigned to but never used
+Found 2 errors.
+No fixes available (2 hidden fixes can be enabled with the `--unsafe-fixes` option).
+exit=1
+
+## 2. ruff F841,F821 — POST-FIX (working tree; the unit test's exact argv)
+$ .venv/bin/python -m ruff check app/api/run_commands.py --select F841,F821 --output-format concise
+All checks passed!
+exit=0
+
+## 3. repro step 1 + all backend FIX-247 sites
+$ grep -n FIX-247 app/api/run_commands.py ; grep -rn FIX-247 . --include=*.py --exclude-dir=.venv
+exit=1 (1 = no match)
+
+## 4. AST scan of _reconcile_terminal_status
+$ .venv/bin/python ../evidence/qa-kb-036/analyze/ast_scan.py app/api/run_commands.py degraded failed _latest_complete degraded_current failed_current
+function lines 798-1004
+  _latest_complete   Store  line 842
+  degraded_current   Store  line 920
+  failed_current     Store  line 925
+  degraded_current   Load   line 929
+  failed_current     Load   line 931
+  _latest_complete   Load   line 970
+  _latest_complete   Load   line 971
+
+## 5. unit test (strict xfail) — XPASS(strict) is the pass signal
+$ .venv/bin/python -m pytest tests/unit/test_run_commands_dead_locals.py -q -p no:cacheprovider -rA
+[XPASS(strict)] ISS-689 unfixed
+FAILED tests/unit/test_run_commands_dead_locals.py::test_run_commands_has_no_unused_locals
+1 failed, 1 warning in 1.35s
+
+## 6. integration: -k "fix484 or persists_error"
+6 passed, 77 deselected, 1 warning in 1.32s
+
+## 7. integration: -k reconcile
+22 passed, 61 deselected, 1 warning in 1.82s
+
+## 8. caller check (stop path)
+1 passed, 3 warnings in 1.19s
+
+## Baselines observed BEFORE the edit, same session: unit test '1 xfailed' (UnitIsolationError, see --runxfail run), fix484|persists_error '6 passed', reconcile '22 passed'.

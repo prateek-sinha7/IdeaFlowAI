@@ -1,0 +1,31 @@
+# 12 regression, 2026-10-07T15:51:51Z, one file at a time. after = shared tree (HEAD afdeefa03); before = scratch copy with ONLY the four ISS-981 guard hunks reversed
+  (scratch pending-row markers while reversed: 11)
+tests/integration/api/test_rest_run_launch_api.py
+  after:  4 failed, 20 passed, 1 xfailed, 5 warnings in 2.33s
+          FAILED tests/integration/api/test_rest_run_launch_api.py::test_driver_persists_full_agent_history_like_ws
+          FAILED tests/integration/api/test_rest_run_launch_api.py::test_foreign_source_drops_the_link_but_still_launches
+          FAILED tests/integration/api/test_rest_run_launch_api.py::test_unknown_source_drops_the_link_but_still_launches
+          FAILED tests/integration/api/test_rest_run_launch_api.py::test_driver_persists_model_id_and_prices_non_circular
+  before: 4 failed, 20 passed, 1 xfailed, 5 warnings in 2.32s
+          FAILED tests/integration/api/test_rest_run_launch_api.py::test_driver_persists_full_agent_history_like_ws
+          FAILED tests/integration/api/test_rest_run_launch_api.py::test_foreign_source_drops_the_link_but_still_launches
+          FAILED tests/integration/api/test_rest_run_launch_api.py::test_unknown_source_drops_the_link_but_still_launches
+          FAILED tests/integration/api/test_rest_run_launch_api.py::test_driver_persists_model_id_and_prices_non_circular
+tests/unit/test_run_commands_dead_locals.py
+  after:  1 passed, 1 warning in 1.38s
+  before: 1 passed, 1 warning in 1.21s
+tests/agents/test_prompt_ledger_v2.py
+  after:  1 failed, 53 passed, 2 warnings in 2.35s
+          FAILED tests/agents/test_prompt_ledger_v2.py::TestLedgerAC4NoRequestMd::test_request_md_absence_documented_in_engine
+  before: 1 failed, 50 passed, 3 skipped, 2 warnings in 2.13s
+          FAILED tests/agents/test_prompt_ledger_v2.py::TestLedgerAC4NoRequestMd::test_request_md_absence_documented_in_engine
+tests/unit/test_user_prompt_context.py
+  after:  7 passed, 1 warning in 1.11s
+  before: 7 passed, 1 warning in 0.99s
+  (before-only skips in test_prompt_ledger_v2.py are the scratch copy having no frontend/ dir: 'AgentDetailPanel.tsx not found')
+lint-imports (from backend/, config in backend/pyproject.toml)
+  after:  Contracts: 3 kept, 2 broken.
+  before: Contracts: 3 kept, 2 broken.
+  broken contracts (after): kernel imports only capability ports (scaffold) BROKEN;agents.capabilities must not import the execution kernel or the web layer BROKEN
+  lines naming run_commands in the lint-imports report: 0
+SC-001: grep -rnE 'if pipeline_type ==|spec\.id ==' backend/agents/execution_engine/ -> 0 hits

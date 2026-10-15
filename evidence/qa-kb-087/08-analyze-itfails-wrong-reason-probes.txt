@@ -1,0 +1,100 @@
+# 3-analyzer QA-KB-087, 2026-10-02 11:30 CEST. Probes behind the three 'wrong reason' siblings found by the it.fails scan (evidence 07). No repo file edited.
+
+## S-A  LibraryPage.copyFeedback.test.tsx (mirror copy, it.fails -> it)
+### as shipped, marker removed:
+ × src/components/library/LibraryPage.copyFeedback.test.tsx > HookDetailModal Copy button — ISS-331 > shows a failure state when the clipboard write rejects, instead of staying silent 3ms
+   → vi.mocked(...).mockReturnValue is not a function
+ × src/components/library/LibraryPage.copyFeedback.test.tsx > SkillDetailModal Copy button — ISS-555 > shows a failure state when the clipboard write rejects, instead of staying silent 0ms
+   → vi.mocked(...).mockReturnValue is not a function
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+TypeError: vi.mocked(...).mockReturnValue is not a function
+ ❯ src/components/library/LibraryPage.copyFeedback.test.tsx:98:26
+TypeError: vi.mocked(...).mockReturnValue is not a function
+ ❯ src/components/library/LibraryPage.copyFeedback.test.tsx:117:26
+      Tests  2 failed (2)
+### one-line harness fix: the factory's useParams: () => ({}) becomes vi.fn(() => ({})):
+ ✓ src/components/library/LibraryPage.copyFeedback.s2fix.test.tsx > HookDetailModal Copy button — ISS-331 > shows a failure state when the clipboard write rejects, instead of staying silent 111ms
+ ✓ src/components/library/LibraryPage.copyFeedback.s2fix.test.tsx > SkillDetailModal Copy button — ISS-555 > shows a failure state when the clipboard write rejects, instead of staying silent 37ms
+      Tests  2 passed (2)
+
+## S-B  IntegrationsCard.copyFeedback.test.tsx (mirror copy, it.fails -> it)
+### as shipped, marker removed (the failing lookup and the DOM it searched):
+ ✓ src/components/handoff/IntegrationsCard.copyFeedback.test.tsx > IntegrationsCard install-command Copy button — ISS-561 > shows a failure state when the clipboard write rejects, instead of staying silent 97ms
+ × src/components/handoff/IntegrationsCard.copyFeedback.test.tsx > IntegrationsCard API-key 'copy now' button — ISS-561 > shows SOME feedback after clicking the newly-minted-key copy button 32ms
+   → Unable to find an accessible element with the role "button"
+There are no accessible roles. But there might be some inaccessible roles. If you wish to access them, then set the `hidden` option to `true`. Learn more about this here: https://testing-library.com/docs/dom-testing-library/api-queries#byrole
+  class="font-semibold mb-1"
+  New key — copy now
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+TestingLibraryElementError: Unable to find an accessible element with the role "button"
+There are no accessible roles. But there might be some inaccessible roles. If you wish to access them, then set the `hidden` option to `true`. Learn more about this here: https://testing-library.com/docs/dom-testing-library/api-queries#byrole
+  class="font-semibold mb-1"
+  New key — copy now
+     94|     const keyBanner = screen.getByText("New key — copy now").closest("…
+### .closest("div") -> .parentElement on the keyBanner line:
+ ✓ src/components/handoff/IntegrationsCard.copyFeedback.s3fix.test.tsx > IntegrationsCard install-command Copy button — ISS-561 > shows a failure state when the clipboard write rejects, instead of staying silent 96ms
+ ✓ src/components/handoff/IntegrationsCard.copyFeedback.s3fix.test.tsx > IntegrationsCard API-key 'copy now' button — ISS-561 > shows SOME feedback after clicking the newly-minted-key copy button 35ms
+      Tests  2 passed (2)
+
+## S-C  ArtifactVersionPicker.iss802.test.tsx
+### the shipped StrictMode case, marker removed (mirror), and the same shape with in-place module resolution (real component path, real @ alias):
+ × src/components/results/ArtifactVersionPicker.iss802.test.tsx > ArtifactVersionPicker list-fetch effect under StrictMode (QA-PS-049 / ISS-802) > fires getRunArtifacts exactly once per agent selection, not twice 1035ms
+   → expected "vi.fn()" to be called at least once
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+AssertionError: expected "vi.fn()" to be called at least once
+      Tests  1 failed (1)
+INPLACE STRICT calls over time: [0,0,0,0,0,0]
+INPLACE PLAIN calls over time: [1,1,1,1,1,1]
+### effect trace on an instrumented mirror-only copy of the component (console.log added to setup, cleanup, resume, catch):
+stdout | src/components/results/ArtifactVersionPicker.dbg.test.tsx > debug > StrictMode: how many calls over time
+EFFECT setup w50o
+EFFECT cleanup w50o
+EFFECT setup 8fzg
+stdout | src/components/results/ArtifactVersionPicker.dbg.test.tsx > debug > StrictMode: how many calls over time
+EFFECT resumed after import w50o cancelled = true
+stdout | src/components/results/ArtifactVersionPicker.dbg.test.tsx > debug > StrictMode: how many calls over time
+EFFECT resumed after import 8fzg cancelled = false
+stderr | src/components/results/ArtifactVersionPicker.dbg.test.tsx > debug > StrictMode: how many calls over time
+stdout | src/components/results/ArtifactVersionPicker.dbg.test.tsx > debug > StrictMode: how many calls over time
+EFFECT caught 8fzg ApiError: Not authenticated
+stdout | src/components/results/ArtifactVersionPicker.dbg.test.tsx > debug > StrictMode: how many calls over time
+STRICT calls over time: [0,0,0,0,0,0,0,0] body: <div></div>
+stdout | src/components/results/ArtifactVersionPicker.dbg.test.tsx > debug > StrictMode: how many calls over time
+EFFECT cleanup 8fzg
+stdout | src/components/results/ArtifactVersionPicker.dbg.test.tsx > debug > no StrictMode: how many calls over time
+EFFECT setup b5qv
+stdout | src/components/results/ArtifactVersionPicker.dbg.test.tsx > debug > no StrictMode: how many calls over time
+EFFECT resumed after import b5qv cancelled = false
+stderr | src/components/results/ArtifactVersionPicker.dbg.test.tsx > debug > no StrictMode: how many calls over time
+ ✓ src/components/results/ArtifactVersionPicker.dbg.test.tsx > debug > StrictMode: how many calls over time 229ms
+stdout | src/components/results/ArtifactVersionPicker.dbg.test.tsx > debug > no StrictMode: how many calls over time
+PLAIN calls over time: [1,1,1,1,1,1,1,1]
+stdout | src/components/results/ArtifactVersionPicker.dbg.test.tsx > debug > no StrictMode: how many calls over time
+EFFECT cleanup b5qv
+ ✓ src/components/results/ArtifactVersionPicker.dbg.test.tsx > debug > no StrictMode: how many calls over time 221ms
+### in place, both files (the network test is the real guard for FIX-636):
+ ✓ src/components/results/ArtifactVersionPicker.iss802.network.test.tsx > requests the run's artifact list once per agent selection under StrictMode 1019ms
+ ✓ src/components/results/ArtifactVersionPicker.iss802.test.tsx > ArtifactVersionPicker list-fetch effect under StrictMode (QA-PS-049 / ISS-802) > fires getRunArtifacts exactly once per agent selection, not twice 1032ms
+ Test Files  2 passed (2)
+      Tests  1 passed | 1 expected fail (2)
+
+## App side of all four guards is already fixed (read, not run)
+LibraryPage.tsx:249:                <span className="text-[11px] font-semibold text-status-failed">Copy failed</span>
+LibraryPage.tsx:369:                <span className="text-[11px] font-semibold text-status-failed">Copy failed</span>
+IntegrationsCard.tsx:87:    copied: keyCopied,
+IntegrationsCard.tsx:88:    failed: keyFailed,
+IntegrationsCard.tsx:276:                Copy failed
+IntegrationsCard.tsx:390:                {keyCopied ? (
+IntegrationsCard.tsx:395:                ) : keyFailed ? (
+IntegrationsCard.tsx:398:                    Copy failed
+ArtifactVersionPicker.tsx:126:        if (cancelled) return;
+
+## S-C (continued)  what the legacy case reads BEFORE FIX-636 (mirror-only copy of the component with the `if (cancelled) return;` line at ArtifactVersionPicker.tsx:126 removed)
+### legacy iss802.test.tsx case, marker removed, against the pre-fix effect:
+ PASS  fires getRunArtifacts exactly once per agent selection, not twice   61ms      -> Tests 1 passed (1): the spy reads 1 before the fix, so the case was never red for the double fetch
+### spy calls over time, StrictMode, pre-fix effect:   STRICT calls over time: [1,1,1,1,1,1,1,1]
+### the network test (a REAL copy in the mirror, so it imports the pre-fix component), against the pre-fix effect:
+ FAIL  requests the run's artifact list once per agent selection under StrictMode   1027ms
+   -> ["http://localhost:8000/api/runs/r1/artifacts","http://localhost:8000/api/runs/r1/artifacts"]: expected [ ...(2) ] to have a length of 1 but got 2
+### against the shipped (fixed) component, in place:  PASS 1019 ms (section above)
+Reading: the legacy spy case reads 1 before the fix and 0 after it, never the 2 requests that went out, so it cannot be red for ISS-802 and cannot XPASS. The network test reads 2 before and 1 after.

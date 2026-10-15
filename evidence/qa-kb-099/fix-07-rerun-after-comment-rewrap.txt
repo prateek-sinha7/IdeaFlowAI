@@ -1,0 +1,16 @@
+# QA-KB-099 fix 07: the two audit-note comments were re-wrapped to 88 columns (comment text only, same words). Re-run of all three files, one at a time. 2026-10-08T12:40:22Z
+$ .venv/bin/python -m pytest tests/unit/services/test_shutdown_reachability.py -q -p no:cacheprovider -rxXf
+[XPASS(strict)] ISS-896 unfixed
+  /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/app/core/config.py:94: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+FAILED tests/unit/services/test_shutdown_reachability.py::test_sigterm_reaches_the_lifespan_shutdown_half_while_a_stream_is_live
+1 failed, 7 passed, 1 warning in 7.89s
+$ .venv/bin/python -m pytest tests/unit/agents/test_phase3_cutover_verify.py -q -p no:cacheprovider -rxXf
+  /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/app/core/config.py:94: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+tests/unit/agents/test_phase3_cutover_verify.py::TestV2EventTypesAreEmittedByTheirProducers::test_run_finalization_failed_is_emitted_on_a_degraded_finalization
+4 passed, 2 warnings in 1.76s
+$ .venv/bin/python -m pytest tests/unit/test_run_shutdown_stale_citations.py -q -p no:cacheprovider -rxXf
+  /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/app/core/config.py:94: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+15 passed, 1 warning in 1.63s
+$ .venv/bin/ruff check tests/unit/services/test_shutdown_reachability.py tests/unit/agents/test_phase3_cutover_verify.py
+All checks passed!
+(no probe process left behind)

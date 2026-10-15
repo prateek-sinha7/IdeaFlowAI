@@ -1,0 +1,147 @@
+/**
+ * QA-KB-081 / ISS-909 fixer scratch check (NOT part of the repo).
+ * The Retry path the repo test cannot reach at HEAD, plus the deck DS step after the fix.
+ * Mocks follow frontend/src/components/workflow/LaunchWizard.iss909.test.tsx; the picker
+ * stub exposes selectedId so FIX-103's auto-select is observable.
+ */
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { renderWithProviders, screen, waitFor } from "@/test/renderWithProviders";
+import userEvent from "@testing-library/user-event";
+import { PROTO_AGENTS, PPT_AGENTS } from "@/components/workflow/__fixtures__/launchContract";
+import type { AgentDef } from "@/types/index";
+
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: vi.fn(), replace: vi.fn(), prefetch: vi.fn() }),
+}));
+vi.mock("@/lib/api", () => ({
+  getToken: () => "test-token",
+  getMe: vi.fn().mockResolvedValue({ id: "u1", email: "qa@flowinqa.com", tier: "enterprise" }),
+  extractFileText: vi.fn(),
+  stageRunFile: vi.fn(),
+  createUserWorkflow: vi.fn().mockResolvedValue({ id: "wf-1" }),
+  saveUserWorkflow: vi.fn().mockResolvedValue({ id: "wf-1" }),
+  handleSessionExpiry: vi.fn(),
+  getWorkflowDetail: vi.fn().mockResolvedValue({
+    id: "x", steps: [], manifest_steps: null, has_override: false, is_overridden: false, override_id: null,
+  }),
+  setWorkflowOverrideEnabled: vi.fn().mockResolvedValue({}),
+}));
+vi.mock("@/lib/prototype-api", () => ({
+  listPrototypeTemplates: vi.fn(),
+  listDesignSystems: vi.fn(),
+}));
+vi.mock("@/lib/ppt-api", () => ({ listPPTTemplates: vi.fn() }));
+vi.mock("@/hooks/useSpeechRecognition", () => ({
+  useSpeechRecognition: () => ({
+    isListening: false, transcript: "", startListening: vi.fn(), stopListening: vi.fn(), isSupported: false,
+  }),
+}));
+vi.mock("@/components/workflow/WizardStepper", () => ({
+  WizardStepper: (props: { onDeckSelect: (id: string) => void; steps?: string[]; dsSlot?: React.ReactNode }) => (
+    <div data-testid="stepper" data-steps={(props.steps ?? []).join(",")}>
+      <button data-testid="pick-deck" onClick={() => props.onDeckSelect("pitch")}>deckpick</button>
+      <div data-testid="ds-slot">{props.dsSlot}</div>
+    </div>
+  ),
+}));
+vi.mock("@/components/workflow/prototype/DesignSystemPicker", () => ({
+  DesignSystemPicker: ({ selectedId, systems }: { selectedId: string | null; systems: { id: string }[] }) => (
+    <div data-testid="pick-ds" data-selected={selectedId ?? ""} data-count={systems.length} />
+  ),
+}));
+vi.mock("@/components/workflow/ReviewGatesSection", () => ({ ReviewGatesSection: () => null }));
+vi.mock("@/components/workflow/AgentsPopup", () => ({ AgentsPopup: () => null }));
+vi.mock("@/components/catalog/NameWorkflowModal", () => ({ NameWorkflowModal: () => null }));
+
+import { LaunchWizard } from "@/components/workflow/LaunchWizard";
+import { listDesignSystems, listPrototypeTemplates } from "@/lib/prototype-api";
+import { listPPTTemplates } from "@/lib/ppt-api";
+
+const agents = (): AgentDef[] =>
+  [...PROTO_AGENTS.map((id, i) => ({ id, name: id, role: "t", description: "t", pipeline_type: "prototype", order: i + 1, icon: "zap", estimated_duration: 60, has_skill: false })),
+   ...PPT_AGENTS.map((id, i) => ({ id, name: id, role: "t", description: "t", pipeline_type: "ppt", order: i + 1, icon: "zap", estimated_duration: 60, has_skill: false }))] as AgentDef[];
+const preloaded = () => ({ agents: { agents: agents(), totalCount: agents().length, pipelines: {}, status: "succeeded" as const, error: null } });
+const slot = () => screen.getByTestId("ds-slot");
+
+beforeEach(() => {
+  sessionStorage.clear();
+  vi.mocked(listPrototypeTemplates).mockReset().mockResolvedValue([{ id: "kanban", name: "Kanban" }] as never);
+  vi.mocked(listPPTTemplates).mockReset().mockResolvedValue([{ id: "pitch", name: "Pitch", design_system: { requires: true } }] as never);
+  vi.mocked(listDesignSystems).mockReset();
+});
+
+describe("ISS-909 Retry (fixer scratch)", () => {
+  it("rejected -> Retry -> resolves: picker with the list, no error, no skeleton, FIX-103 apple auto-selected", async () => {
+    vi.mocked(listDesignSystems).mockRejectedValue(new Error("500: boom"));
+    const user = userEvent.setup();
+    renderWithProviders(<LaunchWizard initialMode="prototype" />, { preloadedState: preloaded() });
+    const retry = await screen.findByRole("button", { name: /retry/i });
+    expect(screen.getByRole("alert").textContent).toMatch(/Couldn't load design systems: 500: boom/);
+    const callsBefore = vi.mocked(listDesignSystems).mock.calls.length;
+    vi.mocked(listDesignSystems).mockResolvedValue([{ id: "apple", name: "Apple" }, { id: "midnight", name: "Midnight" }] as never);
+    await user.click(retry);
+    await waitFor(() => expect(slot().querySelector('[data-testid="pick-ds"]')?.getAttribute("data-count")).toBe("2"));
+    console.log("[retry] calls before/after:", callsBefore, vi.mocked(listDesignSystems).mock.calls.length);
+    expect(vi.mocked(listDesignSystems).mock.calls.length).toBeGreaterThan(callsBefore);
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.queryByRole("button", { name: /retry/i })).toBeNull();
+    expect(slot().querySelector(".animate-pulse")).toBeNull();
+    expect(screen.getByTestId("pick-ds").getAttribute("data-selected")).toBe("apple");
+  });
+
+  it("Retry shows the skeleton while the new request is in flight", async () => {
+    vi.mocked(listDesignSystems).mockRejectedValue(new Error("500: boom"));
+    const user = userEvent.setup();
+    renderWithProviders(<LaunchWizard initialMode="prototype" />, { preloadedState: preloaded() });
+    const retry = await screen.findByRole("button", { name: /retry/i });
+    vi.mocked(listDesignSystems).mockReturnValue(new Promise(() => {}) as never);
+    await user.click(retry);
+    expect(slot().querySelector(".animate-pulse")).not.toBeNull();
+    expect(screen.queryByRole("button", { name: /retry/i })).toBeNull();
+  });
+
+  it("rejected -> Retry -> rejects again: the error and Retry come back (no endless skeleton)", async () => {
+    vi.mocked(listDesignSystems).mockRejectedValue(new Error("500: boom"));
+    const user = userEvent.setup();
+    renderWithProviders(<LaunchWizard initialMode="prototype" />, { preloadedState: preloaded() });
+    await user.click(await screen.findByRole("button", { name: /retry/i }));
+    expect(await screen.findByRole("button", { name: /retry/i })).toBeInTheDocument();
+    expect(slot().querySelector(".animate-pulse")).toBeNull();
+  });
+
+  it("a restored draft's design system is not overwritten by a successful Retry", async () => {
+    sessionStorage.setItem("prototype.draft", JSON.stringify({ designSystemId: "midnight" }));
+    vi.mocked(listDesignSystems).mockRejectedValue(new Error("500: boom"));
+    const user = userEvent.setup();
+    renderWithProviders(<LaunchWizard initialMode="prototype" />, { preloadedState: preloaded() });
+    const retry = await screen.findByRole("button", { name: /retry/i });
+    const selBefore = screen.getByTestId("pick-ds").getAttribute("data-selected");
+    vi.mocked(listDesignSystems).mockResolvedValue([{ id: "apple", name: "Apple" }, { id: "midnight", name: "Midnight" }] as never);
+    await user.click(retry);
+    await waitFor(() => expect(screen.getByTestId("pick-ds").getAttribute("data-count")).toBe("2"));
+    console.log("[draft] selected before retry:", JSON.stringify(selBefore), "after:", screen.getByTestId("pick-ds").getAttribute("data-selected"));
+    expect(selBefore).toBe("midnight");
+    expect(screen.getByTestId("pick-ds").getAttribute("data-selected")).toBe("midnight");
+  });
+
+  it("deck, DS-requiring template, registry rejects: the DS step shows the error + Retry + picker, not a skeleton", async () => {
+    vi.mocked(listDesignSystems).mockRejectedValue(new Error("500: boom"));
+    const user = userEvent.setup();
+    renderWithProviders(<LaunchWizard initialMode="ppt" />, { preloadedState: preloaded() });
+    await waitFor(() => expect(listPPTTemplates).toHaveBeenCalled());
+    await user.click(await screen.findByTestId("pick-deck"));
+    expect(screen.getByTestId("stepper").getAttribute("data-steps")).toBe("template,design-system");
+    expect(await screen.findByRole("button", { name: /retry/i })).toBeInTheDocument();
+    expect(slot().querySelector(".animate-pulse")).toBeNull();
+    expect(screen.getByTestId("pick-ds")).toBeInTheDocument();
+  });
+
+  it("ISS-1088: a 401 on the deck catalog still goes to session expiry and sets no banner", async () => {
+    const api = await import("@/lib/api");
+    vi.mocked(listDesignSystems).mockResolvedValue([] as never);
+    vi.mocked(listPPTTemplates).mockRejectedValue(new Error("401 Unauthorized"));
+    renderWithProviders(<LaunchWizard initialMode="ppt" />, { preloadedState: preloaded() });
+    await waitFor(() => expect(api.handleSessionExpiry).toHaveBeenCalled());
+    expect(screen.queryByText(/Couldn.t load templates/)).toBeNull();
+  });
+});

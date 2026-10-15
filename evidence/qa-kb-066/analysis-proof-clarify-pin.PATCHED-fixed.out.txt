@@ -1,0 +1,84 @@
+
+ RUN  v4.1.11 /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/frontend
+
+stdout | ../evidence/qa-kb-066/analysis-proof-clarify-pin.repro.test.tsx > QA-KB-066 analysis proof — the clarify rounds fed to Steps/Files under a version pin > R3 inverse: pin v1 whose OWN rounds are persisted (shell has none) -> they should show (RED at HEAD)
+OBSERVED R3 {"getRunArtifactsCalls":[],"v1OwnQuestionVisible":false,"clarifyCardShown":false}
+
+stdout | ../evidence/qa-kb-066/analysis-proof-clarify-pin.repro.test.tsx > QA-KB-066 analysis proof — the clarify rounds fed to Steps/Files under a version pin > R4 adjacent state: shell run clarify-PAUSED, pin v1 -> v1 keeps its agent rows, no live answer form (RED at HEAD)
+OBSERVED R4 {"pinBannerShown":true,"liveAnswerFormShownUnderPin":true,"pinnedAgentRowsShown":0}
+
+ ❯ ../evidence/qa-kb-066/analysis-proof-clarify-pin.repro.test.tsx (7 tests | 2 failed) 461ms
+     × R3 inverse: pin v1 whose OWN rounds are persisted (shell has none) -> they should show (RED at HEAD) 56ms
+     × R4 adjacent state: shell run clarify-PAUSED, pin v1 -> v1 keeps its agent rows, no live answer form (RED at HEAD) 56ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  ../evidence/qa-kb-066/analysis-proof-clarify-pin.repro.test.tsx > QA-KB-066 analysis proof — the clarify rounds fed to Steps/Files under a version pin > R3 inverse: pin v1 whose OWN rounds are persisted (shell has none) -> they should show (RED at HEAD)
+AssertionError: pinning v1 should request v1's persisted kind=clarifications artifacts: expected "vi.fn()" to be called at least once
+ ❯ ../evidence/qa-kb-066/analysis-proof-clarify-pin.repro.test.tsx:242:112
+    240|     const requested = mockGetRunArtifacts.mock.calls.map((c) => JSON.s…
+    241|     console.log("OBSERVED R3 " + JSON.stringify({ getRunArtifactsCalls…
+    242|     expect.soft(mockGetRunArtifacts, "pinning v1 should request v1's p…
+       |                                                                                                                ^
+    243|     expect.soft(!!screen.queryByText(/V1-OWN-Q1/), "v1's own question …
+    244|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/4]⎯
+
+ FAIL  ../evidence/qa-kb-066/analysis-proof-clarify-pin.repro.test.tsx > QA-KB-066 analysis proof — the clarify rounds fed to Steps/Files under a version pin > R3 inverse: pin v1 whose OWN rounds are persisted (shell has none) -> they should show (RED at HEAD)
+AssertionError: v1's own question should render under its pin: expected false to be true // Object.is equality
+
+- Expected
++ Received
+
+- true
++ false
+
+ ❯ ../evidence/qa-kb-066/analysis-proof-clarify-pin.repro.test.tsx:243:101
+    241|     console.log("OBSERVED R3 " + JSON.stringify({ getRunArtifactsCalls…
+    242|     expect.soft(mockGetRunArtifacts, "pinning v1 should request v1's p…
+    243|     expect.soft(!!screen.queryByText(/V1-OWN-Q1/), "v1's own question …
+       |                                                                                                     ^
+    244|   });
+    245|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/4]⎯
+
+ FAIL  ../evidence/qa-kb-066/analysis-proof-clarify-pin.repro.test.tsx > QA-KB-066 analysis proof — the clarify rounds fed to Steps/Files under a version pin > R4 adjacent state: shell run clarify-PAUSED, pin v1 -> v1 keeps its agent rows, no live answer form (RED at HEAD)
+AssertionError: the live run's pending question must not be answerable inside read-only v1: expected true to be false // Object.is equality
+
+- Expected
++ Received
+
+- false
++ true
+
+ ❯ ../evidence/qa-kb-066/analysis-proof-clarify-pin.repro.test.tsx:268:110
+    266|     const agentRows = screen.queryAllByTestId("steps-agent-row").lengt…
+    267|     console.log("OBSERVED R4 " + JSON.stringify({ pinBannerShown: scre…
+    268|     expect.soft(liveFormShown, "the live run's pending question must n…
+       |                                                                                                              ^
+    269|     expect.soft(agentRows, "pinned v1's own agent row must stay visibl…
+    270|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/4]⎯
+
+ FAIL  ../evidence/qa-kb-066/analysis-proof-clarify-pin.repro.test.tsx > QA-KB-066 analysis proof — the clarify rounds fed to Steps/Files under a version pin > R4 adjacent state: shell run clarify-PAUSED, pin v1 -> v1 keeps its agent rows, no live answer form (RED at HEAD)
+AssertionError: pinned v1's own agent row must stay visible: expected 0 to be greater than 0
+ ❯ ../evidence/qa-kb-066/analysis-proof-clarify-pin.repro.test.tsx:269:75
+    267|     console.log("OBSERVED R4 " + JSON.stringify({ pinBannerShown: scre…
+    268|     expect.soft(liveFormShown, "the live run's pending question must n…
+    269|     expect.soft(agentRows, "pinned v1's own agent row must stay visibl…
+       |                                                                           ^
+    270|   });
+    271| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/4]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 5 passed (7)
+   Start at  05:15:00
+   Duration  1.96s (transform 299ms, setup 74ms, import 638ms, tests 461ms, environment 660ms)
+
+exit=1

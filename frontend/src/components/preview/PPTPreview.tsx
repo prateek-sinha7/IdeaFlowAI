@@ -5,6 +5,7 @@ import { Presentation, RefreshCw } from "lucide-react";
 import { authedFetch, getToken } from "@/lib/api";
 import { ENV } from "@/lib/env";
 import { stripStaticPreviewFallback } from "@/lib/deckHtml";
+import { AGENT_HTML_SANDBOX, frameableAgentHtml } from "@/lib/agentHtml";
 
 interface PPTPreviewProps {
   content?: string;
@@ -26,11 +27,6 @@ export function PPTPreview({ content, isStreaming, pptxCode, runId, onRevise }: 
   const [iframeKey] = useState(0);
   const [isDownloading, setIsDownloading] = useState(false);
   const [revisionText, setRevisionText] = useState("");
-
-  // Every ppt run produces an HTML deck now (the legacy PptxGenJS pipeline is
-  // retired — see backend/agents/registry.py); this component always uses the
-  // scaled-iframe HTML render path.
-  const isOdPpt = true;
 
   const handleDownloadHtml = () => {
     if (!content) return;
@@ -205,13 +201,6 @@ export function PPTPreview({ content, isStreaming, pptxCode, runId, onRevise }: 
     );
   }
 
-  const handleOpenFullScreen = () => {
-    const blob = new Blob([htmlContent], { type: "text/html" });
-    const url = URL.createObjectURL(blob);
-    window.open(url, "_blank");
-    setTimeout(() => URL.revokeObjectURL(url), 5000);
-  };
-
   return (
     <div className="h-full flex flex-col overflow-hidden">
       {/* ── Iframe — scaled to fit the container at 16:9 design size ── */}
@@ -220,7 +209,7 @@ export function PPTPreview({ content, isStreaming, pptxCode, runId, onRevise }: 
           down to fill the available container — this way vw/vh inside the
           iframe resolve correctly and the whole slide is visible. */}
       <div className="flex-1 min-h-0 overflow-hidden relative" ref={(el) => {
-        if (!el || !isOdPpt) return;
+        if (!el) return;
         const resize = () => {
           const iframe = el.querySelector('iframe') as HTMLIFrameElement | null;
           if (!iframe) return;
@@ -247,17 +236,16 @@ export function PPTPreview({ content, isStreaming, pptxCode, runId, onRevise }: 
       }}>
         <iframe
           key={iframeKey}
-          srcDoc={htmlContent}
+          srcDoc={frameableAgentHtml(htmlContent)}
           title="Slide Deck Preview"
-          sandbox={isOdPpt ? "allow-scripts allow-same-origin" : "allow-scripts"}
-          style={isOdPpt ? {
+          sandbox={AGENT_HTML_SANDBOX}
+          style={{
             width: '1280px',
             height: '720px',
             border: 'none',
             display: 'block',
             position: 'absolute',
-          } : undefined}
-          className={isOdPpt ? undefined : "w-full h-full border-0"}
+          }}
         />
       </div>
 

@@ -1,0 +1,11 @@
+# QA-KB-098 fix-04: PROBE, no shim - does the fixed test leave a playwright binding behind for the next test?
+# HEAD 7adb69a3f + working tree, 2026-10-08 14:30:13; plugin copy: evidence/qa-kb-098/fix-plugins/kb098_fix_leak_probe.py
+# order: writer_driven FIRST, then the browser_dir property test (both in one session)
+$ PYTHONPATH=<scratch> .venv/bin/python -m pytest -p kb098_fix_leak_probe '<file>::...::test_revision_browser_dir_writer_driven' '<file>::...::test_revision_uses_correct_browser_dir_path' -q -p no:cacheprovider -p no:randomly
+2 passed, 2 warnings in 2.00s
+
+--- contextvar values recorded by the plugin ---
+SETUP    test_revision_browser_dir_writer_driven: _SANDBOX_VAR=None _AGENT_KEY_VAR='unknown' has_global_SANDBOX=False
+TEARDOWN test_revision_browser_dir_writer_driven: _SANDBOX_VAR=None _AGENT_KEY_VAR='unknown' has_global_SANDBOX=False
+SETUP    test_revision_uses_correct_browser_dir_path: _SANDBOX_VAR=None _AGENT_KEY_VAR='unknown' has_global_SANDBOX=False
+TEARDOWN test_revision_uses_correct_browser_dir_path: _SANDBOX_VAR=None _AGENT_KEY_VAR='unknown' has_global_SANDBOX=False

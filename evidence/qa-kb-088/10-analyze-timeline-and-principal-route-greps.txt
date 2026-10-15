@@ -1,0 +1,54 @@
+# Timeline (git, this tree) and the blast-radius greps behind the QA-KB-088 analysis
+
+## 1. When each of the two stacked faults arrived
+git log --diff-filter=A -- backend/tests/unit/test_workflow_override_e2e.py :
+  732adc245 2026-08-26 fix(backend): repair the render validator, composed-run dispatch and two authz gaps
+git log -S'get_current_principal' -- backend/app/api/user_workflows.py :
+  14a675db4 2026-10-06 not_stable changes for stale fix cards
+  b2a621f84 2026-09-17 Fix/cognito login (#8)
+git log -S'_deny_db_connect' -- backend/tests/unit/conftest.py :
+  09270703b 2026-09-22 Fix/testcases (#9)
+
+## 2. Every route that depends on get_current_principal (grep -rn get_current_principal backend/app --include='*.py' | grep -v core/dependencies.py | grep Depends)
+  app/api/settings.py:336
+  app/api/settings.py:361
+  app/api/run_commands.py:628
+  app/api/run_commands.py:1780
+  app/api/run_commands.py:3249
+  app/api/run_commands.py:5538
+  app/api/user_workflows.py:674
+  app/api/user_workflows.py:955
+
+## 3. Test files that import the principal-dependent routers (user_workflows, settings, run_commands) and override get_current_user but never mention get_current_principal
+  tests/integration/api/test_attach_replay_matrix_api.py  imports: app.api.run_commands 
+  tests/integration/api/test_rest_answers_cancel_api.py  imports: app.api.run_commands 
+  tests/integration/api/test_rest_gate_commands_api.py  imports: app.api.run_commands 
+  tests/integration/api/test_rest_user_message_shim_api.py  imports: app.api.run_commands 
+  tests/integration/test_gate_redo_enforcement.py  imports: app.api.run_commands 
+  tests/unit/test_workflow_override_e2e.py  imports: app.api.user_workflows 
+  (of those, the ones calling a principal-dependent run_commands route [POST /api/runs, /resume, /messages, /revisions]):
+    tests/integration/api/test_attach_replay_matrix_api.py -> /api/runs/does-not-exist/events/stream" /api/runs/run-1/events/stream" /gate" 
+    tests/integration/api/test_rest_answers_cancel_api.py -> /answers" /cancel" 
+    tests/integration/api/test_rest_gate_commands_api.py -> /gate" 
+    tests/integration/test_gate_redo_enforcement.py -> /api/runs/{id}/gate`` carrying ``action: " /gate" 
+    tests/integration/api/test_rest_user_message_shim_api.py -> /api/runs/user_message" 
+  user_workflows importers that never mention get_current_principal (grep -rl 'app.api.user_workflows', then drop files that mention it):
+    tests/unit/test_workflow_override_e2e.py            mounts the router and POSTs/PATCHes it  <- the bug
+    tests/unit/test_user_workflows_agent_count.py       imports only _project (line 23), mounts nothing
+    tests/unit/app/test_catalogue_nav.py                imports only the module / UserWorkflowResponse, mounts nothing
+    tests/unit/agents/test_registry_helpers.py          mentions the module in a docstring (line 41), mounts nothing
+  => the principal-override drift has exactly ONE live instance (this file). The other instance, test_duplicate_context_guard_api.py, was repaired under ISS-905.
+
+## 4. Relocation precedent: files that tripped the same guard and now live in tests/integration/api with an _api suffix
+  tests/integration/api/test_duplicate_context_guard_api.py   (tests/unit copy present? no)
+  tests/integration/api/test_run_files_ref_family_scope_api.py   (tests/unit copy present? no)
+  tests/integration/api/test_sandbox_ref_scoped_endpoints_api.py   (tests/unit copy present? no)
+  tests/integration/api/test_settings_preferences_race_api.py   (tests/unit copy present? no)
+  tests/integration/api/test_settings_api_key_whitespace_name_api.py   (tests/unit copy present? no)
+
+## 5. The guard's own test pins that an in-memory SQLite engine is refused (so the guard must not be loosened to fix this)
+    """The Engine-level connect listener fires however create_engine was imported."""
+    engine = create_engine("sqlite://")  # constructing is allowed; connecting is not
+    with pytest.raises(UnitIsolationError, match="real database connection"):
+        engine.connect()
+

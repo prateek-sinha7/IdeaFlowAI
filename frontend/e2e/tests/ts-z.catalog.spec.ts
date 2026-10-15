@@ -17,7 +17,7 @@ import { test, expect } from "../fixtures/test";
 //   - user_stories         : launchable, entitled at basic+              → SHOWN
 //   - app_builder           : launchable, needs pro (gated at basic)      → SHOWN-LOCKED
 //   - user_stories_revision : NOT launchable (gate 1)                     → HIDDEN
-//   - od_ppt                : NOT launchable (gate 1)                     → HIDDEN
+//   - ppt_revision          : NOT launchable (gate 1)                     → HIDDEN
 const WORKFLOWS_PAYLOAD = [
   {
     id: "user_stories",
@@ -53,9 +53,9 @@ const WORKFLOWS_PAYLOAD = [
     launch_surface: null,
   },
   {
-    id: "od_ppt",
-    name: "raw-od-ppt",
-    description: "On-demand deck.",
+    id: "ppt_revision",
+    name: "raw-ppt-revision",
+    description: "Deck revision.",
     step_count: 2,
     steps: [],
     user_launchable: false,
@@ -90,7 +90,7 @@ async function openCatalog(page: import("@playwright/test").Page) {
 test.describe("TS-Z — workflow catalog (basic tier: filter + gating)", () => {
   test.use({ tier: "basic" });
 
-  test("TS-Z-01 filters non-launchable + revision/od_* out; gated row shown-locked", async ({ dashboard, page }) => {
+  test("TS-Z-01 filters non-launchable + revision rows out; gated row shown-locked", async ({ dashboard, page }) => {
     await dashboard.goto({ tier: "basic" });
     await mockWorkflows(page); // registered AFTER goto → wins over the catch-all
     await openCatalog(page);
@@ -107,7 +107,7 @@ test.describe("TS-Z — workflow catalog (basic tier: filter + gating)", () => {
 
     // Gate 1 — user_launchable:false rows are NEVER rendered.
     await expect(page.getByText(/Revised|user_stories_revision|raw-revision/i)).toHaveCount(0);
-    await expect(page.getByText(/od_ppt|raw-od-ppt/i)).toHaveCount(0);
+    await expect(page.getByText(/ppt_revision|raw-ppt-revision/i)).toHaveCount(0);
     // Home-only CreationHub rows confirm we are NOT on the home view.
     await expect(page.getByText("Pitch an idea")).toHaveCount(0);
     await expect(page.getByText("Platform workflows")).toHaveCount(0);
@@ -163,6 +163,6 @@ test.describe("TS-Z — workflow catalog (enterprise tier: all entitled)", () =>
     await expect(page.getByText(/Requires Pro plan/i)).toHaveCount(0);
     // Gate 1 still hides the non-launchable rows regardless of tier.
     await expect(page.getByText(/Revised|raw-revision/i)).toHaveCount(0);
-    await expect(page.getByText(/od_ppt|raw-od-ppt/i)).toHaveCount(0);
+    await expect(page.getByText(/ppt_revision|raw-ppt-revision/i)).toHaveCount(0);
   });
 });

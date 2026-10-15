@@ -184,6 +184,7 @@ class _FakeRunner:
                 "total_tasks": total_tasks,
                 "task_block": task_block,
                 "skeleton": skeleton,
+                "invocation_gated": invocation_gated,
             }
         )
         for ev in self._agent_events:
@@ -382,6 +383,27 @@ async def test_task_loop_parses_two_tasks_one_run_agent_each() -> None:
     # Task 1's block does not leak task 2's heading.
     assert "Task 2: Add dashboard" not in runner.run_agent_calls[0]["task_block"]
     assert runner.run_agent_calls[0]["total_tasks"] == 2
+
+
+@pytest.mark.issue("ISS-897")
+@pytest.mark.asyncio
+async def test_task_loop_opts_every_task_out_of_the_inline_gate() -> None:
+    """ISS-897: task_loop passes invocation_gated=False on every per-task run_agent.
+
+    Needs _FakeRunner.run_agent to record the flag (default True, mirroring
+    KernelServices.run_agent) -- until it does, the KeyError is the red.
+    """
+    sandbox = _FakeSandbox(files={"prototype.html": "<html></html>"})
+    runner = _FakeRunner(
+        agent_events=[{"type": "agent_chunk", "data": {"text": "."}}],
+        typed_content={"prototype-plan": _TWO_TASK_PLAN},
+        sandbox=sandbox,
+    )
+
+    _ = [ev async for ev in TaskLoopStrategy().run(_two_task_step(), _Ctx(runner))]
+
+    assert len(runner.run_agent_calls) == 2
+    assert all(c["invocation_gated"] is False for c in runner.run_agent_calls)
 
 
 @pytest.mark.asyncio

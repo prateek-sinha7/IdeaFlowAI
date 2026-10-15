@@ -1,0 +1,28 @@
+# QA-KB-109 analysis-03: the same probe against evidence/qa-kb-109/analysis-plugins/page.reference-fix.tsx
+# (a copy of the page with the smallest change; the application source is NOT edited). '[today]' tests skip,
+# the contract tests run as plain tests and must pass; the two controls (T14 contract, no-id getMe) must stay green.
+# run from frontend/: PROBE_TARGET=fixed ./node_modules/.bin/vitest run --config ../evidence/qa-kb-109/analysis-plugins/vitest.probe.config.ts
+
+
+ RUN  v4.1.11 /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/frontend
+
+stdout | ../evidence/qa-kb-109/analysis-plugins/adminSelfRow.probe.test.tsx
+[probe] page.reference-fix.tsx loaded
+
+ ↓ ../evidence/qa-kb-109/analysis-plugins/adminSelfRow.probe.test.tsx > QA-KB-109 probe: the signed-in admin's own row > [today] P1 inventory: the own row carries the same controls as every other row
+ ↓ ../evidence/qa-kb-109/analysis-plugins/adminSelfRow.probe.test.tsx > QA-KB-109 probe: the signed-in admin's own row > [today] P2 clicking Delete then confirming sends the DELETE for the admin's own id; the modal stays open on the 400
+ ↓ ../evidence/qa-kb-109/analysis-plugins/adminSelfRow.probe.test.tsx > QA-KB-109 probe: the signed-in admin's own row > [today] P3 the role pill sends the self-demote (the guard b2a621f84 removed)
+ ↓ ../evidence/qa-kb-109/analysis-plugins/adminSelfRow.probe.test.tsx > QA-KB-109 probe: the signed-in admin's own row > [today] P4 Disable sends the disable for the admin's own id
+ ↓ ../evidence/qa-kb-109/analysis-plugins/adminSelfRow.probe.test.tsx > QA-KB-109 probe: the signed-in admin's own row > [today] P5 the tier dropdown keeps showing the refused tier after the server says 400
+ ↓ ../evidence/qa-kb-109/analysis-plugins/adminSelfRow.probe.test.tsx > QA-KB-109 probe: the signed-in admin's own row > [today] P5b the stale badge is cleared only when the row remounts: the refresh button does it (loading state replaces the table)
+ ↓ ../evidence/qa-kb-109/analysis-plugins/adminSelfRow.probe.test.tsx > QA-KB-109 probe: the signed-in admin's own row > [today] P6 Reset password sends the reset for the admin's own id and the page reports success
+ ✓ ../evidence/qa-kb-109/analysis-plugins/adminSelfRow.probe.test.tsx > QA-KB-109 probe: the signed-in admin's own row > [control, must stay green after the fix] P7 another admin's row and a plain row keep every control (the repo's T14 contract) 151ms
+ ✓ ../evidence/qa-kb-109/analysis-plugins/adminSelfRow.probe.test.tsx > QA-KB-109 probe: the signed-in admin's own row > [control, must stay green after the fix] P8 with getMe() carrying no id (as in the repo's T14 tests) no row is treated as the user's own 42ms
+ ✓ ../evidence/qa-kb-109/analysis-plugins/adminSelfRow.probe.test.tsx > QA-KB-109 probe: the signed-in admin's own row > [contract, RED today] C1 the own row has NO Delete control (S-11-04); other rows keep theirs 34ms
+ ✓ ../evidence/qa-kb-109/analysis-plugins/adminSelfRow.probe.test.tsx > QA-KB-109 probe: the signed-in admin's own row > [contract, RED today] C2 the own row offers no live Disable, role-demote, tier or Reset-password control 24ms
+
+ Test Files  1 passed (1)
+      Tests  4 passed | 7 skipped (11)
+   Start at  16:34:12
+   Duration  1.24s (transform 141ms, setup 57ms, import 311ms, tests 253ms, environment 527ms)
+

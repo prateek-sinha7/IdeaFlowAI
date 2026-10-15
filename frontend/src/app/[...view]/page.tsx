@@ -3,13 +3,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter, usePathname, notFound } from "next/navigation";
 import { buildLoginRedirect } from "@/lib/authRedirect";
-import { getToken, getChat, logout, deleteChat, getWorkflows, getWorkflow, getMe, postGate, getRunEvents, getRunFamily, ApiError, handleSessionExpiry } from "@/lib/api";
+import { getToken, getChat, logout, deleteChat, getWorkflows, getWorkflow, getMe, postGate, getRunEvents, getRunFamily, ApiError, handleSessionExpiry, launchRefusalMessage } from "@/lib/api";
 import { useAppDispatch } from "@/store/hooks";
 import { signedIn, userLoaded, signedOut } from "@/store/slices/authSlice";
 import type { ConnectionStatus } from "@/hooks/useHandoffSocket";
 import type { RunConnectionPhase } from "@/hooks/useRunStream";
 import { applyTerminalStatus, useWorkflow } from "@/hooks/useWorkflow";
 import { parseViewPath, routes, type ParsedView } from "@/lib/routes";
+import { consumeShallowNav } from "@/lib/shallowNavGuard";
 // Phase 31 (CHATUI-01/02/03) — the chat-lane DATA layer + the nonce'd deep-link
 // seam + the app-level SSE connection. useRunChat folds the Phase-29 chat frames
 // into a transport-agnostic transcript; useTabDeepLink is the result-card →
@@ -19,7 +20,7 @@ import { parseViewPath, routes, type ParsedView } from "@/lib/routes";
 import { useRunChat, type RunChatFrame } from "@/hooks/useRunChat";
 import { useTabDeepLink } from "@/hooks/useTabDeepLink";
 import { useRunConnection } from "@/providers/RunConnectionProvider";
-import { shouldApplyEvent, resetReplayState, isForeignRunFrame, isAgentScopedFrame, resolveFrameRunId } from "@/lib/wsReplayState";
+import { shouldApplyEvent, resetReplayState, isForeignRunFrame, isAgentScopedFrame, resolveFrameRunId, isSameRunFamily } from "@/lib/wsReplayState";
 import { DashboardLayout, type DashboardLayoutProps, type MainView, type SavedComposition } from "@/components/layout/DashboardLayout";
 // SC-001 fix: the settings sub-tab type, seeded from parseViewPath below and
 // threaded through DashboardLayout to AccountSettings' own initialSection prop.
@@ -51,8 +52,6 @@ import { WorkflowDetailView } from "@/components/savedworkflows/WorkflowDetailVi
 // `/workflows/{id}/run` — see the wizardMode early-return below for why.
 import { LaunchWizard } from "@/components/workflow/LaunchWizard";
 import type { LaunchMode } from "@/lib/launchDraft";
-import { LaunchErrorBanner } from "@/components/layout/LaunchErrorBanner";
-import { UPLOADS_MISSING_MESSAGE, isUploadsMissingError } from "@/lib/uploadErrors";
 
 /**
  * Map the SSE connection phase (RunConnectionPhase) onto the ConnectionStatus
@@ -377,10 +376,12 @@ function wizardModeFor(parsed: ParsedView): LaunchMode | undefined {
  * row.
  */
 /**
- * The pipeline_type carried by a generic `/create/{type}` cold load. The click
- * path sets this in DashboardLayout state before pushing the URL, so it only
- * matters on a cold mount (typed, refreshed, or a shared link) — where nothing
- * else knows which workflow the URL meant.
+ * The pipeline_type a `/create/...` URL names: the manifest id for the two named
+ * screens (their slugs `app` / `user-stories` are not ids), the slug itself for a
+ * generic `/create/{type}`. On a mount — a cold load (typed, refreshed, or a
+ * shared link) or the remount an in-app `router.push` causes (ISS-916) — the URL
+ * is all the page has, and without a type here DashboardLayout falls back to its
+ * `user_stories` default (BUG-023).
  */
 function initialWorkflowTypeFor(parsed: ParsedView): string | undefined {
   if (parsed.screen === "create-workflow") return parsed.pipelineType;
@@ -782,6 +783,9 @@ export default function DashboardPage() {
   // pipelineState — prevents PPT/prototype agent frames from contaminating the
   // next User Stories pipelineState during the async POST gap.
   const launchPendingRef = useRef<boolean>(false);
+  // ISS-1137: why the last launch was refused. Set only by the onStartPipeline
+  // .catch, cleared by the next launch; DashboardLayout shows it as a banner.
+  const [launchError, setLaunchError] = useState<string | null>(null);
   // BUG-015 — the provider's detachRun, reached through a ref so the empty-deps
   // handleWebSocketMessage (a useCallback([])) can release a completed run's focus
   // WITHOUT closing over `runConnection` (declared later, which would break the
@@ -819,9 +823,6 @@ export default function DashboardPage() {
   // (failed, cancelled, gate paused, gate resumed). An object, not an id, so a
   // run's second gate re-fires the DashboardLayout effect.
   const [backgroundRunTransition, setBackgroundRunTransition] = useState<DashboardLayoutProps["backgroundRunTransition"]>(null);
-  // A launch the server refused pre-mint with a user-actionable reason (today
-  // only `uploads_missing`). Cleared on the next launch attempt or on dismiss.
-  const [launchError, setLaunchError] = useState<string | null>(null);
   // BUG-012: the durable viewed-run-type — the REAL type of the run that produced
   // the on-screen content (fullRun.type), threaded to DashboardLayout so the
   // PreviewPanel render dispatch keys on the viewed run's type even for runs
@@ -1319,6 +1320,9 @@ export default function DashboardPage() {
       // wave_skipped/wave_repair — a zero-task wave and a repaired
       // dropped-task wave; see useWorkflow.ts's cases for detail.
       "wave_skipped", "wave_repair",
+      // hook_run (ISS-870) — same trap: without it the audit hook's live rows never
+      // reached useWorkflow.ts's "hook_run" case, so pipelineState.hookRuns stayed empty.
+      "hook_run",
       // Task 9.2 (SGV2) engine notices — same trap; see useRunStateStore.
       "chain_context_unavailable", "run_finalization_failed",
       // Note: review_gate_ready and review_gate_approved are NOT here —
@@ -1478,9 +1482,9 @@ export default function DashboardPage() {
       //     the shared pipelineState reducer. A second tab-local run's
       //     pipeline_start would otherwise RESET the reducer (wipe agent list),
       //     showing "nothing in Steps" for the first run. The second run's final
-      //     output is still captured in the pipeline_complete handler below (which
-      //     intentionally saves content for ALL tab-local completions) and is
-      //     accessible via the recents list.
+      //     output is accessible via the recents list; the pipeline_complete
+      //     handler below puts it on screen only for the viewed run's own family
+      //     (QA-KB-055 / ISS-1074).
       //
       // CRITICAL: both checks must use refs (not state) because this is a
       // useCallback([]) — all state reads see stale initial values.
@@ -1588,118 +1592,150 @@ export default function DashboardPage() {
         // the family is never re-fetched, leaving the version dropdown at v1.
         // SC-001/INV-1: keyed on generic endsWith("_revision") suffix, no literal.
         const isRevisionCompletion = typeof completingPipelineType === "string" && completingPipelineType.endsWith("_revision");
-
-        // FIX-203: for foreign completions (background concurrent runs), signal
-        // DashboardLayout to mark the matching notification as completed.
-        // pipelineState only reflects the viewed run, so DashboardLayout's standard
-        // completion effect never fires for background runs. Exclude revision
-        // completions (they are not "foreign" in the notification sense — the user
-        // intentionally launched them and they are tracked via the viewed run).
-        if (completingRunId && isForeignCompletion && !isRevisionCompletion) {
-          setBackgroundCompletedRunId(completingRunId);
-        }
-
-        if (completingRunId && (!isForeignCompletion || isRevisionCompletion)) {
-          setContentSourceRunId(completingRunId);
-          // BUG-015 — release the tracked completing run's sticky focus so its
-          // terminal SSE stream unmounts (no reconnect, no ~14k re-replay). Reached
-          // via a ref (this handler is a useCallback([]) — never a direct
-          // runConnection reference). The rendered preview/content is already in
-          // state, so unmounting the connection does not remove it.
-          detachRunRef.current?.(completingRunId);
-          // FIX-172: the narrator's "Delivered" chat_reply card is yielded by
-          // execute() AFTER pipeline_complete. Both go into the SSE queue, but
-          // detachRun above unmounts the RunStreamConnection before the chat_reply
-          // arrives — causing a race where the card is persisted to the DB but
-          // never reaches the transcript via SSE. Fix: after detach, fetch the
-          // completing run's durable events from the DB and fold any new chat_reply
-          // frames into the transcript via appendRunChatFrames (no reset, idempotent
-          // by event_id via useRunChat's seenRef dedup).
-          // FIX-173: capture the current contentSourceRunId BEFORE the async gap
-          // so we can guard against stale completions: with concurrent revisions
-          // a superseded run's pipeline_complete can arrive AFTER a newer revision
-          // has already set a different contentSourceRunId — without the guard its
-          // "Delivered" card would be appended to the NEW run's transcript,
-          // producing a duplicate. Re-read contentSourceRunIdRef inside the async
-          // body (it's set synchronously two lines above).
-          const _completingRunId = completingRunId;
-          void (async () => {
-            try {
-              const tok = getToken();
-              if (!tok || !_completingRunId) return;
-              // Brief yield so the narrator's DB commit lands before we read.
-              await new Promise<void>((res) => setTimeout(res, 400));
-              // FIX-173: if contentSourceRunId has been superseded by a newer
-              // revision, skip — the new run's completion will handle its own card.
-              // We read from contentSourceRunId state via trackedRunIdRef (the
-              // closest stable ref pointing at the viewed run); if it has moved on,
-              // the frames are irrelevant to the current transcript.
-              if (trackedRunIdRef.current !== _completingRunId) return;
-              // FIX-176: fetch ONLY events after the last seq the chat hook has
-              // seen — not from seq 0. This prevents already-delivered chat_reply
-              // cards (e.g. "Revision started", "Run started") from being
-              // re-added as duplicates. FIX-172's purpose is ONLY to recover the
-              // "Delivered" card that raced with detachRun; the last event in a
-              // run is pipeline_complete and its chat_reply, both of which arrive
-              // after all other chat events and therefore after lastSeq.
-              const afterSeq = getRunChatLastSeqRef.current?.() ?? 0;
-              const frames = await getRunEvents(tok, _completingRunId, afterSeq);
-              // Only forward chat frames — pipeline/agent frames for a completed
-              // run must not re-trigger the reducer (they'd re-fire agent state).
-              const chatFrames = frames.filter(
-                (f) => f.type === "chat_message" || f.type === "chat_reply",
-              );
-              if (chatFrames.length > 0) {
-                appendRunChatFramesRef.current?.(chatFrames);
-              }
-            } catch {
-              // Non-fatal: if the fetch fails the card is absent until reopen
-            }
-          })();
-        }
-        const finalOutput = data.final_output as string;
-        const pipelineType = data.pipeline_type as string;
-
-        if (finalOutput && pipelineType) {
-          if (pipelineType === "user_stories" || pipelineType === "user_stories_revision" || pipelineType === "app_builder" || pipelineType === "app_builder_revision") {
-            setUserStoryContent(finalOutput);
-          } else if (pipelineType === "ppt" || pipelineType === "ppt_v2" || pipelineType === "ppt_revision") {
-            // spec 017 — `ppt_v2` produces the SAME HTML deck as `ppt` (it only
-            // ALSO emits a .pptx), so its deliverable belongs in the ppt slot.
-            // PreviewPanel.renderType already normalizes ppt_v2 → "ppt"; without
-            // the same normalization HERE the deck fell into the generic channel,
-            // so the "Auto" and "Slides" renderers had nothing to show while the
-            // "HTML" pill (which reads genericDeliverable) worked.
-            setPptContent(finalOutput);
-          } else if (pipelineType === "prototype" || pipelineType === "prototype_revision"
-            || pipelineType === "prototype_large_revision"
-            || pipelineType === "prototype_feature_revision"
-            || pipelineType === "prototype_v2_revision"
-            || pipelineType === "prototype_v2_feature_revision") {
-            setPrototypeContent(finalOutput);
-          } else {
-            // ISS-021 (18-03) + CR-01 (18 review fix): any pipeline_type matching
-            // none of the known branches — INCLUDING the live agent-composer's
-            // `custom` — feeds the generic deliverable channel. `custom` was
-            // previously a KNOWN branch routed into setUserStoryContent →
-            // MarkdownPreview (escaped HTML); that contradicted the reopen surface
-            // (which already treats `custom` structurally) and was the exact
-            // root-cause bug this phase eliminates. The mimetype is the DECLARED
-            // `deliverable_mimetype` from the pipeline_complete event (18-01 emits
-            // it from ectx.deliverable, authoritative on the live path), with the
-            // SHARED deriveDeliverableMimetype helper as a defensive fallback for
-            // older runs / forward-compat where the key is absent — the IDENTICAL
-            // heuristic the reopen surfaces apply, so live and reopen agree. Never
-            // routed into the user_story/markdown branch (REJECTED — escapes HTML)
-            // and never keyed on the workflow name (SC-001). This is the structural
-            // "no known branch matched" else.
-            setGenericDeliverable({
-              mimetype: (data.deliverable_mimetype as string | undefined)
-                || deriveDeliverableMimetype(finalOutput),
-              filename: (data.deliverable_filename as string | undefined) || undefined,
-              content: finalOutput,
-            });
+        // QA-KB-055 (ISS-745): the suffix says a revision completed, not whose.
+        // The "FROM the currently-tracked run" half of the comment above was never
+        // checked, so a revision launched earlier in this tab on ANOTHER family
+        // (still streaming: opening a terminal run does not replace its sticky
+        // focus) re-pointed the viewed screen at that family. `sameFamily` is that
+        // check, resolved below from the completing run's owned family, only for
+        // a foreign revision, and false until it resolves.
+        //
+        // ISS-745 / ISS-1074: ONE decision for the three writes this frame makes
+        // to the viewed screen (background bridge, content source, Preview slots),
+        // so they can no longer disagree.
+        const applyCompletion = (sameFamily: boolean) => {
+          // FIX-203: for foreign completions (background concurrent runs), signal
+          // DashboardLayout to mark the matching notification as completed.
+          // pipelineState only reflects the viewed run, so DashboardLayout's standard
+          // completion effect never fires for background runs. Exclude same-family
+          // revision completions (they are not "foreign" in the notification sense —
+          // the user intentionally launched them and they are tracked via the viewed run).
+          if (completingRunId && isForeignCompletion && !sameFamily) {
+            setBackgroundCompletedRunId(completingRunId);
+            // BUG-015: another family's revision is usually this tab's sticky focus
+            // and it has finished, so release it as the on-screen branch below does.
+            if (isRevisionCompletion) detachRunRef.current?.(completingRunId);
           }
+
+          if (completingRunId && (!isForeignCompletion || sameFamily)) {
+            setContentSourceRunId(completingRunId);
+            // BUG-015 — release the tracked completing run's sticky focus so its
+            // terminal SSE stream unmounts (no reconnect, no ~14k re-replay). Reached
+            // via a ref (this handler is a useCallback([]) — never a direct
+            // runConnection reference). The rendered preview/content is already in
+            // state, so unmounting the connection does not remove it.
+            detachRunRef.current?.(completingRunId);
+            // FIX-172: the narrator's "Delivered" chat_reply card is yielded by
+            // execute() AFTER pipeline_complete. Both go into the SSE queue, but
+            // detachRun above unmounts the RunStreamConnection before the chat_reply
+            // arrives — causing a race where the card is persisted to the DB but
+            // never reaches the transcript via SSE. Fix: after detach, fetch the
+            // completing run's durable events from the DB and fold any new chat_reply
+            // frames into the transcript via appendRunChatFrames (no reset, idempotent
+            // by event_id via useRunChat's seenRef dedup).
+            // FIX-173: capture the current contentSourceRunId BEFORE the async gap
+            // so we can guard against stale completions: with concurrent revisions
+            // a superseded run's pipeline_complete can arrive AFTER a newer revision
+            // has already set a different contentSourceRunId — without the guard its
+            // "Delivered" card would be appended to the NEW run's transcript,
+            // producing a duplicate. Re-read contentSourceRunIdRef inside the async
+            // body (it's set synchronously two lines above).
+            const _completingRunId = completingRunId;
+            void (async () => {
+              try {
+                const tok = getToken();
+                if (!tok || !_completingRunId) return;
+                // Brief yield so the narrator's DB commit lands before we read.
+                await new Promise<void>((res) => setTimeout(res, 400));
+                // FIX-173: if contentSourceRunId has been superseded by a newer
+                // revision, skip — the new run's completion will handle its own card.
+                // We read from contentSourceRunId state via trackedRunIdRef (the
+                // closest stable ref pointing at the viewed run); if it has moved on,
+                // the frames are irrelevant to the current transcript.
+                if (trackedRunIdRef.current !== _completingRunId) return;
+                // FIX-176: fetch ONLY events after the last seq the chat hook has
+                // seen — not from seq 0. This prevents already-delivered chat_reply
+                // cards (e.g. "Revision started", "Run started") from being
+                // re-added as duplicates. FIX-172's purpose is ONLY to recover the
+                // "Delivered" card that raced with detachRun; the last event in a
+                // run is pipeline_complete and its chat_reply, both of which arrive
+                // after all other chat events and therefore after lastSeq.
+                // ISS-926: the completing run's OWN cursor (seq is per run).
+                const afterSeq = getRunChatLastSeqRef.current?.(_completingRunId) ?? 0;
+                const frames = await getRunEvents(tok, _completingRunId, afterSeq);
+                // Only forward chat frames — pipeline/agent frames for a completed
+                // run must not re-trigger the reducer (they'd re-fire agent state).
+                const chatFrames = frames.filter(
+                  (f) => f.type === "chat_message" || f.type === "chat_reply",
+                );
+                if (chatFrames.length > 0) {
+                  appendRunChatFramesRef.current?.(chatFrames);
+                }
+              } catch {
+                // Non-fatal: if the fetch fails the card is absent until reopen
+              }
+            })();
+          }
+          const finalOutput = data.final_output as string;
+          const pipelineType = data.pipeline_type as string;
+
+          // ISS-1074: these slots ARE the on-screen body (PreviewPanel renders them
+          // when nothing is pinned), so a completion that does not own the screen
+          // leaves them alone; a History reopen refills them from the run itself.
+          if (finalOutput && pipelineType && (!isForeignCompletion || sameFamily)) {
+            if (pipelineType === "user_stories" || pipelineType === "user_stories_revision" || pipelineType === "app_builder" || pipelineType === "app_builder_revision") {
+              setUserStoryContent(finalOutput);
+            } else if (pipelineType === "ppt" || pipelineType === "ppt_v2" || pipelineType === "ppt_revision") {
+              // spec 017 — `ppt_v2` produces the SAME HTML deck as `ppt` (it only
+              // ALSO emits a .pptx), so its deliverable belongs in the ppt slot.
+              // PreviewPanel.renderType already normalizes ppt_v2 → "ppt"; without
+              // the same normalization HERE the deck fell into the generic channel,
+              // so the "Auto" and "Slides" renderers had nothing to show while the
+              // "HTML" pill (which reads genericDeliverable) worked.
+              setPptContent(finalOutput);
+            } else if (pipelineType === "prototype" || pipelineType === "prototype_revision"
+              || pipelineType === "prototype_large_revision"
+              || pipelineType === "prototype_feature_revision"
+              || pipelineType === "prototype_v2_revision"
+              || pipelineType === "prototype_v2_feature_revision") {
+              setPrototypeContent(finalOutput);
+            } else {
+              // ISS-021 (18-03) + CR-01 (18 review fix): any pipeline_type matching
+              // none of the known branches — INCLUDING the live agent-composer's
+              // `custom` — feeds the generic deliverable channel. `custom` was
+              // previously a KNOWN branch routed into setUserStoryContent →
+              // MarkdownPreview (escaped HTML); that contradicted the reopen surface
+              // (which already treats `custom` structurally) and was the exact
+              // root-cause bug this phase eliminates. The mimetype is the DECLARED
+              // `deliverable_mimetype` from the pipeline_complete event (18-01 emits
+              // it from ectx.deliverable, authoritative on the live path), with the
+              // SHARED deriveDeliverableMimetype helper as a defensive fallback for
+              // older runs / forward-compat where the key is absent — the IDENTICAL
+              // heuristic the reopen surfaces apply, so live and reopen agree. Never
+              // routed into the user_story/markdown branch (REJECTED — escapes HTML)
+              // and never keyed on the workflow name (SC-001). This is the structural
+              // "no known branch matched" else.
+              setGenericDeliverable({
+                mimetype: (data.deliverable_mimetype as string | undefined)
+                  || deriveDeliverableMimetype(finalOutput),
+                filename: (data.deliverable_filename as string | undefined) || undefined,
+                content: finalOutput,
+              });
+            }
+          }
+        };
+
+        // Only a foreign revision needs its lineage; every other completion is
+        // decided now, as before. Unresolved lineage fails safe to background.
+        const lineageToken = isForeignCompletion && isRevisionCompletion ? getToken() : null;
+        if (completingRunId && lineageToken) {
+          void getRunFamily(lineageToken, completingRunId)
+            // Re-read the tracked run on resolve: the user may have moved on.
+            .then((family) => isSameRunFamily(family, trackedRunIdRef.current))
+            .catch(() => false)
+            .then(applyCompletion);
+        } else {
+          applyCompletion(false);
         }
 
         // IN-03 (13 review fix): a degraded completion (WR-05) is not a full
@@ -1818,16 +1854,24 @@ export default function DashboardPage() {
           // reviewGateData is deliberately NOT cleared in the store: that half
           // is already masked by the gate branch's `&& isPipelineRunning`.
           if (frameRunId) runStore.update(frameRunId, { questionnaireData: null });
-          setReviewGateData(null);
-          setQuestionnaireData(null);
-          setActivePipelineRunId(null);
+          // ISS-676: !isForeignFrame only means THIS tab launched the run. The
+          // page-level slots below belong to the run on screen, so a background
+          // run's terminal frame must leave them alone.
+          const isBackgroundFrame = isForeignRunFrame(frameRunId, trackedRunIdRef.current);
+          if (!isBackgroundFrame) {
+            setReviewGateData(null);
+            setQuestionnaireData(null);
+            setActivePipelineRunId(null);
+          }
           if (msg.type === "pipeline_cancelled") {
             // Rescued from the unreachable switch arm this commit deletes
             // below (ISS-139) — this is the first time these two calls ever
             // execute on the live path.
             const cancelledId = frameRunId ?? trackedRunIdRef.current;
             if (cancelledId) {
-              setLastCancelledRunId(cancelledId);
+              // ISS-927: handleResumeRun ranks this slot first, so a background
+              // cancel must not point "Run again" away from the run on screen.
+              if (!isBackgroundFrame) setLastCancelledRunId(cancelledId);
               detachRunRef.current?.(cancelledId);
             }
             // ISS-143: clear this run from AppHeader's "N Running" pill immediately
@@ -2439,7 +2483,7 @@ export default function DashboardPage() {
   }, [appendRunChatFrames]);
 
   // FIX-176: sync getRunChatLastSeqRef so FIX-172 can fetch only new events.
-  const getRunChatLastSeqRef = useRef<(() => number) | null>(null);
+  const getRunChatLastSeqRef = useRef<((runId: string | null) => number) | null>(null);
   useEffect(() => {
     getRunChatLastSeqRef.current = getRunChatLastSeq;
   }, [getRunChatLastSeq]);
@@ -3351,6 +3395,25 @@ export default function DashboardPage() {
     [runStore.viewed.pipelineState.pipelineRunId, resetPipeline, setWaveGroups, handleWebSocketMessage, setSubmittedBrief, seedRunChatTranscript, runConnection]
   );
 
+  // ISS-840 (QA-KB-067): what DashboardLayout's run-open clicks (History row,
+  // Home recents, header run list, bell, toast) call right before they
+  // router.push the run's URL. That push remounts this page and the new
+  // instance's T7/T11 effect does the one reopen; calling
+  // handleSelectWorkflowRun here as well fetched the run, its events and its
+  // family a second time into an instance about to unmount. So the click only
+  // claims the switch and shows the loading state until the remount. Not
+  // contentSourceRunId: DashboardLayout's family effect would fetch on it.
+  // Not trackedRunIdRef: T7/T11 must still reopen if no remount comes. A URL
+  // that already names the run already shows it, so it is left alone (a
+  // loading flag set there would never clear).
+  const primeRunOpen = useCallback((run: WorkflowRun) => {
+    const here = parseViewPath(window.location.pathname.split("/").filter(Boolean));
+    if ("runId" in here && here.runId === run.id) return;
+    beginSwitchGeneration(run.id);
+    runStoreSwitchViewToRef.current(run.id);
+    setIsLoadingRunData(true);
+  }, []);
+
   // Handle new chat creation from sidebar
   const handleNewChat = useCallback((chatSession: ChatSession) => {
     setActiveChatId(chatSession.id);
@@ -3434,20 +3497,16 @@ export default function DashboardPage() {
     // both set it before their first await). Skipping here is what keeps a
     // client-side nav from /runs from double-fetching (AC3).
     if (runId === trackedRunIdRef.current) {
-      // ...but the URL's TAB still has to be applied. A run tab click updates
-      // the path shallowly (window.history.pushState — see DashboardLayout's
-      // handlePreviewPanelTabSelect) and so does the back/forward that follows
-      // it: no remount happens, so this early return is the ONLY branch those
-      // reach. The run's data is already on screen, so the nonce mints
-      // immediately — unlike the cold-mount path below it has nothing to wait
-      // for, and PreviewPanel's merged deep-link/default-tab effect cannot be
-      // stomped by a state transition that already settled.
-      // `run-detail` maps to "preview" HERE ONLY (reopenTabFor deliberately
-      // returns undefined for it so a COLD open of a still-building run keeps
-      // its state-derived default of Steps).
-      const openTab = reopenTabFor(parsedView.screen)
-        ?? (parsedView.screen === "run-detail" ? "preview" : undefined);
-      if (openTab) runTabDeepLink.requestOpenTab(openTab, deepLinkAgentIdFor(parsedView));
+      // T7 — URL is a tab route for this already-tracked run. Check if the URL
+      // change was self-initiated (a shallow pushState from handlePreviewPanelTabSelect)
+      // or external (back/forward, cold deep-link). For self-initiated tab clicks the
+      // tab switch already happened via handleTabChange directly — firing requestOpenTab
+      // again would race with any subsequent card-link deep-link (TS-CHAT-CARDS-01).
+      if (!consumeShallowNav()) {
+        const openTab = reopenTabFor(parsedView.screen)
+          ?? (parsedView.screen === "run-detail" || parsedView.screen === "run-version" ? "preview" : undefined);
+        if (openTab) runTabDeepLink.requestOpenTab(openTab, deepLinkAgentIdFor(parsedView));
+      }
       return;
     }
 
@@ -3763,6 +3822,7 @@ export default function DashboardPage() {
           // Takes precedence over agentIds inside ComposerPage (frozen-at-create
           // vs. current — see the initialManifestSteps comment on SavedComposition).
           manifestSteps: saved.manifest?.steps,
+          manifest: (saved.manifest as Record<string, unknown> | undefined) ?? null,
           modelOverrides: saved.model_overrides ?? {},
           selections: saved.selections ?? {},
           name: saved.name,
@@ -3963,6 +4023,7 @@ export default function DashboardPage() {
         setInitialSavedComposition({
           agentIds: saved.agent_ids,
           manifestSteps: saved.manifest?.steps,
+          manifest: (saved.manifest as Record<string, unknown> | undefined) ?? null,
           modelOverrides: saved.model_overrides ?? {},
           selections: saved.selections ?? {},
           brief: typeof saved.selections?._wizard?.brief === "string"
@@ -4131,10 +4192,6 @@ export default function DashboardPage() {
   }
 
   return (
-    <>
-    {launchError && (
-      <LaunchErrorBanner message={launchError} onDismiss={() => setLaunchError(null)} />
-    )}
     <DashboardLayout
       activeChatId={activeChatId}
       messages={messages}
@@ -4214,11 +4271,12 @@ export default function DashboardPage() {
       initialWorkflowType={initialWorkflowTypeFor(parsedView) ?? builtinCanvasType}
       // Copy-only: the canvas is showing a file-backed manifest, not a row the user owns.
       builtinCanvasType={builtinCanvasType}
+      // ISS-923: the row /edit names; the composer holds Save until it has loaded.
+      expectedUserWorkflowId={workflowEditIdFor(parsedView)}
       initialSavedComposition={initialSavedComposition}
       initialSettingsSection={initialSettingsSectionFor(parsedView)}
       pinnedVersion={pinnedVersionFor(parsedView)}
       onStartPipeline={(type, message, agentIds, attachedHooks, extraParams) => {
-        setLaunchError(null);
         const isRevision = type.endsWith("_revision");
         // Workstream C1 (POR §1 gap-2): capture the run's input on every launch
         // (revision or fresh — it is the run's input either way), reset per run.
@@ -4254,6 +4312,8 @@ export default function DashboardPage() {
         setReopenedRunStatus(undefined);
         setReopenedFailedAgents(undefined);
         setReopenedAgentNameById(undefined);
+        // ISS-1137: and the previous launch's refusal banner.
+        setLaunchError(null);
         if (!isRevision) {
           // Fresh run — clear previous preview content
           setUserStoryContent("");
@@ -4292,13 +4352,16 @@ export default function DashboardPage() {
         // POST fires so that if two runs are launched in quick succession, the
         // .then() that resolves LATER (out of click order) does NOT overwrite
         // activelyBuildingRunIdRef with the earlier-clicked run's ID.
+        //
+        // ISS-1137: returned, so the caller learns the outcome — the run id, or
+        // null when the launch was refused. It never rejects (the .catch below).
         launchCounterRef.current += 1;
         const thisLaunchSeq = launchCounterRef.current;
-        // Resolves to whether the launch was accepted (a run id came back) so the
-        // launching screen can recover from a rejection (TS-Z3-02).
+        // Resolves to the launched run id, or null when the launch was refused
+        // (ISS-1137), so the launching screen can recover (TS-Z3-02).
         return Promise.resolve(
           startPipeline(type, message, agentIds, attachedHooks, extraParams),
-        ).then((launchedRunId): boolean => {
+        ).then((launchedRunId) => {
           if (launchedRunId) {
             runConnection.attachRun(launchedRunId);
             // KAN-125 — register this run as locally-launched so isForeignFrame
@@ -4373,32 +4436,38 @@ export default function DashboardPage() {
                 .then(({ runs }) => setRecentRuns(runs))
                 .catch(() => {/* best-effort — stale list is recoverable on next terminal event */});
             }
-            return true;
+            return launchedRunId;
           }
-          // Always clear launchPendingRef regardless of whether we got a run id
-          // (failure case — launch failed or returned no id).
-          launchPendingRef.current = false;
-          return false;
-        }).catch((err: unknown): boolean => {
+          // ISS-1137: no run id (no token, or a 2xx body without one) is a
+          // refusal too — the .catch below recovers and reports it.
+          throw new Error("POST /api/runs returned no run id");
+        }).catch((err: unknown) => {
           // specs/014: sendCommand's launch branch (runId=null) now THROWS
           // ApiError on a non-2xx POST /api/runs (previously silently returned
           // null and left the UI stuck on "launching..."). A 503
           // host_capacity_exhausted rejection is the ServiceBusyProvider's own
           // detection seam (it subscribes independently and shows the busy
-          // modal); this handler's only job is to recover the local UI state
-          // that assumed the launch had already started.
+          // modal); this handler recovers the local UI state that assumed the
+          // launch had already started.
           launchPendingRef.current = false;
           resetPipeline();
-          // The server refused a launch whose documents never reached it
-          // (pre-mint 422 uploads_missing): say so instead of failing silently.
-          if (isUploadsMissingError(err)) setLaunchError(UPLOADS_MISSING_MESSAGE);
+          // ISS-1137: warn, not error — the refusal is surfaced through
+          // setLaunchError below, and Next's dev overlay turns every
+          // console.error into an "Issue" that repeats the backend text.
           if (process.env.NODE_ENV !== "production") {
-            console.error("Pipeline launch failed:", err);
+            console.warn("Pipeline launch failed:", err);
           }
-          return false;
+          // ISS-1137: every launch path ends here, so this is the one place
+          // that says why. Null tells the caller the launch was refused (the
+          // Composer and Input panels release their Run latch on it).
+          const reason = launchRefusalMessage(err);
+          if (reason) setLaunchError(reason);
+          return null;
         });
       }}
       onResetPipeline={resetPipeline}
+      launchError={launchError}
+      onDismissLaunchError={() => setLaunchError(null)}
       recentRuns={recentRuns}
       recentRunsLoaded={recentRunsLoaded}
       runAgentsCompletedMap={runAgentsCompletedMap}
@@ -4407,7 +4476,7 @@ export default function DashboardPage() {
       backgroundStartedRunId={backgroundStartedRunId}
       backgroundRunTransition={backgroundRunTransition}
       contentSourceRunType={contentSourceRunType}
-      onSelectWorkflowRun={handleSelectWorkflowRun}
+      onSelectWorkflowRun={primeRunOpen}
       onSwitchToLiveRun={handleSwitchToLiveRun}
       // FIX-201 (KAN-168): read questionnaireData and reviewGateData from the
       // per-run store (runStore.viewed) instead of the legacy shared React state.
@@ -4476,6 +4545,5 @@ export default function DashboardPage() {
       isAdmin={user?.is_admin ?? false}
       waves={runStore.viewed.waveGroups}
     />
-    </>
   );
 }

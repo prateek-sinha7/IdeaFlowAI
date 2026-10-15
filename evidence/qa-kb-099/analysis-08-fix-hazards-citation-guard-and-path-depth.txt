@@ -1,0 +1,40 @@
+# QA-KB-099 analysis 08: what each fix option must not trip (citation guard path coupling, parents[N] depth, marker wording)
+# HEAD f06129262, 2026-10-08T11:58Z. Reads only; the proposed text is checked in a scratch process, no repo file edited.
+
+$ grep -n "test_shutdown_reachability" backend/tests/unit/test_run_shutdown_stale_citations.py
+23:    _ROOT / "backend" / "tests" / "unit" / "services" / "test_shutdown_reachability.py",
+87:def test_shutdown_reachability_has_no_line_cites():
+88:    """ISS-903 — test_shutdown_reachability.py must cite by symbol, not file:line."""
+90:    path = _ROOT / "backend/tests/unit/services/test_shutdown_reachability.py"
+143:    r"test_shutdown_reachability|core/config)\.(?:py|sh) ?:\d+"
+
+$ sed -n "17,24p;37,38p;89,92p" backend/tests/unit/test_run_shutdown_stale_citations.py
+_SCANNED = [
+    _API / "run_shutdown.py",
+    _API / "run_engine.py",
+    _API / "run_stream.py",
+    _ROOT / "backend" / "app" / "core" / "config.py",
+    _ROOT / "backend" / "docker-entrypoint.sh",
+    _ROOT / "backend" / "tests" / "unit" / "services" / "test_shutdown_reachability.py",
+]
+    for path in _SCANNED:
+        assert path.exists(), f"scanned file moved or deleted: {path}"
+    wide = re.compile(r"[\w./-]+\.[A-Za-z]{1,5} ?:\d+|(?<![\w/.]):\d{3,}")
+    path = _ROOT / "backend/tests/unit/services/test_shutdown_reachability.py"
+    hits = [
+        f"{n}: {m.group(0)}"
+
+# Path depth: the test computes REPO_ROOT = Path(__file__).resolve().parents[4] (test_shutdown_reachability.py:41). Same N holds for any file exactly two folders under backend/tests/.
+  backend/tests/unit/services/x.py               parents[4] = /r   OK (repo root)
+  backend/tests/integration/app/x.py             parents[4] = /r   OK (repo root)
+  backend/tests/integration/api/x.py             parents[4] = /r   OK (repo root)
+  backend/tests/integration/external/x.py        parents[4] = /r   OK (repo root)
+  backend/tests/integration/x.py                 parents[4] = /   WRONG ROOT
+
+# Marker wording: the proposed decorator + audit note, run through the guard's OWN regexes (_LINE_CITE and the ISS-903 'wide' one).
+  proposed wording: _LINE_CITE hits=[]  wide hits=[]
+  same text with '127.0.0.1:8000' and 'line 180' added: _LINE_CITE hits=['line 180']  wide hits=[]
+
+# Other consumers of the file by NAME (non-evidence, non-register): backend/app/main.py and backend/app/core/config.py mention it in comments - checked for a line cite:
+backend/app/core/config.py:309:    #       reason production keeps it off. tests/unit/services/test_shutdown_reachability.py
+backend/app/main.py:412:    # tests/unit/test_shutdown_reachability.py).

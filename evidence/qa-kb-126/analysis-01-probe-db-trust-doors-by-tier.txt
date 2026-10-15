@@ -1,0 +1,60 @@
+# QA-KB-126 analysis 01: every door that stores or runs a plain saved manifest row, as basic/hexaware/pro/enterprise callers (HEAD 5221a4256, 2026-10-09T13:46Z)
+# cmd: cd backend && PYTHONDONTWRITEBYTECODE=1 DATABASE_URL=sqlite:///:memory: .venv/bin/python -m pytest ../evidence/qa-kb-126/analysis-plugins/test_probe_db_trust_doors.py -c pyproject.toml --rootdir=. -p no:cacheprovider -q -s -W ignore
+# in-memory SQLite, real routers (user_workflows + run_commands), principal override. ONLY rc._launch_run_core is stubbed: nothing is minted, driven or paid for.
+# probe, not a product test. [S]=save per tier [L]=launch_run Case 3 [I]=inline control [P]=PATCH door [T]=kernel trigger door [N]=trust=user narrows silently [M]=what db trust confers to a basic caller
+
+
+[S] tier=basic      can_run_pipeline(custom)=False POST base=custom exec-manifest -> 403   POST base=ppt exec-manifest -> 201
+    stored: base_pipeline_type=ppt overrides_pipeline_type=None exec=True gates=['security', 'approval']
+.
+[S] tier=hexaware   can_run_pipeline(custom)=False POST base=custom exec-manifest -> 403   POST base=prototype exec-manifest -> 201
+    stored: base_pipeline_type=prototype overrides_pipeline_type=None exec=True gates=['security', 'approval']
+.
+[S] tier=pro        can_run_pipeline(custom)=False POST base=custom exec-manifest -> 403   POST base=ppt exec-manifest -> 201
+    stored: base_pipeline_type=ppt overrides_pipeline_type=None exec=True gates=['security', 'approval']
+.
+[S] tier=enterprise can_run_pipeline(custom)=True  POST base=custom exec-manifest -> 201   POST base=ppt exec-manifest -> 201
+    stored: base_pipeline_type=ppt overrides_pipeline_type=None exec=True gates=['security', 'approval']
+.
+[L] tier=basic POST /api/runs user_workflow_id=<exec row, base ppt> -> 200 {'run_id': 'STUB-NOT-MINTED'}
+    mint reached=True pipeline_type='ppt' manifest_json._trust='db'
+    compiled plan handed to the mint: ["custom-agent:mine: exec=True spawn=False git=False tool_sets=[] gates=['security', 'approval'] validators=['code_test']"]
+.
+[L] tier=pro POST /api/runs user_workflow_id=<exec row, base ppt> -> 200 {'run_id': 'STUB-NOT-MINTED'}
+    mint reached=True pipeline_type='ppt' manifest_json._trust='db'
+    compiled plan handed to the mint: ["custom-agent:mine: exec=True spawn=False git=False tool_sets=[] gates=['security', 'approval'] validators=['code_test']"]
+.
+[L2] basic launches a spawn_subagents row -> 200; plan: ['custom-agent:mine: exec=False spawn=True git=False tool_sets=[] gates=[] validators=[]']
+.
+[L3] enterprise Composer row (base custom) launch -> 200; plan: ["custom-agent:mine: exec=True spawn=False git=False tool_sets=[] gates=['security', 'approval'] validators=['code_test']"] _trust='db'
+.
+[I] basic sends the SAME manifest inline on POST /api/runs -> 422 code=invalid_workflow_manifest mint reached=False
+    reason: capability ('gate', 'security') is not user-allowed in step 'custom-agent' — a user/db manifest may not reference it (CAP-03)
+.
+[P1] basic POST agent_ids-only row (base ppt, no manifest) -> 201
+[P2] basic PATCH manifest with the exec step onto that row -> 200  (update_user_workflow calls can_run_pipeline: never)
+[P3] basic launches it -> 200; plan: ["custom-agent:mine: exec=True spawn=False git=False tool_sets=[] gates=['security', 'approval'] validators=['code_test']"]
+.
+[T] run_trigger_workflow(workflow_ref=<basic exec row id>) -> mint reached=True pipeline_type='ppt' user={'id': 'owner'}
+    compiled plan handed to the mint: ["custom-agent:mine: exec=True spawn=False git=False tool_sets=[] gates=['security', 'approval'] validators=['code_test']"] (no tier, no principal and no can_run_pipeline on this path)
+.
+[N] trust=db   compiles; effective tool_sets=['internet', 'pptx', 'playwright', 'spawn_subagents', 'ask_user'] git=False
+[N] trust=user compiles; effective tool_sets=['playwright'] git=False
+.
+[M] item                                                           save+launch by id (db)     inline (user)
+[M] CONTROL benign step                                            201+200                    200 accepted
+[M] CONTROL gates=[human] (user_allowed)                           201+200 gates=['human']    200 accepted
+[M] gate security                                                  201+200 gates=['security'] 422 refused
+[M] gate approval                                                  201+200 gates=['approval'] 422 refused
+[M] exec + gates security,approval                                 201+200 exec,gates=['security', 'approval'] 422 refused
+[M] spawn_subagents grant                                          201+200 spawn              422 refused
+[M] network grant                                                  201+200                    422 refused
+[M] secrets grant (list field)                                     201+200                    422 refused
+[M] git grant                                                      201+200 git                200 accepted
+[M] engineer-only hook provenance_audit                            201+200 hooks=['provenance_audit'] 422 refused
+[M] compaction html_skeleton                                       201+200 compaction=html_skeleton 422 refused
+[M] post_step revision_validation                                  201+200 post_step=revision_validation 422 refused
+[M] tool_sets [internet,pptx,spawn_subagents,ask_user]             201+200 tool_sets=['internet', 'pptx', 'spawn_subagents', 'ask_user'] 200 accepted
+[M] limits raised (max_subagents 64, max_depth 6, wall_clock 7200) 201+200 limits=64/6/7200   422 refused
+.
+13 passed in 3.51s

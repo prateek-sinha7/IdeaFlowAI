@@ -1,0 +1,4 @@
+GET /api/runs/80054fbc-71cc-42de-adeb-ae2db82eb2f2/sandbox/file?path=Backlog.pdf              -> HTTP 200  (23626760 bytes)
+GET /api/runs/80054fbc-71cc-42de-adeb-ae2db82eb2f2/sandbox/file?path=Backlog.pdf&ref=v2    -> HTTP 404  b'{"detail":"File not found"}'
+GET /api/runs/80054fbc-71cc-42de-adeb-ae2db82eb2f2/sandbox/file?path=.chain/Backlog.pdf              -> HTTP 200  (23626760 bytes)
+GET /api/runs/80054fbc-71cc-42de-adeb-ae2db82eb2f2/sandbox/file?path=.chain/Backlog.pdf&ref=v2    -> HTTP 200  (23010668 bytes)

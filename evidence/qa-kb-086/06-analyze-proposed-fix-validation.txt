@@ -1,0 +1,24 @@
+# QA-KB-086 analyze 2026-10-02 - the two candidate replacements for IdeaInputPage.designPicker.test.tsx:159,
+# each applied to a SCRATCHPAD COPY of the test (the repo file was not touched) and run once.
+# copy made by: python replace of the relative imports ("./IdeaInputPage" ...) with "@/components/workflow/..." aliases.
+# run: npx vitest run --config <probe config, see 02-> <copy>
+
+== baselineUnchanged  (the test exactly as committed, line 159 = expect(extraParams).toBeUndefined())
+AssertionError: expected { gate_agent_ids: [] } to be undefined
+ Test Files  1 failed (1)
+      Tests  1 failed | 1 passed (2)
+
+== proposedFixA  (decision-agnostic: asserts only what the test is about, the design params)
+    expect(extraParams ?? {}).not.toHaveProperty("template_id");
+    expect(extraParams ?? {}).not.toHaveProperty("design_system_id");
+ Test Files  1 passed (1)
+      Tests  2 passed (2)
+
+== proposedFixB  (the convention of the 3 sibling tests: IdeaInputPage.selections/modelOverrides/imageInput)
+    expect(extraParams).toEqual({ gate_agent_ids: [] });
+ Test Files  1 passed (1)
+      Tests  2 passed (2)
+
+# Why A is recommended over B: B would add a fourth unit test that pins a payload the real UI does not send
+# (see 05-analyze-probe-observed-output.txt) and would have to change again under either resolution of the
+# contract question on the sibling cards. A passes under both.

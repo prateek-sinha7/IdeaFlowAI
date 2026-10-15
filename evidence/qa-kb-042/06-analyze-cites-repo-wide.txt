@@ -1,0 +1,25 @@
+# analyzer evidence, 2026-10-01. Repo-wide scan (read-only script) of 'name.ext:NNN' cites in NON-TEST backend source + docker files.
+# 'in-range' means only that the line number exists in the cited file - NOT that it is right. 'no-such-file' = cited basename is not a tracked file
+# (websocket.py was removed; 'compose.yml' rows are the regex truncating 'docker-compose.yml').
+TOTAL cites: 99 {'in-range': 77, 'ambiguous': 5, 'no-such-file': 17}
+
+-- DANGLING (line number beyond EOF of the cited file; provably stale) --
+
+-- no-such-file --
+backend/agents/execution_engine/engine.py:15500  cites websocket.py:1544
+backend/app/agents/deep_agent_runner.py:305  cites filesystem.py:911
+backend/app/api/launch_context.py:323  cites websocket.py:1741
+backend/app/api/run_commands.py:19  cites websocket.py:924
+backend/app/api/run_commands.py:135  cites test_attach_replay_matrix.py:551
+backend/app/api/run_commands.py:2883  cites websocket.py:1912
+backend/app/api/run_commands.py:3819  cites websocket.py:1912
+backend/app/api/run_commands.py:4161  cites websocket.py:2025
+backend/app/api/run_commands.py:4575  cites websocket.py:2475
+backend/app/api/run_commands.py:5686  cites websocket.py:2543
+backend/app/api/run_commands.py:5856  cites websocket.py:1478
+backend/app/api/run_commands.py:5938  cites websocket.py:1585
+backend/app/api/run_engine.py:173  cites test_rest_resume.py:260
+backend/app/api/run_stream.py:22  cites websocket.py:1157
+backend/app/core/config.py:297  cites compose.yml:75
+backend/app/core/config.py:345  cites server.py:326
+backend/docker-entrypoint.sh:27  cites compose.yml:138

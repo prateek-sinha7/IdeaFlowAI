@@ -1,0 +1,5 @@
+### tests/unit/app/test_nginx_site_template.py (new ISS-1037 nginx guard, BEFORE the template edit, 2026-10-07T18:24:39Z)
+E       AssertionError: no `location /s/` in the site template
+E       assert None
+FAILED tests/unit/app/test_nginx_site_template.py::test_share_link_location_proxies_to_the_backend
+1 failed, 6 passed, 1 warning in 1.32s

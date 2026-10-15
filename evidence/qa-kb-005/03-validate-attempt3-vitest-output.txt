@@ -1,0 +1,36 @@
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - ESM syntax in a file loaded as CommonJS (vitest.config.ts:1:1). Use a `.mjs` extension or set `"type": "module"` in the closest package.json
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+
+ RUN  v4.1.11 /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/frontend
+
+stdout | src/hooks/qakb005.repro.test.ts > flat hook_run keeps payload
+HOOKRUNS [{"hook":"audit_logger","event":"","outcome":"continue","detail":{},"created_at":"2026-10-01T18:52:43.284Z"}]
+
+ ❯ src/hooks/qakb005.repro.test.ts (1 test | 1 failed) 6ms
+   × flat hook_run keeps payload 5ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/hooks/qakb005.repro.test.ts > flat hook_run keeps payload
+AssertionError: expected 'continue' to be 'block' // Object.is equality
+
+Expected: "block"
+Received: "continue"
+
+ ❯ src/hooks/qakb005.repro.test.ts:6:33
+      4|   const s: any = runFrames([{ type: "hook_run", hook: "secret_scan", e…
+      5|   console.log("HOOKRUNS", JSON.stringify(s.hookRuns));
+      6|   expect(s.hookRuns[0].outcome).toBe("block");
+       |                                 ^
+      7| });
+      8|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed (1)
+   Start at  20:52:42
+   Duration  922ms (transform 129ms, setup 65ms, import 137ms, tests 6ms, environment 497ms)
+

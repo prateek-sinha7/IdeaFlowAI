@@ -11,6 +11,37 @@ about the app that the next run should not rediscover.
 
 ## Last run
 
+2026-10-09T11:33Z, phases `[validate,analyze,test,fix,verify]`, batch size 3. Status: **COMPLETE**.
+QA-KB-106 CLOSED (FIX-773), QA-KB-108 CLOSED (FIX-774, BotoCoreError now a CORS-visible 503). QA-KB-107 CLOSED (FIX-772). Credentials renewed; the earlier HALT_AUTH is cleared.
+Ledger tally (195 QA rows): CLOSED 151, UNREPRODUCIBLE 16, LOGGED 15 (QA-KB-109..123, frozen scope, not scheduled), DUPLICATE 9, PARKED 3, ESCALATED 1.
+Where bugs are: nothing mid-line; QA-KB-055 waits on ESCALATIONS.md#qa-kb-055.
+Needs a human: ISS-1139, 1140, 1141, 1142, 1143 open; QA-KB-108 leftovers (ISS-1146 frontend half, ISS-1148 orphan, ISS-1149 timeouts); app-bent-to-test audit (QA-KB-106 console.warn, QA-KB-107 conftest); earlier items (ISS-1130, 1128, 1114, 1126/1127/1132, FIX-769/770 active). Report: `reports/20261009T1133Z-all.md`.
+
+Prior run (2026-10-09T01:48Z, HALT_AUTH on expired SSO login 500): see `reports/20261009T0148Z-all.md`.
+
+Prior run (2026-10-08T23:41Z, COMPLETE, 3 bugs closed): see `reports/20261008T2341Z-all.md`. Its summary follows.
+
+2026-10-08T23:41Z, phases `[validate,analyze,test,fix,verify]`, batch size 3. Status: **COMPLETE**.
+3 bugs CLOSED (QA-KB-103, 104, 105). Ledger tally (177 QA rows): CLOSED 148, UNREPRODUCIBLE 16, DUPLICATE 9, PARKED 2, ESCALATED 2, NEW 0. No env block, no reopen, no WONTFIX proposals.
+Where bugs are: nothing queued; QA-KB-055 waits on ESCALATIONS.md#qa-kb-055. QA-KB-104's analyze phase returned no result (cards ISS-1117 and ISS-1131 exist, later phases passed).
+Needs a human: ISS-1130 (Composer inline Run once still 422, owner decision); ISS-1128 (degraded library-seed save); ISS-1114 product decision; open ISS-1126, 1127, 1132; FIX-769 and FIX-770 still `status: active` (FIX-771 resolved); ISS-1129 resolved on a manual probe only; missing sibling RELATED edges among ISS-1128/1129/1130/FIX-766; audit of tests edited to fit the app (QA-KB-098, 099, 101). Report: `reports/20261008T2341Z-all.md`.
+
+Prior run (2026-10-08T15:08Z, COMPLETE, 5 bugs closed): see `reports/20261008T1508Z-all.md`.
+
+Prior run (2026-10-08, COMPLETE, 10 bugs closed, QA-KB-055 escalated): see `reports/20261007-2253-all.md`.
+
+Prior run (2026-10-07T19:15Z, COMPLETE): see `reports/20261007-1915-all.md`.
+
+Prior run (2026-10-02, HALT_AUTH): see `reports/20261002-1011-all.md`. 
+
+2026-10-02T10:11Z, phases `[validate,analyze,test,fix,verify]`, batch size 3. Status: **HALT_AUTH**.
+**The run halted on expired Bedrock/AWS SSO credentials. Renew them (e.g. `aws sso login`); resuming is re-running the same command.**
+Backend restart succeeded (/docs 200) but POST /api/auth/login returns 500 with botocore `TokenRetrievalError: SSO token has expired`, even with AWS keys unset. Verify never ran.
+Where bugs are: QA-KB-048/049/050 FIXED (FIX-714/712/713), awaiting verify. QA-KB-094 ANALYZED (ISS-1042/1045/1046). QA-KB-087 and QA-KB-089 TESTED (red observed). QA-KB-060 ANALYZED, tests written but not observed red (env). QA-KB-093 Open, validate blocked by login (env).
+Needs a human: ISS-966 owner decision (A/B/C), ISS-960 fix choice, audit of QA-KB-050 test edits, ISS-1042 verification block reads `passed` but should be pending. Report: `reports/20261002-1011-all.md`.
+
+Prior run (2026-10-02, usage-limit resume, COMPLETE): see `reports/20261002-all.md`.
+
 2026-09-23T00:50Z — phases `[fix,verify]`, batch size 3. Status: **COMPLETE**. Only bug on the
 line: **QA-PS-021**, closed after a long tail of prior verify attempts (see full per-attempt
 table in the report). This run's own contribution: attempt 3 caught a real regression
@@ -365,13 +396,18 @@ bug reached any phase. Report: `reports/20260916T103019Z-triage.md`.
 
 ## Queue at last look
 
+Synced: 2026-10-12T08:20:13Z
+
 | Status | Count |
 |---|---|
-| CLOSED | 47 |
+| CLOSED | 165 |
+| UNREPRODUCIBLE | 20 |
 | DUPLICATE | 9 |
-| ESCALATED | 1 |
-| PARKED | 1 |
-| UNREPRODUCIBLE | 14 |
+| PARKED | 2 |
+| ESCALATED | 2 |
+| ANALYZED | 2 |
+| LOGGED | 2 |
+
 
 ## Needs a human
 

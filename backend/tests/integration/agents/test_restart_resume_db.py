@@ -435,8 +435,14 @@ class _ResumeHarness:
         return False
 
     def make_engine(self):
+        import agents.execution_engine.state_machine as sm
         from agents.execution_engine.engine import ExecutionEngine
 
+        # Each engine instance stands for a NEW process: a restart starts with an empty
+        # in-memory state machine. Without this, instance B inherits instance A's
+        # terminal ``failed`` (StepRaised, FIX-669) and its transition to ``generating``
+        # is refused (ISS-1101).
+        sm._MACHINE = None
         engine = ExecutionEngine()
 
         async def _fake_planner(
@@ -4092,6 +4098,7 @@ def test_apply_terminal_output_columns_populates_all_columns():
     a REAL registry key's agent ids (user_stories, non-aliased). BUG-R03 coverage."""
     import json as _json
 
+    from agents.capabilities.token_usage import USAGE_VERSION
     from app.api.run_commands import _apply_terminal_output_columns
     from app.models.workflow import WorkflowRun
 
@@ -4120,6 +4127,7 @@ def test_apply_terminal_output_columns_populates_all_columns():
                 "total_tokens": 150,
                 "cache_read_tokens": 10,
                 "cache_write_tokens": 5,
+                "usage_version": USAGE_VERSION,
             },
         ),
         (
@@ -4145,6 +4153,7 @@ def test_apply_terminal_output_columns_populates_all_columns():
                 "total_tokens": 280,
                 "cache_read_tokens": 0,
                 "cache_write_tokens": 0,
+                "usage_version": USAGE_VERSION,
             },
         ),
         (
@@ -4178,11 +4187,8 @@ def test_apply_terminal_output_columns_populates_all_columns():
     ], f"agent_outputs must carry every completed agent: {agents}"
     assert agents[0]["output"] == "domain analysis body"
     tu = _json.loads(wr.token_usage)
-    # usage-v2 (agents/capabilities/token_usage.py): unversioned legacy events carry
-    # cache reads inside input_tokens, so they are subtracted (100 - 10 + 200 = 290);
-    # cache reads are reported separately and never counted in the total.
-    assert tu["total_input_tokens"] == 290 and tu["total_output_tokens"] == 130
-    assert tu["total_tokens"] == 420 and tu["total_cache_read_tokens"] == 10
+    assert tu["total_input_tokens"] == 300 and tu["total_output_tokens"] == 130
+    assert tu["total_tokens"] == 430 and tu["total_cache_read_tokens"] == 10
     assert wr.duration == 3.5
     assert wr.deliverable_mimetype == "text/markdown"
     assert wr.deliverable_filename == "backlog.md"
@@ -4327,8 +4333,9 @@ async def test_reconcile_supersedes_only_across_an_attempt_boundary(
     [
         # The real incident tail (run 4bdf9398): failed at 10:09, a resume degraded on
         # credential expiry at 12:23, the NEXT resume completed all 11 steps cleanly at
-        # 13:13 — yet pre-fix the run still read "degraded" forever. The LATEST
-        # pipeline_complete must decide, not "was ANY completion ever degraded".
+        # 13:13 — yet pre-fix the run still read "degraded" forever. Only a degraded
+        # pipeline_complete at or after the last attempt boundary (run_resuming /
+        # pipeline_start, FIX-484) counts, not "was ANY completion ever degraded".
         (
             [
                 ("pipeline_start", 1, {}),
@@ -4343,8 +4350,8 @@ async def test_reconcile_supersedes_only_across_an_attempt_boundary(
             ],
             "completed",
         ),
-        # Reverse order: a clean completion, then a LATER degraded one — latest-wins cuts
-        # the other way too.
+        # Reverse order: a clean completion, then a LATER attempt that ends degraded —
+        # that completion is at or after the last attempt boundary, so it counts too.
         (
             [
                 ("pipeline_start", 1, {}),
@@ -4373,6 +4380,8 @@ async def test_reconcile_supersedes_only_across_an_attempt_boundary(
         ),
         # No pipeline_complete at all — a resume that stopped again before producing any
         # new terminal event. The D2 fail-safe, untouched by the degraded-scoping change.
+        # One attempt here; the resumed form, after an earlier completion, is T8/T9 of
+        # test_reconcile_fix484_boundary_scoping (ISS-1016).
         (
             [("pipeline_start", 1, {}), ("agent_start", 2, {"agent_id": "w"})],
             "failed",
@@ -4389,8 +4398,9 @@ async def test_reconcile_supersedes_only_across_an_attempt_boundary(
 async def test_reconcile_degraded_tracks_latest_completion_only(
     monkeypatch, tail, expected_status
 ):
-    """FIX-247 (run 4bdf9398): the degraded verdict must read off the LATEST
-    ``pipeline_complete`` only. The old unscoped ``any()`` over the whole durable tail let
+    """Run 4bdf9398: the degraded verdict must read off the LAST ATTEMPT only — a degraded
+    ``pipeline_complete`` at or after the last attempt boundary (``run_resuming`` /
+    ``pipeline_start``), FIX-484. The old unscoped ``any()`` over the whole durable tail let
     ONE degraded completion from an EARLIER attempt permanently outrank a later clean
     completion, rendering a genuinely-clean resume as "Failed" in three UI surfaces.
     Mirrors ``test_reconcile_supersedes_only_across_an_attempt_boundary``'s shape directly
@@ -4431,7 +4441,7 @@ async def test_reconcile_degraded_tracks_latest_completion_only(
 
 @pytest.mark.asyncio
 async def test_reconcile_clears_stale_error_on_clean_completion(monkeypatch):
-    """FIX-247: a tail that reconciles to ``completed`` must clear ``WorkflowRun.error`` —
+    """A tail that reconciles to ``completed`` must clear ``WorkflowRun.error`` —
     pre-fix, ``_persist_resume_status`` was never called with ``error=`` on the reconcile
     path, so the column kept the ORIGINAL failure text forever (run 4bdf9398's header chip
     kept naming a step that had since succeeded, because the frontend parses this column
@@ -4825,9 +4835,9 @@ def _rehydrate_clarifications_json(
 @pytest.mark.asyncio
 async def test_rehydrate_planning_context_rebuilds_planner_and_answers():
     """D2 unit: the rehydrator reconstructs the planner's REAL intent plus every
-    answered clarification, and those constraints render in the composed prompt."""
+    answered clarification. They reach the agents through PLANNER.md (Phase Z removed
+    the composed-message paste); the wiring test below asserts that file."""
     from agents.execution_engine.engine import ExecutionEngine, PLANNER_AGENT_ID
-    from agents.loader import load_agent_spec
 
     from tests.unit.agents.test_redo_gate_safety import _make_ectx
 
@@ -4896,35 +4906,14 @@ async def test_rehydrate_planning_context_rebuilds_planner_and_answers():
     again = engine._rehydrate_planning_context(ectx, user_message)
     assert again["explicit_constraints"] == constraints
 
-    # The reconstruction is observable where it matters — the composed prompt.
-    # For non-migrated agents (default prompt_policy), the planning context is pasted
-    # into the message. For migrated agents, it is gated off (S0) and read from disk.
-    spec = load_agent_spec("domain-analyst")
-    composed = await engine._compose_context_message(
-        spec,
-        0,
-        [spec],
-        user_message,
-        rebuilt,
-        ectx,
-    )
-    # domain-analyst is a migrated agent (prompt_policy: governance), so S0 gates the
-    # planning context block. The rehydrated context is still available in ectx for
-    # the agent to read, but not pasted into the message for migrated agents.
-    _is_migrated = (spec.prompt_policy or "default") != "default"
-    if not _is_migrated:
-        assert "**Explicit Constraints**" in composed
-        assert (
-            _REHYDRATE_ANSWER in composed
-        ), "the merged clarification answers must reach the dispatched prompt"
-        assert _REHYDRATE_INTENT in composed
-
 
 @pytest.mark.asyncio
 async def test_resume_dispatch_carries_rehydrated_planning_context(monkeypatch):
     """D2 wiring: driving the REAL resume tier on a run holding durable
-    `planning_context` + `clarifications` rows, the dispatched prompt carries the
-    planner's intent and the user's answer — not the truncated stub.
+    `planning_context` + `clarifications` rows, the resumed run's PLANNER.md carries the
+    planner's intent and the user's answer — not the truncated stub. Phase Z (3e09aef2c)
+    removed the planning-context paste from the composed message; agents read
+    PLANNER.md instead (ISS-1104).
 
     The unit test above would pass against a helper nobody calls; this is the proof
     that the skip-planner branch actually routes through it.
@@ -5022,19 +5011,21 @@ async def test_resume_dispatch_carries_rehydrated_planning_context(monkeypatch):
         rc = _wire_user_resume_drive(monkeypatch, db_engine, engine_b)
         await rc._drive_user_resume(run_id, user=_ResumeUser(owner))
 
-    assert composed, "the resumed run wrote no PLANNER.md — nothing to assert on"
-    first = composed[-1]
-    assert _REHYDRATE_ANSWER in first, (
-        "D2: a resumed dispatch must carry the user's clarification answers; got:\n"
-        f"{first[:1500]}"
+    assert composed, "the resumed run dispatched no agent — nothing to assert on"
+    from app.agents.sandbox import RunSandbox
+
+    planner_md = (RunSandbox(owner, run_id).root / "PLANNER.md").read_text()
+    assert _REHYDRATE_ANSWER in planner_md, (
+        "D2: a resumed run's PLANNER.md must carry the user's clarification answers; "
+        f"got:\n{planner_md[:1500]}"
     )
-    assert _REHYDRATE_INTENT in first, (
-        "D2: a resumed dispatch must carry the planner's real inferred_intent, not the "
-        f"user_message[:200] stub; got:\n{first[:1500]}"
+    assert _REHYDRATE_INTENT in planner_md, (
+        "D2: a resumed run's PLANNER.md must carry the planner's real inferred_intent, "
+        f"not the user_message[:200] stub; got:\n{planner_md[:1500]}"
     )
     assert (
-        f"**Inferred Intent**: {user_message[:200]}" not in first
-    ), "the truncated stub intent must be gone from the resumed dispatch"
+        f"**Inferred Intent**: {user_message[:200]}" not in planner_md
+    ), "the truncated stub intent must be gone from the resumed run's PLANNER.md"
     session.close()
 
 
@@ -6086,3 +6077,148 @@ async def test_completed_wave_index_with_a_later_running_row_still_counts_comple
         f"is covered by completed idx 0, so w should be complete. Got offset={offset}"
     )
     session.close()
+
+
+_DEG = {"status": "degraded", "agents_failed": ["x"], "degraded_reason": "x failed"}
+
+
+async def _reconcile_tail(monkeypatch, tail):
+    """Seed ``tail`` [(type, seq, payload)] on a ``generating`` run, run
+    ``_reconcile_terminal_status``, return the persisted row."""
+    from agents.authz import ScopedStore
+    from app.models.workflow import WorkflowRun
+
+    session, db_engine = _make_session()
+    run_id = f"rt-{uuid.uuid4().hex[:8]}"
+    _seed_workflow_run(
+        session, run_id, owner="rt-user", status="generating", workspace_id="ws-rt"
+    )
+    store = ScopedStore(owner_id="rt-user", workspace_id="ws-rt", session=session)
+    for type_, seq, payload in tail:
+        await store.append_event(
+            run_id, seq=seq, event_id=f"rt-{seq}", type=type_, payload_json=payload
+        )
+    session.commit()
+    with _ResumeHarness(session, {}, fail_on=set(), db_engine=db_engine) as h:
+        rc = _wire_user_resume_drive(monkeypatch, db_engine, h.make_engine())
+        await rc._reconcile_terminal_status(run_id)
+    session.expire_all()
+    row = session.query(WorkflowRun).filter(WorkflowRun.id == run_id).first()
+    session.close()
+    return row
+
+
+@pytest.mark.issue("ISS-886")
+@pytest.mark.issue("ISS-1016")
+@pytest.mark.parametrize(
+    "tail,expected",
+    [
+        # ISS-436: degraded scoped to the last attempt — the resume FAILED.
+        (
+            [
+                ("pipeline_start", 1, {}),
+                ("pipeline_complete", 2, _DEG),
+                ("run_resuming", 3, {}),
+                ("pipeline_start", 4, {}),
+                ("agent_error", 5, {"error": "boom"}),
+                ("pipeline_failed", 6, {}),
+            ],
+            "failed",
+        ),
+        # ISS-437: failed scoped to the last attempt — the resume completed cleanly.
+        (
+            [
+                ("pipeline_start", 1, {}),
+                ("pipeline_failed", 2, {}),
+                ("run_resuming", 3, {}),
+                ("pipeline_start", 4, {}),
+                ("pipeline_complete", 5, {}),
+            ],
+            "completed",
+        ),
+        # ISS-435: a degraded completion supersedes an earlier cancellation.
+        (
+            [
+                ("pipeline_start", 1, {}),
+                ("pipeline_cancelled", 2, {}),
+                ("run_resuming", 3, {}),
+                ("pipeline_start", 4, {}),
+                ("pipeline_complete", 5, _DEG),
+            ],
+            "degraded",
+        ),
+        # ISS-1016: the last attempt was cut off before any terminal event; an EARLIER
+        # attempt's completion must not make the run read "completed" (or "degraded").
+        (
+            [
+                ("pipeline_start", 1, {}),
+                ("pipeline_complete", 2, _DEG),
+                ("run_resuming", 3, {}),
+                ("pipeline_start", 4, {}),
+                ("agent_start", 5, {"agent_id": "w"}),
+            ],
+            "failed",
+        ),
+        (  # the same with a clean earlier completion
+            [
+                ("pipeline_start", 1, {}),
+                ("pipeline_complete", 2, {}),
+                ("run_resuming", 3, {}),
+                ("pipeline_start", 4, {}),
+                ("agent_start", 5, {"agent_id": "w"}),
+            ],
+            "failed",
+        ),
+    ],
+    ids=[
+        "T5-iss436-degraded-then-failed",
+        "T6-iss437-failed-then-clean",
+        "T7-iss435-cancel-then-degraded",
+        "T8-iss1016-degraded-then-cut-off",
+        "T9-iss1016-clean-then-cut-off",
+    ],
+)
+@pytest.mark.asyncio
+async def test_reconcile_fix484_boundary_scoping(monkeypatch, tail, expected):
+    """ISS-886 — each FIX-484 scoping change needs a tail that goes red when only it is
+    reverted (regression lock; green today)."""
+    row = await _reconcile_tail(monkeypatch, tail)
+    assert row.status == expected, f"got {row.status!r}"
+
+
+@pytest.mark.issue("ISS-886")
+@pytest.mark.parametrize(
+    "tail,expected_error",
+    [
+        ([("pipeline_start", 1, {}), ("pipeline_complete", 2, _DEG)], "x failed"),
+        (
+            [
+                ("pipeline_start", 1, {}),
+                (
+                    "pipeline_complete",
+                    2,
+                    {"status": "degraded", "agents_failed": ["x"]},
+                ),
+            ],
+            "degraded: agent(s) failed: x",
+        ),
+        (
+            [
+                ("pipeline_start", 1, {}),
+                ("agent_error", 2, {"error": "agent blew up"}),
+                ("pipeline_complete", 3, _DEG),
+            ],
+            "agent blew up",
+        ),
+    ],
+    ids=["degraded_reason", "agents_failed-fallback", "agent_error-precedence"],
+)
+@pytest.mark.asyncio
+async def test_reconcile_degraded_persists_error_text(
+    monkeypatch, tail, expected_error
+):
+    """ISS-886 — the persisted ``WorkflowRun.error`` of a degraded verdict is asserted,
+    not only ``.status`` (the surviving reader of ``_latest_complete``)."""
+    row = await _reconcile_tail(monkeypatch, tail)
+    assert row.status == "degraded"
+    assert row.error == expected_error, f"got {row.error!r}"

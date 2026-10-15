@@ -1,0 +1,30 @@
+# QA-KB-050 / FIX — vitest runs BEFORE the fix (working tree at HEAD 024c03ef8 plus other sessions'
+# uncommitted edits, none in the lines this fix touches), one file per invocation, from frontend/
+# (npx vitest --run <file>), 2026-10-02 ~11:48 CEST. Summary lines as printed by vitest.
+
+src/components/workflow/composer/ComposerPage.bug025.test.tsx           Tests  8 expected fail (8)
+src/components/workflow/composer/ComposerPage.test.tsx                  Tests  16 passed (16)
+src/components/workflow/composer/AgentRow.test.tsx                      Tests  5 passed (5)
+src/components/workflow/composer/CanvasNode.kindIcon.test.tsx           Tests  5 passed (5)
+src/components/workflow/composer/CanvasView.test.tsx                    Tests  28 passed (28)
+src/components/workflow/composer/ComposerPage.iss410.test.tsx           Tests  3 passed (3)
+src/components/workflow/composer/ComposerPage.manifestPersistence.test.tsx  Tests  5 passed (5)
+src/components/workflow/composer/AgentRow.toolsVisibility.test.tsx      Tests  2 passed (2)
+src/components/workflow/AgentsPopup.reskin.test.tsx                     Tests  14 passed (14)
+src/components/workflow/AgentsPopup.iss705.test.tsx                     Tests  1 failed (1)
+    (x includes task_loop as a selectable strategy value: stale sanity pin, recorded by FIX-611 / FIX-703)
+src/components/workflow/AgentLibrary.userStoriesEmpty.test.tsx          Tests  1 passed (1)
+
+# Intermediate run: source fix applied, ComposerPage.test.tsx not yet re-pointed.
+src/components/workflow/composer/ComposerPage.test.tsx                  Tests  1 failed | 15 passed (16)
+    x each agent row renders index, name, role, Core badge (getRole), model picker, override chips, custom prompt + remove
+    TestingLibraryElementError: Unable to find an element with the text: /^Core$/.
+    (The case mounted the /workflows/new shape, workflowType "user_stories" and no builtinCanvasType, and asserted a
+     Core badge on domain-analyst: BUG-025 "Tests and docs that encode the defect". Re-pointed to
+     builtinCanvasType: "user_stories"; the assertion itself is unchanged.)
+
+# Lint (npx eslint <file>), before vs after: identical problem sets, line numbers shifted only.
+ComposerPage.tsx  9 problems before (reconstructed by reverting this fix's hunks via eslint --stdin), 9 after
+CanvasNode.tsx    1 problem (unused UserWorkflowSummary import) before (HEAD via --stdin) and after
+AgentRow.tsx      0 before, 0 after
+# tsc --noEmit -p . : no error in ComposerPage.tsx, CanvasNode.tsx, AgentRow.tsx or ComposerPage.test.tsx after the fix.

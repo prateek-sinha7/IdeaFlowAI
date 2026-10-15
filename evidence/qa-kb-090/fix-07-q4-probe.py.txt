@@ -1,0 +1,131 @@
+"""QA-KB-090 fix probe Q4 (throwaway, read-only, NOT a repo test).
+
+Run from the repo root:  backend/.venv/bin/python evidence/qa-kb-090/fix-07-q4-probe.py.txt [--head]
+(--head first: git show HEAD:backend/agents/execution_engine/engine.py > evidence/qa-kb-090/engine_head.py)
+--head loads `git show HEAD:backend/agents/execution_engine/engine.py` (saved next to this
+file as engine_head.py) under the real module name, so the same probe shows before/after.
+Hermetic like evidence/qa-kb-090/02-...: temp sqlite DATABASE_URL pinned before any app
+import, in-memory StaticPool session, temp RUNS_ROOT, _drive_resumed_stream stubbed.
+
+Q4a resume_run, REAL offset, types with a non-empty registry roster and NO workflow.yaml
+    (compile fails): must still reach the drive with the registry roster (never abort).
+Q4b _replay_clarify_run (the twin seam) with a seeded open questionnaire: roster handed to
+    the drive, per type.
+"""
+import asyncio
+import importlib.util
+import logging
+import os
+import sys
+import tempfile
+import warnings
+
+warnings.filterwarnings("ignore")
+HEAD = "--head" in sys.argv
+tmp = tempfile.mkdtemp(prefix="qakb090q4-")
+os.environ["DATABASE_URL"] = f"sqlite:///{tmp}/probe.db"
+sys.path.insert(0, os.path.join(os.getcwd(), "backend"))
+
+from sqlalchemy import create_engine  # noqa: E402
+from sqlalchemy.orm import sessionmaker  # noqa: E402
+from sqlalchemy.pool import StaticPool  # noqa: E402
+
+from app.core.config import settings  # noqa: E402
+
+settings.RUNS_ROOT = tmp
+import app.models  # noqa: F401,E402
+import app.models.database as db_mod  # noqa: E402
+from app.models.database import Base  # noqa: E402
+from app.models.workflow import WorkflowRun  # noqa: E402
+
+if HEAD:
+    # Execute the HEAD source with __file__ = the REAL engine path: _WORKFLOWS_DIR is
+    # Path(__file__).resolve().parents[1] / "workflows" (engine.py:3473).
+    import types
+
+    _real = os.path.join(os.getcwd(), "backend/agents/execution_engine/engine.py")
+    _src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "engine_head.py")).read()
+    _mod = types.ModuleType("agents.execution_engine.engine")
+    _mod.__file__ = _real
+    _mod.__package__ = "agents.execution_engine"
+    sys.modules["agents.execution_engine.engine"] = _mod
+    exec(compile(_src, _real, "exec"), _mod.__dict__)
+import agents.execution_engine.engine as engine_mod  # noqa: E402
+from agents.authz import ScopedStore  # noqa: E402
+
+print("engine source:", "HEAD (git show HEAD:...engine.py, fix absent=%s)" % ("ISS-950" not in _src)
+      if HEAD else "working tree")
+ExecutionEngine = engine_mod.ExecutionEngine
+
+db = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+Base.metadata.create_all(bind=db)
+session = sessionmaker(bind=db, autocommit=False, autoflush=False)()
+db_mod.SessionLocal = sessionmaker(bind=db, autocommit=False, autoflush=False, expire_on_commit=False)
+_orig_ss = engine_mod.ScopedStore
+engine_mod.ScopedStore = lambda *a, **k: _orig_ss(*a, **{**k, "session": k.get("session", session)})
+
+
+class _Cap(logging.Handler):
+    def __init__(self):
+        super().__init__()
+        self.lines = []
+
+    def emit(self, record):
+        m = record.getMessage()
+        if "resume_run(" in m or "_replay_clarify_run(" in m:
+            if record.levelno >= logging.WARNING or "step offset" in m or "all steps complete" in m:
+                self.lines.append(f"{record.levelname}:{m.split('): ', 1)[1]}")
+
+
+cap = _Cap()
+lg = logging.getLogger("agents.execution_engine.engine")
+lg.setLevel(logging.INFO)
+lg.addHandler(cap)
+OWNER, WS = "u1", "ws-probe"
+_n = {"i": 0}
+
+
+def new_run(typ, status="generating"):
+    _n["i"] += 1
+    rid = f"q4-{typ}-{_n['i']}"
+    session.add(WorkflowRun(id=rid, user_id=OWNER, owner_id=OWNER, workspace_id=WS,
+                            status=status, type=typ, input="brief"))
+    session.commit()
+    return rid
+
+
+async def drive(method, rid):
+    engine = ExecutionEngine()
+    seen = {"reached_drive": False}
+
+    async def spy_drive(run_id, **kw):
+        seen["reached_drive"] = True
+        seen["roster"] = [a.id for a in kw["agents"]]
+        seen["resume_from"] = kw.get("_resume_from")
+
+    engine._drive_resumed_stream = spy_drive
+    cap.lines.clear()
+    await getattr(engine, method)(rid)
+    return list(cap.lines), seen
+
+
+async def main():
+    print("\n== Q4a: resume_run, REAL offset, registry roster + no workflow.yaml ==")
+    for typ in ("file_analyst", "spec_kit"):
+        lines, seen = await drive("resume_run", new_run(typ))
+        print(f"{typ:30} reached_drive={seen['reached_drive']} roster_len={len(seen.get('roster', []))} "
+              f"resume_from={seen.get('resume_from')} log={lines}")
+
+    print("\n== Q4b: _replay_clarify_run, seeded open questionnaire ==")
+    for typ in ("prototype_v2_revision", "prototype_v2_feature_revision", "user_stories",
+                "prototype_v2", "file_analyst", "spec_kit"):
+        rid = new_run(typ, status="awaiting_input")
+        store = ScopedStore(owner_id=OWNER, workspace_id=WS, session=session)
+        await store.append_event(rid, seq=1, event_id=f"ev-{rid}-1", type="questionnaire_ready",
+                                 payload_json={"questions": [{"id": "q1", "text": "?"}], "round": 1})
+        session.commit()
+        lines, seen = await drive("_replay_clarify_run", rid)
+        print(f"{typ:30} reached_drive={seen['reached_drive']} roster={seen.get('roster')} log={lines}")
+
+
+asyncio.run(main())

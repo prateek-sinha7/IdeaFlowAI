@@ -1,0 +1,4 @@
+...x.                                                                    [100%]
+=========================== short test summary info ============================
+XFAIL tests/integration/agents/test_wire_parity.py::test_wire_parity_matches_golden[app_builder] - ISS-1014 unfixed
+4 passed, 1 xfailed in 22.11s

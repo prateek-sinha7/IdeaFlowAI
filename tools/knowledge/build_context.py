@@ -435,7 +435,7 @@ def main():
         ):
             print(f"Wrote {OUT_PATH} (unchanged)")
             return
-    OUT_PATH.write_text(body, encoding="utf-8", newline="\n")
+    OUT_PATH.write_bytes(body.encode("utf-8"))
 
     approx_tokens = len(body) // 4
     print(f"Wrote {OUT_PATH} ({len(body)} chars, ~{approx_tokens} tokens)")

@@ -1,0 +1,6 @@
+# E2: fixed fixture + FIX-612 gate neutralised — must still FAIL at published_status
+6:E   AssertionError: _execute_impl has no pipeline_type branch (SC-001) — a native prototype build agent that cleanly reports task completion without writing prototype.html still publishes 'completed' (QA-PS-027 / ISS-761)
+7:E   assert 'completed' != 'completed'
+8:E    +  where 'completed' = <built-in method get of dict object at 0x10d998680>('published_status')
+9:E    +    where <built-in method get of dict object at 0x10d998680> = {'agents_completed': 5, 'agents_total': 5, 'deliverable_filename': 'prototype.html', 'deliverable_mimetype': 'text/html', ...}.get
+254:1 failed, 2 warnings in 9.86s

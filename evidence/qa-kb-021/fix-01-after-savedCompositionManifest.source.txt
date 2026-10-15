@@ -1,0 +1,23 @@
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - ESM syntax in a file loaded as CommonJS (vitest.config.ts:1:1). Use a `.mjs` extension or set `"type": "module"` in the closest package.json
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+
+ RUN  v4.1.11 /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/frontend
+
+ ❯ src/app/[...view]/savedCompositionManifest.source.test.ts (2 tests | 2 failed) 3ms
+     × /edit effect seeds manifest 2ms
+     × /run effect seeds manifest 0ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/app/[...view]/savedCompositionManifest.source.test.ts > ISS-682 page.tsx seeds carry the saved row manifest > /edit effect seeds manifest
+ FAIL  src/app/[...view]/savedCompositionManifest.source.test.ts > ISS-682 page.tsx seeds carry the saved row manifest > /run effect seeds manifest
+Error: Expect test to fail
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed (2)
+   Start at  21:19:32
+   Duration  1.06s (transform 34ms, setup 89ms, import 24ms, tests 3ms, environment 822ms)
+

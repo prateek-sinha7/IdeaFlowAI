@@ -1,0 +1,278 @@
+# QA-KB-106 fix phase (re-dispatch 2026-10-09, after login was restored): stubbed latch + message check
+# POST /api/runs is stubbed in every case: nothing reaches the backend, no run is minted (every POST is counted by the stub; counts below).
+# Run: tests/integration/e2e/.venv/bin/python -I latch_check.py   (Google Chrome, headless, admin@velocity.ai, http://localhost:3000), final run ended 09:41:39 local
+# Screenshots (taken 1 s after the refusal, once the banner has slid in): evidence/qa-kb-106/fix-04-composer-after-refusal.png, fix-05-input-panel-after-refusal.png
+# Note: run 0f227da3-f66a-4163-aa75-c401fb704993 (user_stories, same brief text, created 07:35:24Z = 09:35:24 local) is NOT from this check:
+#   it falls between this script's runs (09:25-09:26 and 09:38-09:41 local) and matches another session's e2e sweep
+#   tests/integration/test-runs/2026-10-09T09-33-smoke3001-03-launch-panels (test_iss729 launches a real run with that brief;
+#   its folder 03-launch_panels/UNMARKED-run-workflow-double-click-starts-only-one-run is there, report base URL localhost:3001).
+
+## Output (verbatim, final run)
+PASS composer: same-tick double-click sends one POST  [1 POSTs]
+PASS composer: Run disabled while the POST is pending
+PASS composer: refusal text shown
+PASS composer: Run enabled after refusal
+PASS composer: brief intact  [One slide saying hello. Nothing else.]
+PASS composer: URL unchanged  [http://localhost:3000/workflows/ppt/canvas]
+PASS composer: second click sends a second POST  [2 POSTs]
+PASS input-panel: same-tick double-click sends one POST  [1 POSTs]
+PASS input-panel: Run disabled while the POST is pending
+PASS input-panel: refusal text shown
+PASS input-panel: Run enabled after refusal
+PASS input-panel: brief intact  [One slide saying hello. Nothing else.]
+PASS input-panel: URL unchanged  [http://localhost:3000/create/user-stories]
+PASS input-panel: second click sends a second POST  [2 POSTs]
+PASS input-panel: Cmd/Ctrl+Enter after refusal sends a third POST  [3 POSTs]
+PASS capacity: no launch banner (the busy modal owns it)
+PASS capacity: busy modal shown
+PASS capacity: Run once enabled after the modal
+PASS no-run-id: generic banner shown
+PASS no-run-id: Run once enabled
+
+20/20 checks passed
+
+## Banner on-screen probe (banner_probe.py, 503 stub, composer canvas): computed style of the role=status banner after the refusal
+## reduced_motion=no-preference
+t+0ms {'opacity': '0.189533', 'transform': 'matrix(1, 0, 0, 1, 0, -24.3965)', 'top': -24.39650535583496, 'bottom': 7.603494644165039, 'height': 32, 'topmost': False}
+t+300ms {'opacity': '1', 'transform': 'none', 'top': 0, 'bottom': 32, 'height': 32, 'topmost': True}
+t+1500ms {'opacity': '1', 'transform': 'none', 'top': 0, 'bottom': 32, 'height': 32, 'topmost': True}
+posts 1
+## reduced_motion=reduce
+t+0ms {'opacity': '0.0816399', 'transform': 'matrix(1, 0, 0, 1, 0, -33.5214)', 'top': -33.521392822265625, 'bottom': -1.521392822265625, 'height': 32, 'topmost': False}
+t+300ms {'opacity': '1', 'transform': 'matrix(1, 0, 0, 1, 0, -0.54592)', 'top': -0.5459195971488953, 'bottom': 31.454080402851105, 'height': 32, 'topmost': True}
+t+1500ms {'opacity': '1', 'transform': 'none', 'top': 0, 'bottom': 32, 'height': 32, 'topmost': True}
+posts 1
+# Screenshot: evidence/qa-kb-106/fix-07-banner-on-screen-no-preference.png, fix-07-banner-on-screen-reduce.png
+
+## latch_check.py (verbatim)
+"""Ad-hoc check for QA-KB-106 (ISS-1137/1138). POST /api/runs is ALWAYS stubbed:
+nothing reaches the backend, no run is minted. Read-only against the app.
+
+Checks, per panel (Composer canvas, /create/user-stories Input panel):
+  1. a same-tick double-click sends exactly ONE POST (FIX-614 guard intact),
+  2. the Run button stays disabled while that POST is pending,
+  3. after the refusal: message visible, Run enabled, brief intact, a second
+     click sends a second POST,
+plus: capacity 503 (busy modal, no banner, latch released) and a 2xx without a
+run id (generic banner, latch released), and Cmd/Ctrl+Enter on the Input panel.
+"""
+import json
+import re
+import sys
+
+sys.path.insert(0, "/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/tests/integration/e2e")
+
+from playwright.sync_api import sync_playwright, expect  # noqa: E402
+
+from framework import accounts, settings  # noqa: E402
+from framework.locators import auth as A, composer as C, launch_panels as P  # noqa: E402
+
+BASE = settings.BASE_URL
+BRIEF = "One slide saying hello. Nothing else."
+results = []
+
+
+def check(name, cond, detail=""):
+    results.append((name, bool(cond), detail))
+    print(("PASS " if cond else "FAIL ") + name + (f"  [{detail}]" if detail else ""), flush=True)
+
+
+class Stub:
+    """POST /api/runs stub: holds each POST until release(), then fulfils it."""
+
+    def __init__(self, status, body):
+        self.status, self.body = status, body
+        self.posts = []
+
+    def handler(self, route):
+        if route.request.method != "POST":
+            route.continue_()
+            return
+        self.posts.append(route)
+
+    def flush(self):
+        for r in list(self.posts):
+            if not getattr(r, "_flushed", False):
+                r._flushed = True
+                r.fulfill(status=self.status, content_type="application/json", body=json.dumps(self.body))
+
+
+def refusal(status, code, text):
+    return Stub(status, {"detail": {"error": text, "code": code, "recoverable": False}})
+
+
+with sync_playwright() as p:
+    browser = p.chromium.launch(channel="chrome", headless=True)
+    ctx = browser.new_context(base_url=BASE, viewport=settings.VIEWPORT, reduced_motion="reduce")
+    page = ctx.new_page()
+    page.goto("/login")
+    page.fill(A.EMAIL, accounts.ADMIN)
+    page.fill(A.PASSWORD, accounts.PASSWORD)
+    page.click(A.SIGN_IN)
+    expect(page).to_have_url(re.compile(r"/dashboard"), timeout=settings.LOGIN_TIMEOUT_MS)
+    state = ctx.storage_state()
+    ctx.close()
+
+    def fresh():
+        c = browser.new_context(base_url=BASE, viewport=settings.VIEWPORT, reduced_motion="reduce", storage_state=state)
+        return c, c.new_page()
+
+    def open_canvas(pg):
+        pg.goto("/workflows/ppt/canvas")
+        expect(pg.locator(C.HEADER_SUMMARY)).to_be_visible(timeout=60_000)
+        C.wait_for_nodes(pg, len(C.PPT_AGENT_IDS))
+        pg.wait_for_timeout(settings.SETTLE_MS)
+        pg.fill(C.BRIEF, BRIEF)
+        expect(pg.locator(C.RUN_ONCE)).to_be_enabled()
+
+    def open_input(pg):
+        pg.goto("/create/user-stories")
+        pg.fill(P.BRIEF, BRIEF)
+        expect(pg.locator(P.RUN_WORKFLOW)).to_be_enabled(timeout=60_000)
+        pg.wait_for_timeout(settings.SETTLE_MS)
+
+    # ── A/B: double-click, pending, refusal, retry — both panels ───────────────
+    for label, opener, run_sel, brief_sel in [
+        ("composer", open_canvas, C.RUN_ONCE, C.BRIEF),
+        ("input-panel", open_input, P.RUN_WORKFLOW, P.BRIEF),
+    ]:
+        c, pg = fresh()
+        text = f"Provider QQ-{label} is unavailable right now"
+        stub = refusal(503, "model_provider_unavailable", text)
+        pg.route("**/api/runs", stub.handler)
+        opener(pg)
+        pg.eval_on_selector(run_sel, "el => { el.click(); el.click(); }")
+        pg.wait_for_timeout(2_000)
+        check(f"{label}: same-tick double-click sends one POST", len(stub.posts) == 1, f"{len(stub.posts)} POSTs")
+        check(f"{label}: Run disabled while the POST is pending", pg.locator(run_sel).is_disabled())
+        stub.flush()
+        try:
+            expect(pg.get_by_role("status").filter(has_text=text)).to_be_visible(timeout=5_000)
+            check(f"{label}: refusal text shown", True)
+        except AssertionError as e:
+            check(f"{label}: refusal text shown", False, str(e)[:200])
+        try:
+            expect(pg.locator(run_sel)).to_be_enabled(timeout=5_000)
+            check(f"{label}: Run enabled after refusal", True)
+        except AssertionError as e:
+            check(f"{label}: Run enabled after refusal", False, str(e)[:200])
+        pg.wait_for_timeout(1_000)  # the banner slides in over ~300 ms (framer-motion)
+        pg.screenshot(path=f"/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/evidence/qa-kb-106/fix-0{4 if label == 'composer' else 5}-{label}-after-refusal.png")
+        check(f"{label}: brief intact", pg.locator(brief_sel).input_value() == BRIEF, pg.locator(brief_sel).input_value()[:60])
+        check(f"{label}: URL unchanged", ("/canvas" in pg.url) if label == "composer" else ("/create/user-stories" in pg.url), pg.url)
+        pg.click(run_sel)
+        pg.wait_for_timeout(1_500)
+        check(f"{label}: second click sends a second POST", len(stub.posts) == 2, f"{len(stub.posts)} POSTs")
+        stub.flush()
+        if label == "input-panel":
+            expect(pg.locator(run_sel)).to_be_enabled(timeout=5_000)
+            pg.focus(brief_sel)
+            pg.keyboard.press("ControlOrMeta+Enter")
+            pg.wait_for_timeout(1_500)
+            check(f"{label}: Cmd/Ctrl+Enter after refusal sends a third POST", len(stub.posts) == 3, f"{len(stub.posts)} POSTs")
+            stub.flush()
+        c.close()
+
+    # ── C: capacity 503 — busy modal, no launch banner, latch released ─────────
+    c, pg = fresh()
+    cap = Stub(503, {"detail": {"error": "Busy QQ capacity", "code": "host_capacity_exhausted", "recoverable": True,
+                                "retry_after_seconds": 0, "signals": [{"name": "cpu", "value": 99, "threshold": 90}]}})
+    pg.route("**/api/runs", cap.handler)
+    open_canvas(pg)
+    pg.click(C.RUN_ONCE)
+    pg.wait_for_timeout(1_000)
+    cap.flush()
+    pg.wait_for_timeout(1_500)
+    check("capacity: no launch banner (the busy modal owns it)", pg.get_by_role("status").filter(has_text="Busy QQ capacity").count() == 0)
+    got = pg.get_by_role("button", name="Got it")
+    check("capacity: busy modal shown", got.count() >= 1)
+    if got.count():
+        got.first.click()
+    try:
+        expect(pg.locator(C.RUN_ONCE)).to_be_enabled(timeout=5_000)
+        check("capacity: Run once enabled after the modal", True)
+    except AssertionError as e:
+        check("capacity: Run once enabled after the modal", False, str(e)[:200])
+    c.close()
+
+    # ── D: a 2xx with no run id — generic banner, latch released ───────────────
+    c, pg = fresh()
+    noid = Stub(200, {"status": "accepted"})
+    pg.route("**/api/runs", noid.handler)
+    open_canvas(pg)
+    pg.click(C.RUN_ONCE)
+    pg.wait_for_timeout(1_000)
+    noid.flush()
+    try:
+        expect(pg.get_by_role("status").filter(has_text="The run could not be started")).to_be_visible(timeout=5_000)
+        check("no-run-id: generic banner shown", True)
+    except AssertionError as e:
+        check("no-run-id: generic banner shown", False, str(e)[:200])
+    try:
+        expect(pg.locator(C.RUN_ONCE)).to_be_enabled(timeout=5_000)
+        check("no-run-id: Run once enabled", True)
+    except AssertionError as e:
+        check("no-run-id: Run once enabled", False, str(e)[:200])
+    c.close()
+
+    browser.close()
+
+failed = [r for r in results if not r[1]]
+print(f"\n{len(results) - len(failed)}/{len(results)} checks passed")
+sys.exit(1 if failed else 0)
+
+## banner_probe.py (verbatim)
+"""Is the launch-refusal banner actually on screen (opacity, position), not just in the DOM?
+POST /api/runs is stubbed (503): nothing reaches the backend."""
+import json
+import re
+import sys
+
+sys.path.insert(0, "/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/tests/integration/e2e")
+from playwright.sync_api import sync_playwright, expect  # noqa: E402
+from framework import accounts, settings  # noqa: E402
+from framework.locators import auth as A, composer as C  # noqa: E402
+
+TEXT = "Provider PROBE is unavailable right now"
+EVID = "/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/evidence/qa-kb-106"
+posts = []
+
+
+def handler(route):
+    if route.request.method == "POST":
+        posts.append(1)
+        route.fulfill(status=503, content_type="application/json",
+                      body=json.dumps({"detail": {"error": TEXT, "code": "model_provider_unavailable", "recoverable": False}}))
+    else:
+        route.continue_()
+
+
+with sync_playwright() as p:
+    b = p.chromium.launch(channel="chrome", headless=True)
+    ctx = b.new_context(base_url=settings.BASE_URL, viewport=settings.VIEWPORT, reduced_motion=sys.argv[1] if len(sys.argv) > 1 else "no-preference")
+    pg = ctx.new_page()
+    pg.goto("/login")
+    pg.fill(A.EMAIL, accounts.ADMIN)
+    pg.fill(A.PASSWORD, accounts.PASSWORD)
+    pg.click(A.SIGN_IN)
+    expect(pg).to_have_url(re.compile(r"/dashboard"), timeout=settings.LOGIN_TIMEOUT_MS)
+    pg.route("**/api/runs", handler)
+    pg.goto("/workflows/ppt/canvas")
+    expect(pg.locator(C.HEADER_SUMMARY)).to_be_visible(timeout=60_000)
+    C.wait_for_nodes(pg, len(C.PPT_AGENT_IDS))
+    pg.wait_for_timeout(settings.SETTLE_MS)
+    pg.fill(C.BRIEF, "One slide saying hello. Nothing else.")
+    pg.click(C.RUN_ONCE)
+    banner = pg.get_by_role("status").filter(has_text=TEXT)
+    expect(banner).to_have_count(1, timeout=5_000)
+    for t in (0, 300, 1500):
+        if t:
+            pg.wait_for_timeout(t)
+        info = banner.evaluate("el => { const cs = getComputedStyle(el); const r = el.getBoundingClientRect();"
+                               " return {opacity: cs.opacity, transform: cs.transform, top: r.top, bottom: r.bottom, height: r.height,"
+                               " topmost: document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2) === el ||"
+                               " el.contains(document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2))}; }")
+        print(f"t+{t}ms", info, flush=True)
+    pg.screenshot(path=f"{EVID}/fix-07-banner-on-screen-{sys.argv[1] if len(sys.argv) > 1 else 'no-preference'}.png")
+    print("posts", len(posts))
+    b.close()

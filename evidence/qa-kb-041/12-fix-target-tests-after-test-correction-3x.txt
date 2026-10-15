@@ -1,0 +1,18 @@
+QA-KB-041 fixer — the five card test files after the waitFor correction to ISS-928..931's tests, FIXED working tree, each file run 3 times, one file per run.
+'Tests N failed (N)' + 'Expect test to fail' == XPASS (it.fails markers left in place for the 6-verifier).
+
+src/components/savedworkflows/SavedWorkflowsPage.escape.test.tsx run1: Tests  3 failed (3) | 'Expect test to fail' x1
+src/components/savedworkflows/SavedWorkflowsPage.escape.test.tsx run2: Tests  3 failed (3) | 'Expect test to fail' x1
+src/components/savedworkflows/SavedWorkflowsPage.escape.test.tsx run3: Tests  3 failed (3) | 'Expect test to fail' x1
+src/components/layout/AppHeader.escape.test.tsx run1: Tests  1 failed (1) | 'Expect test to fail' x1
+src/components/layout/AppHeader.escape.test.tsx run2: Tests  1 failed (1) | 'Expect test to fail' x1
+src/components/layout/AppHeader.escape.test.tsx run3: Tests  1 failed (1) | 'Expect test to fail' x1
+src/components/ui/NotificationPanel.escape.test.tsx run1: Tests  1 failed (1) | 'Expect test to fail' x1
+src/components/ui/NotificationPanel.escape.test.tsx run2: Tests  1 failed (1) | 'Expect test to fail' x1
+src/components/ui/NotificationPanel.escape.test.tsx run3: Tests  1 failed (1) | 'Expect test to fail' x1
+src/app/admin/admin.escape.test.tsx run1: Tests  1 failed (1) | 'Expect test to fail' x1
+src/app/admin/admin.escape.test.tsx run2: Tests  1 failed (1) | 'Expect test to fail' x1
+src/app/admin/admin.escape.test.tsx run3: Tests  1 failed (1) | 'Expect test to fail' x1
+src/components/history/RevisionFamilyView.escape.test.tsx run1: Tests  1 failed (1) | 'Expect test to fail' x1
+src/components/history/RevisionFamilyView.escape.test.tsx run2: Tests  1 failed (1) | 'Expect test to fail' x1
+src/components/history/RevisionFamilyView.escape.test.tsx run3: Tests  1 failed (1) | 'Expect test to fail' x1

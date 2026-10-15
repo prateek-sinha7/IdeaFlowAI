@@ -1,0 +1,158 @@
+# baseline at HEAD 5e22d3238, no plugin; cd backend && PYTHONPATH=<scratch> .venv/bin/python -m pytest -p no:cacheprovider <4 node ids> -q -rf --tb=short
+FFFF                                                                     [100%]
+=================================== FAILURES ===================================
+___________ test_midwave_resume_does_not_reinvoke_completed_workers ____________
+tests/integration/agents/test_restart_resume_db.py:590: in test_midwave_resume_does_not_reinvoke_completed_workers
+    assert (
+E   AssertionError: wave-1 workers did not run on resume: {'b': 2, 'a': 2}
+E   assert (0 >= 1)
+E    +  where 0 = <built-in method get of dict object at 0x10fbefd00>('c', 0)
+E    +    where <built-in method get of dict object at 0x10fbefd00> = {'a': 2, 'b': 2}.get
+------------------------------ Captured log call -------------------------------
+WARNING  app.agents.checkpointer:checkpointer.py:61 Checkpointer: DATABASE_URL is not Postgres — using InMemorySaver. HITL pauses work within the process but do NOT survive a restart.
+WARNING  agents.artifacts.graph:graph.py:155 artifact kind 'sample-wave-plan' is outside ARTIFACT_KINDS — typed consumes routing and the FR-014 revision lookup match kinds EXACTLY, so a typo here is silently unroutable (IN-01 advisory; write proceeds)
+WARNING  agents.artifacts.graph:graph.py:155 artifact kind 'sample-wave-worker' is outside ARTIFACT_KINDS — typed consumes routing and the FR-014 revision lookup match kinds EXACTLY, so a typo here is silently unroutable (IN-01 advisory; write proceeds)
+WARNING  agents.artifacts.graph:graph.py:155 artifact kind 'sample-wave-worker' is outside ARTIFACT_KINDS — typed consumes routing and the FR-014 revision lookup match kinds EXACTLY, so a typo here is silently unroutable (IN-01 advisory; write proceeds)
+WARNING  agents.execution_engine.kernel_services:kernel_services.py:754 update_wave_run_merge_state(step=sample-wave-worker) failed: 'ScopedStore' object has no attribute '_acquire'
+ERROR    agents.execution_engine.engine:engine.py:14364 step sample-wave-worker raised: scripted instance-A crash on run_fanout call #2
+Traceback (most recent call last):
+  File "/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/agents/execution_engine/engine.py", line 14354, in _guarded_step
+    async for event in self._dispatch_step_with_retry(step, ectx, strategy):
+    ...<2 lines>...
+        yield event
+  File "/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/agents/execution_engine/engine.py", line 14391, in _dispatch_step_with_retry
+    async for event in strategy.run(step, ectx):
+        yield event
+  File "/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/agents/capabilities/strategies/wave_scheduler.py", line 490, in run
+    async for event in _dispatch_wave(requests, task_ids):
+        yield event
+  File "/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/agents/capabilities/strategies/wave_scheduler.py", line 474, in _dispatch_wave
+    async for event in stream_wave_fanout(
+    ...<12 lines>...
+        yield event
+  File "/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/agents/capabilities/strategies/_fanout_wave_stream.py", line 88, in stream_wave_fanout
+    yield next_fanout.result()
+          ~~~~~~~~~~~~~~~~~~^^
+  File "/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/tests/integration/agents/test_restart_resume_db.py", line 380, in _wrapped_fanout
+    raise RuntimeError(
+        f"scripted instance-A crash on run_fanout call #{_raise_on}"
+    )
+RuntimeError: scripted instance-A crash on run_fanout call #2
+ERROR    agents.execution_engine.engine:engine.py:2603 finalize_terminal_run: create_run_ref FAILED run=rr-9a67e388 (run_id must be a UUID (hex digits and hyphens only): 'rr-9a67e388')
+WARNING  agents.execution_engine.engine:engine.py:16031 resumed-stream drive(rr-9a67e388) failed mid-drive: Cannot transition run 'rr-9a67e388' from terminal state 'failed' to 'generating'.
+________________ test_failed_run_resumes_skips_completed_tasks _________________
+tests/integration/agents/test_restart_resume_db.py:3654: in test_failed_run_resumes_skips_completed_tasks
+    assert (
+E   AssertionError: wave-1 workers did not run on resume: {'b': 2, 'a': 2}
+E   assert (0 >= 1)
+E    +  where 0 = <built-in method get of dict object at 0x111422bc0>('c', 0)
+E    +    where <built-in method get of dict object at 0x111422bc0> = {'a': 2, 'b': 2}.get
+------------------------------ Captured log call -------------------------------
+WARNING  app.agents.checkpointer:checkpointer.py:61 Checkpointer: DATABASE_URL is not Postgres — using InMemorySaver. HITL pauses work within the process but do NOT survive a restart.
+WARNING  agents.artifacts.graph:graph.py:155 artifact kind 'sample-wave-plan' is outside ARTIFACT_KINDS — typed consumes routing and the FR-014 revision lookup match kinds EXACTLY, so a typo here is silently unroutable (IN-01 advisory; write proceeds)
+WARNING  agents.artifacts.graph:graph.py:155 artifact kind 'sample-wave-worker' is outside ARTIFACT_KINDS — typed consumes routing and the FR-014 revision lookup match kinds EXACTLY, so a typo here is silently unroutable (IN-01 advisory; write proceeds)
+WARNING  agents.artifacts.graph:graph.py:155 artifact kind 'sample-wave-worker' is outside ARTIFACT_KINDS — typed consumes routing and the FR-014 revision lookup match kinds EXACTLY, so a typo here is silently unroutable (IN-01 advisory; write proceeds)
+WARNING  agents.execution_engine.kernel_services:kernel_services.py:754 update_wave_run_merge_state(step=sample-wave-worker) failed: 'ScopedStore' object has no attribute '_acquire'
+ERROR    agents.execution_engine.engine:engine.py:14364 step sample-wave-worker raised: scripted instance-A crash on run_fanout call #2
+Traceback (most recent call last):
+  File "/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/agents/execution_engine/engine.py", line 14354, in _guarded_step
+    async for event in self._dispatch_step_with_retry(step, ectx, strategy):
+    ...<2 lines>...
+        yield event
+  File "/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/agents/execution_engine/engine.py", line 14391, in _dispatch_step_with_retry
+    async for event in strategy.run(step, ectx):
+        yield event
+  File "/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/agents/capabilities/strategies/wave_scheduler.py", line 490, in run
+    async for event in _dispatch_wave(requests, task_ids):
+        yield event
+  File "/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/agents/capabilities/strategies/wave_scheduler.py", line 474, in _dispatch_wave
+    async for event in stream_wave_fanout(
+    ...<12 lines>...
+        yield event
+  File "/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/agents/capabilities/strategies/_fanout_wave_stream.py", line 88, in stream_wave_fanout
+    yield next_fanout.result()
+          ~~~~~~~~~~~~~~~~~~^^
+  File "/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/tests/integration/agents/test_restart_resume_db.py", line 380, in _wrapped_fanout
+    raise RuntimeError(
+        f"scripted instance-A crash on run_fanout call #{_raise_on}"
+    )
+RuntimeError: scripted instance-A crash on run_fanout call #2
+WARNING  agents.execution_engine.engine:engine.py:16031 resumed-stream drive(3c824649-8075-4c79-a90b-af728d86cca7) failed mid-drive: Cannot transition run '3c824649-8075-4c79-a90b-af728d86cca7' from terminal state 'failed' to 'generating'.
+___________________ test_user_resume_persists_output_columns ___________________
+tests/integration/agents/test_restart_resume_db.py:4595: in test_user_resume_persists_output_columns
+    assert (
+E   AssertionError: status must reconcile to completed: 'failed'
+E   assert 'failed' == 'completed'
+E     
+E     - completed
+E     + failed
+------------------------------ Captured log call -------------------------------
+WARNING  app.agents.checkpointer:checkpointer.py:61 Checkpointer: DATABASE_URL is not Postgres — using InMemorySaver. HITL pauses work within the process but do NOT survive a restart.
+WARNING  agents.artifacts.graph:graph.py:155 artifact kind 'sample-wave-plan' is outside ARTIFACT_KINDS — typed consumes routing and the FR-014 revision lookup match kinds EXACTLY, so a typo here is silently unroutable (IN-01 advisory; write proceeds)
+WARNING  agents.artifacts.graph:graph.py:155 artifact kind 'sample-wave-worker' is outside ARTIFACT_KINDS — typed consumes routing and the FR-014 revision lookup match kinds EXACTLY, so a typo here is silently unroutable (IN-01 advisory; write proceeds)
+WARNING  agents.artifacts.graph:graph.py:155 artifact kind 'sample-wave-worker' is outside ARTIFACT_KINDS — typed consumes routing and the FR-014 revision lookup match kinds EXACTLY, so a typo here is silently unroutable (IN-01 advisory; write proceeds)
+WARNING  agents.execution_engine.kernel_services:kernel_services.py:754 update_wave_run_merge_state(step=sample-wave-worker) failed: 'ScopedStore' object has no attribute '_acquire'
+ERROR    agents.execution_engine.engine:engine.py:14364 step sample-wave-worker raised: scripted instance-A crash on run_fanout call #2
+Traceback (most recent call last):
+  File "/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/agents/execution_engine/engine.py", line 14354, in _guarded_step
+    async for event in self._dispatch_step_with_retry(step, ectx, strategy):
+    ...<2 lines>...
+        yield event
+  File "/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/agents/execution_engine/engine.py", line 14391, in _dispatch_step_with_retry
+    async for event in strategy.run(step, ectx):
+        yield event
+  File "/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/agents/capabilities/strategies/wave_scheduler.py", line 490, in run
+    async for event in _dispatch_wave(requests, task_ids):
+        yield event
+  File "/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/agents/capabilities/strategies/wave_scheduler.py", line 474, in _dispatch_wave
+    async for event in stream_wave_fanout(
+    ...<12 lines>...
+        yield event
+  File "/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/agents/capabilities/strategies/_fanout_wave_stream.py", line 88, in stream_wave_fanout
+    yield next_fanout.result()
+          ~~~~~~~~~~~~~~~~~~^^
+  File "/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/tests/integration/agents/test_restart_resume_db.py", line 380, in _wrapped_fanout
+    raise RuntimeError(
+        f"scripted instance-A crash on run_fanout call #{_raise_on}"
+    )
+RuntimeError: scripted instance-A crash on run_fanout call #2
+WARNING  agents.execution_engine.engine:engine.py:16031 resumed-stream drive(9c257838-861c-438c-87b9-2cb37543c42f) failed mid-drive: Cannot transition run '9c257838-861c-438c-87b9-2cb37543c42f' from terminal state 'failed' to 'generating'.
+___________ test_resume_dispatch_carries_rehydrated_planning_context ___________
+tests/integration/agents/test_restart_resume_db.py:5027: in test_resume_dispatch_carries_rehydrated_planning_context
+    assert _REHYDRATE_ANSWER in first, (
+E   AssertionError: D2: a resumed dispatch must carry the user's clarification answers; got:
+E     === ORIGINAL USER REQUEST ===
+E     Run the wave workflow.
+E     === END REQUEST ===
+E   assert 'SPINNAKER-SENTINEL' in '=== ORIGINAL USER REQUEST ===\nRun the wave workflow.\n=== END REQUEST ==='
+------------------------------ Captured log call -------------------------------
+WARNING  app.agents.checkpointer:checkpointer.py:61 Checkpointer: DATABASE_URL is not Postgres — using InMemorySaver. HITL pauses work within the process but do NOT survive a restart.
+WARNING  agents.artifacts.graph:graph.py:155 artifact kind 'sample-wave-plan' is outside ARTIFACT_KINDS — typed consumes routing and the FR-014 revision lookup match kinds EXACTLY, so a typo here is silently unroutable (IN-01 advisory; write proceeds)
+WARNING  app.agents.sandbox:sandbox.py:878 commit_all: nothing to commit (empty diff at step boundary) run=rh-user/rh-b4c5cb46 message='step: sample-wave-plan'
+WARNING  agents.execution_engine.engine:engine.py:832 commit_in_sandbox: no changes staged for run=rh-b4c5cb46 step=sample-wave-plan (has_git=true)
+WARNING  agents.artifacts.graph:graph.py:155 artifact kind 'sample-wave-worker' is outside ARTIFACT_KINDS — typed consumes routing and the FR-014 revision lookup match kinds EXACTLY, so a typo here is silently unroutable (IN-01 advisory; write proceeds)
+WARNING  agents.artifacts.graph:graph.py:155 artifact kind 'sample-wave-worker' is outside ARTIFACT_KINDS — typed consumes routing and the FR-014 revision lookup match kinds EXACTLY, so a typo here is silently unroutable (IN-01 advisory; write proceeds)
+WARNING  agents.execution_engine.kernel_services:kernel_services.py:754 update_wave_run_merge_state(step=sample-wave-worker) failed: 'ScopedStore' object has no attribute '_acquire'
+WARNING  agents.artifacts.graph:graph.py:155 artifact kind 'sample-wave-worker' is outside ARTIFACT_KINDS — typed consumes routing and the FR-014 revision lookup match kinds EXACTLY, so a typo here is silently unroutable (IN-01 advisory; write proceeds)
+WARNING  agents.artifacts.graph:graph.py:155 artifact kind 'sample-wave-worker' is outside ARTIFACT_KINDS — typed consumes routing and the FR-014 revision lookup match kinds EXACTLY, so a typo here is silently unroutable (IN-01 advisory; write proceeds)
+WARNING  agents.execution_engine.kernel_services:kernel_services.py:754 update_wave_run_merge_state(step=sample-wave-worker) failed: 'ScopedStore' object has no attribute '_acquire'
+ERROR    agents.execution_engine.engine:engine.py:2603 finalize_terminal_run: create_run_ref FAILED run=rh-b4c5cb46 (run_id must be a UUID (hex digits and hyphens only): 'rh-b4c5cb46')
+=============================== warnings summary ===============================
+app/core/config.py:94
+  /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/app/core/config.py:94: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+    class Settings(BaseSettings):
+
+tests/integration/agents/test_restart_resume_db.py::test_midwave_resume_does_not_reinvoke_completed_workers
+tests/integration/agents/test_restart_resume_db.py::test_failed_run_resumes_skips_completed_tasks
+tests/integration/agents/test_restart_resume_db.py::test_user_resume_persists_output_columns
+tests/integration/agents/test_restart_resume_db.py::test_resume_dispatch_carries_rehydrated_planning_context
+  /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/agents/execution_engine/engine.py:1324: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    _ts = _dt.datetime.utcnow().isoformat(timespec="seconds") + "Z"
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/integration/agents/test_restart_resume_db.py::test_midwave_resume_does_not_reinvoke_completed_workers
+FAILED tests/integration/agents/test_restart_resume_db.py::test_failed_run_resumes_skips_completed_tasks
+FAILED tests/integration/agents/test_restart_resume_db.py::test_user_resume_persists_output_columns
+FAILED tests/integration/agents/test_restart_resume_db.py::test_resume_dispatch_carries_rehydrated_planning_context
+4 failed, 5 warnings in 5.61s

@@ -1,0 +1,636 @@
+QA-KB-112 analysis evidence 01: exact, line-numbered source quotes (read 2026-10-12 09:41, worktree feat-user-stories-v2, branch feat/stale-bug-fixes; HEAD moved 76f336e9 -> 234b5a429 during the session, none of the quoted files changed)
+Each block: path:first-last, the claim it backs, then the lines verbatim (number | text).
+
+====================================================================================================
+frontend/src/app/settings/security/page.tsx:3-14  --  The static page's own docstring: why it exists and who it is for
+----------------------------------------------------------------------------------------------------
+    3 | /**
+    4 |  * Account security — TOTP enrolment.
+    5 |  *
+    6 |  * This page exists because Cognito provides no enrolment UI without the hosted
+    7 |  * UI, and because `require_admin` refuses an admin who holds no second factor.
+    8 |  * It is the destination the backend names in that 403's `enroll_path`, so it
+    9 |  * must be reachable by any authenticated user — an admin arriving here is, by
+   10 |  * definition, currently blocked from every `/api/admin/*` route.
+   11 |  *
+   12 |  * The ceremony is two steps because Cognito's is: associate provisions a secret,
+   13 |  * verify proves possession. Nothing is enrolled until the second step returns.
+   14 |  */
+
+====================================================================================================
+frontend/src/app/settings/security/page.tsx:35-61  --  begin() calls associateTotp from a mount effect; no MFA-status read, no admin check
+----------------------------------------------------------------------------------------------------
+   35 |   const begin = useCallback(async () => {
+   36 |     setStage({ kind: "loading" });
+   37 |     const token = getToken();
+   38 |     if (!token) {
+   39 |       setStage({ kind: "error", message: "Please sign in again to continue." });
+   40 |       return;
+   41 |     }
+   42 |     try {
+   43 |       const association = await associateTotp(token);
+   44 |       setStage({ kind: "ready", association });
+   45 |     } catch (err: unknown) {
+   46 |       setStage({
+   47 |         kind: "error",
+   48 |         message:
+   49 |           err instanceof ApiError && typeof err.detail === "string"
+   50 |             ? err.detail
+   51 |             : "Could not start enrolment. Please try again.",
+   52 |       });
+   53 |     }
+   54 |   }, []);
+   55 | 
+   56 |   useEffect(() => {
+   57 |     const start = window.setTimeout(() => {
+   58 |       void begin();
+   59 |     }, 0);
+   60 |     return () => window.clearTimeout(start);
+   61 |   }, [begin]);
+
+====================================================================================================
+frontend/src/app/settings/security/page.tsx:88-97  --  h1 colour class and the copy shown to every user
+----------------------------------------------------------------------------------------------------
+   88 |     <main className="mx-auto flex max-w-xl flex-col gap-6 p-6">
+   89 |       <header className="flex flex-col gap-1">
+   90 |         <h1 className="text-xl font-semibold text-slate-100">
+   91 |           Two-factor authentication
+   92 |         </h1>
+   93 |         <p className="text-sm text-slate-400">
+   94 |           Admin access requires a second factor. Set up an authenticator app to
+   95 |           continue.
+   96 |         </p>
+   97 |       </header>
+
+====================================================================================================
+frontend/src/app/settings/security/page.tsx:163-166  --  'shown once and is not stored' - the new-secret-per-visit contract is written into the page
+----------------------------------------------------------------------------------------------------
+  163 |             <p className="text-xs text-slate-500">
+  164 |               This key is shown once and is not stored. If you leave this page
+  165 |               before finishing, start again.
+  166 |             </p>
+
+====================================================================================================
+frontend/src/app/settings/security/page.tsx:203-219  --  enrolled state tells the user to sign out, and renders no sign-out control
+----------------------------------------------------------------------------------------------------
+  203 |       {stage.kind === "enrolled" && (
+  204 |         <div role="status" className="flex flex-col gap-2">
+  205 |           <h2 className="text-sm font-medium text-emerald-400">
+  206 |             Two-factor authentication is on.
+  207 |           </h2>
+  208 |           {/* Not optional politeness: the admin gate compares this session's
+  209 |               token `iat` against `mfa_verified_at`. The token in the browser
+  210 |               right now was minted BEFORE this enrolment, so it cannot carry the
+  211 |               proof and admin routes will keep returning 403 until a new sign-in
+  212 |               mints a token that does. */}
+  213 |           <p className="text-sm text-slate-400">
+  214 |             Sign out and sign back in to finish. Your current session was started
+  215 |             before you enrolled, so it does not yet count as verified — admin
+  216 |             pages will keep refusing until you sign in again.
+  217 |           </p>
+  218 |         </div>
+  219 |       )}
+
+====================================================================================================
+frontend/src/lib/api.ts:859-862  --  the ONLY GET /api/auth/mfa client (cachedGet)
+----------------------------------------------------------------------------------------------------
+  859 | export async function getMfaStatus(token: string): Promise<MfaStatus> {
+  860 |   // ISS-799: shared-GET cached — SecuritySection's mount effect is the only
+  861 |   // call site, and it is double-invoked by `next dev`.
+  862 |   return cachedGet<MfaStatus>("/api/auth/mfa", token);
+
+====================================================================================================
+frontend/src/lib/api.ts:918-923  --  associateTotp -> POST /api/auth/mfa/totp/associate
+----------------------------------------------------------------------------------------------------
+  918 | export async function associateTotp(token: string): Promise<TotpAssociation> {
+  919 |   return request<TotpAssociation>("/api/auth/mfa/totp/associate", {
+  920 |     method: "POST",
+  921 |     headers: authHeaders(token),
+  922 |   });
+  923 | }
+
+====================================================================================================
+backend/app/api/auth.py:784-817  --  associate_totp: a fresh Cognito secret per call, never stored
+----------------------------------------------------------------------------------------------------
+  784 | @router.post("/mfa/totp/associate", status_code=status.HTTP_200_OK)
+  785 | def associate_totp(
+  786 |     credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+  787 |     auth: tuple[User, dict] = Depends(get_current_user_with_payload),
+  788 |     db: Session = Depends(get_db),
+  789 | ):
+  790 |     """Begin TOTP enrolment; returns the shared secret to render as a QR code.
+  791 | 
+  792 |     Phase 6 item 1 (plan §5.5). Cognito provides no enrolment UI without the
+  793 |     hosted UI, so the application must supply this step -- which is why the pool
+  794 |     can sit at ``mfa_configuration = OPTIONAL`` while admins are still required
+  795 |     to hold a factor.
+  796 | 
+  797 |     The secret is returned ONCE and never stored server-side. Enrolment is not
+  798 |     complete until ``POST /api/auth/mfa/totp/verify`` proves possession.
+  799 |     """
+  800 |     user, _payload = auth
+  801 |     try:
+  802 |         secret = cognito.associate_software_token(credentials.credentials)
+  803 |     except cognito.PROVIDER_ERRORS as exc:
+  804 |         code = cognito.provider_error_code(exc)
+  805 |         logger.error("Cognito AssociateSoftwareToken failed: %s", code)
+  806 |         raise HTTPException(
+  807 |             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+  808 |             detail="Authentication service unavailable",
+  809 |         )
+  810 |     return {
+  811 |         "secret": secret,
+  812 |         "issuer": "Flowin",
+  813 |         "account": user.email,
+  814 |         # Standard otpauth URI so the client can render a QR code directly
+  815 |         # without reimplementing the format.
+  816 |         "otpauth_uri": f"otpauth://totp/Flowin:{user.email}?secret={secret}&issuer=Flowin",
+  817 |     }
+
+====================================================================================================
+backend/app/core/cognito.py:587-594  --  unverified associations are not confirmed factors
+----------------------------------------------------------------------------------------------------
+  587 | def get_confirmed_mfa_factors(email: str) -> list[str]:
+  588 |     """The user's CONFIRMED MFA factors, from ``AdminGetUser``.
+  589 | 
+  590 |     ``UserMFASettingList`` contains only confirmed/active factors: a user who
+  591 |     called ``AssociateSoftwareToken`` but never completed
+  592 |     ``VerifySoftwareToken`` does NOT appear. That is exactly the semantics the
+  593 |     admin gate wants -- a half-finished enrolment must not satisfy it.
+  594 | 
+
+====================================================================================================
+backend/app/core/cognito.py:626-633  --  associate_software_token: one Cognito call, one new SecretCode
+----------------------------------------------------------------------------------------------------
+  626 | def associate_software_token(access_token: str) -> str:
+  627 |     """Begin TOTP enrolment. Returns the shared secret to render as a QR code.
+  628 | 
+  629 |     Non-admin API keyed on the caller's own access token, so a user can only
+  630 |     ever enrol their OWN device.
+  631 |     """
+  632 |     resp = _client().associate_software_token(AccessToken=access_token)
+  633 |     return resp["SecretCode"]
+
+====================================================================================================
+frontend/src/lib/routes.ts:170-174  --  routes.ts still says the page is gone and /settings/security is a tab
+----------------------------------------------------------------------------------------------------
+  170 |   // The MFA/two-factor controls that used to live at a standalone
+  171 |   // /settings/security PAGE are now a tab on this surface. The page is gone
+  172 |   // (dev's change, kept); the URL stays so the tab is addressable exactly
+  173 |   // like the other four — /settings/{tab} maps to a tab, uniformly.
+  174 |   settingsSecurity: (): string => '/settings/security',
+
+====================================================================================================
+frontend/src/lib/routes.ts:178-181  --  precedent: routes.ts already documents that a static page outranks [...view]
+----------------------------------------------------------------------------------------------------
+  178 |   },
+  179 | 
+  180 |   // Intentionally unreachable dead code: static app/admin/page.tsx takes precedence over [...view] catch-all for /admin path; kept for routes.ts documentation.
+  181 |   admin: (): string => '/admin',
+
+====================================================================================================
+frontend/src/lib/routes.ts:486-492  --  parseViewPath still maps /settings/security to settings-security
+----------------------------------------------------------------------------------------------------
+  486 |     const tab = segments[1];
+  487 | 
+  488 |     if (tab === 'profile') return { screen: 'settings-profile' };
+  489 |     if (tab === 'ai-model') return { screen: 'settings-ai-model' };
+  490 |     if (tab === 'usage') return { screen: 'settings-usage' };
+  491 |     if (tab === 'constitution') return { screen: 'settings-constitution' };
+  492 |     if (tab === 'security') return { screen: 'settings-security' };
+
+====================================================================================================
+frontend/src/app/[...view]/page.tsx:189-194  --  initialMainViewFor: settings-security -> settings
+----------------------------------------------------------------------------------------------------
+  189 |     case "settings-profile":
+  190 |     case "settings-ai-model":
+  191 |     case "settings-usage":
+  192 |     case "settings-constitution":
+  193 |     case "settings-security":
+  194 |       return "settings";
+
+====================================================================================================
+frontend/src/app/[...view]/page.tsx:310-314  --  initialSettingsSectionFor: settings-security -> security
+----------------------------------------------------------------------------------------------------
+  310 |     case "settings-constitution":
+  311 |       return "constitution";
+  312 |     case "settings-security":
+  313 |       return "security";
+  314 |     default:
+
+====================================================================================================
+frontend/src/app/[...view]/page.tsx:936-941  --  the catch-all redirects a token-less visitor to login; the static page does not
+----------------------------------------------------------------------------------------------------
+  936 |   useEffect(() => {
+  937 |     const storedToken = getToken();
+  938 |     if (!storedToken) {
+  939 |       router.replace(buildLoginRedirect());
+  940 |       return;
+  941 |     }
+
+====================================================================================================
+frontend/src/components/settings/AccountSettings.tsx:55-62  --  SECTION_ROUTE.security = routes.settingsSecurity
+----------------------------------------------------------------------------------------------------
+   55 | // which section it switched to (only a fresh /settings/{section} nav did).
+   56 | const SECTION_ROUTE: Record<SettingsSection, () => string> = {
+   57 |   profile: routes.settingsProfile,
+   58 |   model: routes.settingsAiModel,
+   59 |   limits: routes.settingsUsage,
+   60 |   constitution: routes.settingsConstitution,
+   61 |   security: routes.settingsSecurity,
+   62 | };
+
+====================================================================================================
+frontend/src/components/settings/AccountSettings.tsx:270-281  --  tab click: setSection then router.replace(SECTION_ROUTE[next]())
+----------------------------------------------------------------------------------------------------
+  270 |             onChange={id => {
+  271 |               const next = id as SettingsSection;
+  272 |               // ISS-482: guard tab switch away from Constitution if draft differs from loaded value
+  273 |               if (section === "constitution" && constitutionDirty) {
+  274 |                 setNextSection(next);
+  275 |                 setConfirmingDiscardConstitution(true);
+  276 |                 return;
+  277 |               }
+  278 |               setSection(next);
+  279 |               router.replace(SECTION_ROUTE[next]());
+  280 |             }}
+  281 |           />
+
+====================================================================================================
+frontend/src/components/settings/AccountSettings.tsx:530-534  --  the only mount of SecuritySection
+----------------------------------------------------------------------------------------------------
+  530 |           {/* ── SECURITY ── two-factor authentication (was /settings/security) */}
+  531 |           {section === "security" && (
+  532 |             <SecuritySection />
+  533 |           )}
+  534 | 
+
+====================================================================================================
+frontend/src/components/settings/SecuritySection.tsx:26-35  --  SecuritySection's docstring: the standalone page was removed in favour of the tab
+----------------------------------------------------------------------------------------------------
+   26 |  * screen calls.
+   27 |  *
+   28 |  * Lives as a TAB inside Account Settings rather than its own route: the
+   29 |  * standalone `/settings/security` page duplicated the chrome (own back button,
+   30 |  * own page title) that the settings surface already provides, and split account
+   31 |  * concerns across two navigation models. This component therefore renders body
+   32 |  * content only — the header, back affordance and tab strip are the parent's.
+   33 |  *
+   34 |  * Email OTP is a TOGGLE, not a wizard, and that asymmetry with TOTP is real
+   35 |  * rather than a shortcut: Cognito provisions no secret for email codes (the
+
+====================================================================================================
+frontend/src/components/settings/SecuritySection.tsx:338-352  --  Authenticator row: 'Set-up is handled by your administrator', no control
+----------------------------------------------------------------------------------------------------
+  338 |         <MethodRow
+  339 |           icon={<Smartphone className="h-4 w-4 text-ink-500" aria-hidden="true" />}
+  340 |           title="Authenticator app"
+  341 |           description={
+  342 |             totpOn
+  343 |               ? "A time-based code from your authenticator app."
+  344 |               : "Codes from an app like Google Authenticator. Set-up is handled by your administrator."
+  345 |           }
+  346 |           active={totpOn}
+  347 |           // Deliberately no control here. The TOTP enrolment endpoints exist
+  348 |           // (/api/auth/mfa/totp/associate + /verify) but this screen does not
+  349 |           // implement the QR ceremony, and rendering a button that goes nowhere
+  350 |           // would be worse than stating where set-up happens.
+  351 |           action={null}
+  352 |           descriptionId="totp-mfa-description"
+
+====================================================================================================
+frontend/src/components/layout/DashboardLayout.tsx:2325-2341  --  no caller passes settingsSection, so initialSection=security is never requested in-app
+----------------------------------------------------------------------------------------------------
+ 2325 |   //
+ 2326 |   // `options.settingsSection` deep-links into one Account Settings tab. No
+ 2327 |   // caller passes it today (the profile menu's "Security" item that used it was
+ 2328 |   // removed); omitting it lands on "profile", which is what every current
+ 2329 |   // caller wants. The nonce is what makes a REPEAT request work: the settings view is
+ 2330 |   // keyed on it, so asking for the same tab again remounts AccountSettings and
+ 2331 |   // re-applies `initialSection` even when the user has since clicked another tab.
+ 2332 |   const handleNavigate = useCallback((
+ 2333 |     page: "home" | "library" | "history" | "settings" | "analytics" | "catalog" | "saved-workflows",
+ 2334 |     options?: { settingsSection?: SettingsSection },
+ 2335 |   ) => {
+ 2336 |     if (page === "settings") {
+ 2337 |       const requested = options?.settingsSection ?? "profile";
+ 2338 |       setSettingsRequest((prev) => ({ section: requested, nonce: prev.nonce + 1 }));
+ 2339 |     }
+ 2340 |     setMainView(page as MainView);
+ 2341 |     router.push(headerNavRoute(page));
+
+====================================================================================================
+frontend/src/components/layout/AppHeader.tsx:580-584  --  profile menu opens settings with no section
+----------------------------------------------------------------------------------------------------
+  580 |                   <button
+  581 |                     role="menuitem"
+  582 |                     onClick={() => { setProfileOpen(false); onNavigate("settings"); }}
+  583 |                     className="w-full flex items-center gap-2.5 px-3.5 py-2 text-[12px] text-ink-700 hover:bg-surface-warm transition-colors text-left"
+  584 |                   >
+
+====================================================================================================
+frontend/src/app/admin/page.tsx:179-196  --  the intended consumer: blocked admin -> router.replace('/settings/security?enroll=...') (hand-written literal)
+----------------------------------------------------------------------------------------------------
+  179 |   // An admin who holds no second factor is refused by `require_admin` on every
+  180 |   // route this page needs, so there is nothing here worth rendering — send them
+  181 |   // to the enrolment view the server named instead of leaving them on a page
+  182 |   // that can only show "Failed to load users".
+  183 |   //
+  184 |   // The subscription is on the ApiError seam rather than on any single call:
+  185 |   // `loadUsers` swallows its error to render that generic message, so a
+  186 |   // per-call handler would never see the 403 that matters most.
+  187 |   //
+  188 |   // `replace`, not `push`: the blocked admin page is not a step worth keeping in
+  189 |   // history — going Back from enrolment would land on the same 403.
+  190 |   useEffect(() => {
+  191 |     return onAdminMfaRequired((detail) => {
+  192 |       router.replace(
+  193 |         `/settings/security?enroll=${encodeURIComponent(detail.enroll_path)}`,
+  194 |       );
+  195 |     });
+  196 |   }, [router]);
+
+====================================================================================================
+frontend/src/app/layout.tsx:36-41  --  root layout renders no header/nav and a light body background
+----------------------------------------------------------------------------------------------------
+   36 |   children: React.ReactNode;
+   37 | }>) {
+   38 |   return (
+   39 |     <html lang="en" className={`${manrope.variable} ${heebo.variable} h-full antialiased`} suppressHydrationWarning>
+   40 |       <body className="min-h-full flex flex-col bg-surface-white text-ink-900">
+   41 |         <Script id="theme-init" strategy="beforeInteractive">
+
+====================================================================================================
+frontend/src/styles/globals.css:99-99  --  light --surface-paper
+----------------------------------------------------------------------------------------------------
+   99 |   --surface-paper: #F0EEE7;
+
+====================================================================================================
+frontend/src/styles/globals.css:256-256  --  dark --surface-paper
+----------------------------------------------------------------------------------------------------
+  256 |   --surface-paper: #0D0D0D;
+
+====================================================================================================
+tests/integration/e2e/suites/09_settings/test_settings.py:30-32  --  open_settings(): the heading assertion all 8 failing nodes trip on
+----------------------------------------------------------------------------------------------------
+   30 | def open_settings(page, route: str = "/settings/profile") -> None:
+   31 |     page.goto(route)
+   32 |     expect(page.get_by_text(L.HEADING).first).to_be_visible()
+
+====================================================================================================
+tests/integration/e2e/suites/09_settings/test_settings.py:83-114  --  S-09-01 / S-09-02 parametrised over L.TABS (incl. tab-security)
+----------------------------------------------------------------------------------------------------
+   83 | @pytest.mark.scenario("S-09-01")
+   84 | @pytest.mark.parametrize(
+   85 |     ("testid", "label", "route"), L.TABS, ids=[t[0] for t in L.TABS]
+   86 | )
+   87 | def test_every_tab_is_addressable_by_url(page, shot, testid, label, route):
+   88 |     """Scenario: Every tab is addressable by URL"""
+   89 |     with shot(f"tab-{testid}", f'When I cold-load "{route}"'):
+   90 |         open_settings(page, route)
+   91 | 
+   92 |     expect(page.get_by_text(L.SUBTITLE)).to_be_visible()
+   93 |     # aria-selected is the tab strip's own statement about which panel is live;
+   94 |     # a visible-looking tab is not the same claim.
+   95 |     expect(page.locator(L.tab(testid))).to_have_attribute("aria-selected", "true")
+   96 |     assert page.url.endswith(route), f"{route} settled at {page.url}"
+   97 | 
+   98 | 
+   99 | @pytest.mark.scenario("S-09-02")
+  100 | @pytest.mark.parametrize(
+  101 |     ("testid", "label", "route"),
+  102 |     [t for t in L.TABS if t[0] != "tab-profile"] + [L.TABS[0]],
+  103 |     ids=lambda v: v if isinstance(v, str) else "",
+  104 | )
+  105 | def test_clicking_a_tab_pushes_its_url(page, shot, testid, label, route):
+  106 |     """Scenario: Clicking a tab pushes its URL"""
+  107 |     with shot(f"click-{testid}", f'Given I am on "/settings/profile"'):
+  108 |         open_settings(page)
+  109 | 
+  110 |     with shot(f"pushed-{testid}", f'When I click "{testid}"'):
+  111 |         page.click(L.tab(testid))
+  112 |         page.wait_for_url(f"**{route}")
+  113 | 
+  114 |     assert page.url.endswith(route)
+
+====================================================================================================
+tests/integration/e2e/suites/09_settings/test_settings.py:677-690  --  S-09-13 (first of S-09-13..S-09-19, all cold-load /settings/security)
+----------------------------------------------------------------------------------------------------
+  677 | @pytest.mark.scenario("S-09-13")
+  678 | def test_mfa_is_unavailable_for_an_externally_managed_account(page, shot):
+  679 |     """Scenario: MFA is unavailable for an externally-managed account"""
+  680 |     with shot("security", 'When I cold-load "/settings/security"'):
+  681 |         open_settings(page, "/settings/security")
+  682 | 
+  683 |     expect(page.get_by_text(L.SECURITY_INTRO)).to_be_visible()
+  684 | 
+  685 |     if mfa_status(page).get("supported"):
+  686 |         pytest.skip("this pool reports MFA as supported — see S-09-14 for that branch")
+  687 | 
+  688 |     expect(page.get_by_text(L.NOT_AVAILABLE)).to_be_visible()
+  689 |     expect(page.get_by_text(L.LOCAL_ACCOUNT_NO_MFA)).to_be_visible()
+  690 |     expect(page.get_by_text(L.EMAIL_CODES)).to_have_count(0)
+
+====================================================================================================
+tests/integration/e2e/framework/locators/settings_page.py:22-30  --  TABS pairs tab-security with the cold-load route /settings/security
+----------------------------------------------------------------------------------------------------
+   22 | # (testid, visible label, route). Order is the strip's own order — Security sits
+   23 | # last because it absorbed the retired standalone /settings/security page.
+   24 | TABS = [
+   25 |     ("tab-profile", "Profile", "/settings/profile"),
+   26 |     ("tab-model", "AI Model", "/settings/ai-model"),
+   27 |     ("tab-limits", "Usage & Limits", "/settings/usage"),
+   28 |     ("tab-constitution", "Constitution", "/settings/constitution"),
+   29 |     ("tab-security", "Security", "/settings/security"),
+   30 | ]
+
+====================================================================================================
+tests/integration/e2e/suites/09_settings/test_iss404_security_copy.py:43-53  --  9th failing node: same cold-load, plus the supported=False precondition (ISS-1018)
+----------------------------------------------------------------------------------------------------
+   43 |     with shot("iss404-security-copy", 'When I cold-load "/settings/security"'):
+   44 |         page.goto("/settings/security")
+   45 |         expect(page.get_by_text(L.HEADING).first).to_be_visible()
+   46 | 
+   47 |     res = api.request(page, "GET", "/api/auth/mfa")
+   48 |     assert res["status"] == 200, f"/api/auth/mfa returned {res['status']}: {res['body']}"
+   49 |     status = json.loads(res["body"])
+   50 |     assert status.get("supported") is False, (
+   51 |         "admin@velocity.ai is expected to be break-glass/local (supported=false); "
+   52 |         f"got {status} — this test needs that account shape"
+   53 |     )
+
+====================================================================================================
+tests/integration/e2e/suites/09_settings/test_qa_ps_035_settings_duplicate_requests.py:24-31  --  _count is a substring match
+----------------------------------------------------------------------------------------------------
+   24 | def _collect_requests(page) -> list[str]:
+   25 |     seen: list[str] = []
+   26 |     page.on("request", lambda req: seen.append(req.url))
+   27 |     return seen
+   28 | 
+   29 | 
+   30 | def _count(urls: list[str], path: str) -> int:
+   31 |     return sum(1 for u in urls if path in u)
+
+====================================================================================================
+tests/integration/e2e/suites/09_settings/test_qa_ps_035_settings_duplicate_requests.py:76-89  --  ISS-799 test: cold-loads /settings/security and counts '/api/auth/mfa'
+----------------------------------------------------------------------------------------------------
+   76 | @pytest.mark.issue("ISS-799")
+   77 | def test_settings_security_tab_fetches_mfa_status_once(page):
+   78 |     """ISS-799 — the Security tab's mount effect (`SecuritySection.tsx`)
+   79 |     must fetch `/api/auth/mfa` exactly once per cold load."""
+   80 |     requests = _collect_requests(page)
+   81 | 
+   82 |     page.goto("/settings/security")
+   83 |     page.wait_for_timeout(settings.SETTLE_MS)
+   84 | 
+   85 |     mfa_count = _count(requests, "/api/auth/mfa")
+   86 | 
+   87 |     assert mfa_count == 1, (
+   88 |         f"expected one call to /api/auth/mfa, saw {mfa_count} — requests: {requests}"
+   89 |     )
+
+====================================================================================================
+velocity.json:117-117  --  routes.settingsSecurity
+----------------------------------------------------------------------------------------------------
+  117 |     "settingsSecurity": "/settings/security",
+
+====================================================================================================
+velocity.json:246-246  --  selectors.settingsTab
+----------------------------------------------------------------------------------------------------
+  246 |     "settingsTab": "[data-testid='tab-<profile|model|limits|constitution|security>'] -- testids do NOT match route segments: model↔ai-model, limits↔usage",
+
+====================================================================================================
+velocity.json:638-660  --  pages.settings: tabs, routes, testids and the stale bare-/settings note
+----------------------------------------------------------------------------------------------------
+  638 |     "settings": {
+  639 |       "tabs": [
+  640 |         "Profile",
+  641 |         "AI Model",
+  642 |         "Usage & Limits",
+  643 |         "Constitution",
+  644 |         "Security"
+  645 |       ],
+  646 |       "routes": [
+  647 |         "/settings/profile",
+  648 |         "/settings/ai-model",
+  649 |         "/settings/usage",
+  650 |         "/settings/constitution",
+  651 |         "/settings/security"
+  652 |       ],
+  653 |       "testids": [
+  654 |         "tab-profile",
+  655 |         "tab-model",
+  656 |         "tab-limits",
+  657 |         "tab-constitution",
+  658 |         "tab-security"
+  659 |       ],
+  660 |       "note": "bare /settings parses to `unknown` by design - it does not redirect"
+
+====================================================================================================
+tests/integration/screens/09-settings.feature.md:119-148  --  S-09-01 / S-09-02 Examples rows for Security
+----------------------------------------------------------------------------------------------------
+  119 |   @S-09-01
+  120 |   Scenario Outline: Every tab is addressable by URL
+  121 |     When I cold-load "<route>"
+  122 |     Then I see the heading "Account Settings"
+  123 |     And the "<tab>" tab is selected
+  124 |     And that tab's panel is rendered
+  125 | 
+  126 |     Examples:
+  127 |       | route                    | tab            |
+  128 |       | /settings/profile        | Profile        |
+  129 |       | /settings/ai-model       | AI Model       |
+  130 |       | /settings/usage          | Usage & Limits |
+  131 |       | /settings/constitution   | Constitution   |
+  132 |       | /settings/security       | Security       |
+  133 | 
+  134 |   @S-09-02
+  135 |   Scenario Outline: Clicking a tab pushes its URL
+  136 |     Given I am on "/settings/profile"
+  137 |     When I click the tab with testid "<testid>"
+  138 |     Then the URL becomes "<route>"
+  139 | 
+  140 |     Examples:
+  141 |       | testid            | route                  |
+  142 |       | tab-model         | /settings/ai-model     |
+  143 |       | tab-limits        | /settings/usage        |
+  144 |       | tab-constitution  | /settings/constitution |
+  145 |       | tab-security      | /settings/security     |
+  146 |       | tab-profile       | /settings/profile      |
+  147 |     # The testids do not match the route segments. tab-model ↔ ai-model and
+  148 |     # tab-limits ↔ usage. Map them; do not derive one from the other.
+
+====================================================================================================
+tests/integration/screens/09-settings.feature.md:256-325  --  S-09-13..S-09-19 (the Security scenarios)
+----------------------------------------------------------------------------------------------------
+  256 |   # ---- Security ----
+  257 | 
+  258 |   @S-09-13
+  259 |   Scenario: MFA is unavailable for an externally-managed account
+  260 |     When I cold-load "/settings/security"
+  261 |     Then I see the explanation that credentials are managed outside the application
+  262 |     And I see "Not available for this account"
+  263 |     And no MFA enrolment control is offered
+  264 |     # True for Cognito-backed accounts, which is every seeded QA user. If the
+  265 |     # app ever supports local credentials, this scenario needs a second variant.
+  266 | 
+  267 |   @S-09-14
+  268 |   @sourced
+  269 |   Scenario: Security lists both second-factor methods
+  270 |     When I cold-load "/settings/security"
+  271 |     Then I see a method row titled "Email codes"
+  272 |     And I see a method row titled "Authenticator app"
+  273 |     And each row states whether it is active
+  274 | 
+  275 |   @S-09-15
+  276 |   @sourced
+  277 |   Scenario: Email codes are a toggle, not a wizard
+  278 |     Given email MFA is available for my pool
+  279 |     When I cold-load "/settings/security"
+  280 |     Then "Email codes" offers a toggle
+  281 |     And enabling it needs no secret, no QR code and no confirmation step
+  282 |     # Deliberate, and explained in the source: Cognito provisions no secret for
+  283 |     # email codes because the mailbox is already the pool's verified sign-in
+  284 |     # identifier. There is nothing to display, scan or confirm.
+  285 | 
+  286 |   @S-09-16
+  287 |   @sourced
+  288 |   Scenario: The authenticator row offers no control at all
+  289 |     When I cold-load "/settings/security"
+  290 |     Then "Authenticator app" shows its status
+  291 |     And it offers NO enrolment control
+  292 |     # /api/auth/mfa/totp/associate and /verify both EXIST. This screen
+  293 |     # deliberately does not call them — TOTP needs a wizard nobody has built.
+  294 |     # Asserted so the absence stays a decision rather than becoming a bug report.
+  295 | 
+  296 |   @S-09-17
+  297 |   @sourced
+  298 |   Scenario: An environment with no methods says so
+  299 |     Given neither email MFA nor TOTP is available
+  300 |     When I cold-load "/settings/security"
+  301 |     Then I see "No two-factor methods are enabled for this environment yet."
+  302 |     And I am told to contact my administrator
+  303 | 
+  304 |   @S-09-18
+  305 |   @sourced
+  306 |   Scenario: Email MFA changes the account-recovery story
+  307 |     Given email MFA is available
+  308 |     When I cold-load "/settings/security"
+  309 |     Then I am told password resets are handled by an administrator rather than by email
+  310 |     # This is the whole recovery story, and it is why the sign-in screen has no
+  311 |     # "forgot password" link. /api/auth/forgot-password exists but correctly
+  312 |     # REFUSES in this configuration: AWS disqualifies email as a recovery
+  313 |     # channel whenever it is also a second factor. See 11-admin for the path
+  314 |     # that does work.
+  315 | 
+  316 |   @S-09-19
+  317 |   @sourced
+  318 |   Scenario: Security is a tab, not a page
+  319 |     When I cold-load "/settings/security"
+  320 |     Then the settings header, back affordance and tab strip are the parent's
+  321 |     And this section renders body content only
+  322 |     # The standalone page was removed because it duplicated that chrome and
+  323 |     # split account concerns across two navigation models. The URL survives so
+  324 |     # the tab stays addressable.
+  325 | ```
+

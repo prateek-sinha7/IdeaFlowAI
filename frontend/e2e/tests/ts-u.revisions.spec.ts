@@ -17,8 +17,7 @@
  * backend), and answers the confirm with a revision_run_id (a child run whose
  * tail the mock owns from that moment, or the same run when none is configured).
  *
- * Deck runs use the `ppt` pipeline (od_ppt was folded into it — no od_* manifest
- * remains) and are served by the mock's lazy attach: since 015-frontend-routing a
+ * Deck runs use the `ppt` pipeline and are served by the mock's lazy attach: since 015-frontend-routing a
  * launch persists its run TYPE across the /runs/{id}/stream remount, so launching
  * user_stories and announcing ppt is a state the real backend never produces.
  *
@@ -45,7 +44,7 @@ const REVISED_DECK = `<!DOCTYPE html><html><body>${Array.from({ length: 6 })
 
 /** Play a full ppt deck run over the lazy attach (no launch). */
 async function completeDeckRun(mockSse: MockSse, pipelineType: string, finalOutput: string) {
-  const agents = AGENTS.od_ppt;
+  const agents = AGENTS.ppt;
   mockSse.start(agents, { pipelineType });
   await mockSse.ready();
   for (const a of agents) await runAgent(mockSse, a.id);
@@ -121,7 +120,7 @@ async function requestRevision(
 }
 
 test.describe("TS-U — revision runs", () => {
-  test("TS-U-01 od_ppt revise sends run_revision and renders the revised deck", async ({ dashboard, mockSse, mockApi }) => {
+  test("TS-U-01 ppt revise sends run_revision and renders the revised deck", async ({ dashboard, mockSse, mockApi }) => {
     // The backend creates the revision child on confirm; GET /api/runs reports it
     // with its real type so the remounted run screen resolves the deck renderer.
     mockApi.setRuns([makeRun({ id: "run-e2e-rev", title: "ROI deck (revision)", type: "ppt_revision", status: "running" })]);
@@ -192,7 +191,7 @@ test.describe("TS-U — revision runs", () => {
     expect(mockSse.framesOfType("run_pipeline")).toHaveLength(1);
   });
 
-  test("TS-U-09 reopen-revise: a REOPENED od_ppt run fires exactly one POST /revisions (BUG-003)", async ({ dashboard, mockSse, mockApi }) => {
+  test("TS-U-09 reopen-revise: a REOPENED ppt run fires exactly one POST /revisions (BUG-003)", async ({ dashboard, mockSse, mockApi }) => {
     // A COMPLETED ppt run in history/recents — reopened (not launched). BUG-003:
     // the revise path on a reopened run must fire exactly ONE revision request,
     // parented to the reopened run. Under the Concierge flow that request is the

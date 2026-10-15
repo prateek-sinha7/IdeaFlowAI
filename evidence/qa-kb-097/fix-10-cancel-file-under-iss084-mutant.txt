@@ -1,0 +1,286 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.13.14, pytest-9.0.3, pluggy-1.6.0
+rootdir: /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend
+configfile: pyproject.toml
+plugins: cov-7.1.0, xdist-3.8.0, timeout-2.4.0, asyncio-1.4.0, hypothesis-6.122.3, langsmith-0.8.18, anyio-4.15.1
+asyncio: mode=Mode.AUTO, debug=False, asyncio_default_fixture_loop_scope=function, asyncio_default_test_loop_scope=function
+collected 5 items
+
+tests/integration/agents/test_cancel_stops_resumed_run_db.py F.FFF       [100%]
+
+=================================== FAILURES ===================================
+__________ test_resume_funnel_hands_the_cancel_event_to_execute_impl ___________
+
+    @pytest.mark.asyncio
+    async def test_resume_funnel_hands_the_cancel_event_to_execute_impl():
+        """ROOT CAUSE. ``_drive_resumed_stream`` must pass the resolved cancel Event down to
+        ``_execute_impl`` — without it every one of the kernel's cooperative guards reads
+        ``None`` and short-circuits, so no resumed run can ever be stopped.
+    
+        RED pre-fix: the funnel passes no ``cancel_event`` kwarg at all.
+        """
+        from agents.execution_engine.engine import ExecutionEngine
+    
+        engine = ExecutionEngine()
+        event = asyncio.Event()
+        engine._resume_cancel_event = lambda _run_id: event  # type: ignore[assignment]
+        recorded: dict = {}
+        engine._execute_impl = _recording_impl(recorded)  # type: ignore[assignment]
+    
+        await _drive(engine, "run-x")
+    
+        assert "cancel_event" in recorded, (
+            "the resume funnel passed NO cancel_event to _execute_impl — every kernel "
+            f"guard binds None and short-circuits. kwargs seen: {sorted(recorded)}"
+        )
+>       assert recorded["cancel_event"] is event
+E       assert None is <asyncio.locks.Event object at 0x10f5f9160 [unset]>
+
+tests/integration/agents/test_cancel_stops_resumed_run_db.py:115: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  agents.execution_engine.engine:engine.py:3588 _resolve_root_id: unresolved for run=run-x reason=missing_or_cross_owner visited=1 repeated=None — degrading to run_id
+_____ test_the_engine_reads_the_same_event_object_the_rest_registry_holds ______
+
+registry = <module 'app.api.run_engine' from '/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/app/api/run_engine.py'>
+
+    @pytest.mark.asyncio
+    async def test_the_engine_reads_the_same_event_object_the_rest_registry_holds(registry):
+        """THE ORPHAN. ``_register_resume_task`` minting its own Event is only useful if the
+        engine ends up holding THAT object — object identity, not mere presence. This is the
+        assertion that makes the orphan impossible to reintroduce.
+    
+        RED pre-fix: the engine holds ``None`` while ``_CANCEL_EVENTS[run_id]`` holds an
+        Event nobody reads.
+        """
+        from agents.execution_engine.engine import ExecutionEngine
+    
+        run_id = f"iss084-{uuid.uuid4().hex[:8]}"
+        registry._register_resume_task(run_id, object())  # the restore create_task site
+    
+        engine = ExecutionEngine()
+        engine._resume_cancel_event = (
+            registry._resume_cancel_event
+        )  # the app/main.py wiring
+        recorded: dict = {}
+        engine._execute_impl = _recording_impl(recorded)  # type: ignore[assignment]
+    
+        await _drive(engine, run_id)
+    
+>       assert recorded.get("cancel_event") is registry._CANCEL_EVENTS[run_id], (
+            "the engine must read the SAME Event object POST /cancel sets — one registry, "
+            "one object"
+        )
+E       AssertionError: the engine must read the SAME Event object POST /cancel sets — one registry, one object
+E       assert None is <asyncio.locks.Event object at 0x10fb38050 [unset]>
+E        +  where None = <built-in method get of dict object at 0x10fa923c0>('cancel_event')
+E        +    where <built-in method get of dict object at 0x10fa923c0> = {'_clarify_replay': None, '_is_resume': False, '_resume_from': 0, '_run_trace': <agents.execution_engine.run_log.RunTrace object at 0x10fb38690>, ...}.get
+
+tests/integration/agents/test_cancel_stops_resumed_run_db.py:156: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  agents.execution_engine.engine:engine.py:3588 _resolve_root_id: unresolved for run=iss084-f1740c47 reason=missing_or_cross_owner visited=1 repeated=None — degrading to run_id
+________ test_cancel_stops_a_resumed_drive_and_writes_the_terminal_row _________
+
+registry = <module 'app.api.run_engine' from '/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/app/api/run_engine.py'>
+
+    @pytest.mark.asyncio
+    async def test_cancel_stops_a_resumed_drive_and_writes_the_terminal_row(registry):
+        """THE HEADLINE. A run interrupted mid-build is auto-resumed; the owner has pressed
+        Stop, so ``_CANCEL_EVENTS[run_id]`` is set. The resumed drive must observe it at its
+        first step boundary — dispatching NOTHING, emitting ``pipeline_cancelled``, and
+        leaving the ``workflow_runs`` row TERMINAL.
+    
+        RED pre-fix on all three counts: the drive re-enters the incomplete wave and runs the
+        remaining workers, no ``pipeline_cancelled`` is ever emitted, and the row never
+        becomes ``cancelled``.
+        """
+        from app.models.workflow import WorkflowRun
+    
+        session, db_engine = _make_session()
+        call_log: dict[str, int] = {}
+        run_id, _owner = await _interrupted_run(session, db_engine, call_log)
+        calls_before = dict(call_log)
+    
+        # The owner presses Stop. This is the REAL registry the REST endpoint writes to.
+        registry._register_resume_task(run_id, object())
+        registry._CANCEL_EVENTS[run_id].set()
+    
+        with _ResumeHarness(session, call_log, fail_on=set(), db_engine=db_engine) as h:
+            engine_b = h.make_engine()
+            engine_b._resume_cancel_event = registry._resume_cancel_event
+            await engine_b.resume_run(run_id)
+    
+>       assert (
+            call_log == calls_before
+        ), f"a cancelled resume kept dispatching agents: {calls_before} -> {call_log}"
+E       AssertionError: a cancelled resume kept dispatching agents: {'b': 2, 'a': 2} -> {'b': 4, 'a': 4, 'c': 2, 'd': 2}
+E       assert {'a': 4, 'b':...c': 2, 'd': 2} == {'a': 2, 'b': 2}
+E         
+E         Differing items:
+E         {'a': 4} != {'a': 2}
+E         {'b': 4} != {'b': 2}
+E         Left contains 2 more items:
+E         {'c': 2, 'd': 2}
+E         Use -v to get more diff
+
+tests/integration/agents/test_cancel_stops_resumed_run_db.py:233: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  app.agents.checkpointer:checkpointer.py:61 Checkpointer: DATABASE_URL is not Postgres — using InMemorySaver. HITL pauses work within the process but do NOT survive a restart.
+WARNING  agents.artifacts.graph:graph.py:155 artifact kind 'sample-wave-plan' is outside ARTIFACT_KINDS — typed consumes routing and the FR-014 revision lookup match kinds EXACTLY, so a typo here is silently unroutable (IN-01 advisory; write proceeds)
+WARNING  agents.artifacts.graph:graph.py:155 artifact kind 'sample-wave-worker' is outside ARTIFACT_KINDS — typed consumes routing and the FR-014 revision lookup match kinds EXACTLY, so a typo here is silently unroutable (IN-01 advisory; write proceeds)
+WARNING  agents.artifacts.graph:graph.py:155 artifact kind 'sample-wave-worker' is outside ARTIFACT_KINDS — typed consumes routing and the FR-014 revision lookup match kinds EXACTLY, so a typo here is silently unroutable (IN-01 advisory; write proceeds)
+ERROR    agents.execution_engine.engine:engine.py:14364 step sample-wave-worker raised: scripted instance-A crash on run_fanout call #2
+Traceback (most recent call last):
+  File "/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/agents/execution_engine/engine.py", line 14354, in _guarded_step
+    async for event in self._dispatch_step_with_retry(step, ectx, strategy):
+    ...<2 lines>...
+        yield event
+  File "/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/agents/execution_engine/engine.py", line 14391, in _dispatch_step_with_retry
+    async for event in strategy.run(step, ectx):
+        yield event
+  File "/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/agents/capabilities/strategies/wave_scheduler.py", line 490, in run
+    async for event in _dispatch_wave(requests, task_ids):
+        yield event
+  File "/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/agents/capabilities/strategies/wave_scheduler.py", line 474, in _dispatch_wave
+    async for event in stream_wave_fanout(
+    ...<12 lines>...
+        yield event
+  File "/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/agents/capabilities/strategies/_fanout_wave_stream.py", line 88, in stream_wave_fanout
+    yield next_fanout.result()
+          ~~~~~~~~~~~~~~~~~~^^
+  File "/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/tests/integration/agents/test_restart_resume_db.py", line 380, in _wrapped_fanout
+    raise RuntimeError(
+        f"scripted instance-A crash on run_fanout call #{_raise_on}"
+    )
+RuntimeError: scripted instance-A crash on run_fanout call #2
+ERROR    agents.execution_engine.engine:engine.py:2603 finalize_terminal_run: create_run_ref FAILED run=iss084-78c37fe2 (run_id must be a UUID (hex digits and hyphens only): 'iss084-78c37fe2')
+WARNING  agents.artifacts.graph:graph.py:155 artifact kind 'sample-wave-plan' is outside ARTIFACT_KINDS — typed consumes routing and the FR-014 revision lookup match kinds EXACTLY, so a typo here is silently unroutable (IN-01 advisory; write proceeds)
+WARNING  agents.artifacts.graph:graph.py:155 artifact kind 'sample-wave-worker' is outside ARTIFACT_KINDS — typed consumes routing and the FR-014 revision lookup match kinds EXACTLY, so a typo here is silently unroutable (IN-01 advisory; write proceeds)
+WARNING  agents.artifacts.graph:graph.py:155 artifact kind 'sample-wave-worker' is outside ARTIFACT_KINDS — typed consumes routing and the FR-014 revision lookup match kinds EXACTLY, so a typo here is silently unroutable (IN-01 advisory; write proceeds)
+WARNING  agents.artifacts.graph:graph.py:155 artifact kind 'sample-wave-worker' is outside ARTIFACT_KINDS — typed consumes routing and the FR-014 revision lookup match kinds EXACTLY, so a typo here is silently unroutable (IN-01 advisory; write proceeds)
+WARNING  agents.artifacts.graph:graph.py:155 artifact kind 'sample-wave-worker' is outside ARTIFACT_KINDS — typed consumes routing and the FR-014 revision lookup match kinds EXACTLY, so a typo here is silently unroutable (IN-01 advisory; write proceeds)
+________ test_a_cancelled_resumed_run_is_not_re_adopted_by_auto_resume _________
+
+registry = <module 'app.api.run_engine' from '/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/app/api/run_engine.py'>
+
+    @pytest.mark.asyncio
+    async def test_a_cancelled_resumed_run_is_not_re_adopted_by_auto_resume(registry):
+        """THE REGRESSION GUARD. Killing the backend to stop a run does not work: the next
+        startup's ``restore_non_terminal_runs`` re-adopts every non-terminal row and drives
+        it to completion (measured — the replacement backend emitted ``pipeline_start`` two
+        seconds after boot and billed 7.5M further tokens). So a cancel is only real if it
+        leaves the row OUTSIDE the non-terminal set.
+    
+        RED pre-fix: the cancel is ignored and the resumed drive dies on the scripted wave
+        crash, so the row ends ``failed`` instead of ``cancelled``.
+        """
+        from app.models.workflow import WorkflowRun
+    
+        session, db_engine = _make_session()
+        call_log: dict[str, int] = {}
+        run_id, _owner = await _interrupted_run(session, db_engine, call_log)
+    
+        # A real crash (process death) leaves the row non-terminal; the scripted crash is a
+        # StepRaised that writes ``failed`` (FIX-669). Put the row back so the restore scan
+        # below has something to re-adopt unless the resumed drive terminates it (ISS-1102).
+        session.expire_all()
+        row = session.query(WorkflowRun).filter(WorkflowRun.id == run_id).first()
+        row.status = "generating"
+        session.commit()
+    
+        registry._register_resume_task(run_id, object())
+        registry._CANCEL_EVENTS[run_id].set()
+    
+        # The resumed drive would crash on the wave-1 fan-out (as instance A did) if the
+        # cancel were ignored.
+        with _ResumeHarness(
+            session, call_log, fail_on=set(), db_engine=db_engine, raise_on_fanout_call=1
+        ) as h:
+            engine_b = h.make_engine()
+            engine_b._resume_cancel_event = registry._resume_cancel_event
+            await engine_b.resume_run(run_id)
+    
+        session.expire_all()
+        row = session.query(WorkflowRun).filter(WorkflowRun.id == run_id).first()
+>       assert row.status == "cancelled", (
+            f"the cancelled resume must end the row cancelled, not {row.status!r} — "
+            "an ignored cancel lets the drive run on (or crash) instead of stopping"
+        )
+E       AssertionError: the cancelled resume must end the row cancelled, not 'failed' — an ignored cancel lets the drive run on (or crash) instead of stopping
+E       assert 'failed' == 'cancelled'
+E         
+E         - cancelled
+E         + failed
+
+tests/integration/agents/test_cancel_stops_resumed_run_db.py:289: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  app.agents.checkpointer:checkpointer.py:61 Checkpointer: DATABASE_URL is not Postgres — using InMemorySaver. HITL pauses work within the process but do NOT survive a restart.
+WARNING  agents.artifacts.graph:graph.py:155 artifact kind 'sample-wave-plan' is outside ARTIFACT_KINDS — typed consumes routing and the FR-014 revision lookup match kinds EXACTLY, so a typo here is silently unroutable (IN-01 advisory; write proceeds)
+WARNING  agents.artifacts.graph:graph.py:155 artifact kind 'sample-wave-worker' is outside ARTIFACT_KINDS — typed consumes routing and the FR-014 revision lookup match kinds EXACTLY, so a typo here is silently unroutable (IN-01 advisory; write proceeds)
+WARNING  agents.artifacts.graph:graph.py:155 artifact kind 'sample-wave-worker' is outside ARTIFACT_KINDS — typed consumes routing and the FR-014 revision lookup match kinds EXACTLY, so a typo here is silently unroutable (IN-01 advisory; write proceeds)
+ERROR    agents.execution_engine.engine:engine.py:14364 step sample-wave-worker raised: scripted instance-A crash on run_fanout call #2
+Traceback (most recent call last):
+  File "/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/agents/execution_engine/engine.py", line 14354, in _guarded_step
+    async for event in self._dispatch_step_with_retry(step, ectx, strategy):
+    ...<2 lines>...
+        yield event
+  File "/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/agents/execution_engine/engine.py", line 14391, in _dispatch_step_with_retry
+    async for event in strategy.run(step, ectx):
+        yield event
+  File "/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/agents/capabilities/strategies/wave_scheduler.py", line 490, in run
+    async for event in _dispatch_wave(requests, task_ids):
+        yield event
+  File "/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/agents/capabilities/strategies/wave_scheduler.py", line 474, in _dispatch_wave
+    async for event in stream_wave_fanout(
+    ...<12 lines>...
+        yield event
+  File "/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/agents/capabilities/strategies/_fanout_wave_stream.py", line 88, in stream_wave_fanout
+    yield next_fanout.result()
+          ~~~~~~~~~~~~~~~~~~^^
+  File "/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/tests/integration/agents/test_restart_resume_db.py", line 380, in _wrapped_fanout
+    raise RuntimeError(
+        f"scripted instance-A crash on run_fanout call #{_raise_on}"
+    )
+RuntimeError: scripted instance-A crash on run_fanout call #2
+ERROR    agents.execution_engine.engine:engine.py:2603 finalize_terminal_run: create_run_ref FAILED run=iss084-7cc3baa6 (run_id must be a UUID (hex digits and hyphens only): 'iss084-7cc3baa6')
+WARNING  agents.artifacts.graph:graph.py:155 artifact kind 'sample-wave-plan' is outside ARTIFACT_KINDS — typed consumes routing and the FR-014 revision lookup match kinds EXACTLY, so a typo here is silently unroutable (IN-01 advisory; write proceeds)
+ERROR    agents.execution_engine.engine:engine.py:14364 step sample-wave-worker raised: scripted instance-A crash on run_fanout call #1
+Traceback (most recent call last):
+  File "/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/agents/execution_engine/engine.py", line 14354, in _guarded_step
+    async for event in self._dispatch_step_with_retry(step, ectx, strategy):
+    ...<2 lines>...
+        yield event
+  File "/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/agents/execution_engine/engine.py", line 14391, in _dispatch_step_with_retry
+    async for event in strategy.run(step, ectx):
+        yield event
+  File "/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/agents/capabilities/strategies/wave_scheduler.py", line 490, in run
+    async for event in _dispatch_wave(requests, task_ids):
+        yield event
+  File "/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/agents/capabilities/strategies/wave_scheduler.py", line 474, in _dispatch_wave
+    async for event in stream_wave_fanout(
+    ...<12 lines>...
+        yield event
+  File "/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/agents/capabilities/strategies/_fanout_wave_stream.py", line 88, in stream_wave_fanout
+    yield next_fanout.result()
+          ~~~~~~~~~~~~~~~~~~^^
+  File "/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/tests/integration/agents/test_restart_resume_db.py", line 380, in _wrapped_fanout
+    raise RuntimeError(
+        f"scripted instance-A crash on run_fanout call #{_raise_on}"
+    )
+RuntimeError: scripted instance-A crash on run_fanout call #1
+=============================== warnings summary ===============================
+app/core/config.py:94
+  /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/app/core/config.py:94: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+    class Settings(BaseSettings):
+
+tests/integration/agents/test_cancel_stops_resumed_run_db.py::test_cancel_stops_a_resumed_drive_and_writes_the_terminal_row
+tests/integration/agents/test_cancel_stops_resumed_run_db.py::test_a_cancelled_resumed_run_is_not_re_adopted_by_auto_resume
+  /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/agents/execution_engine/engine.py:1324: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    _ts = _dt.datetime.utcnow().isoformat(timespec="seconds") + "Z"
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/integration/agents/test_cancel_stops_resumed_run_db.py::test_resume_funnel_hands_the_cancel_event_to_execute_impl
+FAILED tests/integration/agents/test_cancel_stops_resumed_run_db.py::test_the_engine_reads_the_same_event_object_the_rest_registry_holds
+FAILED tests/integration/agents/test_cancel_stops_resumed_run_db.py::test_cancel_stops_a_resumed_drive_and_writes_the_terminal_row
+FAILED tests/integration/agents/test_cancel_stops_resumed_run_db.py::test_a_cancelled_resumed_run_is_not_re_adopted_by_auto_resume
+=================== 4 failed, 1 passed, 3 warnings in 3.77s ====================

@@ -1,0 +1,60 @@
+### QA-KB-125 navigation probe, 2026-10-09T13:43:45Z
+browser: Google Chrome 151.0.7922.138 headless=True (channel=chrome, fresh temp profile)
+parent page URL: http://app.test/runs/abc
+
+[A  blob: src + sandbox='allow-scripts allow-same-origin'  (PrototypePreview today)]
+    frame_url_before: blob:http://app.test/118c7d2c-0c23-4ce9-911e-5c4
+    initial: {'hash': '', 'href': 'blob:http://app.test/118c7d2c-0c23-4ce9-911e-5c4e358e97a9', 'hc': 0}
+    frame_url_after_l1: blob:http://app.test/118c7d2c-0c23-4ce9-911e-5c4e358e97a9#/p2
+    after_click_l1_#/p2: {'hash': '#/p2', 'href': 'blob:http://app.test/118c7d2c-0c23-4ce9-911e-5c4e358e97a9#/p', 'hc': 1}
+    frame_url_after_l2: blob:http://app.test/118c7d2c-0c23-4ce9-911e-5c4e358e97a9#p3
+    after_click_l2_#p3: {'hash': '#p3', 'href': 'blob:http://app.test/118c7d2c-0c23-4ce9-911e-5c4e358e97a9#p3', 'hc': 2}
+    after_assign_#/p4: {'hash': '#/p4', 'href': 'blob:http://app.test/118c7d2c-0c23-4ce9-911e-5c4e358e97a9#/p', 'hc': 3}
+
+[B  blob: src + sandbox='allow-scripts']
+    frame_url_before: blob:http://app.test/ca3e1685-67e2-4de3-9254-dd7
+    initial: {'hash': '', 'href': 'blob:http://app.test/ca3e1685-67e2-4de3-9254-dd7c9f6177bc', 'hc': 0}
+    frame_url_after_l1: blob:http://app.test/ca3e1685-67e2-4de3-9254-dd7c9f6177bc
+    after_click_l1_#/p2: {'hash': '', 'href': 'blob:http://app.test/ca3e1685-67e2-4de3-9254-dd7c9f6177bc', 'hc': 0}
+    frame_url_after_l2: blob:http://app.test/ca3e1685-67e2-4de3-9254-dd7c9f6177bc
+    after_click_l2_#p3: {'hash': '', 'href': 'blob:http://app.test/ca3e1685-67e2-4de3-9254-dd7c9f6177bc', 'hc': 0}
+    after_assign_#/p4: {'hash': '', 'href': 'blob:http://app.test/ca3e1685-67e2-4de3-9254-dd7c9f6177bc', 'hc': 0}
+
+[C  srcdoc + sandbox='allow-scripts allow-same-origin'  (PPTPreview today)]
+    frame_url_before: about:srcdoc
+    initial: {'hash': '', 'href': 'about:srcdoc', 'hc': 0}
+    frame_url_after_l1: http://app.test/runs/abc#/p2
+    after_click_l1_#/p2: {'hash': '#/p2', 'href': 'http://app.test/runs/abc#/p2', 'hc': None}
+    click_l2_error: Frame.click: Timeout 2500ms exceeded.
+    frame_url_after_l2: http://app.test/runs/abc#/p2
+    after_click_l2_#p3: {'hash': '#/p2', 'href': 'http://app.test/runs/abc#/p2', 'hc': None}
+    after_assign_#/p4: {'hash': '#/p4', 'href': 'http://app.test/runs/abc#/p4', 'hc': None}
+
+[D  srcdoc + sandbox='allow-scripts'  (generic renderer today)]
+    frame_url_before: 
+    initial: {'hash': '', 'href': 'about:srcdoc', 'hc': 0}
+    frame_url_after_l1: http://app.test/runs/abc#/p2
+    after_click_l1_#/p2: {'hash': '#/p2', 'href': 'http://app.test/runs/abc#/p2', 'hc': None}
+    click_l2_error: Frame.click: Timeout 2500ms exceeded.
+    frame_url_after_l2: http://app.test/runs/abc#/p2
+    after_click_l2_#p3: {'hash': '#/p2', 'href': 'http://app.test/runs/abc#/p2', 'hc': None}
+    after_assign_#/p4: {'hash': '#/p4', 'href': 'http://app.test/runs/abc#/p4', 'hc': None}
+
+[H  srcdoc + sandbox='allow-scripts' + <base href="about:srcdoc"> injected into <head>]
+    frame_url_before: 
+    initial: {'hash': '', 'href': 'about:srcdoc', 'hc': 0}
+    frame_url_after_l1: about:srcdoc#/p2
+    after_click_l1_#/p2: {'hash': '#/p2', 'href': 'about:srcdoc#/p2', 'hc': 1}
+    frame_url_after_l2: about:srcdoc#p3
+    after_click_l2_#p3: {'hash': '#p3', 'href': 'about:srcdoc#p3', 'hc': 2}
+    after_assign_#/p4: {'hash': '#/p4', 'href': 'about:srcdoc#/p4', 'hc': 3}
+
+[I  http iframe src=/shared served with response header 'Content-Security-Policy: sandbox allow-scripts'  (the FIX-745 share-link shape)]
+    frame_url_before: http://app.test/shared
+    initial: {'hash': '', 'href': 'http://app.test/shared', 'hc': 0}
+    frame_url_after_l1: http://app.test/shared#/p2
+    after_click_l1_#/p2: {'hash': '#/p2', 'href': 'http://app.test/shared#/p2', 'hc': 1}
+    frame_url_after_l2: http://app.test/shared#p3
+    after_click_l2_#p3: {'hash': '#p3', 'href': 'http://app.test/shared#p3', 'hc': 2}
+    after_assign_#/p4: {'hash': '#/p4', 'href': 'http://app.test/shared#/p4', 'hc': 3}
+

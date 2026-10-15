@@ -34,6 +34,7 @@ from tests.agents.characterization._normalize import (
 
 
 @pytest.mark.asyncio
+@pytest.mark.issue("ISS-906")
 async def test_app_builder_deliverable_byte_snapshot() -> None:
     events = await _drive("app_builder")
     assert events, "app_builder produced no events"
@@ -43,6 +44,7 @@ async def test_app_builder_deliverable_byte_snapshot() -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.issue("ISS-906")
 async def test_app_builder_event_snapshot() -> None:
     """Lock the normalized semantic event stream for ``app_builder`` (SAFE-02 / SAFE-03)."""
     events = await _drive("app_builder")

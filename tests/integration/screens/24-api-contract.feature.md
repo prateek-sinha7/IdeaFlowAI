@@ -1,7 +1,7 @@
 # Feature: The API contract
 
 **Screenshots:** none — this is the layer beneath the UI.
-**Snapshot:** `capture/API-CONTRACT.json` — all 111 endpoints with method, path, auth
+**Snapshot:** `capture/API-CONTRACT.json` — all 110 endpoints with method, path, auth
 requirement, status code and response model, extracted from source.
 
 ```
@@ -26,20 +26,20 @@ discovered in production.
 
 ## The surface
 
-**111 endpoints.** By auth requirement:
+**110 endpoints.** By auth requirement:
 
 | | Count |
 |---|---:|
 | Requires a signed-in user | **87** |
 | Requires an admin | **6** |
-| Public | **18** |
+| Public | **17** |
 
 By area:
 
 | Area | Endpoints | Auth |
 |---|---:|---|
 | `runs` | 26 | all user |
-| `auth` | 14 | 6 public, 8 user |
+| `auth` | 13 | 5 public, 8 user |
 | `settings` | 11 | all user |
 | `prototype` | 10 | 4 public, 6 user |
 | `agents` | 9 | all user |
@@ -52,9 +52,9 @@ By area:
 | `analytics`, `capabilities`, `files`, `hooks`, `skills` | 1 each | all user |
 
 Declared status codes: 7 × `201_CREATED`, 8 × `204_NO_CONTENT`, 7 × `200_OK`,
-1 × `202_ACCEPTED`, 1 × `403_FORBIDDEN` (`/api/auth/register`, permanently).
+1 × `202_ACCEPTED`.
 
-## The 18 public endpoints, and why each is public
+## The 17 public endpoints, and why each is public
 
 This is the list that matters most — anything wrongly on it is an authorization hole.
 
@@ -63,7 +63,6 @@ This is the list that matters most — anything wrongly on it is an authorizatio
 | `POST /api/auth/login` | you have no token yet |
 | `POST /api/auth/login/challenge` | mid-authentication |
 | `POST /api/auth/logout` | must work with an already-invalid token |
-| `POST /api/auth/register` | **answers 403 by design** — self-registration is closed |
 | `POST /api/auth/forgot-password` | pre-authentication; refuses when email is a second factor |
 | `POST /api/auth/forgot-password/confirm` | pre-authentication |
 | `GET /api/ppt/templates/{id}/preview` · `/thumbnail` | loaded by a sandboxed iframe |
@@ -125,7 +124,7 @@ arriving unlisted. **A** = auth: `P`ublic, `U`ser, `A`dmin.
 |---|---|---|---|
 | U | `GET` | `/api/analytics/summary` | AnalyticsSummary |
 
-### `auth` — 14
+### `auth` — 13
 
 | A | Method | Path | Returns |
 |---|---|---|---|
@@ -142,7 +141,6 @@ arriving unlisted. **A** = auth: `P`ublic, `U`ser, `A`dmin.
 | U | `POST` | `/api/auth/mfa/totp/associate` | 200 Ok |
 | U | `POST` | `/api/auth/mfa/totp/verify` | 200 Ok |
 | U | `POST` | `/api/auth/refresh` | RefreshResponse |
-| P | `POST` | `/api/auth/register` | 403 Forbidden |
 
 ### `capabilities` — 1
 
@@ -325,8 +323,8 @@ Feature: The API contract holds
 
   @S-24-03
   @sourced
-  Scenario: The public list is exactly eighteen, and each is deliberate
-    Then exactly 18 endpoints require no authentication
+  Scenario: The public list is exactly seventeen, and each is deliberate
+    Then exactly 17 endpoints require no authentication
     And each appears in the table above with a stated reason
     # A NEW public endpoint should fail this and force the reason to be written
     # down before it ships.
@@ -348,9 +346,9 @@ Feature: Authentication endpoints
   @sourced
   Scenario: Registration is permanently closed
     When I POST /api/auth/register
-    Then the response status is 403
-    # Declared as status_code=HTTP_403_FORBIDDEN on the route itself — not a
-    # runtime check. It cannot succeed by configuration.
+    Then the response status is 404
+    # The route is gone: the Cognito-only migration (b2a621f84) removed it, so
+    # there is no self-registration path left to configure open.
 
   @S-24-06
   @sourced
@@ -560,10 +558,12 @@ Feature: The run sandbox
     # this flag separates them, and the UI renders different copy for each.
 
   @S-24-25
-  Scenario: The reserved subtrees are never listed
+  Scenario: A listed reserved file is readable
     When I GET "/api/runs/{id}/sandbox"
-    Then no file's path starts with ".uploads/" or ".logs/"
+    Then files under ".uploads/" and ".logs/" are listed with the rest
+    And GET "/api/runs/{id}/sandbox/file" answers 200 for a listed one
     # The listing is the complete description of what /sandbox/file will serve.
+    # Since f9df3737c it lists every file, reserved subtrees included.
 
   @S-24-26
   @security
@@ -606,11 +606,9 @@ Feature: The run sandbox
       | ../../../etc/passwd     |
       | /etc/passwd             |
       | ..%2f..%2fetc%2fpasswd  |
-      | .uploads/manifest.json  |
-      | .logs/run.log           |
     # path_for resolves inside the run dir and raises on any escape, so `..`
-    # and an absolute path both land as 400. The reserved prefixes are refused
-    # separately, as 404 — they are not part of the workspace view.
+    # and an absolute path both land as 400. `.uploads/` and `.logs/` are no
+    # longer refused: since f9df3737c every listed workspace file is readable.
 
   @S-24-29
   @security

@@ -1,0 +1,21 @@
+QA-KB-041 fixer — the five card test files as the test-writer left them, run on the FIXED working tree
+(2026-10-02 ~01:39-01:45 local, vitest 4.1.11, from frontend/: ./node_modules/.bin/vitest run <file>, one file per run).
+All five carry it.fails, so "Error: Expect test to fail" (reported as a failed test) == XPASS == the fix signal,
+and "N expected fail" == the it.fails body still threw.
+
+SavedWorkflowsPage.escape.test.tsx (BUG-104 x2, ISS-932)  Tests 3 failed (3), "Error: Expect test to fail"   -> XPASS 3/3
+AppHeader.escape.test.tsx (ISS-928)                       run 1: Tests 1 failed (1), "Expect test to fail"   -> XPASS
+                                                          then 3 more runs: XPASS, 1 expected fail, XPASS   -> FLAKY on an unchanged tree
+NotificationPanel.escape.test.tsx (ISS-929)               Tests 1 expected fail (1)                          -> no signal
+admin.escape.test.tsx (ISS-930)                           Tests 1 expected fail (1)                          -> no signal
+RevisionFamilyView.escape.test.tsx (ISS-931)              Tests 1 expected fail (1), 4 runs out of 4          -> no signal
+
+Why (10-fix-probe-fixed-tree.txt, 11-fix-prefix-head-control-and-corrected.txt): each of the four ISS-928..931 tests asserted
+`expect(screen.queryByRole("menu"|"dialog")).toBeNull()` SYNCHRONOUSLY right after `await user.keyboard("{Escape}")`.
+All four menus render inside <AnimatePresence> with an `exit` animation (AppHeader.tsx:543-550 0.12s,
+NotificationPanel.tsx:268-276 0.15s, admin/page.tsx:100-109 0.1s, RevisionFamilyView.tsx:464-471 0.1s), so the exiting
+node stays mounted until the animation ends, and whether it has ended by the synchronous check is a race.
+aria-expanded flips to "false" deterministically in every run. The card-cited statements of the expected behaviour
+(AppHeader.a11y.test.tsx:154-156, NotificationPanel.a11y.test.tsx:71-73, admin.reskin.test.tsx:175, and the analyzer's
+own rowmenu CONTROL probe 07-analyze-probe-rowmenu.test.tsx.txt:41) all wait for the exit with waitFor(...).
+SavedWorkflowsPage.escape.test.tsx is deterministic because it mocks AnimatePresence as a fragment.

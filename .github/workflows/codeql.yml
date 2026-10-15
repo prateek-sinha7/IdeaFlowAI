@@ -36,23 +36,27 @@
 
 name: CodeQL
 
+# TEMPORARILY DISABLED: the SARIF upload fails with "Code Security must be
+# enabled for this repository to use code scanning" (a repo setting, not a code
+# issue). Automatic triggers are off until an admin enables Code Security;
+# restore the block below to re-enable. Manual runs remain available.
 on:
-  pull_request:
-    paths:
-      - "backend/**"
-      - "frontend/**"
-      - ".github/workflows/codeql.yml"
-  push:
-    branches:
-      - main
-    paths:
-      - "backend/**"
-      - "frontend/**"
-      - ".github/workflows/codeql.yml"
-  schedule:
-    # Mondays 04:00 UTC — after the 03:00 Cognito reconcile so the two do not
-    # contend for runners, and before the working week starts.
-    - cron: "0 4 * * 1"
+  # pull_request:
+  #   paths:
+  #     - "backend/**"
+  #     - "frontend/**"
+  #     - ".github/workflows/codeql.yml"
+  # push:
+  #   branches:
+  #     - main
+  #   paths:
+  #     - "backend/**"
+  #     - "frontend/**"
+  #     - ".github/workflows/codeql.yml"
+  # schedule:
+  #   # Mondays 04:00 UTC — after the 03:00 Cognito reconcile so the two do not
+  #   # contend for runners, and before the working week starts.
+  #   - cron: "0 4 * * 1"
   workflow_dispatch:
 
 permissions:
@@ -68,6 +72,10 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     permissions:
+      # Read-only: codeql-action/analyze reads the current workflow run to key
+      # the SARIF upload; without it the upload 403s ("Resource not accessible
+      # by integration").
+      actions: read
       contents: read
       # The only elevated scope, and the reason this is not a job in ci.yml.
       security-events: write

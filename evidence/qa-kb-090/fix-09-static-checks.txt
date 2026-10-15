@@ -1,0 +1,22 @@
+## import lines added by the diff (expect none):
+(none)
+## INV-1 regex on added lines (expect none):
+(none)
+## ruff check, working tree:
+backend/agents/execution_engine/engine.py:6201:23: F821 Undefined name `FinalizationRecord`
+Found 15 errors.
+[*] 2 fixable with the `--fix` option.
+## ruff check, HEAD copy:
+<scratchpad>/head_tree/backend/agents/execution_engine/engine.py:6201:23: F821 Undefined name `FinalizationRecord`
+Found 15 errors.
+[*] 2 fixable with the `--fix` option.
+## py_compile:
+ok
+## lint-imports, working tree (run from backend/):
+kernel imports only capability ports (scaffold) BROKEN
+agents.capabilities must not import the execution kernel or the web layer BROKEN
+Contracts: 3 kept, 2 broken.
+## lint-imports, HEAD copy (run from <scratchpad>/head_tree/backend/):
+kernel imports only capability ports (scaffold) BROKEN
+agents.capabilities must not import the execution kernel or the web layer BROKEN
+Contracts: 3 kept, 2 broken.

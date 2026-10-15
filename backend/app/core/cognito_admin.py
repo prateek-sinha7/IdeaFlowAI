@@ -157,8 +157,8 @@ def _tolerate_missing(operation_name: str, fn, *args, **kwargs) -> None:
     """
     try:
         _retry_on_throttle(operation_name, fn, *args, **kwargs)
-    except ClientError as exc:
-        code = exc.response.get("Error", {}).get("Code", "")
+    except cognito.PROVIDER_ERRORS as exc:
+        code = cognito.provider_error_code(exc)
         if code == "UserNotFoundException":
             logger.info(
                 "%s: pool user already absent — treating as success", operation_name
@@ -208,8 +208,8 @@ def is_last_admin(user: User) -> bool:
     # catch.
     try:
         cognito_groups = cognito.admin_list_groups_for_user(user.email)
-    except ClientError as exc:
-        code = exc.response.get("Error", {}).get("Code", "")
+    except cognito.PROVIDER_ERRORS as exc:
+        code = cognito.provider_error_code(exc)
         if code == "UserNotFoundException":
             # Authoritative: no pool identity => no provider admin rights to protect.
             # Read APIs like ListGroupsForUser sit outside prevent_user_existence_errors,
@@ -239,8 +239,8 @@ def is_last_admin(user: User) -> bool:
         members = _retry_on_throttle(
             "ListUsersInGroup", cognito.list_users_in_group, ADMIN_GROUP
         )
-    except ClientError as exc:
-        code = exc.response.get("Error", {}).get("Code", "")
+    except cognito.PROVIDER_ERRORS as exc:
+        code = cognito.provider_error_code(exc)
         logger.error("ListUsersInGroup failed for %s: %s", ADMIN_GROUP, code)
         raise ProviderUnavailableError(
             "Could not verify admin-group membership at the identity provider.",
@@ -329,8 +329,8 @@ def invite_user(
             temporary_password,
             desired_delivery_mediums=["EMAIL"],
         )
-    except ClientError as exc:
-        code = exc.response.get("Error", {}).get("Code", "")
+    except cognito.PROVIDER_ERRORS as exc:
+        code = cognito.provider_error_code(exc)
         if code == "UsernameExistsException":
             raise ConflictError(
                 "A user with this email already exists at the identity provider.",
@@ -365,10 +365,10 @@ def invite_user(
         # On any failure (group assignment or otherwise), delete the pool user
         # to maintain consistency — a partial user is not acceptable.
         _tolerate_missing("AdminDeleteUser", cognito.admin_delete_user, email)
-        # If the original error was a ClientError, re-raise as ProviderUnavailableError;
+        # If the original error was a provider error, re-raise as ProviderUnavailableError;
         # otherwise re-raise the exception as-is.
-        if isinstance(exc, ClientError):
-            code = exc.response.get("Error", {}).get("Code", "")
+        if isinstance(exc, cognito.PROVIDER_ERRORS):
+            code = cognito.provider_error_code(exc)
             logger.error(
                 "Group assignment failed for newly-created user %s: %s; compensated with AdminDeleteUser",
                 email,
@@ -420,8 +420,8 @@ def change_tier(user: User, new_tier: str, db: Session) -> None:
                 user.email,
             )
         )
-    except ClientError as exc:
-        code = exc.response.get("Error", {}).get("Code", "")
+    except cognito.PROVIDER_ERRORS as exc:
+        code = cognito.provider_error_code(exc)
         logger.error(
             "Group lookup failed for %s during tier change: %s", user.email, code
         )
@@ -456,8 +456,8 @@ def change_tier(user: User, new_tier: str, db: Session) -> None:
         _retry_on_throttle(
             "AdminUserGlobalSignOut", cognito.admin_user_global_sign_out, user.email
         )
-    except ClientError as exc:
-        code = exc.response.get("Error", {}).get("Code", "")
+    except cognito.PROVIDER_ERRORS as exc:
+        code = cognito.provider_error_code(exc)
         logger.error("Tier change failed for %s: %s", user.email, code)
         raise ProviderUnavailableError(
             "Could not update tier at the identity provider.", code=code
@@ -505,8 +505,8 @@ def change_role(user: User, is_admin: bool, db: Session) -> None:
         _retry_on_throttle(
             "AdminUserGlobalSignOut", cognito.admin_user_global_sign_out, user.email
         )
-    except ClientError as exc:
-        code = exc.response.get("Error", {}).get("Code", "")
+    except cognito.PROVIDER_ERRORS as exc:
+        code = cognito.provider_error_code(exc)
         logger.error("Role change failed for %s: %s", user.email, code)
         raise ProviderUnavailableError(
             "Could not update role at the identity provider.", code=code
@@ -610,8 +610,8 @@ def reset_password(db: Session, user: User) -> None:
             temp,
             permanent=False,
         )
-    except ClientError as exc:
-        code = exc.response.get("Error", {}).get("Code", "")
+    except cognito.PROVIDER_ERRORS as exc:
+        code = cognito.provider_error_code(exc)
         logger.error("AdminSetUserPassword failed for %s: %s", user.email, code)
         raise ProviderUnavailableError(
             "Could not reset the password at the identity provider.", code=code
@@ -690,8 +690,8 @@ def try_delete_pool_user(email: str) -> str | None:
     try:
         _retry_on_throttle("AdminDeleteUser", cognito.admin_delete_user, email)
         return None
-    except ClientError as exc:
-        code = exc.response.get("Error", {}).get("Code", "")
+    except cognito.PROVIDER_ERRORS as exc:
+        code = cognito.provider_error_code(exc)
         if code == "UserNotFoundException":
             return None
         logger.error("AdminDeleteUser failed for %s: %s", email, code)

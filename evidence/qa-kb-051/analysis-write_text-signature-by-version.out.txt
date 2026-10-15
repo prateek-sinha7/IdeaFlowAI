@@ -1,0 +1,11 @@
+# QA-KB-051 analyzer: Path.write_text signature by interpreter on this machine (2026-10-02 03:39 CEST)
+# Python docs (pathlib): Path.write_text(data, encoding=None, errors=None, newline=None) -- 'Changed in version 3.10: The newline parameter was added.'
+3.9.6    /Applications/Xcode.app/Contents/Developer/usr/bin/python3     (self, data, encoding=None, errors=None)
+3.10.20  /opt/homebrew/opt/python@3.10/bin/python3.10                   (self, data, encoding=None, errors=None, newline=None)
+3.11.15  /opt/homebrew/opt/python@3.11/bin/python3.11                   (self, data, encoding=None, errors=None, newline=None)
+3.12.13  /opt/homebrew/opt/python@3.12/bin/python3.12                   (self, data, encoding=None, errors=None, newline=None)
+3.13.14  ...-AI-worktrees/feat-user-stories-v2/backend/.venv/bin/python (self, data, encoding=None, errors=None, newline=None)
+
+# which python3 does a bare 'python3' resolve to in this shell?
+/usr/bin/python3
+/opt/homebrew/opt/python@3.12/libexec/bin/python3

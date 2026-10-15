@@ -1,0 +1,14 @@
+#!/bin/bash
+# Runs each scratch variant once (ISS-921 case only), ANSI stripped. Offline vitest; the repo is never written.
+cd "$(dirname "$0")"
+VT=/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/frontend/node_modules/.bin/vitest
+echo "# QA-KB-087 5-fixer mutant probe, $(date '+%Y-%m-%d %H:%M:%S %Z'), repo HEAD $(git -C /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2 rev-parse --short HEAD)"
+echo "# fixed_*   = the repo file as this fix leaves it (ISS-945 + ISS-1036)"
+echo "# only945_* = HEAD's file with only ISS-945's three edits (empty getConstitution mock, no act flush)"
+echo "# _real = the real AccountSettings.tsx; _m1 = load forgets setLoadedValue(loaded) (ISS-1036 mutant); _m2 = Constitution draft dropped from hasUnsavedWork (ISS-921 itself)"
+echo "# 'failed' on a mutant = the case CAUGHT it; 'passed' on a mutant = the mutant SURVIVED"
+for v in fixed_real fixed_m1 fixed_m2 only945_real only945_m1 only945_m2; do
+  echo; echo "### $v"
+  $VT run --config vitest.config.mts "$v" -t ISS-921 --reporter=verbose 2>&1 | sed 's/\x1b\[[0-9;]*m//g' \
+    | grep -E "^ (✓|×|↓)|^   →|Tests |AssertionError|❯ [a-z0-9_]+\.test\.tsx:[0-9]+:[0-9]+" | grep -v "^$" | head -12
+done

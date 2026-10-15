@@ -1,0 +1,363 @@
+# QA-KB-100 analysis 06: literal source excerpts behind the root cause, the readers, the writers and the exec chain (HEAD f06129262, 2026-10-08T12:05Z)
+# every block is 'file:range' followed by the lines exactly as they are on disk (sed -n 'a,bp'), so each claim can be re-checked.
+
+######## 1. ROOT CAUSE: the override steps are compiled at trust="db", and db is a trusted source
+
+## backend/agents/execution_engine/overrides.py:95,100
+95:     try:
+96:         parsed = build_manifest_from_dict(raw, f"override:{compiled.id}")
+97:         # trust="db" — the row was validated at save time but is re-checked here
+98:         # because a row can be tampered with directly in the database. The
+99:         # compiler's per-step capability checks are the real boundary.
+100:         user_compiled = WorkflowCompiler().compile(parsed, registry, trust="db")
+
+## backend/agents/workflows/compiler.py:222,228
+222: # The trust levels a manifest source carries. ``file``, ``builtin`` and ``db``
+223: # are TRUSTED (engineer-authored, version-controlled) — they may reference any
+224: # registered capability. ``user`` is UNTRUSTED — every reference is
+225: # additionally checked against the per-capability ``user_allowed`` flag, so a
+226: # user manifest can never reference a privileged capability (exec/secrets/
+227: # spawn/powerful runtimes) the engineer did not mark user-grantable.
+228: _TRUSTED_SOURCES: frozenset[str] = frozenset({"file", "builtin", "db"})
+
+## backend/agents/workflows/compiler.py:324,324
+324:         trusted = trust in _TRUSTED_SOURCES
+
+## backend/agents/workflows/compiler.py:506,512
+506:         if trusted:
+507:             return
+508:         if not registry.is_user_allowed(kind, name):
+509:             raise CompilerError(
+510:                 f"capability ({kind!r}, {name!r}) is not user-allowed in {where} "
+511:                 f"— a user/db manifest may not reference it (CAP-03)"
+512:             )
+
+## backend/agents/workflows/compiler.py:1023,1023
+1023:         if not trusted:
+
+## backend/agents/workflows/permission_caps.py:75,75
+75: TRUSTED_TRUST_LEVELS: frozenset[str] = frozenset({"file", "builtin", "db"})
+
+## backend/agents/workflows/permission_caps.py:178,181
+178: def cap_key_for_trust(trust: str | None) -> str:
+179:     """Map a manifest trust level to its cap key. Unknown ⇒ ``untrusted``."""
+180:     return "trusted" if (trust or "") in TRUSTED_TRUST_LEVELS else "untrusted"
+181: 
+
+######## 2. WHAT THE TRUSTED CAP LETS THROUGH vs THE UNTRUSTED CAP
+
+## backend/agents/workflows/permission_caps.py:80,92
+80:     "trusted": ToolPermissions(
+81:         read_files=True,
+82:         write_files=True,
+83:         exec=True,
+84:         spawn_subagents=True,
+85:         network=False,
+86:         git=True,   # Task 4.1 (Requirement 42): engine's own commit bypasses this cap
+87:                     # via commit_all() directly — no agent-callable git tool exists in
+88:                     # the capability registry. Flipped here in the same change as the
+89:                     # first declared git hook so the cap accurately reflects the engine's
+90:                     # new git-enabled sandbox posture (has_git=True global default).
+91:         tool_sets=[
+92:             "workspace",
+
+## backend/agents/workflows/permission_caps.py:111,119
+111:     "untrusted": ToolPermissions(
+112:         read_files=True,
+113:         write_files=True,
+114:         exec=False,
+115:         spawn_subagents=False,
+116:         network=False,
+117:         git=False,
+118:         tool_sets=["file_extract", "playwright"],
+119:     ),
+
+######## 3. READERS of an override row's steps
+
+## backend/app/api/workflows.py:312,322
+312: def _overridden_plan(compiled, row):
+313:     """``compiled`` with the override's steps, or ``compiled`` unchanged.
+314: 
+315:     The single place the two read endpoints and the launch path agree on what
+316:     "the override's plan" means. ``compiled`` is the lru_cached, process-shared
+317:     object — ``merge_override_steps`` returns a NEW one and never mutates it.
+318:     """
+319:     steps = override_steps(row)
+320:     if not steps:
+321:         return compiled
+322:     return merge_override_steps(compiled, steps, _CAPABILITY_REGISTRY)
+
+## backend/app/api/run_commands.py:3620,3641
+3620:             )
+3621:             from agents.execution_engine.overrides import merge_override_steps
+3622: 
+3623:             try:
+3624:                 _base_plan = compile_for_run(base_pipeline_type)
+3625:             except Exception:
+3626:                 _base_plan = None
+3627:             if _base_plan is not None:
+3628:                 _merged = merge_override_steps(
+3629:                     _base_plan, _ov_steps, _CAPABILITY_REGISTRY
+3630:                 )
+3631:                 # merge_override_steps returns the SAME object when it refused the
+3632:                 # override (malformed row, a not-user-allowed capability). Only
+3633:                 # switch the run over when it actually applied.
+3634:                 if _merged is not _base_plan and _merged.steps:
+3635:                     compiled = _merged
+3636:                     agents = get_execution_engine()._specs_from_plan(_merged.steps)
+3637:                     logger.info(
+3638:                         "override: run launching %s from user %s's saved override %s",
+3639:                         base_pipeline_type,
+3640:                         current_user.id,
+3641:                         _ov_id,
+
+## backend/app/api/run_commands.py:3379,3391
+3379:             parsed_manifest = build_manifest_from_dict(
+3380:                 raw_manifest,
+3381:                 "workflow:inline" if _inline else f"workflow:{user_workflow_row.id}",
+3382:             )
+3383:             # trust="user" for an inline manifest — the client authored it this
+3384:             # request, so it gets the compiler's most restrictive level. A saved row
+3385:             # keeps trust="db" (unchanged), since it was already validated on save.
+3386:             compiled = _WORKFLOW_COMPILER.compile(
+3387:                 parsed_manifest,
+3388:                 _CAPABILITY_REGISTRY,
+3389:                 trust="user" if _inline else "db",
+3390:             )
+3391:         except (ManifestValidationError, CompilerError) as exc:
+
+## backend/agents/execution_engine/kernel_services.py:1638,1642
+1638:                     raw_manifest, f"workflow:{row_id}"
+1639:                 )
+1640:                 target_compiled = _WORKFLOW_COMPILER.compile(
+1641:                     parsed_manifest, _CAPABILITY_REGISTRY, trust="db"
+1642:                 )
+
+######## 4. WRITERS of an override row's manifest_json
+
+## backend/app/api/user_workflows.py:115,118
+115:     try:
+116:         parsed = build_manifest_from_dict(raw, source_label)
+117:         _WORKFLOW_COMPILER.compile(parsed, _CAPABILITY_REGISTRY, trust="db")
+118:     except (ManifestValidationError, CompilerError) as exc:
+
+## backend/app/api/user_workflows.py:830,836
+830:             prior.agents = json.dumps(sorted_ids)
+831:             prior.base_pipeline_type = body.base_pipeline_type
+832:             prior.model_overrides = body.model_overrides
+833:             prior.manifest_json = (
+834:                 _validated_manifest(body.manifest, f"workflow:{body.name}")
+835:                 or body.selections
+836:                 or None
+
+## backend/app/api/user_workflows.py:877,881
+877:         # was supplied, so this `or` chain can never silently discard the other.
+878:         manifest_json=(
+879:             _validated_manifest(body.manifest, f"workflow:{body.name}")
+880:             or body.selections
+881:             or None
+
+## backend/app/api/user_workflows.py:1024,1026
+1024:         # T36: a manifest edit replaces the column outright. An empty dict clears
+1025:         # it, mirroring the selections branch above.
+1026:         row.manifest_json = _validated_manifest(body.manifest, f"workflow:{row.id}")
+
+## backend/app/api/user_workflows.py:1076,1100
+1076:     anything else is a 422 naming the reason.
+1077:     """
+1078:     from agents.loader import SUPPORTED_PIPELINE_TYPES
+1079:     from agents.workflows.manifest import ManifestValidationError
+1080: 
+1081:     if body.pipeline_type not in SUPPORTED_PIPELINE_TYPES:
+1082:         raise HTTPException(
+1083:             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+1084:             detail=f"Unknown pipeline_type: {body.pipeline_type!r}",
+1085:         )
+1086: 
+1087:     row = _owned(db, workflow_id, current_user)
+1088: 
+1089:     try:
+1090:         new_manifest = _load_file_manifest_dict(body.pipeline_type)
+1091:     except (FileNotFoundError, ManifestValidationError) as exc:
+1092:         raise HTTPException(
+1093:             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+1094:             detail=f"No usable file manifest for pipeline_type {body.pipeline_type!r}: {exc}",
+1095:         ) from exc
+1096: 
+1097:     old_manifest = row.manifest_json if isinstance(row.manifest_json, dict) else None
+1098:     diff = _diff_manifest_dicts(old_manifest, new_manifest)
+1099: 
+1100:     row.manifest_json = new_manifest
+
+## backend/app/api/user_workflows.py:507,517
+507: def _owned(db: Session, workflow_id: str, user: User) -> WorkflowDefinition:
+508:     """Return the caller-owned ``source="user"`` row or raise 404 (IDOR→404)."""
+509:     row = (
+510:         db.query(WorkflowDefinition)
+511:         .filter(
+512:             WorkflowDefinition.id == workflow_id,
+513:             WorkflowDefinition.user_id == user.id,
+514:             WorkflowDefinition.source == "user",
+515:         )
+516:         .first()
+517:     )
+
+######## 5. FROM A SMUGGLED exec GRANT TO A HOST SUBPROCESS
+
+## backend/agents/execution_engine/engine.py:4977,4981
+4977:         compiled = (
+4978:             compiled_override
+4979:             if compiled_override is not None
+4980:             else compile_for_run(pipeline_type)
+4981:         )
+
+## backend/agents/execution_engine/engine.py:5911,5925
+5911:         # engineer-trust ceiling (a user/db manifest can never provision the exec
+5912:         # workspace) + the run-level approval model bound the blast radius, so this
+5913:         # run-scoped grant is by-design, not a default-deny break.
+5914:         _plan_grants_exec = any(
+5915:             bool(getattr(getattr(s, "tools", None), "exec", False))
+5916:             for s in (compiled.steps or [])
+5917:         )
+5918:         if _plan_grants_exec:
+5919:             try:
+5920:                 from agents.capabilities.registry import CapabilityRegistry as _RtReg
+5921: 
+5922:                 _runtime_impl = _RtReg().resolve("runtime_env", "local")
+5923:                 ectx.runner.workspace = _runtime_impl.create_workspace(
+5924:                     owner_id=owner_id,
+5925:                     workspace_id=ectx.workspace_id,
+
+## backend/app/agents/runtime/local.py:230,238
+230: 
+231: 
+232: # The single locked exec profile a security-gated, exec-granted workspace uses
+233: # (per N3: Python toolchain allow-list; cpu=60s mem=512MB wall=120s). The caps are
+234: # locked here, not tunable from a manifest.
+235: DEFAULT_EXEC_PROFILE = _ExecProfile(
+236:     exec_allow=("python", "python3", "pytest", "ruff"),
+237:     exec_deny=(),
+238:     cpu_seconds=60,
+
+## backend/app/agents/runtime/local.py:1710,1722
+1710:         crash); 10-02's host seam injects ``KernelServices.record_exec_run``.
+1711:         """
+1712:         sandbox = RunSandbox(owner_id, workspace_id, runs_root=settings.RUNS_ROOT)
+1713:         if exec:
+1714:             policy = LocalExecutionPolicy(
+1715:                 exec=True,
+1716:                 network=False,
+1717:                 secrets=[],
+1718:                 exec_allow=DEFAULT_EXEC_PROFILE.exec_allow,
+1719:                 exec_deny=DEFAULT_EXEC_PROFILE.exec_deny,
+1720:                 cpu_seconds=DEFAULT_EXEC_PROFILE.cpu_seconds,
+1721:                 mem_mb=DEFAULT_EXEC_PROFILE.mem_mb,
+1722:                 wall_seconds=DEFAULT_EXEC_PROFILE.wall_seconds,
+
+## backend/agents/capabilities/validators/code_test.py:87,91
+87:         try:
+88:             # Run from the workspace root (cwd is the run root). "." keeps pytest
+89:             # rootdir at the tiny fixture; -p no:cacheprovider avoids cache recursion.
+90:             out = ws.exec_command(["pytest", "-p", "no:cacheprovider", "-q", "."]) or ""
+91:             issues = _parse(out)
+
+## backend/app/agents/runtime/local.py:474,481
+474:           5. 64KB/stream truncation (T-10-01-06).
+475: 
+476:         ACCEPTED RESIDUAL (T-10-01-05 / EGRESS-DENY): an allow-listed interpreter can
+477:         still open sockets at runtime — ``policy.network=False`` + the no-net-capable
+478:         allow-list + the scrubbed env mitigate but do NOT hard-block egress. OS-level
+479:         network-namespace enforcement is the v2 ECS seam; exec is engineer-only +
+480:         ``security``-gated, so this residual is documented + accepted (per N3).
+481:         """
+
+## backend/app/agents/runtime/local.py:499,502
+499:             self._recorder(argv, outcome="denied", exit_code=None)
+500:             raise PermissionError(
+501:                 f"exec_command denied: {cmd!r} not permitted by ExecutionPolicy"
+502:             )
+
+## the runtime second line of defence reads a Step attribute that does not exist:
+
+## backend/agents/capabilities/gates/security.py:125,131
+125:             #     No explicit `trust` attribute on the compiled Step ⇒ an exec grant
+126:             #     reaching here is engineer-authored (file/builtin default).
+127:             trust = getattr(step, "trust", "file") or "file"
+128:             if trust not in _ENGINEER_TRUST:
+129:                 return await self._block_exec(
+130:                     ctx,
+131:                     step_id,
+grep -n 'trust' backend/agents/workflows/plan.py  (class Step, plan.py:456-)  ->
+(no output above = Step has no trust field, so getattr(step,"trust","file") is always "file")
+
+######## 6. THE TIER GATE THAT ADR-0039 PAIRED WITH db TRUST (entitlements)
+
+## backend/app/core/entitlements.py:10,17
+10: TIER_PIPELINES: dict[str, set[str]] = {
+11:     "basic": {
+12:         "user_stories",
+13:         "user_stories_revision",
+14:         "ppt",
+15:         "ppt_v2",
+16:         "ppt_revision",
+17:     },
+
+## backend/app/core/entitlements.py:64,68
+64:         "prototype_feature_revision",  # tiered feature-revision manifest
+65:         "app_builder",
+66:         "app_builder_revision",
+67:         "custom",
+68:         "custom_revision",
+
+######## 7. THE FRONTEND SAVES AN OVERRIDE AS manifest + overrides_pipeline_type (any tier that can run the built-in)
+
+## frontend/src/components/workflow/LaunchWizard.tsx:1053,1068
+1053:         agent_ids: pipelineAgents.map((a) => a.id),
+1054:         manifest: buildWorkflowManifest(
+1055:           pipelineAgents,
+1056:           undefined,
+1057:           selectionsRef.current,
+1058:         ) as unknown as Record<string, unknown>,
+1059:         overrides_pipeline_type: pipeline,
+1060:       });
+1061:       setOverrideInfo({ id: saved.id, enabled: true });
+1062:       setOverrideAgents(pipelineAgents);
+1063:       setOverrideSelections(selectionsRef.current);
+1064:       setShowOverride(true);
+1065:       setSavedConfirm(true);
+1066:       setTimeout(() => setSavedConfirm(false), 2500);
+1067:     } catch (e) {
+1068:       setSaveError((e as Error)?.message ?? "Failed to save your version.");
+
+######## 8. THE RECORDS THAT SAY 'REJECT' (all pre-date ea2db4e02) AND THE ONE THAT SAYS 'TRUST'
+
+## specs/016-workflow-overrides/spec.md:95,96
+95: - **A not-user-allowed capability is refused.** A stored row declaring `approval` or `security`
+96:   fails the `trust="db"` compile; the run falls back to the file plan.
+
+## specs/016-workflow-overrides/plan.md:407,407
+407: | Capability trust | **unchanged** — nothing gains `user_allowed`; workflow-level fields never come from the DB |
+## ADR-0027 (accepted 2026-08-25) .knowledge/cards/20260825-2115-ADR-0027.md
+25:compact_summary: 'Overlaying only `steps` sidesteps the trust wall — `deliverable/ppt` and `context_provider/opendesign` are not user_allowed, so a full DB manifest could never compile.'
+63:- A refused override (malformed row, not-user-allowed capability) returns the base plan unchanged,
+## ADR-0044 (accepted 2026-09-01) locked_constraints[0]
+18:  - 'ToolPermissions.tool_sets is INTERSECTED with the caller cap, never unioned. A user-authored step may declare only the untrusted allow-list — file_extract and playwright — regardless of what the composer UI offers.'
+## ADR-0039 (active 2026-09-04) locked_constraints
+19:  - 'Only "user" is untrusted. An inline, client-authored manifest is the single remaining source that CAP-03 checks against user_allowed, and it must stay that way; widening trust to "user" would remove the last compile-time authorization boundary.'
+20:  - 'The compiler is the SOLE enforcement point for manifest trust. The SecurityGate runtime check (register IN-02) still cannot fire, so no second line of defence exists and compiler.py:212 must not be softened further without one.'
+21:  - 'A saved DB row gaining privilege does NOT extend to the launch path. run_commands.py:2671 compiles an INLINE manifest at trust="user" deliberately; that asymmetry is the design, not an oversight to be tidied away.'
+
+######## 9. TIMELINE
+git show 732adc245:backend/agents/workflows/compiler.py | grep -n _TRUSTED_SOURCES ->
+203:_TRUSTED_SOURCES: frozenset[str] = frozenset({"file", "builtin"})
+git show ea2db4e02^:...compiler.py ->
+204:_TRUSTED_SOURCES: frozenset[str] = frozenset({"file", "builtin"})
+git show ea2db4e02:...compiler.py ->
+204:_TRUSTED_SOURCES: frozenset[str] = frozenset({"file", "builtin", "db"})
+files touched by ea2db4e02 (overrides.py, user_workflows.py, run_commands.py are NOT among them):
+ backend/agents/workflows/compiler.py               |  10 +-
+ backend/agents/workflows/permission_caps.py        |   6 +-
+ backend/app/core/entitlements.py                   |   7 +
+ backend/tests/agents/test_compiler_trust.py        |  26 +--
+ backend/tests/agents/test_tool_grant_invariants.py |   8 +-
+ 10 files changed, 445 insertions(+), 43 deletions(-)

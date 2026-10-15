@@ -1,0 +1,12 @@
+....x.xx                                                                 [100%]
+=============================== warnings summary ===============================
+app/core/config.py:94
+  /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/app/core/config.py:94: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+    class Settings(BaseSettings):
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+XFAIL tests/unit/test_workflow_override.py::test_a_not_user_allowed_gate_is_rejected - ISS-1092 unfixed
+XFAIL tests/unit/test_workflow_override.py::test_an_override_step_cannot_carry_a_privileged_tool_grant[exec] - ISS-1111 unfixed
+XFAIL tests/unit/test_workflow_override.py::test_an_override_step_cannot_carry_a_privileged_tool_grant[spawn_subagents] - ISS-1111 unfixed
+5 passed, 3 xfailed, 1 warning in 1.19s

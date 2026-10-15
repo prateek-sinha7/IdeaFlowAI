@@ -1,0 +1,7 @@
+# probe 1: real settings router, get_current_user/get_current_principal overridden; column tier vs token groups disagree
+# run: cd backend && DATABASE_URL=sqlite:///:memory: PYTHONPATH=. .venv/bin/python <probe>.py   (HEAD 024c03ef8, 2026-10-02)
+catalog entry: eu.anthropic.claude-opus-4-6-v1 cost_class = premium
+column=pro   token_groups=basic -> GET 200 allowed[eu.anthropic.claude-opus-4-6-v1]=True  | PUT premium -> 200 stored=eu.anthropic.claude-opus-4-6-v1
+column=basic token_groups=pro   -> GET 200 allowed[eu.anthropic.claude-opus-4-6-v1]=False | PUT premium -> 403 stored=None
+column=basic token_groups=basic -> GET 200 allowed[eu.anthropic.claude-opus-4-6-v1]=False | PUT premium -> 403 stored=None
+column=pro   token_groups=pro   -> GET 200 allowed[eu.anthropic.claude-opus-4-6-v1]=True  | PUT premium -> 200 stored=eu.anthropic.claude-opus-4-6-v1

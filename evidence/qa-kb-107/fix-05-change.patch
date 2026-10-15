@@ -1,0 +1,267 @@
+diff --git a/backend/agents/planner/smart_planner.py b/backend/agents/planner/smart_planner.py
+index 280bac69d..bae5677a6 100644
+--- a/backend/agents/planner/smart_planner.py
++++ b/backend/agents/planner/smart_planner.py
+@@ -345,8 +345,14 @@ class SmartPlanner:
+ 
+     def _build_llm(self):
+         """Build the LLM client — Anthropic direct, Bedrock bearer-token, or Bedrock IAM."""
++        from app.agents.model_factory import _local_ollama_env, build_model
+         from app.core.config import settings
+ 
++        # The USE_LOCAL_OLLAMA dev override is build_model's, like every other call's
++        # (ISS-1134). The exits below stay as they are: INV-3 byte-identical requests.
++        if _local_ollama_env() is not None:
++            return build_model(self.model_id, max_tokens=2048)
++
+         if settings.ANTHROPIC_API_KEY:
+             from langchain_anthropic import ChatAnthropic
+ 
+diff --git a/backend/app/agents/model_factory.py b/backend/app/agents/model_factory.py
+index 0ececa059..72abdaacd 100644
+--- a/backend/app/agents/model_factory.py
++++ b/backend/app/agents/model_factory.py
+@@ -85,6 +85,37 @@ def decode_bedrock_bearer_token_expiry(token: str):
+     return issued_at + timedelta(seconds=int(expires_match.group(1)))
+ 
+ 
++def _local_ollama_env() -> "dict | None":
++    """The merged ``.env`` + process env when the USE_LOCAL_OLLAMA dev override is on,
++    else ``None`` (temp, dev-only, goes with the override block in ``build_model``).
++
++    The one reading of the flag, so ``build_model``, ``preflight_check_provider`` and
++    the planner cannot disagree about it (ISS-1133). Reads .env directly: pydantic
++    loads .env into settings WITHOUT exporting to os.environ (same trap the
++    AWS_BEARER_TOKEN_BEDROCK bridge below works around), so os.getenv alone would
++    never see a value set in the file.
++    """
++    import os
++
++    from dotenv import dotenv_values
++
++    from app.core.config import ENV_FILE
++
++    env = {**dotenv_values(ENV_FILE), **os.environ}  # real env wins
++    if env.get("USE_LOCAL_OLLAMA", "").strip().lower() in ("1", "true", "yes", "on"):
++        return env
++    return None
++
++
++def _bedrock_configured() -> bool:
++    """Settings alone, deliberately NOT the ``model`` override — otherwise a
++    Mistral-only environment would read as Bedrock config and skip the fallback."""
++    return bool(
++        (settings.BEDROCK_INFERENCE_PROFILE_ID or settings.BEDROCK_MODEL_ID)
++        and settings.AWS_REGION
++    )
++
++
+ def preflight_check_provider() -> "tuple[bool, str | None]":
+     """No-network check that the provider ``build_model()`` would select is
+     usable right now. Call once at run launch, before the engine starts any
+@@ -111,10 +142,13 @@ def preflight_check_provider() -> "tuple[bool, str | None]":
+     token = settings.AWS_BEARER_TOKEN_BEDROCK
+     if not token:
+         return True, None
+-    # Mirrors build_model()'s own precedence: a set ANTHROPIC_API_KEY is ALWAYS
+-    # used regardless of Bedrock config, so a stale bearer token sitting in the
+-    # env is irrelevant to a run that will never touch Bedrock.
+-    if settings.ANTHROPIC_API_KEY:
++    # Mirrors build_model()'s own precedence: the USE_LOCAL_OLLAMA override and a
++    # set ANTHROPIC_API_KEY are ALWAYS used regardless of Bedrock config, and the
++    # Mistral fallback whenever Bedrock is unconfigured, so a stale bearer token
++    # sitting in the env is irrelevant to a run that will never touch Bedrock.
++    if _local_ollama_env() is not None or settings.ANTHROPIC_API_KEY:
++        return True, None
++    if settings.MISTRAL_API_KEY and not _bedrock_configured():
+         return True, None
+     try:
+         expiry = decode_bedrock_bearer_token_expiry(token)
+@@ -323,22 +357,8 @@ def build_model(
+     # --- LOCAL OLLAMA OVERRIDE (temp, dev-only — comment out or delete when done) ---
+     # Off unless USE_LOCAL_OLLAMA is explicitly truthy, so this block can stay
+     # pasted in without hijacking runs that should hit the real provider.
+-    # Reads .env directly: pydantic loads .env into settings WITHOUT exporting to
+-    # os.environ (same trap the AWS_BEARER_TOKEN_BEDROCK bridge below works around),
+-    # so os.getenv alone would never see a value set in the file.
+-    import os
+-
+-    from dotenv import dotenv_values
+-
+-    from app.core.config import ENV_FILE
+-
+-    _ollama_env = {**dotenv_values(ENV_FILE), **os.environ}  # real env wins
+-    if _ollama_env.get("USE_LOCAL_OLLAMA", "").strip().lower() in (
+-        "1",
+-        "true",
+-        "yes",
+-        "on",
+-    ):
++    _ollama_env = _local_ollama_env()
++    if _ollama_env is not None:
+         from langchain_ollama import ChatOllama
+ 
+         ollama_model = _ollama_env.get("OLLAMA_MODEL") or "qwen3.5:4b"
+@@ -452,13 +472,7 @@ def build_model(
+     ):
+         os.environ["AWS_BEARER_TOKEN_BEDROCK"] = settings.AWS_BEARER_TOKEN_BEDROCK
+ 
+-    # Settings alone, deliberately NOT the ``model`` override — otherwise a
+-    # Mistral-only environment would read as Bedrock config and skip the fallback.
+-    bedrock_configured = bool(
+-        (settings.BEDROCK_INFERENCE_PROFILE_ID or settings.BEDROCK_MODEL_ID)
+-        and settings.AWS_REGION
+-    )
+-    if not bedrock_configured:
++    if not _bedrock_configured():
+         if settings.MISTRAL_API_KEY:
+             from langchain_mistralai import ChatMistralAI
+ 
+diff --git a/backend/tests/integration/api/test_rest_run_launch_api.py b/backend/tests/integration/api/test_rest_run_launch_api.py
+index f8617b31c..11b150db0 100644
+--- a/backend/tests/integration/api/test_rest_run_launch_api.py
++++ b/backend/tests/integration/api/test_rest_run_launch_api.py
+@@ -294,6 +294,8 @@ def test_expired_bedrock_token_rejected_pre_mint(env, monkeypatch):
+ 
+     monkeypatch.setattr(settings, "AWS_BEARER_TOKEN_BEDROCK", _expired_bedrock_bearer_token())
+     monkeypatch.setattr(settings, "ANTHROPIC_API_KEY", "")
++    # ISS-1136: the provider must be Bedrock; a backend/.env with the Ollama override on is not.
++    monkeypatch.setenv("USE_LOCAL_OLLAMA", "0")
+ 
+     user = _seed_user(env)
+     env["state"]["user"] = user
+diff --git a/backend/tests/unit/app/test_preflight_ollama_override.py b/backend/tests/unit/app/test_preflight_ollama_override.py
+index 49c23a746..2e8c22a49 100644
+--- a/backend/tests/unit/app/test_preflight_ollama_override.py
++++ b/backend/tests/unit/app/test_preflight_ollama_override.py
+@@ -1,8 +1,13 @@
+-"""ISS-1133 (QA-KB-107) - preflight_check_provider must honour USE_LOCAL_OLLAMA."""
++"""ISS-1133 (QA-KB-107) - preflight_check_provider must honour USE_LOCAL_OLLAMA.
++
++Siblings from the same analysis: ISS-1135 (the preflight's Mistral-fallback rung) and
++ISS-1134 (SmartPlanner's own copy of the provider chain).
++"""
+ 
+ from __future__ import annotations
+ 
+ from datetime import datetime, timedelta, timezone
++from unittest.mock import MagicMock
+ 
+ import pytest
+ 
+@@ -29,3 +34,92 @@ def test_expired_bedrock_token_does_not_block_launch_when_ollama_on(
+ 
+     assert ok is True, message
+     assert message is None
++
++
++@pytest.mark.issue("ISS-1133")
++@pytest.mark.xfail(reason="ISS-1133 unfixed", strict=True)
++def test_flag_set_only_in_the_env_file_is_honoured(
++    monkeypatch: pytest.MonkeyPatch, tmp_path
++) -> None:
++    """ISS-1133 - on the reporting machine the flag lives only in backend/.env, never
++    in os.environ, so a check that reads os.environ alone misses it."""
++    env_file = tmp_path / ".env"
++    env_file.write_text("USE_LOCAL_OLLAMA=1\n")
++    monkeypatch.setattr("app.core.config.ENV_FILE", env_file)
++    monkeypatch.delenv("USE_LOCAL_OLLAMA", raising=False)
++    expired = datetime.now(timezone.utc) - timedelta(hours=2)
++    monkeypatch.setattr(settings, "AWS_BEARER_TOKEN_BEDROCK", _make_bearer_token(expired, 60))
++    monkeypatch.setattr(settings, "ANTHROPIC_API_KEY", "")
++    monkeypatch.setattr(settings, "MISTRAL_API_KEY", "")
++
++    assert preflight_check_provider() == (True, None)
++
++
++@pytest.mark.issue("ISS-1135")
++@pytest.mark.xfail(reason="ISS-1135 unfixed", strict=True)
++def test_expired_bedrock_token_does_not_block_the_mistral_fallback(
++    monkeypatch: pytest.MonkeyPatch,
++) -> None:
++    """ISS-1135 - with Bedrock unconfigured and MISTRAL_API_KEY set, build_model falls
++    back to ChatMistralAI and never touches Bedrock. The same config without the key
++    must still refuse: test_model_factory.py::TestPreflightCheckProvider covers that."""
++    expired = datetime.now(timezone.utc) - timedelta(hours=2)
++    monkeypatch.setattr(settings, "AWS_BEARER_TOKEN_BEDROCK", _make_bearer_token(expired, 60))
++    monkeypatch.setattr(settings, "ANTHROPIC_API_KEY", "")
++    monkeypatch.setattr(settings, "BEDROCK_INFERENCE_PROFILE_ID", "")
++    monkeypatch.setattr(settings, "BEDROCK_MODEL_ID", "")
++    monkeypatch.setattr(settings, "MISTRAL_API_KEY", "m")
++    monkeypatch.setenv("USE_LOCAL_OLLAMA", "0")
++
++    assert preflight_check_provider() == (True, None)
++
++
++@pytest.mark.issue("ISS-1134")
++@pytest.mark.xfail(reason="ISS-1134 unfixed", strict=True)
++def test_smart_planner_builds_the_local_model_when_ollama_on(
++    monkeypatch: pytest.MonkeyPatch,
++) -> None:
++    """ISS-1134 - with USE_LOCAL_OLLAMA on, the planner's model is the local one every
++    other call gets, not its own Bedrock client."""
++    from agents.planner.smart_planner import SmartPlanner
++
++    ollama = MagicMock(name="ChatOllama")
++    bedrock = MagicMock(name="ChatBedrockConverse")
++    monkeypatch.setattr("langchain_ollama.ChatOllama", ollama)
++    monkeypatch.setattr("langchain_aws.ChatBedrockConverse", bedrock)
++    monkeypatch.setattr(
++        "app.agents.model_factory._restore_ollama_string_tool_args", lambda: None
++    )
++    monkeypatch.setattr(settings, "ANTHROPIC_API_KEY", "")
++    monkeypatch.setattr(settings, "AWS_BEARER_TOKEN_BEDROCK", "")
++    monkeypatch.setenv("USE_LOCAL_OLLAMA", "1")
++
++    SmartPlanner()
++
++    ollama.assert_called_once()
++    bedrock.assert_not_called()
++
++
++@pytest.mark.issue("ISS-1134")
++def test_smart_planner_keeps_its_own_client_when_ollama_off(
++    monkeypatch: pytest.MonkeyPatch,
++) -> None:
++    """ISS-1134 control - with the override off the planner's own Bedrock exit runs
++    as before (INV-3): build_model is not consulted and ChatOllama is never built."""
++    from agents.planner.smart_planner import SmartPlanner
++
++    ollama = MagicMock(name="ChatOllama")
++    bedrock = MagicMock(name="ChatBedrockConverse")
++    build_model = MagicMock(name="build_model")
++    monkeypatch.setattr("langchain_ollama.ChatOllama", ollama)
++    monkeypatch.setattr("langchain_aws.ChatBedrockConverse", bedrock)
++    monkeypatch.setattr("app.agents.model_factory.build_model", build_model)
++    monkeypatch.setattr(settings, "ANTHROPIC_API_KEY", "")
++    monkeypatch.setattr(settings, "AWS_BEARER_TOKEN_BEDROCK", "")
++    monkeypatch.setenv("USE_LOCAL_OLLAMA", "0")
++
++    SmartPlanner()
++
++    build_model.assert_not_called()
++    ollama.assert_not_called()
++    bedrock.assert_called_once()
+diff --git a/backend/tests/unit/conftest.py b/backend/tests/unit/conftest.py
+index 5dcb731fc..0f8d523af 100644
+--- a/backend/tests/unit/conftest.py
++++ b/backend/tests/unit/conftest.py
+@@ -76,6 +76,18 @@ def _in_process_checkpointer(monkeypatch):
+     yield
+ 
+ 
++@pytest.fixture(autouse=True)
++def _local_ollama_override_off(monkeypatch):
++    """Pin the USE_LOCAL_OLLAMA dev override off (ISS-1136).
++
++    ``app.agents.model_factory`` reads it from ``backend/.env`` on every call, so a
++    checkout that enables it there routed every provider test to ChatOllama. The real
++    env wins over the file, so this is a complete pin; a test that wants the override
++    sets it itself.
++    """
++    monkeypatch.setenv("USE_LOCAL_OLLAMA", "0")
++
++
+ def _deny_db_connect(dbapi_connection, connection_record):  # noqa: ARG001
+     """SQLAlchemy ``connect`` event listener — refuses every real DBAPI connection."""
+     raise UnitIsolationError(

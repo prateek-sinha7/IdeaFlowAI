@@ -1,0 +1,25 @@
+#!/bin/bash
+# Runs every scratch variant once and prints a compact, ANSI-free log. Offline vitest only; no repo file is touched.
+cd "$(dirname "$0")"
+FE=/Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/frontend
+VT=$FE/node_modules/.bin/vitest
+strip() { sed 's/\x1b\[[0-9;]*m//g'; }
+run() {
+  echo; echo "### $1"; echo "\$ vitest run --config vitest.config.mts $2 --reporter=verbose ${3:-} ${4:-}"
+  $VT run --config vitest.config.mts "$2" --reporter=verbose $3 $4 2>&1 | strip \
+    | grep -E "^ (✓|×)|^   →|Tests |Test Files|AssertionError|❯ [a-z0-9_]+\.test\.tsx:[0-9]+:[0-9]+|No test files" | grep -v "^$"
+}
+echo "# Scratch variants of AccountSettings.iss372.test.tsx, built by make_variants.py from the official file (no repo file edited)."
+echo "# Config: vitest.config.mts (root = scratch dir, alias @ -> frontend/src, same setup file as frontend/vitest.config.ts)."
+echo "# Run at $(date '+%Y-%m-%d %H:%M %Z'), vitest v4.1.11"
+run "A  a1_asis: it.fails -> it only, :83 intact (BUGS.md reproduction step 2, on a scratch copy)" a1_asis -t ISS-921
+echo; echo "### A  DOM at the moment the :83 waitFor timed out (grep of the failure dump)"
+$VT run --config vitest.config.mts a1_asis -t ISS-921 2>&1 | strip | grep -nE "<textarea|aria-label=\"Constitution content\"|animate-spin|border-t-brand" | head -5
+echo "(a <textarea aria-label=\"Constitution content\"> is present and there is no animate-spin spinner line: the load had finished and the textarea was mounted when waitFor(fetch) gave up)"
+run "B  b1_fixed: :83 deleted + waitFor import dropped + it.fails -> it (the proposed fix)" b1_fixed
+run "C  c1_delegated: :83 kept, :16 getConstitution delegated to fetch as AccountSettings.render.test.tsx:53-56 does" c1_delegated
+run "D  d1_nonempty: variant B with a saved constitution of 'saved rules', real component" d1_nonempty -t ISS-921
+run "E  e1_mutant_empty: variant B against a component whose load forgets setLoadedValue(loaded) (AccountSettings.tsx:635), saved constitution empty" e1_mutant_empty
+run "F  f1_mutant_nonempty: same mutant, saved constitution 'saved rules'" f1_mutant_nonempty -t ISS-921
+run "G  g1_mutant_sources: the FIX-704 sources file against the same mutant" g1_mutant_sources
+run "H  h1_real_sources: the FIX-704 sources file against the real component (harness sanity)" h1_real_sources

@@ -5,7 +5,7 @@ import { motion } from "motion/react";
 import {
   ArrowLeft, ArrowRight, Paperclip, X, FileText,
   Presentation, Layout, Settings2, Mic, MicOff, GitBranch,
-  Save, Check, Image as ImageIcon, Sparkles, Plus, Palette, AlertCircle,
+  Save, Check, Image as ImageIcon, Sparkles, Plus, Palette, AlertCircle, Lock,
 } from "lucide-react";
 import { AgentsPopup, type SelectionsMap } from "./AgentsPopup";
 import { DesignPickerModal, type DesignSelection } from "./composer/DesignPickerModal";
@@ -15,15 +15,13 @@ import { NameWorkflowModal } from "@/components/catalog/NameWorkflowModal";
 import { useSpeechRecognition } from "@/hooks/useSpeechRecognition";
 import { useSkillsHooks } from "@/context/SkillsHooksContext";
 import { buildWorkflowManifest, collectAgentIds, instantiateIfTemplate, overrideDescription } from "@/store/api/userWorkflows";
-import { createUserWorkflow, getToken, getWorkflowDetail, isNotFoundError, setWorkflowOverrideEnabled, extractFileText } from "@/lib/api";
+import { createUserWorkflow, getToken, getWorkflowDetail, isNotFoundError, setWorkflowOverrideEnabled, extractFileText, stageRunFile } from "@/lib/api";
 import { DOCUMENT_AND_IMAGE_ACCEPT, isBinaryUpload, isImageUpload, isTextUpload, withoutOne } from "@/lib/uploadTypes";
-import { UPLOAD_TOO_LARGE_MESSAGE, isOverUploadLimit } from "@/lib/uploadErrors";
-import { uploadGateMessage, useStagedDocuments } from "@/hooks/useStagedDocuments";
-import { UploadChipStatus } from "./UploadChipStatus";
 import { agentsFromManifest } from "@/lib/manifestAgents";
 import { ATTACH_MAX_CHARS, truncateAttachmentText } from "@/lib/constants";
 import { resizeImage } from "@/lib/resizeImage";
 import { agentMatchesPipelineType } from "@/lib/workflowIcons";
+import { canRunPipeline, getUpgradeTier, TIER_LABELS, type Tier } from "@/lib/entitlements";
 import { AnimatePresence } from "motion/react";
 import type { WorkflowType, AgentDef, DesignMode } from "@/types/index";
 import { useWorkflowCatalogEntry } from "@/hooks/useWorkflowMetadata";
@@ -500,10 +498,6 @@ function withPrototypeTaskLoop(
 /** Export for ComposerPage (INV-12 — single source, no duplication). */
 export { getAgentRecommendations, COMPANION_GROUPS, resolveDispatchType, AGENT_DELIVERABLE_MAP, withPrototypeTaskLoop };
 
-/** Brief note for a binary document whose stage AND in-browser preview both failed. */
-const BRIEF_STAGE_FAILED_PLACEHOLDER =
-  "[This document is attached; its content must be read from .uploads/ using the extract_text tool.]";
-
 /**
  * Shared attachment state for the Brief input box (KAN-91 / Image-input Wave 2).
  * Extracted so BOTH IdeaInputPage and ComposerPage's Simple view mount the SAME
@@ -512,8 +506,7 @@ const BRIEF_STAGE_FAILED_PLACEHOLDER =
  * (extractFileText) all live here once.
  */
 export function useBriefAttachments() {
-  // `stageKey` links a chip to its staging entry (absent when not staged).
-  const [attachedFiles, setAttachedFiles] = useState<{ name: string; size: string; stageKey?: number }[]>([]);
+  const [attachedFiles, setAttachedFiles] = useState<{ name: string; size: string }[]>([]);
   // KAN-91: file content stored separately so the textarea stays clean —
   // composed into the run message at send time via `fileBlocks` below.
   const [attachedFileContents, setAttachedFileContents] = useState<{ name: string; content: string }[]>([]);
@@ -524,22 +517,14 @@ export function useBriefAttachments() {
   // UPLD-05: raw documents are ALSO staged server-side at attach time (name →
   // stage_id), so launch can hand the backend the actual files — the inlined
   // text above only ever carried a capped flat extraction.
-  // `stagedUploads` lists stages in response-ARRIVAL order; each entry's
-  // `attachIndex` (the stage key, stamped synchronously at attach time) is the
-  // ONLY place true attach order survives. Every outcome is tracked, so a failed
-  // stage is shown on its chip and blocks Run (`uploadGate`) instead of being
-  // swallowed.
-  const {
-    documents,
-    stagedUploads,
-    gate: uploadGate,
-    stage: stageDocument,
-    retry: retryStage,
-    remove: removeStage,
-    settle: settleUploads,
-  } = useStagedDocuments();
-  // Stage keys whose in-browser text preview failed (informational chip note).
-  const [previewFailedKeys, setPreviewFailedKeys] = useState<number[]>([]);
+  // `attachIndex` is the attach-order position (see `attachIndexRef` below) —
+  // the ONLY place true attach order survives, since these entries are appended
+  // as their `stageRunFile` responses resolve (arrival order, not attach order).
+  const [stagedUploads, setStagedUploads] = useState<{ name: string; stageId: string; attachIndex: number }[]>([]);
+  // Monotonic attach-order counter. A `useRef` (not `stagedUploads.length`,
+  // which races against concurrent in-flight stages) so it keeps increasing
+  // correctly across SEPARATE attach actions (drop 2 files, then 3 more).
+  const attachIndexRef = useRef(0);
 
   const handleFiles = useCallback((files: FileList) => {
     Array.from(files).forEach((f) => {
@@ -555,18 +540,6 @@ export function useBriefAttachments() {
         });
         return;
       }
-      const isTextFile = isTextUpload(f.name);
-      const isBinaryFile = isBinaryUpload(f.name);
-      // UPLD-05: park the raw bytes server-side for EVERY document, text ones
-      // included, exactly as LaunchWizard does. `.uploads/` is the only thing a
-      // file-reading workflow opens, so a .md/.csv read client-side below would
-      // otherwise reach the run as inlined brief text only — missing from
-      // `.uploads/manifest.json`, and refused at launch (422 `uploads_missing`)
-      // by a workflow that reads its documents from there. The stage key is
-      // captured HERE, synchronously, before the async stage call fires — the
-      // client is the only place true attach order is known.
-      const jwt = isTextFile || isBinaryFile ? getToken() : null;
-      const stageKey = jwt ? stageDocument(f, jwt) : undefined;
       const meta = {
         name: f.name,
         size:
@@ -575,9 +548,10 @@ export function useBriefAttachments() {
             : f.size < 1048576
               ? `${(f.size / 1024).toFixed(1)}KB`
               : `${(f.size / 1048576).toFixed(1)}MB`,
-        ...(stageKey !== undefined ? { stageKey } : {}),
       };
       setAttachedFiles((p) => [...p, meta]);
+      const isTextFile = isTextUpload(f.name);
+      const isBinaryFile = isBinaryUpload(f.name);
       if (isTextFile) {
         const reader = new FileReader();
         reader.onload = (ev) => {
@@ -589,10 +563,20 @@ export function useBriefAttachments() {
         };
         reader.readAsText(f);
       } else if (isBinaryFile) {
-        if (jwt && stageKey !== undefined) {
-          // Over the per-file cap: the stage already failed without uploading,
-          // and the preview call would be refused the same way.
-          if (isOverUploadLimit(f.size)) return;
+        const jwt = getToken();
+        if (jwt) {
+          // UPLD-05: park the raw bytes server-side too (fire-and-forget — a
+          // staging failure degrades to the pre-existing text-only behavior).
+          // `attachIndex` captured HERE, synchronously, before the async stage
+          // call fires — the client is the only place true attach order is
+          // known (the stage responses below resolve in arrival order).
+          const attachIndex = attachIndexRef.current++;
+          const stagedPromise = stageRunFile(jwt, f)
+            .then((res) => {
+              setStagedUploads((p) => [...p, { name: f.name, stageId: res.stage_id, attachIndex }]);
+              return true;
+            })
+            .catch(() => false);
           extractFileText(jwt, f)
             .then((res) => {
               const truncNote = res.truncated
@@ -611,14 +595,15 @@ export function useBriefAttachments() {
               // agent the document is genuinely unreadable when it isn't. Only
               // when staging ALSO failed do we owe the brief an honest note —
               // and even then, never a phrase readable as "unreadable/empty".
-              setPreviewFailedKeys((k) => [...k, stageKey]);
-              void settleUploads(stageKey).then((docs) => {
-                const doc = docs.find((d) => d.key === stageKey);
-                // Removed meanwhile, or staged after all: no note.
-                if (!doc || doc.status === "staged") return;
+              stagedPromise.then((staged) => {
+                if (staged) return;
                 setAttachedFileContents((p) => [
                   ...p,
-                  { name: f.name, content: BRIEF_STAGE_FAILED_PLACEHOLDER },
+                  {
+                    name: f.name,
+                    content:
+                      "[This document is attached; its content must be read from .uploads/ using the extract_text tool.]",
+                  },
                 ]);
               });
             });
@@ -629,33 +614,18 @@ export function useBriefAttachments() {
       // Every ext the picker offers is handled above — the two branches together
       // cover DOCUMENT_EXTS, so a chip can no longer appear for a file we drop.
     });
-  }, [stageDocument, settleUploads]);
+  }, []);
 
   const removeFile = useCallback((idx: number) => {
-    const removed = attachedFiles[idx];
-    if (!removed) return;
-    setAttachedFiles((p) => p.filter((_, i) => i !== idx));
-    // Drop ONE block, not every block sharing the name (dev #18): two attached
-    // files with the same name must not both lose their text.
-    setAttachedFileContents((c) => withoutOne(c, removed.name));
-    if (removed.stageKey !== undefined) {
-      const key = removed.stageKey;
-      removeStage(key);
-      setPreviewFailedKeys((k) => k.filter((x) => x !== key));
-    }
-  }, [attachedFiles, removeStage]);
-
-  const retryFile = useCallback(async (key: number, name: string) => {
-    const jwt = getToken();
-    if (!jwt) return;
-    if (await retryStage(key, jwt)) {
-      // The stage now succeeded, so the note written for a doubly-failed upload
-      // is no longer true (FIX-562).
-      setAttachedFileContents((c) =>
-        c.filter((f) => !(f.name === name && f.content === BRIEF_STAGE_FAILED_PLACEHOLDER)),
-      );
-    }
-  }, [retryStage]);
+    setAttachedFiles((p) => {
+      const removedName = p[idx]?.name;
+      if (removedName) {
+        setAttachedFileContents((c) => withoutOne(c, removedName));
+        setStagedUploads((s) => withoutOne(s, removedName));
+      }
+      return p.filter((_, i) => i !== idx);
+    });
+  }, []);
 
   const removeImage = useCallback((idx: number) => {
     setAttachedImages((p) => p.filter((_, i) => i !== idx));
@@ -667,23 +637,7 @@ export function useBriefAttachments() {
     .map((f) => `\n\n=== Attached: ${f.name} ===\n${f.content}\n=== End: ${f.name} ===`)
     .join("");
 
-  return {
-    attachedFiles,
-    attachedFileContents,
-    attachedImages,
-    stagedUploads,
-    handleFiles,
-    removeFile,
-    removeImage,
-    fileBlocks,
-    /** Per-document staging state, keyed by each chip's `stageKey`. */
-    documents,
-    previewFailedKeys,
-    /** Run is allowed only when `kind === "ready"` (see `uploadGateMessage`). */
-    uploadGate,
-    retryFile,
-    settleUploads,
-  };
+  return { attachedFiles, attachedFileContents, attachedImages, stagedUploads, handleFiles, removeFile, removeImage, fileBlocks };
 }
 
 export type BriefAttachments = ReturnType<typeof useBriefAttachments>;
@@ -741,16 +695,7 @@ export function BriefAttachBox({
   belowExtra?: React.ReactNode;
 }) {
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const {
-    attachedFiles,
-    attachedImages,
-    handleFiles,
-    removeFile,
-    removeImage,
-    documents,
-    previewFailedKeys,
-    retryFile,
-  } = attachments;
+  const { attachedFiles, attachedImages, handleFiles, removeFile, removeImage } = attachments;
 
   return (
     <>
@@ -798,33 +743,18 @@ export function BriefAttachBox({
           ABOVE the toolbar, which read as part of the textarea rather than as
           the result of the buttons below them. */}
       {(attachedFiles.length > 0 || attachedImages.length > 0 || belowExtra) && (
-        <div className="flex flex-wrap gap-1.5 border-t border-line-divider px-4 py-2.5" aria-live="polite">
-          {attachedFiles.map((file, idx) => {
-            const key = file.stageKey;
-            const doc = key === undefined ? undefined : documents.find((d) => d.key === key);
-            // A too-large file fails the same way again, so it offers no Retry.
-            const onRetry =
-              key !== undefined && doc?.status === "failed" && doc.reason !== UPLOAD_TOO_LARGE_MESSAGE
-                ? () => void retryFile(key, file.name)
-                : undefined;
-            return (
-              <span
-                key={`file-${file.name}-${idx}`}
-                className="inline-flex items-center gap-1 rounded-lg bg-surface-warm px-2.5 py-1 text-[10px] text-ink-600"
-              >
-                <Paperclip className="h-2.5 w-2.5" /> {file.name}
-                <UploadChipStatus
-                  name={file.name}
-                  document={doc}
-                  previewFailed={key !== undefined && previewFailedKeys.includes(key)}
-                  onRetry={onRetry}
-                />
-                <button onClick={() => removeFile(idx)} aria-label={`Remove ${file.name}`} className="ml-1 text-ink-400 hover:text-status-failed">
-                  <X className="h-2.5 w-2.5" />
-                </button>
-              </span>
-            );
-          })}
+        <div className="flex flex-wrap gap-1.5 border-t border-line-divider px-4 py-2.5">
+          {attachedFiles.map((file, idx) => (
+            <span
+              key={`file-${file.name}-${idx}`}
+              className="inline-flex items-center gap-1 rounded-lg bg-surface-warm px-2.5 py-1 text-[10px] text-ink-600"
+            >
+              <Paperclip className="h-2.5 w-2.5" /> {file.name}
+              <button onClick={() => removeFile(idx)} className="ml-1 text-ink-400 hover:text-status-failed">
+                <X className="h-2.5 w-2.5" />
+              </button>
+            </span>
+          ))}
           {attachedImages.map((img, idx) => (
             <span
               key={`img-${img.name}-${idx}`}
@@ -846,6 +776,12 @@ export function BriefAttachBox({
 interface IdeaInputPageProps {
   workflowType: WorkflowType;
   onBack: () => void;
+  /** ISS-371 — "this page holds work that Back would discard", reported to
+   *  DashboardLayout's shared `handleBackNav` guard (same contract as ComposerPage). */
+  onUnsavedChange?: (dirty: boolean) => void;
+  /** ISS-472 — the signed-in tier, for the entitlement lock on Run and Save.
+   *  `null`/absent while the profile is unknown, which never locks. */
+  userTier?: Tier | null;
   // `resolvedType` is the concrete pipeline the backend should dispatch.
   // For all standard workflows it equals `workflowType`; for the `migration`
   // meta-pipeline it is the sub-pipeline the user picked in the tile selector.
@@ -853,8 +789,9 @@ interface IdeaInputPageProps {
   // run_pipeline payload by useWorkflow). Currently used only for the per-run
   // `gate_agent_ids` toggle — present only when the user touches the Review-gates
   // section; omitted otherwise so the backend uses its static default.
-  /** May resolve to whether the launch was accepted; `false` re-enables Run. */
-  onRun: (message: string, agentIds: string[], resolvedType: WorkflowType, extraParams?: Record<string, unknown>) => void | Promise<boolean> | undefined;
+  // May return the launch's outcome: a run id, or null when it was refused,
+  // which releases the Run latch (ISS-1137).
+  onRun: (message: string, agentIds: string[], resolvedType: WorkflowType, extraParams?: Record<string, unknown>) => Promise<string | null> | void;
   // Phase 21 (LAUNCH-EXISTING-PATH §4.6) — saved-workflow launch preload. When a
   // saved row is launched, `DashboardLayout` threads its persisted composition in
   // here so the composer mounts PRE-LOADED instead of re-deriving from the (empty
@@ -1025,7 +962,10 @@ const TYPE_CONFIG: Partial<Record<string, PageCopy>> = {
   },
 };
 
-export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, initialModelOverrides, initialSelections, initialInput, initialGateIds, workflowId, onOpenInCanvas }: IdeaInputPageProps) {
+/** ISS-371 — the roster as the unsaved-work guard compares it (add/remove/reorder). */
+const rosterKey = (agents: AgentDef[]) => agents.map((a) => a.id).join(",");
+
+export function IdeaInputPage({ workflowType, onBack, onUnsavedChange, userTier, onRun, initialAgentIds, initialModelOverrides, initialSelections, initialInput, initialGateIds, workflowId, onOpenInCanvas }: IdeaInputPageProps) {
   const { libraryAgents: LIBRARY_AGENTS, allAgents: ALL_LIBRARY_AGENTS } = useAgentLibrary();
   const [ideaInput, setIdeaInput] = useState(initialInput ?? "");
   const [showAgents, setShowAgents] = useState(false);
@@ -1052,6 +992,11 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
   const isMigrationMeta = workflowType === "migration";
   const [migrationChoice, setMigrationChoice] = useState<WorkflowType | null>(null);
   const effectiveType: WorkflowType = isMigrationMeta && migrationChoice ? migrationChoice : workflowType;
+  // ISS-472: the same `canRunPipeline` lock as the catalog card and the wizard
+  // (FIX-497), keyed on `effectiveType`, which is what Run dispatches and Save
+  // stores. The backend 403s both for an unentitled tier.
+  const locked = userTier != null && !canRunPipeline(userTier, effectiveType);
+  const upgradeTo = userTier != null ? getUpgradeTier(userTier, effectiveType) : null;
 
   // Phase 21 (LAUNCH-EXISTING-PATH §4.6) — when launching a saved workflow, seed
   // `pipelineAgents` from the persisted `initialAgentIds` instead of the
@@ -1076,6 +1021,24 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
     if (type === "custom") return [];
     return LIBRARY_AGENTS.filter((a) => agentMatchesPipelineType(a.pipeline_type, type)).sort((a, b) => a.order - b.order);
   });
+
+  // ISS-371 — the brief and roster as last seeded or saved; anything else is work
+  // Back would silently discard. Two baselines, so a roster seed never absorbs a
+  // typed brief (or the reverse). The roster one moves with every programmatic
+  // re-seed in the effect below (library, manifest and override all land after
+  // mount and would otherwise read as user edits) and with each successful save.
+  // Attachments count while present: only the user adds them and Save keeps none.
+  const [briefBaseline, setBriefBaseline] = useState(initialInput ?? "");
+  const [rosterBaseline, setRosterBaseline] = useState(() => rosterKey(pipelineAgents));
+  const hasUnsavedWork =
+    ideaInput !== briefBaseline ||
+    rosterKey(pipelineAgents) !== rosterBaseline ||
+    briefAttachments.attachedFiles.length > 0 ||
+    briefAttachments.attachedImages.length > 0;
+  useEffect(() => {
+    onUnsavedChange?.(hasUnsavedWork);
+    return () => onUnsavedChange?.(false);
+  }, [hasUnsavedWork, onUnsavedChange]);
 
   const { attachedHooks } = useSkillsHooks();
 
@@ -1184,6 +1147,14 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
   // visible only in the console. Carries WHICH failure it was, because a slug that
   // does not exist and a workflow that could not be loaded want different copy.
   const [loadError, setLoadError] = useState<"not-found" | "failed" | null>(null);
+  // ISS-919: `pipelineAgents` is the library roster until the fetch below has
+  // answered, because the override (and a composed workflow's steps) arrive
+  // through it. Save workflow and Advanced wait for it to settle; "Save as my
+  // version" (an UPSERT over the override) needs `ready`, since after a failure
+  // the page cannot know what it would overwrite. Same tri-state as LaunchWizard.
+  const [overrideLoad, setOverrideLoad] = useState<"loading" | "ready" | "failed">(
+    () => (workflowId ? "loading" : "ready"),
+  );
 
   useEffect(() => {
     if (!workflowId) {
@@ -1192,6 +1163,7 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
       setManifestSelections(undefined);
       setManifestRawSteps(undefined);
       setLoadError(null);
+      setOverrideLoad("ready");
       return;
     }
     let cancelled = false;
@@ -1202,11 +1174,14 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
       setManifestSelections(undefined);
       setManifestRawSteps(undefined);
       setLoadError(null);
+      setOverrideLoad("ready");
       return;
     }
+    setOverrideLoad("loading");
     getWorkflowDetail(jwt, workflowId)
       .then((detail) => {
         if (cancelled) return;
+        setOverrideLoad("ready");
         setLoadError(null);
         // Map each compiled step to its declared capabilities, sourced entirely
         // from the projection (strategy + gates + validators + compaction +
@@ -1385,6 +1360,7 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
           // ISS-374/ISS-375 — still no strip, but the failure is no longer
           // invisible: this same swallow is what leaves the roster empty.
           setLoadError(isNotFoundError(e) ? "not-found" : "failed");
+          setOverrideLoad("failed");
         }
       });
     return () => {
@@ -1433,6 +1409,7 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
           .filter(Boolean) as AgentDef[];
         if (restored.length > 0) {
           setPipelineAgents(restored);
+          setRosterBaseline(rosterKey(restored));
         }
         attemptedInitialRestoreRef.current = true;
       }
@@ -1443,6 +1420,7 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
     // KAN-112: custom workflow starts blank — user picks agents themselves.
     if (effectiveType === "custom") {
       setPipelineAgents([]);
+      setRosterBaseline("");
     } else {
       const fromLibrary = LIBRARY_AGENTS
         .filter((a) => agentMatchesPipelineType(a.pipeline_type, effectiveType))
@@ -1473,11 +1451,12 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
         fromLibrary.length > 0 &&
         fromLibrary.length >= (manifestAgents?.length ?? 0);
       const systemRoster = libraryIsComplete ? fromLibrary : (manifestAgents ?? fromLibrary);
-      setPipelineAgents(
+      const seeded =
         showOverride && overrideAgents && overrideAgents.length > 0
           ? overrideAgents
-          : systemRoster,
-      );
+          : systemRoster;
+      setPipelineAgents(seeded);
+      setRosterBaseline(rosterKey(seeded));
     }
   }, [LIBRARY_AGENTS, effectiveType, initialAgentIds, ALL_LIBRARY_AGENTS, manifestAgents, showOverride, overrideAgents]);
 
@@ -1609,13 +1588,9 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
   const mappedDeliverable = resolveDispatchType(pipelineAgents, effectiveType).deliverableOverride;
 
   const handleRun = () => {
-    if (!ideaInput.trim() || pipelineAgents.length === 0) return;
+    if (!ideaInput.trim() || pipelineAgents.length === 0 || locked) return;
     // For the migration meta-type, Run is gated on a sub-pipeline being chosen.
     if (isMigrationMeta && !migrationChoice) return;
-    // A document still uploading (its stage id would be missing from the
-    // payload) or one that failed to upload blocks Run — also reached via the
-    // Cmd/Ctrl+Enter shortcut, so the check lives here, not only on the button.
-    if (briefAttachments.uploadGate.kind !== "ready") return;
     // Mirrors ComposerPage.handleRunOnce: a workflow that declares opendesign
     // but has nothing to inject opens the picker instead of running.
     if (designMissing) {
@@ -1626,9 +1601,11 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
     // ref latched at the top of the handler would never be released on a
     // validation bail-out and would wedge the button permanently. Nothing clears
     // it on the success path because there is no success path back to this
-    // screen — `onRun` reaches startPipeline, which sets isRunning=true
-    // synchronously and the surface switches to mainView="execution", unmounting
-    // this page whether or not the POST itself succeeds.
+    // screen. ISS-1137: a refused launch is not one either — the URL stays on
+    // /create/<type> until a run id arrives, so the view returns to this panel —
+    // and the latch is released when `onRun`'s outcome is null (refused). Never
+    // in a `finally`: onRun returns before the POST settles, so that would
+    // reopen the double-click window.
     if (submittingRef.current) return;
     submittingRef.current = true;
     setIsSubmitting(true);
@@ -1721,19 +1698,15 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
       manifestRoster !== null &&
       manifestRoster.length === currentRoster.length &&
       manifestRoster.every((id, i) => id === currentRoster[i]);
-    const launch = onRun(
+    void onRun(
       finalMessage,
       isUnmodifiedManifestRoster ? [] : currentRoster,
       dispatchType,
       finalExtraParams,
-    );
-    // TS-Z3-02: a rejected launch hands control back to this (still-mounted)
-    // screen — release the double-submit latch so Run can be retried.
-    void launch?.then((accepted) => {
-      if (!accepted) {
-        submittingRef.current = false;
-        setIsSubmitting(false);
-      }
+    )?.then((runId) => {
+      if (runId) return;
+      submittingRef.current = false;
+      setIsSubmitting(false);
     });
   };
 
@@ -1776,6 +1749,9 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
           _wizard: wizardConfig,
         },
       });
+      // ISS-371 — what was just saved is no longer unsaved work.
+      setBriefBaseline(ideaInput);
+      setRosterBaseline(rosterKey(pipelineAgents));
       setSavedConfirm(true);
       setTimeout(() => setSavedConfirm(false), 2500);
     } catch (e) {
@@ -1860,6 +1836,9 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
       setOverrideAgents(pipelineAgents);
       setOverrideSelections(saveSelections);
       setShowOverride(true);
+      // ISS-371 — what was just saved is no longer unsaved work.
+      setBriefBaseline(ideaInput);
+      setRosterBaseline(rosterKey(pipelineAgents));
       setSavedConfirm(true);
       setTimeout(() => setSavedConfirm(false), 2500);
     } catch (e) {
@@ -2030,7 +2009,7 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
                   ) : (
                     <button
                       onClick={() => { setSaveError(null); setShowSaveModal(true); }}
-                      disabled={pipelineAgents.length === 0 || (isMigrationMeta && !migrationChoice)}
+                      disabled={locked || overrideLoad === "loading" || pipelineAgents.length === 0 || (isMigrationMeta && !migrationChoice)}
                       className="flex items-center gap-1.5 rounded-xl border border-line-control px-4 py-2.5 text-[12px] font-medium text-ink-600 hover:bg-surface-warm transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
                       title="Save this composition as a reusable workflow"
                     >
@@ -2045,9 +2024,11 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
                   {effectiveType !== "custom" && workflowId && !savedConfirm && (
                     <button
                       onClick={handleSaveAsOverride}
-                      disabled={pipelineAgents.length === 0 || (isMigrationMeta && !migrationChoice)}
+                      disabled={locked || overrideLoad !== "ready" || pipelineAgents.length === 0 || (isMigrationMeta && !migrationChoice)}
                       className="flex items-center gap-1.5 rounded-xl border border-line-control px-4 py-2.5 text-[12px] font-medium text-ink-600 hover:bg-surface-warm transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-                      title="Make this lineup your default for this workflow"
+                      title={overrideLoad === "failed"
+                        ? "Couldn't check for your saved version of this workflow. Reload to try again."
+                        : "Make this lineup your default for this workflow"}
                     >
                       <Save className="h-3.5 w-3.5" /> Save as my version
                     </button>
@@ -2056,8 +2037,7 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
                   {/* Run button */}
                   <button
                     onClick={handleRun}
-                    disabled={isSubmitting || !ideaInput.trim() || pipelineAgents.length === 0 || (isMigrationMeta && !migrationChoice) || briefAttachments.uploadGate.kind !== "ready"}
-                    aria-describedby={briefAttachments.uploadGate.kind !== "ready" ? "idea-upload-gate" : undefined}
+                    disabled={isSubmitting || locked || !ideaInput.trim() || pipelineAgents.length === 0 || (isMigrationMeta && !migrationChoice)}
                     className="flex items-center gap-2 rounded-xl bg-brand text-surface-white px-5 py-2.5 text-[13px] font-semibold hover:bg-brand-pressed transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
                   >
                     {pipelineAgents.length === 0
@@ -2070,6 +2050,17 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
                 </>
               }
             />
+
+            {/* ISS-472: the locked state the dashboard catalog card shows for
+                this type, so a direct URL is not the one path that hides it. */}
+            {locked && (
+              <div className="mx-4 mb-3 flex items-center gap-2 rounded-[var(--radius-button)] border border-brand/20 bg-brand-fill px-3 py-2 text-[11px] font-semibold text-brand">
+                <Lock className="h-3.5 w-3.5 flex-shrink-0" />
+                {upgradeTo
+                  ? `Requires ${TIER_LABELS[upgradeTo]} plan — your plan does not include this deliverable.`
+                  : "Your plan does not include this deliverable."}
+              </div>
+            )}
 
             {/* ISS-374/ISS-375 — the manifest fetch failed AND left nothing to
                 run, so "Add agents first" is the screen's only signal and it
@@ -2088,16 +2079,6 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
             {saveError && (
               <div className="px-4 pb-3 -mt-1 text-[11px] text-red-600">{saveError}</div>
             )}
-
-            {/* Why Run is blocked by the uploads — always mounted so the live
-                region announces changes; empty (no padding) while ready. */}
-            <p
-              id="idea-upload-gate"
-              role="status"
-              className={`px-4 pb-3 -mt-1 text-[11px] empty:p-0 empty:m-0 ${briefAttachments.uploadGate.kind === "failed" ? "text-status-failed" : "text-ink-500"}`}
-            >
-              {uploadGateMessage(briefAttachments.uploadGate)}
-            </p>
 
             {/* Save modal — reuses NameWorkflowModal (Phase 21). */}
             <AnimatePresence>
@@ -2245,7 +2226,8 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
         >
           <button
             onClick={() => setShowAgents(true)}
-            className="flex items-center gap-2 text-[12px] text-ink-400 hover:text-ink-700 transition-colors"
+            disabled={overrideLoad === "loading"}
+            className="flex items-center gap-2 text-[12px] text-ink-400 hover:text-ink-700 transition-colors disabled:cursor-not-allowed disabled:opacity-30"
           >
             <Settings2 className="h-3.5 w-3.5" />
             <span className="font-medium text-ink-600">Advanced</span>

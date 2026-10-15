@@ -1,0 +1,16 @@
+QA-KB-027 fix phase, BEFORE-state. Observed in this working tree (HEAD 024c03ef8) on 2026-10-01, immediately
+before any edit by the fix phase; each file run alone from backend/ with `.venv/bin/python -m pytest <file> -q`.
+Summary lines transcribed from the observed output (the pre-edit tree cannot be re-run without reverting).
+
+tests/integration/api/test_sandbox_ref_scoped_endpoints_api.py   4 passed, 1 xfailed   (XFAIL = ISS-893 pin, red for its reason: 400)
+tests/unit/test_sandbox_ref_scoped_endpoints.py                  1 xfailed, 5 errors   (UnitIsolationError at setup)
+tests/unit/test_run_files_ref_family_scope.py                    1 failed, 2 errors    (UnitIsolationError: DB connect x2, subprocess x1)
+tests/unit/test_duplicate_context_guard.py                       8 errors              (UnitIsolationError at setup)
+tests/unit/test_iss401_reset_password_message.py                 1 error               (UnitIsolationError at setup)
+tests/agents/test_revision_routes_v3.py                          12 failed             (TypeError: 'password_hash' is an invalid keyword argument for User)
+tests/agents/test_restore_guard_v3.py                            4 failed              (same TypeError)
+tests/integration/test_git_versioning_e2e.py -k restore          1 error, 8 deselected (same TypeError at fixture setup)
+tests/integration/test_gate_redo_enforcement.py                  2 failed              (same TypeError)
+tests/agents/test_conditional_trigger_depth_v4_ac06.py           1 failed              (same TypeError)
+tests/agents/test_conditional_divert_v4_validation.py            1 failed              (same TypeError)
+tests/agents/test_conditional_trigger_budget_t33.py              1 failed              (same TypeError)

@@ -1,0 +1,87 @@
+"""QA-KB-048 analysis probe (throwaway, read-only, NOT a repo test).
+
+Run from the repo root:  backend/.venv/bin/python <this file>
+Hermetic: DATABASE_URL is pinned to a temp sqlite file BEFORE any app import (same idea as
+backend/tests/conftest.py), RUNS_ROOT is a temp dir, the planner is scripted, and execute() is
+stopped at its first `pipeline_start` event. No Bedrock, no Postgres, no server, no run.
+
+Question 1: what does the wizard's defaultAgentsFor(libraryAgents, mode) yield per mode, vs the plan?
+Question 2: when launch_run is handed a saved roster that is a STRICT SUBSET of a built-in file
+            pipeline's compiled plan, what does it do (presort_specs) and what does the engine run?
+"""
+import os, sys, tempfile, asyncio, uuid, logging, warnings
+warnings.filterwarnings("ignore")
+tmp = tempfile.mkdtemp(prefix="qakb048-")
+os.environ["DATABASE_URL"] = f"sqlite:///{tmp}/probe.db"
+sys.path.insert(0, os.path.join(os.getcwd(), "backend"))
+from app.core.config import settings
+settings.RUNS_ROOT = tmp
+import app.models  # noqa: F401
+from app.models.database import Base, engine as _db_engine
+Base.metadata.create_all(bind=_db_engine)
+
+import agents.execution_engine.engine as engine_mod
+from agents.execution_engine.engine import ExecutionEngine, compile_for_run
+from agents.loader import load_agent_spec
+from agents.registry import get_all_agents_flat
+
+records = []
+class _H(logging.Handler):
+    def emit(self, r): records.append(r)
+lg = logging.getLogger("agents.execution_engine.engine"); lg.setLevel(logging.INFO); lg.addHandler(_H())
+
+def matches(pt, mode):  # mirrors frontend agentMatchesPipelineType
+    return (mode in pt) if isinstance(pt, (list, tuple)) else pt == mode
+
+def q1():
+    print("== Q1: frontend defaultAgentsFor (library agents whose pipeline_type includes the mode) vs compiled plan ==")
+    agents = get_all_agents_flat()
+    for mode in ("prototype", "ppt", "ppt_v2", "prototype_v2"):
+        lib = sorted([a for a in agents if matches(a.pipeline_type, mode)], key=lambda a: a.order)
+        plan = [s.agent_id for s in compile_for_run(mode).steps]
+        print(f"  {mode:13s} library-default {len(lib)} of plan {len(plan)}: {[a.id for a in lib]}")
+
+async def drive(pipeline, ids):
+    from app.api.composition_order import presort_specs, UnsatisfiableComposition
+    engine = ExecutionEngine()
+    async def _fake_run_planner(user_message, *a, **k):
+        return engine._default_planning_context(user_message), "PROCEED"
+    engine._run_planner = _fake_run_planner
+    orig = engine_mod.compile_for_run
+    def _patched(ptype, _orig=orig):
+        c = _orig(ptype); c.clarify.mode = "off"; return c
+    engine_mod.compile_for_run = _patched
+    specs = [load_agent_spec(i) for i in ids]
+    print(f"-- {pipeline}: saved roster sent as agent_ids = {ids}")
+    try:
+        specs = presort_specs(specs)          # run_commands.py:3563-3570, BEFORE the mint
+        print("   launch_run presort_specs: ok")
+    except UnsatisfiableComposition as e:
+        print(f"   launch_run presort_specs: UnsatisfiableComposition -> 422 workflow_unsatisfiable: {e}")
+        engine_mod.compile_for_run = orig
+        return
+    records.clear()
+    agen = engine.execute(agents=specs, user_message="Build me a thing for managing tasks.",
+        pipeline_run_id=f"probe-{uuid.uuid4().hex[:8]}", pipeline_type=pipeline,
+        user_id="probe-user", od_context=None, gate_agent_ids=[])
+    start = None
+    try:
+        async for ev in agen:
+            if ev.get("type") == "pipeline_start":
+                start = ev; break
+    finally:
+        await agen.aclose(); engine_mod.compile_for_run = orig
+    d = start["data"]
+    print(f"   _launch_run_core would mint agent_count={len(ids)} (run_commands.py:3020: len(agents))")
+    print(f"   engine pipeline_start.agent_count={d.get('agent_count')} agents={[a.get('id') if isinstance(a, dict) else a for a in d.get('agents', [])]}")
+    for r in records:
+        if "roster expanded" in r.getMessage(): print("   engine log:", r.getMessage())
+
+async def main():
+    q1()
+    print("\n== Q2: strict-subset saved rosters through launch_run + engine ==")
+    await drive("ppt_v2", ["ppt-brief-analyst", "ppt-composer", "ppt-code-generator"])                  # drop the QA step
+    await drive("ppt_v2", ["ppt-brief-analyst", "ppt-composer", "ppt-deck-qa-v2"])                      # drop the LAST step
+    await drive("prototype", ["prototype-specify", "prototype-plan", "prototype-analyze", "prototype-build"])  # drop the LAST step
+    await drive("prototype", ["prototype-plan"])                                                        # the validator's roster
+asyncio.run(main())

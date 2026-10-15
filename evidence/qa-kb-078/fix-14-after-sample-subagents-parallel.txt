@@ -1,0 +1,5 @@
+=================================== FAILURES ===================================
+[XPASS(strict)] ISS-1015 unfixed
+[XPASS(strict)] ISS-1015 unfixed
+1 failed, 1 passed in 2.85s
+2 passed in 2.58s

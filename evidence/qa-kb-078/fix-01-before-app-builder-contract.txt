@@ -1,0 +1,15 @@
+=============================== warnings summary ===============================
+app/core/config.py:94
+  /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/app/core/config.py:94: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+    class Settings(BaseSettings):
+
+tests/contract/agents/test_characterization_app_builder.py::test_app_builder_deliverable_byte_snapshot
+tests/contract/agents/test_characterization_app_builder.py::test_app_builder_event_snapshot
+  /Users/bilala/Developer/Projects/VELOCITY-AI-worktrees/feat-user-stories-v2/backend/agents/execution_engine/engine.py:1324: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    _ts = _dt.datetime.utcnow().isoformat(timespec="seconds") + "Z"
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+XFAIL tests/contract/agents/test_characterization_app_builder.py::test_app_builder_deliverable_byte_snapshot - ISS-906 unfixed
+XFAIL tests/contract/agents/test_characterization_app_builder.py::test_app_builder_event_snapshot - ISS-906 unfixed
+2 xfailed, 3 warnings in 7.50s
