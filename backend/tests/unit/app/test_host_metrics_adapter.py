@@ -26,11 +26,48 @@ def _clean_caches():
     hm.reset_inventory_cache()
     hm._SELF_ID_CACHE["value"] = None
     hm._SELF_ID_CACHE["resolved"] = "0"
+    hm._SELF_TYPE_CACHE["value"] = None
+    hm._SELF_TYPE_CACHE["resolved"] = "0"
+    hm.reset_zero_datapoint_state()
     yield
     hm.reset_client_cache()
     hm.reset_inventory_cache()
     hm._SELF_ID_CACHE["value"] = None
     hm._SELF_ID_CACHE["resolved"] = "0"
+    hm._SELF_TYPE_CACHE["value"] = None
+    hm._SELF_TYPE_CACHE["resolved"] = "0"
+    hm.reset_zero_datapoint_state()
+
+
+def _imds_resp(body: bytes) -> MagicMock:
+    """Fake ``urlopen`` context-manager response returning ``body``."""
+    resp = MagicMock()
+    resp.read.return_value = body
+    resp.__enter__ = lambda self: resp
+    resp.__exit__ = lambda self, *a: None
+    return resp
+
+
+def _ec2_with_instances(*pairs: tuple[str, str | None]) -> MagicMock:
+    """Fake ec2 client whose describe_instances paginator yields ``pairs``
+    of ``(InstanceId, InstanceType)``; a None type omits the key."""
+    instances = []
+    for instance_id, instance_type in pairs:
+        item = {"InstanceId": instance_id}
+        if instance_type is not None:
+            item["InstanceType"] = instance_type
+        instances.append(item)
+    fake_ec2 = MagicMock()
+    fake_paginator = MagicMock()
+    fake_paginator.paginate.return_value = [
+        {"Reservations": [{"Instances": instances}]}
+    ]
+    fake_ec2.get_paginator.return_value = fake_paginator
+    return fake_ec2
+
+
+def _zero_dp_records(caplog) -> list:
+    return [r for r in caplog.records if "zero datapoints" in r.getMessage()]
 
 
 @pytest.fixture
@@ -438,3 +475,314 @@ class TestCollectSnapshot:
         # DescribeInstances (via the paginator) should only be called ONCE —
         # the second collect_snapshot() call must hit the inventory cache.
         assert fake_paginator.paginate.call_count == 1
+
+
+# ---------------------------------------------------------------------------
+# resolve_instance_inventory — ids + instance types (ISS-1211)
+# ---------------------------------------------------------------------------
+
+
+class TestResolveInstanceInventory:
+    def test_resolve_instance_inventory_returns_instance_types_when_discovery_succeeds(
+        self, monkeypatch
+    ):
+        """Discovered types are mapped; an instance with no type is omitted."""
+        monkeypatch.setattr(settings, "HOST_CAPACITY_INSTANCE_IDS", "")
+        fake_ec2 = _ec2_with_instances(("i-a", "m6i.xlarge"), ("i-b", None))
+        with patch.object(hm, "_client", return_value=fake_ec2):
+            ids, from_override, types = hm.resolve_instance_inventory()
+        assert ids == ["i-a", "i-b"]
+        assert from_override is False
+        assert types == {"i-a": "m6i.xlarge"}
+
+    def test_resolve_instance_inventory_skips_ec2_and_returns_no_types_when_override_set(
+        self, monkeypatch
+    ):
+        """The override path makes no EC2 call and returns no types."""
+        monkeypatch.setattr(settings, "HOST_CAPACITY_INSTANCE_IDS", "i-x")
+        with patch.object(hm, "_client") as fake_client_factory:
+            ids, from_override, types = hm.resolve_instance_inventory()
+        assert (ids, from_override, types) == (["i-x"], True, {})
+        fake_client_factory.assert_not_called()
+
+    def test_resolve_instance_inventory_returns_empty_inventory_when_describe_instances_raises(
+        self, monkeypatch
+    ):
+        """An AWS failure degrades to an empty inventory, never raises."""
+        monkeypatch.setattr(settings, "HOST_CAPACITY_INSTANCE_IDS", "")
+        fake_ec2 = MagicMock()
+        fake_ec2.get_paginator.side_effect = RuntimeError("denied")
+        with patch.object(hm, "_client", return_value=fake_ec2):
+            assert hm.resolve_instance_inventory() == ([], False, {})
+
+
+class TestCrossCheckInstanceTypes:
+    def test_cross_check_discovery_against_override_returns_discovered_types_when_override_set(
+        self, monkeypatch
+    ):
+        """The cross-check returns the discovered id→type map."""
+        monkeypatch.setattr(settings, "HOST_CAPACITY_INSTANCE_IDS", "i-abc123")
+        fake_ec2 = _ec2_with_instances(("i-abc123", "m6i.xlarge"))
+        with patch.object(hm, "_client", return_value=fake_ec2):
+            types = hm.cross_check_discovery_against_override()
+        assert types == {"i-abc123": "m6i.xlarge"}
+
+    def test_cross_check_discovery_against_override_returns_empty_map_when_aws_fails(
+        self, monkeypatch
+    ):
+        """An AWS failure yields an empty map."""
+        monkeypatch.setattr(settings, "HOST_CAPACITY_INSTANCE_IDS", "i-abc123")
+        fake_ec2 = MagicMock()
+        fake_ec2.get_paginator.side_effect = RuntimeError("boom")
+        with patch.object(hm, "_client", return_value=fake_ec2):
+            assert hm.cross_check_discovery_against_override() == {}
+
+    def test_cross_check_discovery_against_override_returns_empty_map_when_no_override_set(
+        self, monkeypatch
+    ):
+        """No override means no EC2 call and an empty map."""
+        monkeypatch.setattr(settings, "HOST_CAPACITY_INSTANCE_IDS", "")
+        with patch.object(hm, "_client") as fake_client_factory:
+            assert hm.cross_check_discovery_against_override() == {}
+        fake_client_factory.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# collect_readings — instance_type + zero-datapoint WARNING (ISS-1211)
+# ---------------------------------------------------------------------------
+
+
+class TestCollectReadingsInstanceTypeAndZeroDatapoints:
+    def test_collect_readings_populates_instance_type_when_types_map_given(self):
+        """A known type is carried onto the reading."""
+        fake_cw = MagicMock()
+        fake_cw.get_metric_data.return_value = {"MetricDataResults": []}
+        with patch.object(hm, "_client", return_value=fake_cw):
+            readings = hm.collect_readings(
+                ["i-abc"], instance_types={"i-abc": "m6i.xlarge"}
+            )
+        assert readings[0].instance_type == "m6i.xlarge"
+
+    def test_collect_readings_leaves_instance_type_none_when_type_unknown(self):
+        """Ids absent from the map, or no map at all, keep instance_type None."""
+        fake_cw = MagicMock()
+        fake_cw.get_metric_data.return_value = {"MetricDataResults": []}
+        with patch.object(hm, "_client", return_value=fake_cw):
+            with_map = hm.collect_readings(["i-abc"], instance_types={"i-x": "t3"})
+            no_map = hm.collect_readings(["i-abc"])
+        assert with_map[0].instance_type is None
+        assert no_map[0].instance_type is None
+
+    def test_collect_readings_logs_zero_datapoint_warning_once_when_all_series_empty_across_ticks(
+        self, caplog
+    ):
+        """Two empty ticks produce exactly one WARNING."""
+        fake_cw = MagicMock()
+        fake_cw.get_metric_data.return_value = {"MetricDataResults": []}
+        with patch.object(hm, "_client", return_value=fake_cw):
+            with caplog.at_level("WARNING", logger="app.services.host_metrics"):
+                hm.collect_readings(["i-abc"])
+                hm.collect_readings(["i-abc"])
+        records = _zero_dp_records(caplog)
+        assert len(records) == 1
+        assert records[0].levelname == "WARNING"
+        assert "i-abc" in records[0].getMessage()
+
+    def test_collect_readings_warns_again_when_series_go_empty_after_recovering(
+        self, caplog
+    ):
+        """empty → data → empty yields two WARNINGs and one INFO."""
+        now = datetime.now(UTC)
+        empty = {"MetricDataResults": []}
+        data = {
+            "MetricDataResults": [
+                {"Id": "m0_idle", "Values": [30.0], "Timestamps": [now]}
+            ]
+        }
+        fake_cw = MagicMock()
+        fake_cw.get_metric_data.side_effect = [empty, data, empty]
+        with patch.object(hm, "_client", return_value=fake_cw):
+            with caplog.at_level("INFO", logger="app.services.host_metrics"):
+                for _ in range(3):
+                    hm.collect_readings(["i-abc"])
+        assert len(_zero_dp_records(caplog)) == 2
+        resumed = [r for r in caplog.records if "datapoints resumed" in r.getMessage()]
+        assert len(resumed) == 1
+        assert resumed[0].levelname == "INFO"
+
+    def test_collect_readings_skips_zero_datapoint_warning_when_get_metric_data_fails(
+        self, caplog
+    ):
+        """A failed call logs its own WARNING, not the zero-datapoint one."""
+        fake_cw = MagicMock()
+        fake_cw.get_metric_data.side_effect = RuntimeError("throttled")
+        with patch.object(hm, "_client", return_value=fake_cw):
+            with caplog.at_level("WARNING", logger="app.services.host_metrics"):
+                hm.collect_readings(["i-abc"])
+        assert any("GetMetricData failed" in r.getMessage() for r in caplog.records)
+        assert _zero_dp_records(caplog) == []
+
+    def test_collect_readings_skips_zero_datapoint_warning_when_any_series_has_data(
+        self, caplog
+    ):
+        """One populated series is enough to suppress the WARNING."""
+        now = datetime.now(UTC)
+        fake_cw = MagicMock()
+        fake_cw.get_metric_data.return_value = {
+            "MetricDataResults": [
+                {"Id": "m0_mem", "Values": [40.0], "Timestamps": [now]}
+            ]
+        }
+        with patch.object(hm, "_client", return_value=fake_cw):
+            with caplog.at_level("WARNING", logger="app.services.host_metrics"):
+                hm.collect_readings(["i-abc"])
+        assert _zero_dp_records(caplog) == []
+
+    def test_collect_readings_warns_only_for_empty_instance_when_other_instance_has_data(
+        self, caplog
+    ):
+        """Only the instance with no datapoints is named."""
+        now = datetime.now(UTC)
+        fake_cw = MagicMock()
+        fake_cw.get_metric_data.return_value = {
+            "MetricDataResults": [
+                {"Id": f"m0_{k}", "Values": [10.0], "Timestamps": [now]}
+                for k in ("idle", "mem", "user", "sys", "iowait")
+            ]
+        }
+        with patch.object(hm, "_client", return_value=fake_cw):
+            with caplog.at_level("WARNING", logger="app.services.host_metrics"):
+                hm.collect_readings(["i-a", "i-b"])
+        records = _zero_dp_records(caplog)
+        assert len(records) == 1
+        assert "i-b" in records[0].getMessage()
+        assert "i-a " not in records[0].getMessage()
+
+    def test_collect_readings_treats_series_with_empty_values_as_zero_datapoints_when_ids_present(
+        self, caplog
+    ):
+        """Series present with empty Values still count as zero datapoints."""
+        fake_cw = MagicMock()
+        fake_cw.get_metric_data.return_value = {
+            "MetricDataResults": [
+                {"Id": f"m0_{k}", "Values": [], "Timestamps": []}
+                for k in ("idle", "mem", "user", "sys", "iowait")
+            ]
+        }
+        with patch.object(hm, "_client", return_value=fake_cw):
+            with caplog.at_level("WARNING", logger="app.services.host_metrics"):
+                hm.collect_readings(["i-abc"])
+        assert len(_zero_dp_records(caplog)) == 1
+
+
+# ---------------------------------------------------------------------------
+# resolve_self_instance_type — IMDSv2, cached, never raises
+# ---------------------------------------------------------------------------
+
+
+class TestResolveSelfInstanceType:
+    def test_resolve_self_instance_type_returns_type_when_imdsv2_succeeds(self):
+        """Token PUT then GET of meta-data/instance-type."""
+        with patch(
+            "urllib.request.urlopen",
+            side_effect=[_imds_resp(b"tok3n"), _imds_resp(b"m6i.xlarge")],
+        ) as fake_urlopen:
+            result = hm.resolve_self_instance_type()
+        assert result == "m6i.xlarge"
+        second_req = fake_urlopen.call_args_list[1].args[0]
+        assert second_req.full_url.endswith("/latest/meta-data/instance-type")
+
+    def test_resolve_self_instance_type_returns_none_and_caches_when_imds_unreachable(
+        self,
+    ):
+        """Off-EC2 resolves to None once and is cached."""
+        with patch(
+            "urllib.request.urlopen", side_effect=OSError("no route")
+        ) as fake_urlopen:
+            results = [hm.resolve_self_instance_type() for _ in range(3)]
+        assert results == [None, None, None]
+        assert fake_urlopen.call_count == 1
+
+
+# ---------------------------------------------------------------------------
+# collect_snapshot — instance_type wiring + cross-check on the TTL (ISS-1211)
+# ---------------------------------------------------------------------------
+
+
+def _router(fake_ec2: MagicMock, fake_cw: MagicMock):
+    def _client_router(service: str):
+        return fake_ec2 if service == "ec2" else fake_cw
+
+    return _client_router
+
+
+def _empty_cw() -> MagicMock:
+    fake_cw = MagicMock()
+    fake_cw.get_metric_data.return_value = {"MetricDataResults": []}
+    return fake_cw
+
+
+class TestCollectSnapshotInstanceType:
+    def test_collect_snapshot_populates_instance_type_from_discovery_when_no_override(
+        self, monkeypatch
+    ):
+        """Discovery's InstanceType reaches the snapshot."""
+        monkeypatch.setattr(settings, "HOST_CAPACITY_INSTANCE_IDS", "")
+        fake_ec2 = _ec2_with_instances(("i-d", "m6i.xlarge"))
+        with patch.object(hm, "_client", side_effect=_router(fake_ec2, _empty_cw())):
+            with patch("urllib.request.urlopen", side_effect=OSError("no imds")):
+                snapshot = hm.collect_snapshot()
+        assert snapshot.instances[0].instance_type == "m6i.xlarge"
+
+    def test_collect_snapshot_populates_instance_type_from_cross_check_when_override_set(
+        self, _override_instance_ids
+    ):
+        """On the override path the cross-check supplies the type."""
+        fake_ec2 = _ec2_with_instances(("i-abc123", "m6i.xlarge"))
+        with patch.object(hm, "_client", side_effect=_router(fake_ec2, _empty_cw())):
+            with patch("urllib.request.urlopen", side_effect=OSError("no imds")):
+                snapshot = hm.collect_snapshot()
+        assert snapshot.instances[0].instance_type == "m6i.xlarge"
+
+    def test_collect_snapshot_falls_back_to_imds_type_for_self_when_inventory_lacks_type(
+        self, _override_instance_ids
+    ):
+        """Self's type comes from IMDS when EC2 gives none."""
+        fake_ec2 = MagicMock()
+        fake_ec2.get_paginator.side_effect = RuntimeError("denied")
+        imds = [
+            _imds_resp(b"tok"),
+            _imds_resp(b"i-abc123"),
+            _imds_resp(b"tok"),
+            _imds_resp(b"m6i.xlarge"),
+        ]
+        with patch.object(hm, "_client", side_effect=_router(fake_ec2, _empty_cw())):
+            with patch("urllib.request.urlopen", side_effect=imds):
+                snapshot = hm.collect_snapshot()
+        assert snapshot.self_instance_id == "i-abc123"
+        assert snapshot.instances[0].instance_type == "m6i.xlarge"
+
+    def test_collect_snapshot_runs_cross_check_once_per_inventory_ttl_when_override_set(
+        self, monkeypatch, _override_instance_ids
+    ):
+        """The cross-check DescribeInstances runs once per TTL, not per tick."""
+        monkeypatch.setattr(settings, "HOST_CAPACITY_INVENTORY_TTL_SECONDS", 300)
+        fake_ec2 = _ec2_with_instances(("i-abc123", "m6i.xlarge"))
+        with patch.object(hm, "_client", side_effect=_router(fake_ec2, _empty_cw())):
+            with patch("urllib.request.urlopen", side_effect=OSError("no imds")):
+                hm.collect_snapshot()
+                hm.collect_snapshot()
+        assert fake_ec2.get_paginator.return_value.paginate.call_count == 1
+
+    def test_collect_snapshot_skips_imds_type_lookup_when_self_id_unresolved(
+        self, _override_instance_ids
+    ):
+        """No self id means no instance-type IMDS call."""
+        fake_ec2 = MagicMock()
+        fake_ec2.get_paginator.side_effect = RuntimeError("denied")
+        with patch.object(hm, "_client", side_effect=_router(fake_ec2, _empty_cw())):
+            with patch(
+                "urllib.request.urlopen", side_effect=OSError("no imds")
+            ) as fake_urlopen:
+                hm.collect_snapshot()
+        assert fake_urlopen.call_count == 1

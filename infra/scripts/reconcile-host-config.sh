@@ -528,6 +528,10 @@ if [[ "$CW_AGENT_OK" -eq 1 ]]; then
     # The agent runs as cwagent; only logs/ needs cwagent ownership.
     mkdir -p /opt/aws/amazon-cloudwatch-agent/etc
     install -d -o cwagent -g cwagent /opt/aws/amazon-cloudwatch-agent/logs
+    # aggregation_dimensions publishes an [InstanceId]-only rollup (queried by
+    # backend/app/services/host_metrics.py and the modules/monitoring cpu/mem
+    # alarms) and an [InstanceId, path] rollup (queried by the disk alarms).
+    # The original full append_dimensions series are still sent.
     cat > /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json <<EOF
 {
   "agent": {
@@ -548,7 +552,8 @@ if [[ "$CW_AGENT_OK" -eq 1 ]]; then
     "append_dimensions": {
       "InstanceId":   "\${aws:InstanceId}",
       "InstanceType": "\${aws:InstanceType}"
-    }
+    },
+    "aggregation_dimensions": [["InstanceId"], ["InstanceId", "path"]]
   },
   "logs": {
     "logs_collected": {

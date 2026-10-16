@@ -8,7 +8,10 @@ comes from the boto3 default credential chain (instance profile in prod,
 Metrics come from the CloudWatch Agent already deployed by
 ``infra/scripts/reconcile-host-config.sh`` — it publishes ``cpu_usage_idle``
 and ``mem_used_percent`` (plus others) to namespace ``VelocityAI/<Env>`` every
-60 seconds, dimensioned by ``InstanceId``. CPU-used % is derived as
+60 seconds. The agent publishes the full ``append_dimensions`` series
+(``InstanceId`` + ``InstanceType`` [+ ``cpu``]) plus an
+``aggregation_dimensions`` ``[InstanceId]`` rollup, which is the series this
+module queries (CloudWatch matches dimension sets exactly). CPU-used % is derived as
 ``100 - cpu_usage_idle`` rather than reading ``cpu_usage_user`` (the metric the
 existing CloudWatch alarms use) because ``cpu_usage_user`` excludes system and
 I/O-wait time and would silently under-report a host busy on those.
@@ -25,6 +28,7 @@ from __future__ import annotations
 
 import logging
 import threading
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Any, Literal
@@ -94,84 +98,125 @@ _SELF_ID_LOCK = threading.Lock()
 _SELF_ID_CACHE: dict[str, str | None] = {"value": None, "resolved": "0"}
 
 
-def resolve_instance_ids() -> tuple[list[str], bool]:
-    """Return ``(instance_ids, from_override)``.
+def _describe_tagged_instances() -> dict[str, str | None]:
+    """Return ``{InstanceId: InstanceType}`` for every running instance tagged
+    ``Project=velocityai`` / ``Environment=<settings.ENV>``, in API order.
+
+    Raises on any AWS error — callers own the fail-open handling.
+    """
+    ec2 = _client("ec2")
+    found: dict[str, str | None] = {}
+    paginator = ec2.get_paginator("describe_instances")
+    for page in paginator.paginate(
+        Filters=[
+            {"Name": "tag:Project", "Values": ["velocityai"]},
+            {"Name": "tag:Environment", "Values": [settings.ENV]},
+            {"Name": "instance-state-name", "Values": ["running"]},
+        ]
+    ):
+        for reservation in page.get("Reservations", []):
+            for instance in reservation.get("Instances", []):
+                instance_id = instance.get("InstanceId")
+                if instance_id:
+                    found[instance_id] = instance.get("InstanceType")
+    return found
+
+
+def resolve_instance_inventory() -> tuple[list[str], bool, dict[str, str]]:
+    """Return ``(instance_ids, from_override, instance_types)``.
 
     Precedence (D-07): ``HOST_CAPACITY_INSTANCE_IDS`` first (comma-separated
     allow-list — configuration, not code, since Terraform replaces the
     instance on any AMI/user-data change and a literal id in source would go
-    stale silently). Otherwise discover via ``ec2:DescribeInstances`` filtered
-    on ``tag:Project=velocityai``, ``tag:Environment=<settings.ENV>``, and
-    ``instance-state-name=running``. Never raises — an AWS failure here
-    resolves to an empty list, which the caller treats as blind (D-03).
+    stale silently); the override path makes no EC2 call and returns no types.
+    Otherwise discover via ``ec2:DescribeInstances`` filtered on
+    ``tag:Project=velocityai``, ``tag:Environment=<settings.ENV>``, and
+    ``instance-state-name=running``; ``instance_types`` maps each discovered id
+    to its ``InstanceType`` (ids with no type are omitted). Never raises — an
+    AWS failure resolves to an empty inventory, which the caller treats as
+    blind (D-03).
     """
     override = settings.HOST_CAPACITY_INSTANCE_IDS.strip()
     if override:
         ids = [i.strip() for i in override.split(",") if i.strip()]
         if ids:
-            return ids, True
+            return ids, True, {}
 
     try:
-        ec2 = _client("ec2")
-        ids: list[str] = []
-        paginator = ec2.get_paginator("describe_instances")
-        page_iterator = paginator.paginate(
-            Filters=[
-                {"Name": "tag:Project", "Values": ["velocityai"]},
-                {"Name": "tag:Environment", "Values": [settings.ENV]},
-                {"Name": "instance-state-name", "Values": ["running"]},
-            ]
-        )
-        for page in page_iterator:
-            for reservation in page.get("Reservations", []):
-                for instance in reservation.get("Instances", []):
-                    instance_id = instance.get("InstanceId")
-                    if instance_id:
-                        ids.append(instance_id)
-        return ids, False
+        found = _describe_tagged_instances()
     except Exception as exc:  # noqa: BLE001 — never raise from discovery
         logger.warning("host_metrics: instance discovery failed: %s", exc)
-        return [], False
+        return [], False, {}
+    return list(found), False, {i: t for i, t in found.items() if t}
 
 
-def cross_check_discovery_against_override() -> None:
-    """Log a one-time WARNING if tag discovery disagrees with the configured
-    override (specs/014 D-07's "cross-check" — makes the operator-supplied
+def resolve_instance_ids() -> tuple[list[str], bool]:
+    """Return ``(instance_ids, from_override)``.
+
+    Thin wrapper over :func:`resolve_instance_inventory` (see it for the
+    precedence rules). Never raises.
+    """
+    ids, from_override, _ = resolve_instance_inventory()
+    return ids, from_override
+
+
+def cross_check_discovery_against_override() -> dict[str, str]:
+    """Log a WARNING if tag discovery disagrees with the configured override
+    (specs/014 D-07's "cross-check" — makes the operator-supplied
     HOST_CAPACITY_INSTANCE_IDS meaningfully verified rather than an unverified
-    value sitting next to the real one). No-op when no override is set.
-    Never raises.
+    value sitting next to the real one).
+
+    Returns the discovered ``{InstanceId: InstanceType}`` map (ids with no type
+    omitted) so the override path can still show instance types. Returns ``{}``
+    when no override is set or on any AWS failure. Never raises.
     """
     override = settings.HOST_CAPACITY_INSTANCE_IDS.strip()
     if not override:
-        return
+        return {}
     configured = {i.strip() for i in override.split(",") if i.strip()}
     if not configured:
-        return
+        return {}
     try:
-        ec2 = _client("ec2")
-        discovered: set[str] = set()
-        paginator = ec2.get_paginator("describe_instances")
-        for page in paginator.paginate(
-            Filters=[
-                {"Name": "tag:Project", "Values": ["velocityai"]},
-                {"Name": "tag:Environment", "Values": [settings.ENV]},
-                {"Name": "instance-state-name", "Values": ["running"]},
-            ]
-        ):
-            for reservation in page.get("Reservations", []):
-                for instance in reservation.get("Instances", []):
-                    instance_id = instance.get("InstanceId")
-                    if instance_id:
-                        discovered.add(instance_id)
-        if discovered and discovered != configured:
-            logger.warning(
-                "host_metrics: HOST_CAPACITY_INSTANCE_IDS (%s) disagrees with "
-                "tag-based discovery (%s) — verify the override is still correct.",
-                sorted(configured),
-                sorted(discovered),
-            )
+        found = _describe_tagged_instances()
     except Exception as exc:  # noqa: BLE001 — cross-check must never raise
         logger.warning("host_metrics: discovery cross-check failed: %s", exc)
+        return {}
+    discovered = set(found)
+    if discovered and discovered != configured:
+        logger.warning(
+            "host_metrics: HOST_CAPACITY_INSTANCE_IDS (%s) disagrees with "
+            "tag-based discovery (%s) — verify the override is still correct.",
+            sorted(configured),
+            sorted(discovered),
+        )
+    return {i: t for i, t in found.items() if t}
+
+
+def _imds_get(path: str) -> str | None:
+    """IMDSv2 read of ``/latest/meta-data/<path>``: token PUT then GET, 1-second
+    timeout each. Returns the stripped body (``None`` if empty). Raises on any
+    error — callers own the fail-open handling.
+    """
+    import urllib.request
+
+    token_req = urllib.request.Request(
+        "http://169.254.169.254/latest/api/token",
+        method="PUT",
+        headers={"X-aws-ec2-metadata-token-ttl-seconds": "21600"},
+    )
+    # Bandit B310 is suppressed below: the URL is a hardcoded literal (the well-known AWS
+    # IMDS link-local address), never user input, so the "unexpected
+    # scheme" concern the blacklist rule guards against does not apply.
+    with urllib.request.urlopen(token_req, timeout=1) as resp:  # nosec B310
+        token = resp.read().decode("utf-8").strip()
+
+    meta_req = urllib.request.Request(
+        f"http://169.254.169.254/latest/meta-data/{path}",
+        headers={"X-aws-ec2-metadata-token": token},
+    )
+    # Bandit B310 is suppressed below for the same reason: a hardcoded IMDS literal URL.
+    with urllib.request.urlopen(meta_req, timeout=1) as resp:  # nosec B310
+        return resp.read().decode("utf-8").strip() or None
 
 
 def resolve_self_instance_id() -> str | None:
@@ -187,26 +232,7 @@ def resolve_self_instance_id() -> str | None:
 
         value: str | None = None
         try:
-            import urllib.request
-
-            token_req = urllib.request.Request(
-                "http://169.254.169.254/latest/api/token",
-                method="PUT",
-                headers={"X-aws-ec2-metadata-token-ttl-seconds": "21600"},
-            )
-            # Bandit B310 is suppressed below: the URL is a hardcoded literal (the well-known AWS
-            # IMDS link-local address), never user input, so the "unexpected
-            # scheme" concern the blacklist rule guards against does not apply.
-            with urllib.request.urlopen(token_req, timeout=1) as resp:  # nosec B310
-                token = resp.read().decode("utf-8").strip()
-
-            id_req = urllib.request.Request(
-                "http://169.254.169.254/latest/meta-data/instance-id",
-                headers={"X-aws-ec2-metadata-token": token},
-            )
-            # Bandit B310 is suppressed below for the same reason: a hardcoded IMDS literal URL.
-            with urllib.request.urlopen(id_req, timeout=1) as resp:  # nosec B310
-                value = resp.read().decode("utf-8").strip() or None
+            value = _imds_get("instance-id")
         except Exception as exc:  # noqa: BLE001 — never raise; not on EC2 is normal
             logger.info(
                 "host_metrics: could not resolve self instance id via IMDSv2 "
@@ -217,6 +243,36 @@ def resolve_self_instance_id() -> str | None:
 
         _SELF_ID_CACHE["value"] = value
         _SELF_ID_CACHE["resolved"] = "1"
+        return value
+
+
+_SELF_TYPE_LOCK = threading.Lock()
+_SELF_TYPE_CACHE: dict[str, str | None] = {"value": None, "resolved": "0"}
+
+
+def resolve_self_instance_type() -> str | None:
+    """Resolve this process's own EC2 instance type via IMDSv2, cached for the
+    process lifetime. Fallback type source for self when the inventory has no
+    type (e.g. an override naming an untagged instance). Returns ``None``
+    (never raises) off-EC2 or on any IMDS error.
+    """
+    with _SELF_TYPE_LOCK:
+        if _SELF_TYPE_CACHE["resolved"] == "1":
+            return _SELF_TYPE_CACHE["value"]
+
+        value: str | None = None
+        try:
+            value = _imds_get("instance-type")
+        except Exception as exc:  # noqa: BLE001 — never raise; not on EC2 is normal
+            logger.info(
+                "host_metrics: could not resolve self instance type via IMDSv2 "
+                "(expected off-EC2, e.g. local dev): %s",
+                exc,
+            )
+            value = None
+
+        _SELF_TYPE_CACHE["value"] = value
+        _SELF_TYPE_CACHE["resolved"] = "1"
         return value
 
 
@@ -247,14 +303,23 @@ class RawInstanceReading:
     timestamp: datetime | None
 
 
-def collect_readings(instance_ids: list[str]) -> list[RawInstanceReading]:
+def collect_readings(
+    instance_ids: list[str],
+    instance_types: Mapping[str, str] | None = None,
+) -> list[RawInstanceReading]:
     """Fetch the latest CPU/memory datapoint for each instance via one
     ``GetMetricData`` call. Never raises — any AWS failure yields an
     all-``None`` reading per requested instance id so the caller can render
     the row as unknown rather than dropping it silently.
+
+    ``instance_types`` maps instance id to EC2 instance type; ids absent from
+    it get ``instance_type=None``. When the call succeeds but every series of
+    an instance is empty, one WARNING is logged per healthy→empty transition
+    (and one INFO when data resumes) rather than on every tick.
     """
     if not instance_ids:
         return []
+    types = instance_types or {}
 
     namespace = settings.HOST_CAPACITY_METRIC_NAMESPACE
     now = datetime.now(timezone.utc)
@@ -290,6 +355,7 @@ def collect_readings(instance_ids: list[str]) -> list[RawInstanceReading]:
             )
 
     results_by_id: dict[str, dict[str, Any]] = {}
+    fetch_ok = True
 
     try:
         cw = _client("cloudwatch")
@@ -312,9 +378,16 @@ def collect_readings(instance_ids: list[str]) -> list[RawInstanceReading]:
     except Exception as exc:  # noqa: BLE001 — degrade to unknown, never raise
         logger.warning("host_metrics: GetMetricData failed: %s", exc)
         results_by_id = {}
+        fetch_ok = False
 
     readings: list[RawInstanceReading] = []
     for idx, instance_id in enumerate(instance_ids):
+        if fetch_ok:
+            empty = not any(
+                _has_datapoints(results_by_id.get(f"m{idx}_{key}"))
+                for key in ("idle", "mem", "user", "sys", "iowait")
+            )
+            _note_datapoint_state(instance_id, namespace, empty=empty)
         idle = _latest_value(results_by_id.get(f"m{idx}_idle"))
         mem = _latest_value(results_by_id.get(f"m{idx}_mem"))
         user = _latest_value(results_by_id.get(f"m{idx}_user"))
@@ -329,7 +402,7 @@ def collect_readings(instance_ids: list[str]) -> list[RawInstanceReading]:
         readings.append(
             RawInstanceReading(
                 instance_id=instance_id,
-                instance_type=None,
+                instance_type=types.get(instance_id),
                 cpu_used_percent=cpu_used,
                 mem_used_percent=mem,
                 cpu_user_percent=user,
@@ -339,6 +412,47 @@ def collect_readings(instance_ids: list[str]) -> list[RawInstanceReading]:
             )
         )
     return readings
+
+
+_EMPTY_SERIES_LOCK = threading.Lock()
+_EMPTY_SERIES_INSTANCES: set[str] = set()
+
+
+def reset_zero_datapoint_state() -> None:
+    """Test-only: forget which instances were last seen with zero datapoints
+    so each test starts from the healthy state. Never called by app code."""
+    with _EMPTY_SERIES_LOCK:
+        _EMPTY_SERIES_INSTANCES.clear()
+
+
+def _has_datapoints(series_result: dict[str, Any] | None) -> bool:
+    """True when a GetMetricData series result carries at least one value."""
+    return bool(series_result and series_result.get("Values"))
+
+
+def _note_datapoint_state(instance_id: str, namespace: str, *, empty: bool) -> None:
+    """Log once per transition into / out of the zero-datapoint state."""
+    with _EMPTY_SERIES_LOCK:
+        if empty and instance_id not in _EMPTY_SERIES_INSTANCES:
+            _EMPTY_SERIES_INSTANCES.add(instance_id)
+            transition = "empty"
+        elif not empty and instance_id in _EMPTY_SERIES_INSTANCES:
+            _EMPTY_SERIES_INSTANCES.discard(instance_id)
+            transition = "resumed"
+        else:
+            return
+    if transition == "empty":
+        logger.warning(
+            "host_metrics: GetMetricData returned zero datapoints for every "
+            "series of %s in namespace %s over the last 10 minutes — the agent "
+            "may not be publishing an InstanceId-only series (check "
+            "aggregation_dimensions in infra/scripts/reconcile-host-config.sh) "
+            "or the agent is down. Reported once until data returns.",
+            instance_id,
+            namespace,
+        )
+    else:
+        logger.info("host_metrics: datapoints resumed for %s", instance_id)
 
 
 def _latest_value(series_result: dict[str, Any] | None) -> float | None:
@@ -376,28 +490,42 @@ def _latest_timestamp(series_result: dict[str, Any] | None) -> datetime | None:
 # ---------------------------------------------------------------------------
 
 _INVENTORY_LOCK = threading.Lock()
-_INVENTORY_CACHE: dict[str, Any] = {"ids": None, "source": "none", "fetched_at": None}
+_INVENTORY_CACHE: dict[str, Any] = {
+    "ids": None,
+    "source": "none",
+    "types": {},
+    "fetched_at": None,
+}
 
 
-def _cached_instance_ids() -> (
-    tuple[list[str], Literal["override", "discovery", "none"]]
+def _cached_inventory() -> (
+    tuple[list[str], Literal["override", "discovery", "none"], dict[str, str]]
 ):
-    """``resolve_instance_ids()`` behind a TTL cache
-    (``HOST_CAPACITY_INVENTORY_TTL_SECONDS``). Never raises."""
+    """``resolve_instance_inventory()`` behind a TTL cache
+    (``HOST_CAPACITY_INVENTORY_TTL_SECONDS``). On the override path the
+    discovery cross-check runs here (once per TTL, not per tick) and supplies
+    the instance types. Never raises."""
     with _INVENTORY_LOCK:
         fetched_at = _INVENTORY_CACHE["fetched_at"]
         if fetched_at is not None:
             age = (datetime.now(timezone.utc) - fetched_at).total_seconds()
             if age < settings.HOST_CAPACITY_INVENTORY_TTL_SECONDS:
-                return list(_INVENTORY_CACHE["ids"] or []), _INVENTORY_CACHE["source"]
+                return (
+                    list(_INVENTORY_CACHE["ids"] or []),
+                    _INVENTORY_CACHE["source"],
+                    dict(_INVENTORY_CACHE["types"] or {}),
+                )
 
-        ids, from_override = resolve_instance_ids()
+        ids, from_override, types = resolve_instance_inventory()
+        if from_override:
+            types = cross_check_discovery_against_override()
         _INVENTORY_CACHE["ids"] = ids
         _INVENTORY_CACHE["source"] = (
             "override" if from_override else ("discovery" if ids else "none")
         )
+        _INVENTORY_CACHE["types"] = dict(types)
         _INVENTORY_CACHE["fetched_at"] = datetime.now(timezone.utc)
-        return ids, _INVENTORY_CACHE["source"]
+        return list(ids), _INVENTORY_CACHE["source"], dict(types)
 
 
 def reset_inventory_cache() -> None:
@@ -406,6 +534,7 @@ def reset_inventory_cache() -> None:
     with _INVENTORY_LOCK:
         _INVENTORY_CACHE["ids"] = None
         _INVENTORY_CACHE["source"] = "none"
+        _INVENTORY_CACHE["types"] = {}
         _INVENTORY_CACHE["fetched_at"] = None
 
 
@@ -414,7 +543,8 @@ def collect_snapshot() -> "CapacitySnapshot":
 
     Resolves the (cached) instance inventory, resolves this process's own
     instance id, fetches fresh CPU/memory readings for every instance, and
-    assembles a :class:`app.services.capacity_state.CapacitySnapshot`. Never
+    assembles a :class:`app.services.capacity_state.CapacitySnapshot`. The
+    override cross-check runs on the inventory TTL, not every tick. Never
     raises — every sub-step already degrades to an empty/None result on
     failure, so the worst case is an all-unknown snapshot, not an exception
     reaching the poller's ``asyncio.to_thread`` call.
@@ -424,13 +554,19 @@ def collect_snapshot() -> "CapacitySnapshot":
         instance_capacity_from_raw,
     )
 
-    instance_ids, source = _cached_instance_ids()
+    instance_ids, source, instance_types = _cached_inventory()
     self_instance_id = resolve_self_instance_id()
 
-    if settings.HOST_CAPACITY_INSTANCE_IDS.strip():
-        cross_check_discovery_against_override()
+    if (
+        self_instance_id
+        and self_instance_id in instance_ids
+        and self_instance_id not in instance_types
+    ):
+        self_type = resolve_self_instance_type()
+        if self_type:
+            instance_types = {**instance_types, self_instance_id: self_type}
 
-    readings = collect_readings(instance_ids)
+    readings = collect_readings(instance_ids, instance_types=instance_types)
     instances = tuple(instance_capacity_from_raw(r) for r in readings)
 
     return CapacitySnapshot(

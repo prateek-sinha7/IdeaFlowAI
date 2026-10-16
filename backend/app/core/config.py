@@ -166,10 +166,11 @@ class Settings(BaseSettings):
     # the gate off.
     HOST_CAPACITY_ENABLED: bool = True
     # HOST_CAPACITY_GATE_ENABLED: enforce the admission gate on launch/resume/
-    # revision/etc. Defaults OFF (D-10, specs/014 §5) — a feature capable of
-    # refusing every launch must not switch itself on at deploy time. Enable
-    # per environment only after the matrix has been observed there.
-    HOST_CAPACITY_GATE_ENABLED: bool = False
+    # revision/etc. Originally defaulted OFF (D-10, specs/014 §5); switched ON
+    # deliberately by the operator (RUNBOOK §capacity step 4, Option A) after
+    # the ISS-1211 metric-dimension fix. Fail-open when blind; admins exempt.
+    # Roll back by setting this to False and redeploying.
+    HOST_CAPACITY_GATE_ENABLED: bool = True
     # Engage thresholds (specs/014 §10 Resolutions Q1 — operator-confirmed 75%
     # for both, deliberately tighter than the existing 80%/85% CloudWatch
     # alarms in infra/terraform/modules/monitoring/variables.tf).
