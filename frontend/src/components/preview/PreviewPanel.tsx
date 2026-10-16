@@ -1777,6 +1777,16 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
         onShare={handleHeaderShare}
         onDownload={handleHeaderDownload}
         canDownload={canHeaderDownload}
+        downloadVariant={
+          rawPipelineType === "backlog" || rawPipelineType === "backlog_revision"
+            ? "backlog"
+            : "default"
+        }
+        onDownloadZip={handleHeaderDownload}
+        // TODO: replace with dedicated Backlog.pdf endpoint when available
+        onDownloadPdf={handleHeaderDownload}
+        // TODO: replace with server-side zip-with-pdfs endpoint when available
+        onDownloadZipWithPdf={handleHeaderDownload}
         currentAgentName={currentAgentName}
         buildStepIndex={buildStepIndex}
         buildStepTotal={buildStepTotal}

@@ -13,7 +13,7 @@
  * a workflow name. Styling routes through the Phase-32 token layer.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Check, Download, Link2, Loader2, Pause, Trash2, Upload, Clock, X } from "lucide-react";
+import { Archive, Check, ChevronDown, Download, FileText, Link2, Loader2, Package, Pause, Trash2, Upload, Clock, X } from "lucide-react";
 
 import type { RunLaneState } from "@/components/chat/RunChatLane";
 import { getToken, postShareRun, deleteShareRun } from "@/lib/api";
@@ -311,6 +311,17 @@ export interface RunHeaderProps {
   /** Primary deliverable download (settled only); disabled when nothing to download. */
   onDownload?: () => void;
   canDownload?: boolean;
+  /**
+   * Split-button variant: "backlog" renders a 3-option Zip/PDF/ZipWithPDF dropdown;
+   * "default" (or absent) renders the existing single button unchanged.
+   */
+  downloadVariant?: "default" | "backlog";
+  /** Backlog split-button primary action — workspace ZIP archive. Falls back to onDownload. */
+  onDownloadZip?: () => void;
+  /** Backlog split-button PDF action — Backlog.pdf. Falls back to onDownload. */
+  onDownloadPdf?: () => void;
+  /** Backlog split-button ZIP-with-PDFs action. Falls back to onDownload. */
+  onDownloadZipWithPdf?: () => void;
   // ── Live badge inputs (generic/live values) ────────────────────────────────
   currentAgentName?: string;
   buildStepIndex?: number;
@@ -332,6 +343,10 @@ export function RunHeader({
   onShare: _onShare,
   onDownload,
   canDownload = false,
+  downloadVariant = "default",
+  onDownloadZip,
+  onDownloadPdf,
+  onDownloadZipWithPdf,
   currentAgentName,
   buildStepIndex,
   buildStepTotal,
@@ -387,6 +402,22 @@ export function RunHeader({
   const [linkCopied, setLinkCopied] = useState(false);
   const linkCopiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
+
+  // ── Download split-button dropdown state (backlog variant only) ─────────────
+  const [downloadMenuOpen, setDownloadMenuOpen] = useState(false);
+  const downloadMenuRef = useRef<HTMLDivElement>(null);
+
+  // Close the download dropdown on outside click — same pattern as Share popover.
+  useEffect(() => {
+    if (!downloadMenuOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (downloadMenuRef.current && !downloadMenuRef.current.contains(e.target as Node)) {
+        setDownloadMenuOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [downloadMenuOpen]);
 
   // Close popover on outside click.
   useEffect(() => {
@@ -561,9 +592,101 @@ export function RunHeader({
         </div>
       )}
 
-      {/* Download — the mock shows it in the settled header only. Phase 6:
-          zip uses the selectedRef from the version picker when set. */}
-      {isSettled && (
+      {/* Download — settled state only (Phase 6).
+          "backlog" downloadVariant: split-button with Zip / PDF / Zip-with-PDF options.
+          "default" (all other workflows): the original single button, byte-for-byte unchanged. */}
+      {isSettled && downloadVariant === "backlog" && (
+        <div className="relative inline-flex flex-col items-end gap-[3px]" ref={downloadMenuRef}>
+          {/* Split button row */}
+          <div className="inline-flex">
+            {/* Left segment — primary "Zip" action */}
+            <button
+              type="button"
+              onClick={() => canDownload && (onDownloadZip ?? onDownload)?.()}
+              disabled={!canDownload}
+              aria-label="Download workspace ZIP"
+              className={`inline-flex items-center gap-2 rounded-l-[10px] rounded-r-none border-none px-[15px] py-2 font-sans text-[13px] font-semibold text-white transition-colors ${
+                canDownload ? "cursor-pointer bg-brand hover:bg-brand-pressed" : "cursor-not-allowed bg-brand/50"
+              }`}
+            >
+              <Download aria-hidden className="h-[15px] w-[15px]" strokeWidth={1.9} />
+              Zip
+            </button>
+            {/* Vertical divider */}
+            <span aria-hidden className={`self-stretch w-px ${canDownload ? "bg-white/30" : "bg-white/15"}`} />
+            {/* Right segment — chevron toggle */}
+            <button
+              type="button"
+              onClick={() => canDownload && setDownloadMenuOpen((o) => !o)}
+              disabled={!canDownload}
+              aria-haspopup="menu"
+              aria-expanded={downloadMenuOpen}
+              aria-label="More download options"
+              className={`inline-flex items-center justify-center rounded-l-none rounded-r-[10px] border-none px-2 py-2 font-sans text-[13px] font-semibold text-white transition-colors ${
+                canDownload ? "cursor-pointer bg-brand hover:bg-brand-pressed" : "cursor-not-allowed bg-brand/50"
+              }`}
+            >
+              <ChevronDown aria-hidden className="h-[14px] w-[14px]" strokeWidth={2} />
+            </button>
+          </div>
+
+          {/* Dropdown menu */}
+          {downloadMenuOpen && canDownload && (
+            <div
+              role="menu"
+              aria-label="Download options"
+              onKeyDown={(e) => { if (e.key === "Escape") { e.preventDefault(); setDownloadMenuOpen(false); } }}
+              className="absolute right-0 top-full z-50 mt-1 min-w-[220px] rounded-[12px] border border-line-border bg-surface-white shadow-xl py-1"
+            >
+              {/* Option 1 — Zip */}
+              <button
+                type="button"
+                role="menuitem"
+                aria-label="Download workspace ZIP archive"
+                onClick={() => { (onDownloadZip ?? onDownload)?.(); setDownloadMenuOpen(false); }}
+                className="flex w-full items-center gap-3 px-4 py-2.5 text-left font-sans text-[12.5px] text-ink-700 hover:bg-surface-warm transition-colors"
+              >
+                <Archive aria-hidden className="h-[14px] w-[14px] flex-none text-ink-400" strokeWidth={1.8} />
+                Zip
+              </button>
+
+              {/* Option 2 — PDF */}
+              <button
+                type="button"
+                role="menuitem"
+                aria-label="Download Backlog as PDF"
+                onClick={() => {
+                  // TODO: dedicated Backlog.pdf endpoint
+                  (onDownloadPdf ?? onDownload)?.();
+                  setDownloadMenuOpen(false);
+                }}
+                className="flex w-full items-center gap-3 px-4 py-2.5 text-left font-sans text-[12.5px] text-ink-700 hover:bg-surface-warm transition-colors"
+              >
+                <FileText aria-hidden className="h-[14px] w-[14px] flex-none text-ink-400" strokeWidth={1.8} />
+                PDF
+              </button>
+
+              {/* Option 3 — Zip with all docs as PDF */}
+              <button
+                type="button"
+                role="menuitem"
+                aria-label="Download ZIP with all documents as PDF"
+                onClick={() => {
+                  // TODO: server-side zip-with-pdfs endpoint
+                  (onDownloadZipWithPdf ?? onDownload)?.();
+                  setDownloadMenuOpen(false);
+                }}
+                className="flex w-full items-center gap-3 px-4 py-2.5 text-left font-sans text-[12.5px] text-ink-700 hover:bg-surface-warm transition-colors"
+              >
+                <Package aria-hidden className="h-[14px] w-[14px] flex-none text-ink-400" strokeWidth={1.8} />
+                Zip with all docs as PDF
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {isSettled && downloadVariant !== "backlog" && (
         <div className="inline-flex flex-col items-end gap-[3px]">
           <button
             type="button"
