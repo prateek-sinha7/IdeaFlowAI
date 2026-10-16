@@ -23,6 +23,10 @@ will read it as part of its system prompt.
 - **57 design skills**, sourced from
   [`bergside/awesome-design-skills`](https://github.com/bergside/awesome-design-skills)
   and added directly as normalized 9-section `DESIGN.md` files.
+- **`iberia/`** — Iberia Airlines. Hand-authored from iberia.com's production
+  stylesheet: square Iberia-red brand bar, white cards on an off-white canvas,
+  critical red kept separate from brand red, Roboto Mono for flight data.
+  Category *Travel & Aviation*.
 - **72 product systems**, including 70 imported from
   [`VoltAgent/awesome-design-md`](https://github.com/VoltAgent/awesome-design-md)
   (the [`getdesign@latest`](https://www.npmjs.com/package/getdesign) npm

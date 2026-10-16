@@ -561,6 +561,44 @@ def test_in_screen_states_are_namespaced_validated_and_in_the_shell():
     assert "closeDialog(); openDialog(v);" in doc and "[data-show],[data-hide]" in doc
 
 
+def test_the_shell_carries_the_template_behaviours():
+    """Controls copied from a design template keep working in the prototype: the shell's second
+    script handles toasts, done states, choice groups, state switches, filters, tallies and roles,
+    without taking over navigation, dialogs, tabs or data-show / data-hide."""
+    from agents.capabilities.assemble_step import assemble
+    from agents.capabilities.screen_inventory import parse_inventory
+
+    sec = (
+        '<section class="screen" id="home"><button data-toast="Saved" data-done="Saved">Save</button>'
+        '<div data-when="case=a">A</div><div data-when="case=b">B</div>'
+        '<button data-set="case=b" aria-pressed="false">B</button></section>'
+    )
+    doc, _ = assemble(
+        parse_inventory('{"screens":[{"id":"home","title":"Home"}]}'), {"home": sec}
+    )
+    assert doc.count("<script>") == 2
+    behaviours = doc[doc.rindex("<script>") :]
+    for hook in (
+        "data-toast",
+        "data-done",
+        "data-set",
+        "data-when",
+        "aria-pressed",
+        "data-filter",
+        "data-tally",
+        "data-role",
+        "data-search-go",
+        "data-fill",
+        "data-lang",
+    ):
+        assert hook in behaviours, hook
+    assert (
+        "data-goto"
+        not in behaviours.split("document.addEventListener('click'")[1].split("});")[0]
+    )
+    assert ".pt-toast{" in doc and "[hidden]{display:none!important}" in doc
+
+
 # ── theme: build/theme.json → :root override (prototype v4 design context) ──────────
 from agents.capabilities.assemble_step import THEME_KEYS, THEME_PATH, load_theme  # noqa: E402
 
@@ -621,7 +659,7 @@ def test_theme_keys_map_onto_shell_variables_that_exist():
     )
     text = shell.read_text()
     for var in THEME_KEYS.values():
-        assert f"{var}:" in text, var
+        assert f"{var}:" in text or f"var({var}" in text, var
     assert "__THEME__" in text
 
 

@@ -1,0 +1,155 @@
+/* ─────────────────────────────────────────────────────────────────────────
+ * design-systems/iberia/tokens.css
+ *
+ * Structured token bindings for the Iberia Airlines-inspired design
+ * system — airline operations software in Iberia red and gold: a square
+ * red brand bar, calm off-white canvas, white cards, near-black ink and
+ * monospace operational data. This file is the *machine-readable* form
+ * of the values described in `DESIGN.md`. Agents are expected to paste
+ * the `:root { … }` block verbatim into the first `<style>` of every
+ * artifact they generate against this design system, then reference
+ * everything via var(--name) from then on.
+ *
+ * Provenance: --accent, --accent-hover, --accent-gold, --fg, --border,
+ * --surface-warm and the type scale come from iberia.com's production
+ * stylesheet (most-used values). Semantic colours, density and motion
+ * are authored on top of it.
+ *
+ * Brand-specific schema decisions (non-obvious bindings worth flagging):
+ *   1. --bg is the off-white canvas (#FAFAFA) and --surface is pure
+ *      white. Iberia screens are white cards on a light-grey canvas, so
+ *      the "lifted" tier is the lighter one. --surface-warm is bound to
+ *      the panel grey (#F5F5F5) used for side panels, table headers and
+ *      the AI assistant panel.
+ *   2. --danger is the critical red #8E0F14, NOT a variant of --accent.
+ *      The system's core rule is "red means Iberia, not danger": brand
+ *      red marks actions; cancelled / blocking / destructive states use
+ *      the darker critical red with an icon and a label.
+ *   3. --warn is #9A4F00, the text-safe warning tone (5.5:1 on its tint,
+ *      6.5:1 under white text). The orange #F08400 stays a fill-only
+ *      value documented in DESIGN.md §2.
+ *   4. --muted is #6B6B6B, darkened from iberia.com's #777777 (4.48:1)
+ *      so captions pass WCAG AA.
+ *   5. Radii are small: 4px controls, 6px cards. Square (0) is the
+ *      brand default for the brand bar and full-bleed bands, which use
+ *      no radius token at all. --radius-lg stays at 6px on purpose.
+ *   6. --section-y-* is tight (48 / 32 / 24px). This is console
+ *      software, not a marketing page.
+ *   7. Four C-extensions, allowlisted in _schema/tokens.schema.ts:
+ *      --accent-gold (highlight fill only, never text), --accent-tint
+ *      (selected row), --info, and --brand-gradient (passenger hero
+ *      bands only, never behind data).
+ *
+ * Contract sources:
+ *   - Standard token names: design-systems/_schema/tokens.schema.ts
+ *   - A2 fallback values: design-systems/_schema/defaults.css
+ *       (We override --accent-*, semantic colours, radii, motion,
+ *        --elev-raised and --focus-ring; spacing matches defaults.)
+ * ─────────────────────────────────────────────────────────────────── */
+
+:root {
+  /* ─── Surface (3 levels) ──────────────────────────────────────────
+   * Canvas #FAFAFA, white cards, #F5F5F5 panels — exactly the three
+   * surfaces iberia.com uses most. */
+  --bg: #fafafa;
+  --surface: #ffffff;
+  --surface-warm: #f5f5f5;
+
+  /* ─── Foreground ramp ────────────────────────────────────────────
+   * #333333 is the live site's dominant text colour; Iberia has no
+   * distinct second ink tier, so --fg-2 and --meta alias. */
+  --fg: #333333;
+  --fg-2: var(--fg);
+  --muted: #6b6b6b;
+  --meta: var(--muted);
+
+  /* ─── Border (2 levels) ──────────────────────────────────────────
+   * #D0D0D0 for control borders and table frames; #E5E5E5 for row
+   * dividers and card edges. */
+  --border: #d0d0d0;
+  --border-soft: #e5e5e5;
+
+  /* ─── Accent ──────────────────────────────────────────────────────
+   * Iberia Red — the most-used colour on iberia.com (primary buttons,
+   * links, brand bar). Hover and press darken to Iberia Red Dark,
+   * the site's own hover tone. 5.2:1 white-on-red. */
+  --accent: #d7192d;
+  --accent-on: #ffffff;
+  --accent-hover: #a8191a;
+  --accent-active: #a8191a;
+
+  /* ─── Semantic ────────────────────────────────────────────────────
+   * Authored: success green, text-safe warning amber, and the critical
+   * red that keeps danger visually separate from the brand red. */
+  --success: #2e7d32;
+  --warn:    #9a4f00;
+  --danger:  #8e0f14;
+
+  /* ─── Brand extensions (C-layer) ─────────────────────────────────── */
+  --accent-gold: #fcd100;
+  --accent-tint: #f3cdd1;
+  --info: #1f5fa8;
+  --brand-gradient: linear-gradient(90deg, #a8191a 0%, #d7192d 35%, #f08400 75%, #fcd100 100%);
+
+  /* ─── Typography ──────────────────────────────────────────────────
+   * iberiaheadline / iberiatext are proprietary: Montserrat and Open
+   * Sans are the substitutes, with the live site's names and Verdana
+   * fallback kept behind them. Roboto Mono carries all operational
+   * data (flight numbers, booking codes, times, seats). */
+  --font-display:
+    "Montserrat", "iberiaheadline", Verdana, Geneva, Tahoma, sans-serif;
+  --font-body:
+    "Open Sans", "iberiatext", Verdana, Geneva, Tahoma, sans-serif;
+  --font-mono:
+    "Roboto Mono", ui-monospace, "JetBrains Mono", Menlo, Consolas, monospace;
+
+  --text-xs:   12px;   /* Micro — uppercase chips, column headers */
+  --text-sm:   14px;   /* Body small — tables, dense UI */
+  --text-base: 16px;   /* Body */
+  --text-lg:   20px;   /* H3 — card titles */
+  --text-xl:   24px;   /* H2 — section titles */
+  --text-2xl:  26px;   /* H1 — page titles; KPI figures */
+  --text-3xl:  32px;   /* Passenger page titles */
+  --text-4xl:  40px;   /* Display — passenger hero only */
+
+  --leading-body:  1.5;
+  --leading-tight: 1.2;
+  --tracking-display: -0.01em;
+
+  /* ─── Spacing (4px base) ──────────────────────────────────────── */
+  --space-1:  4px;
+  --space-2:  8px;
+  --space-3:  12px;
+  --space-4:  16px;
+  --space-5:  20px;
+  --space-6:  24px;
+  --space-8:  32px;
+  --space-12: 48px;
+
+  --section-y-desktop: 48px;
+  --section-y-tablet:  32px;
+  --section-y-phone:   24px;
+
+  /* ─── Radius ──────────────────────────────────────────────────── */
+  --radius-sm:   4px;
+  --radius-md:   6px;
+  --radius-lg:   6px;
+  --radius-pill: 999px;
+
+  /* ─── Elevation ───────────────────────────────────────────────── */
+  --elev-flat:   none;
+  --elev-ring:   0 0 0 1px var(--border);
+  --elev-raised: 0 1px 2px rgba(0, 0, 0, 0.08);
+  --focus-ring:  0 0 0 2px var(--surface), 0 0 0 4px var(--accent);
+
+  /* ─── Motion ──────────────────────────────────────────────────── */
+  --motion-fast:   120ms;
+  --motion-base:   200ms;
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+
+  /* ─── Layout ──────────────────────────────────────────────────── */
+  --container-max:            1440px;
+  --container-gutter-desktop: 24px;
+  --container-gutter-tablet:  24px;
+  --container-gutter-phone:   16px;
+}

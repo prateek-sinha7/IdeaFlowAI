@@ -5,7 +5,7 @@ They are written as tests so the invariants remain true as the catalog evolves.
 
 Tests:
   1. audit() returns zero violations
-  2. list_global_skills() returns exactly 188 entries (parsing gate)
+  2. list_global_skills() returns exactly 189 entries (parsing gate)
   3. No SKILL.md frontmatter contains retired keys (compatible_agents, source, sourceLabel)
   4. Every description is non-empty and <= 200 characters
   5. PROVENANCE_PATTERNS does NOT contain 'cursor' (false-positive exclusion)
@@ -51,8 +51,8 @@ class TestSkillsCatalogHygiene:
             )
         )
 
-    def test_catalog_has_exactly_188_entries(self) -> None:
-        """list_global_skills() returns exactly 188 entries.
+    def test_catalog_has_exactly_189_entries(self) -> None:
+        """list_global_skills() returns exactly 189 entries.
 
         This is a parsing gate: a corrupted SKILL.md silently drops out
         of the catalog rather than raising, so a count change signals a
@@ -62,8 +62,8 @@ class TestSkillsCatalogHygiene:
         ppt_v2 pipeline.
         """
         entries = list_global_skills()
-        assert len(entries) == 188, (
-            f"catalog changed from 188 to {len(entries)} entries — "
+        assert len(entries) == 189, (
+            f"catalog changed from 189 to {len(entries)} entries — "
             f"a SKILL.md may have a parse error"
         )
 

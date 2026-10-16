@@ -91,7 +91,7 @@ steps:
     2. grep `.context/user-prompt.md` for `=== REVISION INSTRUCTION ===` with output_mode "content", then read_file it from that line with a limit of 60: that is the person's request. Never read that file whole: above that line the engine pasted the finished prototype as it was BEFORE this revision — work from the files on disk, never from that copy.
     3. read_file `.agents/01-prototype-revision-analyzer.md`: the analyzer's `## Solution Plan`.
     4. If the request mentions an attached file: `ls .uploads/`, then read_file the `.txt` file beside it.
-    5. read_file `design.md` to its end: `## Transition table`, `## Screen states`, `## Coverage` (each screen's kind and nav group).
+    5. read_file `design.md` to its end: `## Transition table`, `## Screen states`, `## Coverage` (each screen's kind and nav group), and `## Composition` and `## Design rules` — the template pattern and design-system rules a new screen must follow. When they say a design system or template was attached, also read_file `.context/design/design-system.md` and `.context/design/template/SKILL.md` (whichever exist) to their end, so every new screen you describe fits them.
     6. read_file `build/screens.json`: every screen's `id`, `kind`, `section` and `tab`. These are the menu sections a new page can join.
     7. grep `spec.md` for `^### ` with output_mode "content": every screen and use-case heading. Read the sections of the screens the change touches, and the `## Flows` the change joins.
     8. grep `spec.md` for `^REQ-` and note the highest number.
@@ -156,6 +156,7 @@ steps:
     HOW TO DELIVER
 
     Your work file is `revisions/<run_id>/change.md`. Then deliver the step file the engine asks for with ONE line — your report, starting with the path `revisions/<run_id>/change.md`. It never holds the work. If the tool says the step file already exists, an earlier revision left it: read_file it, then edit_file its whole content to your one-line report. Never stop on that message. Your reply is what the next step reads, so make it that same line.
+  skills: [velocity-design-system, velocity-design]
   tools:
     read_files: true
     write_files: true
@@ -208,7 +209,7 @@ steps:
     Steps
     1. read_file `.context/run-id.txt`: that is <run_id>, this revision's id. This revision's files live under `revisions/<run_id>/`; never read or write any other folder under `revisions/` — those belong to earlier revisions.
     2. read_file `revisions/<run_id>/change.md` to its end.
-    3. read_file `design.md`: its `## Transition table`.
+    3. read_file `design.md`: its `## Transition table`, and its `## Composition` (which template pattern and classes each kind of screen uses) for choosing each new screen's `Copy classes from`.
     4. grep `prototype.html` with output_mode "content" for `id="slot-nav"`, `id="slot-tabs"`, `var PLACE =` and `id="slot-overlays"`, and read_file a few lines around each: whether the menu, the tabs and the PLACE map exist, and their exact markup.
     5. For each new screen, pick the EXISTING screen most like it (a form like a form, a list like a list, a dialog like a dialog). grep `prototype.html` for `id="<that screen id>"` so the Builder can copy its classes; you do not copy them yourself.
 
@@ -245,6 +246,7 @@ steps:
     HOW TO DELIVER
 
     Your work file is `revisions/<run_id>/tasks.md`. Deliver the step file the engine asks for with ONE line — `revisions/<run_id>/tasks.md: <N> tasks` — then send the task list as your final message. If the tool says the step file already exists, an earlier revision left it: read_file it, then edit_file its whole content to your one-line report. Never stop on that message.
+  skills: [velocity-design-system, velocity-design]
   tools:
     read_files: true
     write_files: true
@@ -295,6 +297,7 @@ steps:
     HOW TO BUILD A SCREEN
 
     - Copy the look: grep the screen the task names under `Copy classes from`, read its markup, and build the new screen from the same wrapper, heading, form, table, button and banner classes. Never invent a class and never write a `style` of your own design.
+    - Keep the design system: before the first task, grep `design.md` for `## Design rules` and read that section, and read `.context/design/design-system.md` when it exists. Never add a `<style>` block, a `:root` theme or a hex colour: the theme is already in the prototype, and a second one overrides the design system the person chose.
     - Build EVERYTHING the change.md subsection lists: every field with its label and its example value, every action, every table column with 6 to 8 example rows of the product's own data, every state. Where it gives fourteen fields you write fourteen fields.
     - Never delete a screen or a section, and never change an `id` that another screen, a control or the menu points at.
 
@@ -313,6 +316,7 @@ steps:
     HOW TO DELIVER
 
     Your work is the edits to `prototype.html`. Then deliver the step file the engine asks for with ONE line — your report. It never holds the work. If the tool says the step file already exists, an earlier revision left it: read_file it, then edit_file its whole content to your one-line report. Never stop on that message.
+  skills: [velocity-design-system, velocity-design]
   tools:
     read_files: true
     write_files: true
@@ -374,7 +378,7 @@ steps:
     1. read_file `.context/run-id.txt`: that is <run_id>, this revision's id. This revision's files live under `revisions/<run_id>/`; never read or write any other folder under `revisions/` — those belong to earlier revisions.
     2. read_file `revisions/<run_id>/tasks.md` to its end: the task list, one `## Task <N>: <title>` block per task. Your NEW and CHANGED screens are the ones its tasks name.
     3. read_file `revisions/<run_id>/change.md` to its end: each new and changed screen's Fields and Actions, and the `## Transitions` the change adds.
-    4. read_file `design.md`. Its `## Transition table` is the route list you click, together with the change's `## Transitions`. Its `## Screen states` are the states you trigger.
+    4. read_file `design.md`. Its `## Transition table` is the route list you click, together with the change's `## Transitions`. Its `## Screen states` are the states you trigger. Its `## Theme` and `## Design rules` (with `build/theme.json` when it exists) are the look new and changed screens must keep: a new `<style>` or `:root` block, an inline `style=` that sets a colour, font or size, or a colour that is not in the theme or `.context/design/design-system.md` is a fault.
     5. read_file `.agents/04-custom-agent_v2-build.md`: the Builder's report, including anything it could not build.
     6. List, before you open anything: new screens (N), changed screens (N), routes (N), states on those screens (N).
 
@@ -444,6 +448,7 @@ steps:
     HOW TO DELIVER
 
     Your work is the edits to `prototype.html`, `revisions/<run_id>/bugs.json` and the screenshot. As the last step you may be told to deliver `prototype.html` as your step file: it already holds your work, so never write_file or edit_file it to deliver — your one-line reply is your report. When the step file the engine asks for has any other name, write_file it with ONE line — your report. It never holds the work. If the tool says the step file already exists, an earlier revision left it: read_file it, then edit_file its whole content to your one-line report. Never stop on that message.
+  skills: [velocity-design-system, velocity-design]
   tools:
     read_files: true
     write_files: true

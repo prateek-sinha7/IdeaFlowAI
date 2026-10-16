@@ -31,6 +31,7 @@ Pure stdlib; reaches the sandbox only through ``ctx.runner.sandbox`` (import-lin
 from __future__ import annotations
 
 import html as _html
+from urllib.parse import quote_plus
 import json
 import re
 import time
@@ -63,6 +64,7 @@ SCREENS_PATH = "build/screens.json"
 PARTS_DIR = "parts"
 VALIDATION_PATH = "build/validation.json"
 THEME_PATH = "build/theme.json"
+SELECTIONS_PATH = ".context/selections.json"
 DEFAULT_DELIVERABLE = "prototype.html"
 COVERAGE_THRESHOLD = 0.85
 
@@ -284,6 +286,12 @@ _RECORD_PAGE_WORDS = {
 }
 
 
+_STEP_CONTROL = re.compile(
+    r"^(?:next|continue|back|previous|prev|proceed|save (?:and|&) continue)\b",
+    re.IGNORECASE,
+)
+
+
 def nav_pages(inv: Inventory) -> list[Screen]:
     """The pages the menu lists: every page except a record page (see above) that
     another screen already leads to. The entry page is always listed."""
@@ -293,10 +301,24 @@ def nav_pages(inv: Inventory) -> list[Screen]:
         for t in s.transitions
         if t.attr in ("data-goto", "data-submit") and t.to != s.id
     }
+    # A step of a sequence (a wizard's step 2..n) is reached only by Next / Continue /
+    # Back controls: its own step strip moves the user, so it is no menu item or tab.
+    inbound: dict[str, list[str]] = {}
+    for s in inv.screens:
+        for t in s.transitions:
+            if t.attr in ("data-goto", "data-submit") and t.to != s.id:
+                inbound.setdefault(t.to, []).append(t.label or "")
     out = []
     for s in inv.pages:
         words = set(re.split(r"[^a-z0-9]+", f"{s.id} {s.title}".lower()))
         if s.id != inv.entry and s.id in reached and words & _RECORD_PAGE_WORDS:
+            continue
+        labels = inbound.get(s.id, [])
+        if (
+            s.id != inv.entry
+            and labels
+            and all(_STEP_CONTROL.match(x.strip()) for x in labels)
+        ):
             continue
         out.append(s)
     return out
@@ -632,11 +654,18 @@ THEME_KEYS: dict[str, str] = {
     "border": "--color-border",
     "text": "--color-text",
     "text_muted": "--color-text-muted",
+    "on_primary": "--color-on-primary",
     "font_family": "--font-family",
+    "font_family_heading": "--font-family-heading",
     "border_radius": "--border-radius",
+    "radius_interactive": "--radius-interactive",
 }
-_HEX = re.compile(r"^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$")
+_COLOR = re.compile(
+    r"^(?:#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})"
+    r"|(?:rgba?|hsla?|oklch|oklab)\([\d.,%/+ deg-]*\))$"
+)
 _PX = re.compile(r"^\d{1,2}px$")
+_PX4 = re.compile(r"^\d{1,4}px$")
 _FONT = re.compile(r"^[\w\s,'\"-]{1,160}$")
 
 
@@ -669,10 +698,12 @@ def load_theme(text: str | None) -> tuple[str, dict]:
         v = str(value).strip()
         ok = (
             _FONT.match(v)
-            if key == "font_family"
+            if key in ("font_family", "font_family_heading")
             else _PX.match(v)
             if key == "border_radius"
-            else _HEX.match(v)
+            else _PX4.match(v)
+            if key == "radius_interactive"
+            else _COLOR.match(v)
         )
         if not ok:
             rejected[key] = f"bad value {v[:40]!r}"
@@ -754,6 +785,9 @@ GUARD_CSS = (
     "#slot-overlays .dialog{display:none!important}#slot-overlays .dialog.open{display:flex!important}"
     "#slot-overlays .dialog-content>.screen{display:block!important}"
     "#slot-nav.nav-slot{display:contents}"
+    # The runtime's tab wrapper (.tabs holding .tabs-content) is not the template's
+    # .tabs segmented control: undo that look on the wrapper so its nav and panels stack.
+    "#slot-content .screen .tabs:has(>.tabs-content){display:block;background:none;padding:0;border-radius:0;gap:0}"
 )
 # The shell's own frame and base-element rules, dropped when the template supplies the
 # frame (they would restyle the template's nav and body). Component rules stay.
@@ -773,16 +807,130 @@ _SHELL_FRAME_RULES = (
     "#slot-content>.screen",
     "@media",
 )
-# The design system reaches the template through the six variables the DS preamble names,
-# on whichever of them the template declares; the template keeps its own value otherwise.
-TEMPLATE_THEME_VARS = {
-    "primary": "--accent",
-    "background": "--bg",
-    "text": "--fg",
-    "surface": "--surface",
-    "border": "--border",
-    "text_muted": "--muted",
+# The design system reaches the template through every variable it declares under one of
+# these names (a template may call its accent --accent or --primary); the template keeps
+# its own value for any variable it does not declare.
+TEMPLATE_THEME_VARS: dict[str, tuple[str, ...]] = {
+    "primary": (
+        "--accent",
+        "--primary",
+        "--brand",
+        "--c-accent",
+        "--color-primary",
+        "--cw-color-primary",
+    ),
+    "secondary": ("--accent-2", "--secondary", "--color-secondary"),
+    "background": (
+        "--bg",
+        "--background",
+        "--c-bg",
+        "--bg0",
+        "--color-bg",
+        "--paper",
+        "--canvas",
+        "--page",
+        "--bg-page",
+    ),
+    "surface": (
+        "--surface",
+        "--panel",
+        "--card",
+        "--surface-raised",
+        "--color-surface",
+        "--bg-card",
+        "--paper",
+    ),
+    "surface_2": (
+        "--surface-2",
+        "--panel-2",
+        "--bg-soft",
+        "--surface-inset",
+        "--paper-2",
+        "--c-bg-alt",
+        "--bg-2",
+        "--bg-alt",
+        "--surface-muted",
+    ),
+    "text": (
+        "--fg",
+        "--ink",
+        "--text",
+        "--text-1",
+        "--text-primary",
+        "--c-fg",
+        "--color-text",
+        "--ink-1",
+        "--on-surface",
+        "--on-background",
+        "--color-ink",
+    ),
+    "text_muted": (
+        "--muted",
+        "--text-2",
+        "--text-muted",
+        "--text-secondary",
+        "--ink-soft",
+        "--ink-2",
+        "--fg-soft",
+        "--c-fg-2",
+        "--fg-muted",
+    ),
+    "border": (
+        "--border",
+        "--line",
+        "--hairline",
+        "--c-border",
+        "--color-border",
+        "--rule",
+        "--outline",
+    ),
+    "on_primary": ("--on-accent", "--on-primary", "--accent-fg"),
+    "font_family": (
+        "--font-body",
+        "--font-sans",
+        "--font",
+        "--font-ui",
+        "--font-family",
+        "--sans",
+        "--body",
+        "--f-body",
+        "--serif-body",
+    ),
+    "font_family_heading": (
+        "--font-display",
+        "--font-heading",
+        "--font-head",
+        "--display",
+        "--f-display",
+        "--serif-display",
+    ),
+    "border_radius": (
+        "--radius",
+        "--radius-md",
+        "--radius-lg",
+        "--border-radius",
+        "--card-radius",
+        "--r-md",
+        "--r-lg",
+        "--r",
+        "--radius-card",
+        "--radius-m",
+        "--radius-l",
+        "--radius-tile",
+    ),
+    "radius_interactive": (
+        "--radius-pill",
+        "--radius-btn",
+        "--btn-radius",
+        "--pill",
+        "--radius-control",
+    ),
 }
+# A template's shades of its primary (--accent-soft, --accent-dark) are derived from it.
+_CORE_THEME_KEYS = ("primary", "background", "surface", "text", "border", "font_family")
+_SHADE_TINTS = ("soft", "light", "bg", "tint", "wash", "weak", "subtle")
+_SHADE_LINES = ("line", "border")
+_SHADE_DEEPS = ("dark", "ink", "strong", "hover", "deep", "press", "pressed")
 # A nav item or tab written as a <button> keeps the browser's grey box unless the
 # template resets buttons. Zero specificity, emitted BEFORE the template's CSS: any
 # rule the template has for its own items still wins.
@@ -799,30 +947,144 @@ _FIELD_RE = re.compile(
 )
 
 
-def _template_theme(theme: str | None, kit: TemplateKit) -> tuple[str, list[str]]:
+def _shade(suffix: str, primary: str) -> str | None:
+    if suffix in _SHADE_TINTS:
+        return f"color-mix(in srgb, {primary} 14%, white)"
+    if suffix in _SHADE_LINES:
+        return f"color-mix(in srgb, {primary} 35%, white)"
+    if suffix in _SHADE_DEEPS:
+        return f"color-mix(in srgb, {primary} 78%, black)"
+    return None
+
+
+def _is_dark_hex(value: str) -> bool:
+    """True for a #rgb / #rrggbb colour darker than a mid grey; False for anything else."""
+    m = re.fullmatch(r"#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})", value.strip())
+    if not m:
+        return False
+    h = m.group(1)
+    h = "".join(c * 2 for c in h) if len(h) == 3 else h
+    r, g, b = (int(h[i : i + 2], 16) / 255 for i in (0, 2, 4))
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b < 0.35
+
+
+def _template_theme(
+    theme: str | None, kit: TemplateKit
+) -> tuple[str, list[str], list[str]]:
     _, report = load_theme(theme)
     try:
         data = json.loads(theme or "{}")
     except json.JSONDecodeError:
-        return "", []
-    decls, themed = [], []
-    for key, var in TEMPLATE_THEME_VARS.items():
-        if key in report["applied"] and var in kit.variables:
-            decls.append(f"{var}:{str(data[key]).strip()}")
-            themed.append(var)
-    # The template's own chrome and button colours (its --navy, not only --accent): a
-    # dark bar takes the design system's dark primary, the primary button its primary.
+        return "", [], []
     applied = {k: str(data[k]).strip() for k in report["applied"]}
-    bar = applied.get("primary_dark") or applied.get("primary")
-    for vars_, value in (
-        (kit.chrome_vars, bar),
-        (kit.button_vars, applied.get("primary")),
+    source = {k: k for k in applied}
+    if "font_family" in applied and "font_family_heading" not in applied:
+        # A template with a heading font variable but no body one gets the body font there.
+        applied["font_family_heading"] = applied["font_family"]
+        source["font_family_heading"] = "font_family"
+    declared = kit.variables
+    # --paper is the page in a template that names no other ground, and its cards in
+    # one that does (--bg page, --paper cards): it takes exactly one of the two roles.
+    grounds = set(TEMPLATE_THEME_VARS["background"]) - {"--paper"}
+    paper_role = "surface" if declared & grounds else "background"
+    candidates = {var for vars_ in TEMPLATE_THEME_VARS.values() for var in vars_}
+    decls, themed, reached = [], [], set()
+    for key, vars_ in TEMPLATE_THEME_VARS.items():
+        for var in vars_:
+            if var == "--paper" and key != paper_role:
+                continue
+            if key in applied and var in declared:
+                decls.append(f"{var}:{applied[key]}")
+                themed.append(var)
+                reached.add(source[key])
+    if "primary" in applied:
+        for var in TEMPLATE_THEME_VARS["primary"]:
+            if var not in declared:
+                continue
+            for name in sorted(declared):
+                if (
+                    not name.startswith(f"{var}-")
+                    or name in candidates
+                    or name in themed
+                ):
+                    continue
+                suffix = name[len(var) + 1 :]
+                shade = (
+                    applied["primary_dark"]
+                    if suffix in _SHADE_DEEPS and "primary_dark" in applied
+                    else _shade(suffix, applied["primary"])
+                )
+                if shade:
+                    decls.append(f"{name}:{shade}")
+                    themed.append(name)
+                    reached.add("primary")
+                    if suffix in _SHADE_DEEPS and "primary_dark" in applied:
+                        reached.add("primary_dark")
+    # The template's own chrome and button colours (its --navy, not only --accent): a
+    # dark bar takes the design system's darkest neutral (its brand colour belongs on
+    # buttons, not on the frame); the primary button takes its primary.
+    bar_key = next(
+        (k for k in ("secondary", "text") if k in applied and _is_dark_hex(applied[k])),
+        "primary_dark" if "primary_dark" in applied else "primary",
+    )
+    for vars_, key in (
+        (kit.chrome_vars, bar_key),
+        (kit.button_vars, "primary"),
     ):
         for var in vars_:
-            if value and var not in themed and var not in TEMPLATE_THEME_VARS.values():
-                decls.append(f"{var}:{value}")
+            if key in applied and var not in themed and var not in candidates:
+                decls.append(f"{var}:{applied[key]}")
                 themed.append(var)
-    return (":root{" + ";".join(decls) + "}" if decls else ""), themed
+                reached.add(key)
+    css = ":root{" + ";".join(decls) + "}" if decls else ""
+    if "font_family" in applied:
+        css += "body{font-family:" + applied["font_family"] + "}"
+        reached.add("font_family")
+    # Headings: the template colours them with its chrome variable and names no heading
+    # font, so both are set directly on the content's headings.
+    heads = "#slot-content :is(h1,h2,h3,h4)"
+    if "font_family_heading" in report["applied"]:
+        css += f"{heads}{{font-family:{applied['font_family_heading']}}}"
+        reached.add("font_family_heading")
+    if "text" in applied:
+        css += f"{heads}{{color:{applied['text']}}}"
+    if "radius_interactive" in applied:
+        css += (
+            "#slot-content :is(.btn,button,input,select,textarea)"
+            f"{{border-radius:{applied['radius_interactive']}}}"
+        )
+        reached.add("radius_interactive")
+    if "on_primary" in applied:
+        css += f".btn-primary{{color:{applied['on_primary']}}}"
+        reached.add("on_primary")
+    # A role the template gives no variable still reaches the page: one rule on the
+    # elements every template has, after the template's own CSS.
+    if "background" in applied and "background" not in reached:
+        css += f"body{{background:{applied['background']}}}"
+        reached.add("background")
+    if "text" in applied and "text" not in reached:
+        css += f"body{{color:{applied['text']}}}"
+        reached.add("text")
+    if "primary" in applied and "primary" not in reached:
+        css += (
+            "#slot-content :is(.btn-primary,.button-primary,.btn--primary,button.primary)"
+            f"{{background:{applied['primary']};border-color:{applied['primary']}}}"
+        )
+        reached.add("primary")
+    if "surface" in applied and "surface" not in reached:
+        css += (
+            "#slot-content :is(.card,.panel,.tile,.box,.surface)"
+            f"{{background:{applied['surface']}}}"
+        )
+        reached.add("surface")
+    if "border_radius" in applied and "border_radius" not in reached:
+        css += (
+            "#slot-content :is(.card,.panel,.tile,.box,.surface)"
+            f"{{border-radius:{applied['border_radius']}}}"
+        )
+        reached.add("border_radius")
+    unapplied = sorted(k for k in report["applied"] if k not in reached)
+    return css, themed, unapplied
 
 
 def _template_nav(frame: Frame, pages: list[Screen], statuses: dict[str, str]) -> str:
@@ -859,6 +1121,14 @@ def _templated_document(
 ) -> tuple[str, dict]:
     """The shell with the template's CSS (and frame, when it has one) — see GUARD_CSS."""
     frame = kit.frame
+    # The template draws its own surfaces: the shell's screen card (white panel, border,
+    # max width) would wrap every templated screen in a box the template does not have.
+    # GUARD_CSS keeps the show/hide that rule also carried.
+    shell = "\n".join(
+        line
+        for line in shell.split("\n")
+        if not line.startswith("#slot-content>.screen{")
+    )
     if frame:
         shell = "\n".join(
             line
@@ -902,7 +1172,7 @@ def _templated_document(
                 "links[k].classList.toggle('active', ",
                 f"links[k].classList.toggle('{frame.active_class}', ",
             )
-    template_theme, themed = _template_theme(theme, kit)
+    template_theme, themed, unapplied = _template_theme(theme, kit)
     theme_css, _ = load_theme(theme)
     head = (
         "".join(kit.head_links)
@@ -922,8 +1192,73 @@ def _templated_document(
         "classes": len(kit.classes),
         "frame": "template" if frame else "shell",
         "themed_vars": themed,
+        "unapplied_keys": unapplied,
     }
     return shell, report
+
+
+# Font families every browser has without a download: never requested from a font host.
+_SYSTEM_FONTS = {
+    "system-ui",
+    "-apple-system",
+    "blinkmacsystemfont",
+    "sans-serif",
+    "serif",
+    "monospace",
+    "cursive",
+    "arial",
+    "helvetica",
+    "helvetica neue",
+    "verdana",
+    "georgia",
+    "tahoma",
+    "geneva",
+    "times",
+    "times new roman",
+    "segoe ui",
+    "courier new",
+    "ui-sans-serif",
+    "ui-serif",
+    "ui-monospace",
+    "menlo",
+    "consolas",
+    "sf pro",
+    "sf pro text",
+    "sf pro display",
+}
+
+
+def _with_font_links(doc: str, theme: str | None) -> str:
+    """The theme's font families, loaded: a design system that names a web font (Inter,
+    Montserrat) otherwise renders in the browser's fallback. One Google Fonts request
+    for the first family of each theme font stack that is not a system font; a family
+    the host does not serve simply falls back, as it would without the link."""
+    _, report = load_theme(theme)
+    try:
+        data = json.loads(theme or "{}")
+    except json.JSONDecodeError:
+        return doc
+    families: list[str] = []
+    for key in ("font_family", "font_family_heading"):
+        if key not in report["applied"]:
+            continue
+        # Every named web family of the stack, so a brand font no host serves still
+        # falls back to the next named one (e.g. "CohereText", "Inter", sans-serif).
+        for fam in str(data[key]).split(","):
+            fam = fam.strip().strip("'\"")
+            if fam and fam.lower() not in _SYSTEM_FONTS and fam not in families:
+                families.append(fam)
+    if not families:
+        return doc
+    # One request per family: the host answers 400 for a whole request when any one
+    # family in it is unknown, which would drop the families it does serve.
+    link = '<link rel="preconnect" href="https://fonts.googleapis.com">' + "".join(
+        '<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family='
+        + quote_plus(f)
+        + ':wght@400;500;600;700&display=swap">'
+        for f in families
+    )
+    return doc.replace("</head>", link + "\n</head>", 1)
 
 
 def assemble(
@@ -995,6 +1330,11 @@ def assemble(
                     re.findall(r"""\bclass\s*=\s*["'][^"']*\bform-control\b""", section)
                 )
             )
+            # A list or report screen shows its spec "fields" as column headers and
+            # tiles, not inputs: a field whose label is on the screen is built.
+            visible = _html.unescape(re.sub(r"<[^>]+>", " ", section)).lower()
+            labelled = sum(1 for f in expected_fields if f and f.lower() in visible)
+            found_fields = max(found_fields, labelled)
             if expected_fields and found_fields < 0.8 * len(expected_fields):
                 issues.append(
                     f"fields: {found_fields} built of {len(expected_fields)} the spec lists"
@@ -1145,7 +1485,16 @@ def assemble(
     }
     if template_report is not None:
         validation["template"] = template_report
+    doc = _with_font_links(doc, theme)
     return doc, validation
+
+
+def _selections(sandbox: Any) -> dict:
+    try:
+        data = json.loads(sandbox.read(SELECTIONS_PATH) or "null")
+    except json.JSONDecodeError:
+        return {}
+    return data if isinstance(data, dict) else {}
 
 
 def assemble_prototype(ctx: Any) -> str:
@@ -1162,13 +1511,48 @@ def assemble_prototype(ctx: Any) -> str:
         raise AssembleStepFailed(f"assemble_prototype: {exc}") from exc
 
     parts = {s.id: sandbox.read(f"{PARTS_DIR}/{s.id}.html") for s in inv.screens}
+    template = load_template_kit(sandbox.read)
     doc, validation = assemble(
         inv,
         parts,
         theme=sandbox.read(THEME_PATH),
         spec=sandbox.read("spec.md") or "",
-        template=load_template_kit(sandbox.read),
+        template=template,
     )
+
+    selections = _selections(sandbox)
+    ds_id = selections.get("ds_id")
+    template_id = selections.get("template_id")
+    template_chosen = bool(template_id) and not selections.get("no_template")
+    theme = validation["theme"]
+    warnings: list[str] = []
+    if ds_id and theme["status"] != "applied":
+        warnings.append(
+            f"design system '{ds_id}' attached but {THEME_PATH} is missing or has no valid key — the prototype uses the shell defaults"
+        )
+    if theme["rejected"]:
+        warnings.append(
+            "theme keys rejected: "
+            + ", ".join(f"{k} ({v})" for k, v in theme["rejected"].items())
+        )
+    if template_chosen and template is None:
+        warnings.append(
+            f"template '{template_id}' chosen but none of its files (.context/design/template/example.html, assets/template.html) could be read — the shell's own look was used"
+        )
+    # Only the roles every page shows are worth a warning: a template with no second
+    # accent or no alternate panel simply has nowhere to put those keys.
+    core_unapplied = [
+        k
+        for k in (
+            validation["template"]["unapplied_keys"] if "template" in validation else []
+        )
+        if k in _CORE_THEME_KEYS
+    ]
+    if core_unapplied:
+        warnings.append(
+            "theme keys not applied to the template: " + ", ".join(core_unapplied)
+        )
+    validation["design_warnings"] = warnings
 
     deliverable = getattr(ctx, "deliverable", None)
     name = getattr(deliverable, "name", None) or DEFAULT_DELIVERABLE
@@ -1182,21 +1566,26 @@ def assemble_prototype(ctx: Any) -> str:
         f"ok {t['ok']}, degraded {t['degraded']}, missing {t['missing']}, invalid {t['invalid']}. "
         f"Details: {VALIDATION_PATH}."
     )
-    th = validation["theme"]
-    if th["status"] == "applied":
-        summary += f" Theme applied from {THEME_PATH}: {', '.join(th['applied'])}."
+    unapplied = (
+        validation["template"]["unapplied_keys"] if "template" in validation else []
+    )
+    shown = [k for k in theme["applied"] if k not in unapplied]
+    if theme["status"] == "applied" and shown:
+        summary += f" Theme applied from {THEME_PATH}: {', '.join(shown)}."
     if "template" in validation:
         tpl = validation["template"]
         summary += (
             f" Template: {tpl['classes']} classes from {', '.join(tpl['sources'])}, "
             f"{'its own frame' if tpl['frame'] == 'template' else 'the shell frame'}."
         )
-    if th["rejected"]:
-        summary += f" Theme keys ignored: {', '.join(f'{k} ({v})' for k, v in th['rejected'].items())}."
+    if theme["rejected"]:
+        summary += f" Theme keys ignored: {', '.join(f'{k} ({v})' for k, v in theme['rejected'].items())}."
     if validation["missing"]:
         summary += " Missing: " + ", ".join(validation["missing"]) + "."
     if validation["degraded"]:
         summary += " Open issues on: " + ", ".join(validation["degraded"]) + "."
+    if warnings:
+        summary += " Design warnings: " + "; ".join(warnings) + "."
     if not validation["passed"]:
         raise AssembleStepFailed(
             f"Prototype below the coverage threshold — {summary} The files were written; fix the missing screens and rerun the build."

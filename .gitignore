@@ -249,3 +249,5 @@ tests/integration/e2e/.pytest-resume
 unit-test-prompt
 
 .agents/
+
+.clients/

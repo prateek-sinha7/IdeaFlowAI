@@ -309,7 +309,7 @@ steps:
       Phase 5 - Write validate validate.json
 
     You never read the original documents and you never read a shard.
-    You work only from each document's own synthesis.
+    You work only from each document's own synthesis — and the person's brief, `.context/user-prompt.md`, which you always read first and summarise at the top of synthesis.md under `## Brief`. With no documents, that section is what every later step builds from.
 
     Paths have no leading slash: `synthesis.md` and `validate.json` are at the run root. If a tool hands you a path starting with `/`, drop the slash.
 
@@ -645,9 +645,11 @@ steps:
     - Read to the END of the file. Not to a round number.
     - read_file returns a page at a time. Keep paging until a page comes back SHORTER than you asked for, or empty. That is the end, and nothing else is.
     - The last section is `## Open Gaps`. If you have not seen its final entry you have not finished reading, and you may not say anything about gaps.
+    - The person's own brief is `.context/user-prompt.md`. It is always an input: it names the product, its domain and what it must do. When `synthesis.md` has no `## Screens` (no documents were given), the brief is the ONLY product source: every screen, field, rule and example value comes from it, filled out with realistic data from THAT product's domain.
+    - A design template (`.context/design/template/`) is a LOOK, never a product source. Never copy its example product, names, values or screens into the spec; a screen exists because the brief or the documents need it.
 
     Steps
-    1. read_file `synthesis.md`.
+    1. read_file `.context/user-prompt.md` (the person's brief). Then read_file `synthesis.md`.
     2. Keep calling it with the next offset until a short or empty page comes back.
     3. `ls file-synthesis/`, then read_file every `file-synthesis/<document>/synthesis.md`, paging each to its end.
     4. Say in your reply which line of each file you stopped at and why you believe it is the end.
@@ -785,11 +787,11 @@ steps:
   prompt: |
     You are the Architect.
 
-    You read `spec.md` and write THREE files: `design.md` (how the screens connect, what data moves, what the product looks like), `build/screens.json` (the machine copy of your transition table) and, when a design system was attached to this run, `build/theme.json`. Code reads the two JSON files next: it expands the inventory into one builder task per screen, assembles the parts into a fixed shell, applies your theme to that shell, and validates the result. The shell, the navigation, the dialog frame, the tab mechanism, every component class and the runtime already exist as code; you do not write an architecture document, and nothing you write changes the shell's structure. You decide WHICH screens exist, what KIND each one is, WHICH control on which screen moves the user WHERE, and what COLOURS and TYPE the shell wears.
+    You read `spec.md` and write THREE files: `design.md` (how the screens connect, what data moves, what the product looks like), `build/screens.json` (the machine copy of your transition table) and, when a design system was attached to this run, `build/theme.json`. Code reads the two JSON files next: it expands the inventory into one builder task per screen, assembles the parts into a fixed shell, applies your theme to that shell, and validates the result. The shell, the navigation, the dialog frame, the tab mechanism, every component class and the runtime already exist as code; you do not write an architecture document, and nothing you write changes the shell's structure. You decide WHICH screens exist, what KIND each one is, WHICH control on which screen moves the user WHERE, and what COLOURS and TYPE the shell wears. When a template is attached, the template's own page frame, CSS and classes replace the shell's look and every builder copies the template's markup; you then also decide which of the template's patterns each kind of screen follows.
 
     6 phases, in order.
 
-      Phase 1 - Read          spec.md to its last line, and the design context if you were given one
+      Phase 1 - Read          spec.md to its last line, then every design file in `.context/design/`
       Phase 2 - Design        write design.md: transitions, data, states, coverage, theme
       Phase 3 - Re-read       your own design.md, as a reader would
       Phase 4 - Inventory     write build/screens.json from the transition table, and build/theme.json
@@ -812,12 +814,19 @@ steps:
     - Each screen's `Actions` table has a `Navigates to` column: a screen id, `dialog:<id>`, `closes`, or `stays`. Every row that is not `stays` is a transition.
     - Its `## Flows` section lists, per flow, the ordered screens and what moves the user between them. A flow move and an Actions row describe the same thing; when only the flow has it, the flow wins and you add the transition.
     - Its `## Requirements` lines read `REQ-nnn | <pattern> | <sentence> | screens: <ids> | source: ...`. An `event` line whose sentence moves the user is also a transition.
-    - DESIGN CONTEXT. Your context may carry a block headed `ACTIVE DESIGN SYSTEM: <name>` (a design document: colours, type, spacing, component voice) and a block headed `ACTIVE TEMPLATE` (a page pattern with an example). When they are present you use them in Phase 2's `## Theme` and `## Composition`; when they are absent you write "no design context attached" there and the shell keeps its defaults. You never paste either block into any file.
+    - DESIGN CONTEXT is on disk, never in your prompt; nothing pastes it for you. `.context/selections.json` names this run's `ds_id` and `template_id` (`"no_template": true` means no template was chosen). The material itself is in `.context/design/`:
+        * `design-system.md` — the design system: colours, type, spacing, radii, components, voice, do's and don'ts
+        * `tokens.css`, `components.html` — the design system's own tokens and component markup, when it ships them
+        * `craft.md` — quality rules the template requires (states, accessibility, forms), when present
+        * `template/SKILL.md` — the template: what it is, its chrome, screen patterns, components, hard rules
+        * `template/example.html`, `template/assets/template.html` — the template's real markup and CSS, when present
+      A file that does not exist was not attached. Every file that exists is read to its END before Phase 2: they decide `## Theme`, `## Composition` and `## Design rules`. A design system or template that is attached and not read is the defect that made earlier prototypes ignore the user's choice. You never paste any of them into a file you write.
 
     Steps
     1. read_file `spec.md` until the end.
     2. List every `### <id>` heading. That count is your screen count; say it in your reply.
-    3. Say whether a design system and a template were attached.
+    3. read_file `.context/selections.json`. Then `ls .context/design` and `ls .context/design/template`, and read_file every file named above that exists, each to its end (page long files until a page comes back shorter than you asked for).
+    4. Say which design system and which template were attached, by id, and which design files you read.
 
     Phase 2 - Design
 
@@ -831,7 +840,9 @@ steps:
       - a tab strip INSIDE one screen whose tabs show panels of the SAME screen → `data-tab="<panel-slug>"`. `data-tab` NEVER names another screen: a tab that leads to a different `### <id>` is `data-goto` to that id, and it is the one mistake the build keeps shipping.
     - An Action marked `[not evidenced]` gets NO row. The builder renders it disabled.
     - Data models come from the spec's `Data:` lines with the real values the spec shows. Invent no entity, rename none.
-    - The theme maps the design system onto the shell's own variables. Only these eleven keys exist, and code rejects anything else: `primary`, `primary_dark`, `secondary`, `background`, `surface`, `surface_2`, `border`, `text`, `text_muted` (each a hex colour `#rrggbb`), `font_family` (a CSS font stack), `border_radius` (`Npx`, 0 to 24). A key the design system gives you no value for is omitted, and the shell default stays. You never invent a colour: every hex value is one the design system names, or a plain darker or lighter step of one it names, and you say which.
+    - The theme maps the design system onto the shell's own variables, and onto the template's when one is attached. Only these fourteen keys exist, and code rejects anything else: `primary`, `primary_dark`, `secondary`, `background`, `surface`, `surface_2`, `border`, `text`, `text_muted`, `on_primary` (the text colour on a primary button or bar) — each a colour as `#rrggbb` or `rgb()`/`hsl()`/`oklch()`; `font_family` (body / UI font stack), `font_family_heading` (heading font stack, only when the design system names a separate one); `border_radius` (`Npx`, 0 to 99: cards and panels), `radius_interactive` (`Npx`, up to 9999px: buttons, inputs, badges — a pill system writes 9999px here). A key the design system gives you no value for is omitted, and the shell default stays. You never invent a colour: every hex value is one the design system names, or a plain darker or lighter step of one it names, and you say which.
+    - Map by ROLE, not by order: the design system's brand or accent colour → `primary`; its pressed/hover or darker brand → `primary_dark`; a second accent → `secondary`; the page ground → `background`; cards and panels → `surface`; a raised or alternate panel on the SAME ground (never a dark-mode surface on a light page) → `surface_2`; dividers → `border`; body text → `text`; secondary text → `text_muted`. A colour the design system writes as a name is converted to `#rrggbb`; `tokens.css`, when present, is the exact source.
+    - `font_family` is the design system's body / UI font first, then a fallback stack that ends in a generic family: `"Inter", system-ui, sans-serif`; `font_family_heading` the same for its headline font. `border_radius` is its container or card radius; `radius_interactive` its button and input radius.
 
     Steps
     1. write_file `design.md`:
@@ -852,10 +863,13 @@ steps:
        One row per screen id from the spec: `| screen id | kind | nav group | requirements served | rows in | rows out |`. This is the list Phase 5 counts.
 
     ## Theme
-       When a design system was attached: the eleven keys above as a table `| key | value | taken from |`, where "taken from" quotes the design system's own words for that colour or type choice. When none was attached: "no design context attached".
+       When a design system was attached: the fourteen keys above as a table `| key | value | taken from |`, where "taken from" quotes the design system's own words for that colour or type choice. When none was attached: "no design context attached".
 
     ## Composition
-       When a template was attached: three to six lines on what the template's pattern means for THIS product's screens (density, how a form page is composed, how a list page is composed, what a dialog holds) so a builder reading a screen's summary knows the intent. No markup, no CSS, no class names — the shell owns those. When none was attached: "no design context attached".
+       When a template was attached: three to six lines on what the template's pattern means for THIS product's screens (density, how a form page is composed, how a list page is composed, what a dialog holds) so a builder reading a screen's summary knows the intent. Then one line per KIND of screen this product has (list or register, record detail, form, wizard step, dashboard, dialog): which part of `template/example.html` it copies and that part's own container, heading, table, form and button classes, as the template writes them. No markup and no CSS. When none was attached: "no design context attached" — with no template the shell owns every class, so you name none.
+
+    ## Design rules
+       When a design system or a template was attached: five to twelve lines a builder must follow, each one taken from `design-system.md`, `template/SKILL.md` (its hard rules and content voice) or `craft.md`, and each ending with the file it came from in brackets. Component voice, density, copy tone, what a primary action looks like, what is forbidden. Never a colour, a font or a size: code applies those. When neither was attached: "no design context attached".
 
     ## Unresolved
        Every destination the spec names that has no `### <id>` subsection, one per line.
@@ -901,7 +915,7 @@ steps:
 
     - The menu is built from `section`, so a person finds a page by the area of the product it belongs to. Every page has one: a noun of one or two words ("Users", "Content", "Settings"), taken from the spec's feature areas. The product has 3 to 6 sections; pages of one area share the name exactly, and the first page of a section is the one its menu item opens. Its other pages appear as tabs under it.
     - Sign-in, register, forgot or reset password and first-run setup pages have `"section": "_auth"`: they are never in the menu. When there is a sign-in page, `entry` is that page.
-    - `tab` is a page's short label in its section's tabs ("Users", "Roles", "My profile"); give it when the title is longer than two words. A dialog has neither.
+    - `tab` is a page's short label in its section's tabs ("Users", "Roles", "My profile"); give it when the title is longer than two words. A dialog has neither. Every tab label is UNIQUE within its section: the steps of a wizard or any ordered sequence are labelled by step — "1 Identification", "2 Coverage", "3 Pricing" — never all "Wizard".
     - `build/theme.json` is written ONLY when `## Theme` holds a table: a flat object of those keys and values, nothing else. No design system attached, no file.
     - No prose in either file. No comments. No trailing commas. Strings in double quotes.
 
@@ -925,8 +939,9 @@ steps:
        g. FLOWS: walk `## Flows` in the spec line by line. For every move — `lands on`, `returns to`, `→` — the source screen has a transition whose `to` is that destination (a `returns to` from a dialog is its `data-closes`). Add every missing one, with the label the flow line uses for the control, and say how many you added. This is the check that was missing when a run shipped thirteen flow steps with no control on the screen.
        h. every Actions row in the spec whose `Navigates to` is not `stays` and not `[not evidenced]` is a transition on that screen.
        i. every page has a `section`; besides `_auth` there are 3 to 6 of them; the sign-in page, when there is one, is `entry` and its submit control goes to the first page of the first section.
-    2. read_file `build/theme.json` if you wrote it: every key is one of the eleven, every colour is `#rrggbb`, the radius is `Npx`.
-    3. Reply with one line: screens, pages, dialogs, transitions by attribute, flow moves checked, transitions added in (g), theme keys, unresolved destinations, checks passed.
+       j. no two pages of one section share a `tab` label (or a `title`, where they have no `tab`).
+    2. read_file `build/theme.json` if you wrote it: every key is one of the fourteen, every colour is `#rrggbb` or `rgb()`/`hsl()`/`oklch()`, each radius is `Npx`. When `.context/design/design-system.md` exists and there is no `build/theme.json`, or `design.md` says "no design context attached" while a design file exists, that is a defect: go back to Phase 2 and write the theme.
+    3. Reply with one line: screens, pages, dialogs, transitions by attribute, flow moves checked, transitions added in (g), design system and template ids, theme keys, unresolved destinations, checks passed.
 
     Phase 6 - Report
 
@@ -940,6 +955,7 @@ steps:
   - design_system
   - template
   - template_example
+  skills: [velocity-design-system, velocity-design]
   tools:
     read_files: true
     write_files: true
@@ -986,11 +1002,16 @@ steps:
     WHAT TO DO
 
     1. Read CURRENT TASK to its end before writing anything. When it names DESIGN TEMPLATE files, read_file each of them to its end too: the template decides how your screen looks.
-    2. Write the fragment: one `<section class="screen" id="...">` with everything the SPEC lists — every field with its label and a real example value, every action, every table column with its example rows, every state. Where the spec gives fourteen fields you write fourteen fields. A table or list shows 6 to 8 rows of the product's own data — names, roles, statuses, dates from the spec — never a single row. In rows and in form values alike: people have realistic full names ("Maria Keller", "Daniel Osei"), and email addresses use the product's own domain (for Orchard Core, @orchardcore.com). Never example.com, test.com, "jsmith", "John Doe" or a test or demo value — unless the documents themselves contain it.
-    3. Put each listed transition attribute on the control the spec names, exactly as written in the task. Nothing else on the page gets a data-* attribute, an href="#", or an onclick.
-    4. write_file the exact target path.
-    5. read_file it back once and check the `Done when:` list line by line. Fix what fails and write again.
-    6. Reply with ONE line: the path written, and anything in the SPEC you could not build. An omission named is worth more than a silent one.
+    2. Read the design intent the Architect wrote for every builder: grep `design.md` for `## Composition` and `## Design rules` and read_file both sections to their end. They say which template pattern and which classes your kind of screen uses, and the design system's rules you follow. When `.context/design/template/SKILL.md` exists, read its hard rules and content voice too. A section that says "no design context attached" means the shell's classes in CURRENT TASK are the whole look.
+    3. Write the fragment: one `<section class="screen" id="...">` with everything the SPEC lists — every field with its label and a real example value, every action, every table column with its example rows, every state. Where the spec gives fourteen fields you write fourteen fields. A table or list shows 6 to 8 rows of the product's own data — names, roles, statuses, dates from the spec — never a single row. In rows and in form values alike: people have realistic full names ("Maria Keller", "Daniel Osei"), and email addresses use the product's own domain (for Orchard Core, @orchardcore.com). Never example.com, test.com, "jsmith", "John Doe" or a test or demo value — unless the documents themselves contain it.
+    4. Put each listed transition attribute on the control the spec names, exactly as written in the task. Nothing else on the page gets a data-* attribute, an href="#", or an onclick.
+    5. The look comes from the template and the design system's theme, never from you. Copy the template's markup for your kind of screen exactly — its classes AND, when the template writes them, its own inline styles, which use the template's variables (`var(--…)`) and are therefore themed. What you never write is a value of your OWN: a hex or rgb() colour, a font name, or a size the template's markup for that element does not have. With no template, the shell's classes are the whole look and you write no `style=` at all. When the design needs a look neither gives, say so in your reply instead. A grid's column list is the one value you may set, below.
+       - TABLES. When the template draws a table as a grid (its header and rows carry a class that sets `grid-template-columns`), that class fixes the NUMBER of columns. Every row has exactly that many cells. When your table needs a different number, use the template's grid class with the same count if one exists; otherwise put `style="grid-template-columns:<one fr value per column>"` on the header AND every row. A cell that wraps to a second line is a broken table.
+       - A screen that SHOWS a record (a detail, overview or summary of one account, case or item) shows its values as READ-ONLY text in the template's record-header / facts pattern — label above value — never as inputs. Only forms, filters and wizard steps have inputs.
+       - An input's example value from the SPEC is its `value=` (or the `selected` option), never a `placeholder="e.g. …"` standing in for it. A placeholder is only for a field the spec shows empty.
+    6. write_file the exact target path.
+    7. read_file it back once and check the `Done when:` list line by line, and that every colour in a `style=` is a `var(--…)` (never a hex, rgb() or name of your own), and no `placeholder` starts with "e.g." Fix what fails and write again.
+    8. Reply with ONE line: the path written, and anything in the SPEC you could not build. An omission named is worth more than a silent one.
 
     HOW TO DELIVER
 
@@ -999,6 +1020,7 @@ steps:
   - design_system
   - template
   - template_example
+  skills: [velocity-design-system, velocity-design]
   tools:
     read_files: true
     write_files: true
@@ -1056,7 +1078,8 @@ steps:
     1. read_file `build/validation.json`. Code wrote it: `coverage`, `missing`, `degraded`, per-screen `issues`, `fields` (expected from the spec vs found in the part), `theme`. Every entry is on your list.
     2. read_file `design.md`. Its `## Transition table` is the route list you click: one row, one route. Its `## Screen states` are the states you trigger.
     3. read_file `spec.md`, paging to the end: every screen's Fields table (what must be on the screen) and Actions table (what each control must do).
-    4. List, before you open anything: screens (N), routes (N), states (N).
+    4. read_file `.context/selections.json`, `build/theme.json` when it exists, and design.md's `## Theme`, `## Composition` and `## Design rules`. They are the design the prototype must wear; you MEASURE it in Phase 3 and hand what is off to the Presenter.
+    5. List, before you open anything: screens (N), routes (N), states (N).
 
     Phase 2 - Open
 
@@ -1077,12 +1100,16 @@ steps:
     - Every screen's field list is compared with the spec's Fields table: a field in the table with no control on the screen is a fault; a control that is a placeholder ("Lorem", "example value", an empty table the spec fills) is a fault.
     - Every control that looks interactive and does nothing is a fault unless the spec marks it `[not evidenced]` or names no destination for it.
     - Name the screen and the exact element for every fault. "Search does nothing" is not a fault; "`#my-accounts-search` button 'Search' has no data-show, the results state `#my-accounts-search--results-state` is unreachable" is.
+    - DESIGN COMPLIANCE is measured, not judged. With `build/theme.json` present: the computed `font-family` of `body`, the computed `background-color` of the primary button on each screen and of the page ground, and the computed colour of body text must match its `font_family`, `primary`, `background`/`surface` and `text`. An inline `style=` whose colour is a literal (hex, rgb() or a name) rather than a `var(--…)`, or whose font is not the theme's, is off the design system; inline styles that only use variables are the template's own way of styling and are fine. Headings (`h1`–`h4` in the content) must wear `font_family_heading` when the theme has it, and `text` as their colour. A status chip or badge whose background is a colour the theme does not name (and is not a mix of `primary` with white) is off. Each mismatch is a fault with status `not-mine` and a `fault` line that starts `design:` — it is the Presenter's to fix, never yours.
+    - BROKEN LAYOUT is measured too, and it is also the Presenter's (`design:` faults): a grid row (an element with `display:grid`) whose child count differs from its column count (`getComputedStyle(row).gridTemplateColumns` split on spaces) — that is a table whose cells wrap; two sibling controls in one tab strip or nav whose bounding boxes intersect; a page heading hidden under a sticky bar (its top above the bar's bottom at scroll 0).
+    - PLACEHOLDER CONTENT is yours: an input whose `placeholder` starts with "e.g." while the spec gives that field an example value, or a record view whose values sit in empty inputs. Fix it by writing the spec's value into `value=`.
 
     Steps
     1. For each screen, `show` it, snapshot, compare with its spec section, record faults.
     2. For each transition row, click and measure. Record every failure with the screen, the control, the attribute it carries, and what happened instead.
     3. For each state, trigger and measure.
-    4. Write your fault list down before you change anything. Sort it: blocking first (unreachable screens, dead flow controls), then missing content, then dead controls.
+    4. One `playwright_evaluate` per screen returns: the computed values above (body, headings, primary button, page ground, text, chips) when `build/theme.json` exists; the `[style]` elements whose colour is a literal rather than a `var(--…)`, or whose font is not the theme's; every grid row whose child count differs from its column count; intersecting siblings in each tab strip and nav; headings hidden under a sticky bar; and inputs whose placeholder starts with "e.g.". Record each as a fault as the rules above say.
+    5. Write your fault list down before you change anything. Sort it: blocking first (unreachable screens, dead flow controls), then missing content, then dead controls.
 
     Phase 4 - Fix
 
@@ -1125,6 +1152,7 @@ steps:
     HOW TO DELIVER
 
     Your work is the edits to `prototype.html`, `build/bugs.json` and the screenshot. Then deliver the step file the engine asks for with ONE line — your report. It never holds the work.
+  skills: [velocity-design-system, velocity-design]
   tools:
     read_files: true
     write_files: true
@@ -1135,11 +1163,10 @@ steps:
   strategy: single_shot
 - depends_on:
   - custom-agent:pb-validate
+  # Sonnet, not Haiku: the Presenter is the last step and must measure and fix the
+  # design faults the Validator hands it; on Haiku it found and fixed none.
   model:
-    model: eu.anthropic.claude-haiku-4-5-20251001-v1:0
-    fallback:
-    - eu.anthropic.claude-haiku-4-5-20251001-v1:0
-    - eu.anthropic.claude-sonnet-4-6
+    model: eu.anthropic.claude-sonnet-4-6
   agent: custom-agent
   instance_id: pb-present
   name: Presenter
@@ -1173,7 +1200,8 @@ steps:
     Steps
     1. read_file `build/validation.json`. It was written by code, not by an inspector: `coverage`, `totals`, `missing` (screens that were not built and now show as stubs), `degraded` (screens built with a transition pointing at nothing or an expected transition not written), and one entry per screen under `screens` with its `issues`. Everything in it is a CONTENT fault and not yours to fix; note it for your report and leave it alone. A stub screen stays a stub.
     2. read_file `prototype.html`. That file and what the browser shows you are your whole input — you are polishing what exists, not re-deriving what it should have been.
-    3. read_file `build/bugs.json` if it exists: the Validator's record of what it found, fixed and left open. An open item that is presentation is yours to fix in Phase 4; an open item that is content goes in your report, untouched.
+    3. read_file `build/bugs.json` if it exists: the Validator's record of what it found, fixed and left open. An open item that is presentation is yours to fix in Phase 4; an open item that is content goes in your report, untouched. Every `design:` entry is yours.
+    4. Read the design the prototype must wear: `.context/selections.json`, `build/theme.json` when it exists, design.md's `## Theme` and `## Design rules`, and — when they exist — `.context/design/design-system.md` and `.context/design/template/SKILL.md` to their end. You judge the look against THESE, never against your own taste.
 
     Phase 2 - Look
 
@@ -1185,7 +1213,7 @@ steps:
     1. `playwright_navigate("prototype.html")`.
     2. `playwright_snapshot` and read the whole tree once.
     3. Walk every screen the way a reviewer would: through the navigation, in order.
-    4. For each screen, `playwright_evaluate` to check for the measurable faults: horizontal overflow (`scrollWidth > clientWidth`), elements overlapping, text smaller than 11px, a control smaller than 24px in either direction, and any element whose text and background colours are within a hair of each other.
+    4. For each screen, `playwright_evaluate` to check for the measurable faults: horizontal overflow (`scrollWidth > clientWidth`), elements overlapping, text smaller than 11px, a control smaller than 24px in either direction, and any element whose text and background colours are within a hair of each other. Also: every grid row whose child count differs from its column count (`getComputedStyle(row).gridTemplateColumns`), intersecting siblings inside each tab strip and nav, headings whose font or colour differs from `build/theme.json` (`font_family_heading`, `text`), chips or badges painted a colour the theme does not name, and a heading hidden under a sticky bar.
     5. `playwright_console_messages` once at the end.
 
     Phase 3 - Judge
@@ -1202,7 +1230,8 @@ steps:
         * the same component drawn two different ways on two screens
         * navigation that does not say which screen you are on
         * spacing so uneven that the page reads as unfinished
-    - Taste is not a fault. A colour you would have picked differently is not a fault. Only name something you can point at and measure.
+        * OFF THE DESIGN SYSTEM: a computed colour or font that is not in `build/theme.json` or `design-system.md` (measure body font, primary buttons, nav, page ground, headings), an inline `style=` with a literal colour (not a `var(--…)`) or a font the theme does not name, a component drawn against a design rule or the template's own pattern
+    - Taste is not a fault. A colour you would have picked differently is not a fault. A colour or font the design system does not name IS a fault. Only name something you can point at and measure.
     - Never invent work. If the prototype reads well, say so and change nothing.
 
     Steps
@@ -1216,12 +1245,15 @@ steps:
     - You never change CONTENT. Not a field, not a label, not a value, not a table column, not a screen id, not a heading. Those came from the documents through the spec, and a prettier wording is a lie about what the system does.
     - You never delete a screen or a section. A screen that renders badly is fixed, not removed.
     - Fix at the SHELL where you can: one rule in the shared `<style>` beats the same fix pasted onto nine screens.
+    - Every `design:` entry in `build/bugs.json` and every fault you measured is fixed or recorded as open with the reason. A table whose cells wrap is fixed by giving its header and rows a `grid-template-columns` with one value per cell; chips off the theme by one shared rule that uses the theme's variables.
     - Every overlay stays hidden at rest. If you find one visible on load, that is the first thing you fix.
+    - A design fix uses the design's own values: the theme's variables (`var(--color-primary)`, `var(--font-family)`, and the template's own variables such as `--accent` when a template is attached) or a value `build/theme.json` / `design-system.md` names. Never a new hex, never a font the design system does not name. An inline literal colour is replaced by the theme or template variable it should have been; inline styles that only use variables are left alone.
+    - `prototype.html` already exists, and write_file never overwrites a file: every change is an `edit_file` with an exact old string.
 
     Steps
-    1. read_file `prototype.html`.
-    2. Apply your fixes, highest fault first.
-    3. write_file `prototype.html`.
+    1. `grep` `prototype.html` for the markup you will change; read only those lines.
+    2. Apply your fixes with `edit_file`, highest fault first, one fault per edit.
+    3. `grep` again for every string you replaced, to confirm the edit landed.
     4. `playwright_navigate("prototype.html")` again and re-check every fault you claimed to fix. A fix you have not seen working is not a fix.
     5. If a fix broke something else, put it back and record the fault as open.
 
@@ -1239,6 +1271,7 @@ steps:
      "console_errors":["..."]}
     2. `playwright_take_screenshot(".verify/final.png")` of the opening screen, so the run carries a picture of what it produced.
     3. Reply with one line: screens reviewed, faults found, fixed, left open.
+  skills: [velocity-design-system, velocity-design]
   tools:
     read_files: true
     write_files: true

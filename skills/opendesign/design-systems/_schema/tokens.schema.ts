@@ -227,6 +227,12 @@ export const BRAND_EXTENSIONS: Readonly<Record<string, readonly string[]>> = {
     "--radius-xl", // 16px — kami hero containers
     "--elev-ring-accent", // 1px brand ring used as primary-button edge
   ],
+  iberia: [
+    "--accent-gold", // Iberia gold — highlight fill only (tier badge, active nav), never text
+    "--accent-tint", // red tint for the selected table row
+    "--info", // informational state, distinct from the brand red
+    "--brand-gradient", // logo gradient — passenger hero bands only
+  ],
 };
 
 /**

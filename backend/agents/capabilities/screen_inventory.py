@@ -332,7 +332,8 @@ def spec_section(spec: str, sid: str) -> str:
     """The ``### <sid> — <Name>`` block of spec.md, up to the next ``###``/``##`` heading."""
     if not spec:
         return ""
-    m = re.search(rf"^###\s+{re.escape(sid)}\b.*$", spec, re.MULTILINE)
+    # The id ends at whitespace or line end: `search` must not match `### search-results`.
+    m = re.search(rf"^###\s+{re.escape(sid)}(?=\s|$).*$", spec, re.MULTILINE)
     if not m:
         return ""
     rest = spec[m.start() :]
@@ -340,6 +341,12 @@ def spec_section(spec: str, sid: str) -> str:
     return rest[: (m.end() - m.start()) + nxt.start()].strip() if nxt else rest.strip()
 
 
+# A bold label that opens the NEXT block of a screen section (`**Actions:**`,
+# `**Data:** ...`): the Fields block ends there, so its table rows are never fields.
+_NEXT_BLOCK = re.compile(
+    r"^\*\*(?:Actions|Tables?|Data|States?|Source|Rules|Validation|Navigation|Notes|Evidence|Behaviou?r)\b[^*]*:\*\*",
+    re.IGNORECASE,
+)
 _FIELDS_HEAD = re.compile(
     r"^\s*(?:-\s*)?\**Fields\**:?\**\s*$|^\s*-\s*Fields:\s*$", re.MULTILINE
 )
@@ -360,7 +367,11 @@ def spec_fields(section: str) -> list[str]:
         t = line.strip()
         if not t:
             continue  # blank lines separate sub-sections and tables inside one Fields block
-        if t.startswith("#") or re.match(r"^-\s*[A-Z][A-Za-z ]{1,30}:", t):
+        if (
+            t.startswith("#")
+            or re.match(r"^-\s*[A-Z][A-Za-z ]{1,30}:", t)
+            or _NEXT_BLOCK.match(t)
+        ):
             break  # next heading, or the next `- Actions:` / `- States:` / `- Data:` bullet
         if t.startswith("|"):
             cells = [c.strip() for c in t.strip("|").split("|")]

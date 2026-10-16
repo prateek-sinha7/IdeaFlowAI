@@ -99,9 +99,10 @@ steps:
     1. read_file `.context/run-id.txt`: that is <run_id>, this revision's id. This revision's files live under `revisions/<run_id>/`; never read or write any other folder under `revisions/` — those belong to earlier revisions.
     2. grep `.context/user-prompt.md` for `=== REVISION INSTRUCTION ===` with output_mode "content", then read_file it from that line with a limit of 60: that is the person's request. Never read that file whole: above that line the engine pasted the finished prototype as it was BEFORE this revision — work from the files on disk, never from that copy.
     3. read_file `.agents/01-prototype-revision-analyzer.md`: the analyzer's `## Solution Plan`. Follow it where it agrees with the request; the request wins where they differ. Translate its route vocabulary as HOW THE PROTOTYPE MOVES says.
-    4. read_file `design.md`: its `## Transition table` names every control that moves the user, with its exact attribute.
-    5. read_file `build/bugs.json` if it exists: the faults the ORIGINAL run's Validator left open. That is the original run's record: read it, never edit it. One of them may be what the person is asking about.
-    6. If the request mentions an attached file: `ls .uploads/`, then read_file the `.txt` file beside it (the extracted text).
+    4. read_file `design.md`: its `## Transition table` names every control that moves the user, with its exact attribute. Read its `## Theme`, `## Composition` and `## Design rules` too: the look this prototype must keep.
+    5. When the request touches how anything LOOKS (a colour, a font, a size, spacing, emphasis, a component's style): read_file `.context/selections.json` and `.context/design/design-system.md` to its end, and `.context/design/template/SKILL.md` when it exists. A look change uses only values the design system names, through the variables the prototype's `<style>` already declares (`var(--color-primary)`, the template's `--accent` and so on) — never a new hex and never a font the design system does not name. When the request itself names a value outside the design system, do it and say so in your report.
+    6. read_file `build/bugs.json` if it exists: the faults the ORIGINAL run's Validator left open. That is the original run's record: read it, never edit it. One of them may be what the person is asking about.
+    7. If the request mentions an attached file: `ls .uploads/`, then read_file the `.txt` file beside it (the extracted text).
 
     Phase 2 - Locate
 
@@ -148,6 +149,7 @@ steps:
     HOW TO DELIVER
 
     Your work is the edits to `prototype.html`. Then deliver the step file the engine asks for with ONE line — your report. It never holds the work. If the tool says the step file already exists, an earlier revision left it: read_file it, then edit_file its whole content to your one-line report. Never stop on that message.
+  skills: [velocity-design-system, velocity-design]
   tools:
     read_files: true
     write_files: true
@@ -209,7 +211,7 @@ steps:
     1. read_file `.context/run-id.txt`: that is <run_id>, this revision's id. This revision's files live under `revisions/<run_id>/`; never read or write any other folder under `revisions/` — those belong to earlier revisions.
     2. grep `.context/user-prompt.md` for `=== REVISION INSTRUCTION ===` with output_mode "content", then read_file it from that line with a limit of 60: that is the person's request. Never read that file whole: above that line the engine pasted the finished prototype as it was BEFORE this revision — work from the files on disk, never from that copy.
     3. read_file `revisions/<run_id>/fix.md`: the Fixer's report — what it changed and on which screens. Those are your TOUCHED screens.
-    4. read_file `design.md`. Its `## Transition table` is the route list you click: one row, one route. Its `## Screen states` are the states you trigger.
+    4. read_file `design.md`. Its `## Transition table` is the route list you click: one row, one route. Its `## Screen states` are the states you trigger. Its `## Theme` and `## Design rules` (with `build/theme.json` when it exists) are the look the touched screens must keep: an inline `style=` the Fixer added that sets a colour, font or size, or a colour that is not in the theme or `.context/design/design-system.md`, is a fault — unless the request itself asked for that value.
     5. grep `spec.md` for `### <id>` of each touched screen and read that section: its Fields table and Actions table.
     6. List, before you open anything: touched screens (N), routes (N), states on the touched screens (N).
 
@@ -271,6 +273,7 @@ steps:
     HOW TO DELIVER
 
     Your work is the edits to `prototype.html` and the screenshot. As the last step you may be told to deliver `prototype.html` as your step file: it already holds your work, so never write_file or edit_file it to deliver — your one-line reply is your report. When the step file the engine asks for has any other name, write_file it with ONE line — your report. It never holds the work. If the tool says the step file already exists, an earlier revision left it: read_file it, then edit_file its whole content to your one-line report, unless the step file is `prototype.html`, which is never written or edited to deliver. Never stop on that message.
+  skills: [velocity-design-system, velocity-design]
   tools:
     read_files: true
     write_files: true
