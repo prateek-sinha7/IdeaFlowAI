@@ -18,7 +18,7 @@ import React from "react";
 import { act, cleanup, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { renderWithProviders, screen } from "@/test/renderWithProviders";
-import type { PipelineRunState, WorkflowRun, WorkflowType } from "@/types/index";
+import type { AgentRunState, PipelineRunState, WorkflowRun, WorkflowType } from "@/types/index";
 import { getToken, getWorkflow, postCancel, postResume } from "@/lib/api";
 import { routes } from "@/lib/routes";
 import type { RunChatLane } from "@/components/chat/RunChatLane";
@@ -917,6 +917,46 @@ describe("DashboardLayout run lane", () => {
 
       rerenderLayout({ questionnaireData: null, activePipelineRunId: "run-a" });
 
+      expect(screen.getByText("Clarify questions: 0")).toBeInTheDocument();
+    });
+
+    it("clears clarifyPreparing when questionnaireData becomes null (questionnaire_complete)", async () => {
+      // Simulates the inline-clarify scenario (backlog / prototype_v2): agents are
+      // already running when the clarify step fires, so pipelineAgentCount is > 0
+      // and will never change again — the only clearing path is questionnaireData → null.
+      const { user, rerenderLayout } = renderLayout({
+        questionnaireData,
+        activePipelineRunId: "run-a",
+        onSubmitQuestionnaire: vi.fn(),
+        onRetainClarifyRound: vi.fn(),
+        // agents already present — pipelineAgentCount > 0 before clarify starts
+        pipelineState: idlePipelineState({
+          agents: [
+            {
+              id: "a1",
+              name: "Reader",
+              role: "",
+              icon: "",
+              status: "done",
+              output: "",
+              thinking: "",
+              duration: null,
+              error: null,
+              index: 0,
+            } satisfies AgentRunState,
+          ],
+        }),
+      });
+
+      // Submit round-1 answers — this sets clarifyPreparing = true
+      await user.click(screen.getByRole("button", { name: "Submit answers" }));
+      expect(screen.getByText("Preparing questions")).toBeInTheDocument();
+
+      // questionnaire_complete fires → questionnaireData becomes null
+      rerenderLayout({ questionnaireData: null, activePipelineRunId: "run-a" });
+
+      // clarifyPreparing must be cleared — "Preparing questions" must disappear
+      expect(screen.queryByText("Preparing questions")).not.toBeInTheDocument();
       expect(screen.getByText("Clarify questions: 0")).toBeInTheDocument();
     });
 
