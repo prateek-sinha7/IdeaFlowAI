@@ -405,7 +405,16 @@ export function RunHeader({
 
   // ── Download split-button dropdown state (backlog variant only) ─────────────
   const [downloadMenuOpen, setDownloadMenuOpen] = useState(false);
+  const [downloadHighlightIdx, setDownloadHighlightIdx] = useState(0);
   const downloadMenuRef = useRef<HTMLDivElement>(null);
+  const downloadChevronRef = useRef<HTMLButtonElement | null>(null);
+  const downloadOptionRefs = useRef<(HTMLButtonElement | null)[]>([]);
+
+  // Focus the highlighted option when the menu opens or when arrow keys move
+  // the highlight index. Same pattern as VersionMenu above.
+  useEffect(() => {
+    if (downloadMenuOpen) downloadOptionRefs.current[downloadHighlightIdx]?.focus();
+  }, [downloadMenuOpen, downloadHighlightIdx]);
 
   // Close the download dropdown on outside click — same pattern as Share popover.
   useEffect(() => {
@@ -616,8 +625,13 @@ export function RunHeader({
             <span aria-hidden className={`self-stretch w-px ${canDownload ? "bg-white/30" : "bg-white/15"}`} />
             {/* Right segment — chevron toggle */}
             <button
+              ref={downloadChevronRef}
               type="button"
-              onClick={() => canDownload && setDownloadMenuOpen((o) => !o)}
+              onClick={() => {
+                if (!canDownload) return;
+                if (!downloadMenuOpen) setDownloadHighlightIdx(0);
+                setDownloadMenuOpen((o) => !o);
+              }}
               disabled={!canDownload}
               aria-haspopup="menu"
               aria-expanded={downloadMenuOpen}
@@ -635,13 +649,31 @@ export function RunHeader({
             <div
               role="menu"
               aria-label="Download options"
-              onKeyDown={(e) => { if (e.key === "Escape") { e.preventDefault(); setDownloadMenuOpen(false); } }}
+              onKeyDown={(e: React.KeyboardEvent) => {
+                if (e.key === "Escape") {
+                  e.preventDefault();
+                  setDownloadMenuOpen(false);
+                  downloadChevronRef.current?.focus();
+                } else if (e.key === "ArrowDown") {
+                  e.preventDefault();
+                  setDownloadHighlightIdx((i) => Math.min(i + 1, 2));
+                } else if (e.key === "ArrowUp") {
+                  e.preventDefault();
+                  setDownloadHighlightIdx((i) => Math.max(i - 1, 0));
+                } else if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  downloadOptionRefs.current[downloadHighlightIdx]?.click();
+                }
+              }}
               className="absolute right-0 top-full z-50 mt-1 min-w-[220px] rounded-[12px] border border-line-border bg-surface-white shadow-xl py-1"
             >
               {/* Option 1 — Zip */}
               <button
+                ref={(el) => { downloadOptionRefs.current[0] = el; }}
                 type="button"
                 role="menuitem"
+                tabIndex={downloadHighlightIdx === 0 ? 0 : -1}
+                onMouseEnter={() => setDownloadHighlightIdx(0)}
                 aria-label="Download workspace ZIP archive"
                 onClick={() => { (onDownloadZip ?? onDownload)?.(); setDownloadMenuOpen(false); }}
                 className="flex w-full items-center gap-3 px-4 py-2.5 text-left font-sans text-[12.5px] text-ink-700 hover:bg-surface-warm transition-colors"
@@ -652,8 +684,11 @@ export function RunHeader({
 
               {/* Option 2 — PDF */}
               <button
+                ref={(el) => { downloadOptionRefs.current[1] = el; }}
                 type="button"
                 role="menuitem"
+                tabIndex={downloadHighlightIdx === 1 ? 0 : -1}
+                onMouseEnter={() => setDownloadHighlightIdx(1)}
                 aria-label="Download Backlog as PDF"
                 onClick={() => {
                   // TODO: dedicated Backlog.pdf endpoint
@@ -668,8 +703,11 @@ export function RunHeader({
 
               {/* Option 3 — Zip with all docs as PDF */}
               <button
+                ref={(el) => { downloadOptionRefs.current[2] = el; }}
                 type="button"
                 role="menuitem"
+                tabIndex={downloadHighlightIdx === 2 ? 0 : -1}
+                onMouseEnter={() => setDownloadHighlightIdx(2)}
                 aria-label="Download ZIP with all documents as PDF"
                 onClick={() => {
                   // TODO: server-side zip-with-pdfs endpoint

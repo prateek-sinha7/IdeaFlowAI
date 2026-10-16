@@ -1465,7 +1465,11 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
     // U1: also resolve while a tag is pinned (sandboxSelectedRef), even if the
     // CURRENT/live run isn't complete yet — browsing an older tag has to keep
     // working while a later revision is still running.
-    if (!activeRunId || (headerRunState !== "complete" && !sandboxSelectedRef)) return;
+    // Also resolve when the server reports "completed" but hasContent is false
+    // (e.g. backlog runs whose deliverable is a sandbox file, never inline text,
+    // so headerRunState stays "idle" instead of "complete").
+    const isSettledRun = headerRunState === "complete" || reopenedRunStatus === "completed";
+    if (!activeRunId || (!isSettledRun && !sandboxSelectedRef)) return;
     let cancelled = false;
     void (async () => {
       const token = getToken();
@@ -1519,7 +1523,7 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
       }
     })();
     return () => { cancelled = true; };
-  }, [activeRunId, headerRunState, sandboxSelectedRef, displayRef, pipelineState?.deliverableFilename]);
+  }, [activeRunId, headerRunState, reopenedRunStatus, sandboxSelectedRef, displayRef, pipelineState?.deliverableFilename]);
 
   // ── U1: browsing a tag fetches that tag's deliverable bytes, read-only ────
   // Reuses the SAME resolved path the header Download button already found —
