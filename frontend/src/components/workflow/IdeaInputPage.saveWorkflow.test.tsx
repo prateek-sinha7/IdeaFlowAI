@@ -88,8 +88,18 @@ const openSaveModal = (user: ReturnType<typeof userEvent.setup>) =>
 
 async function saveAs(user: ReturnType<typeof userEvent.setup>, name: string, description = "") {
   await openSaveModal(user);
-  await user.type(screen.getByLabelText("Workflow name"), name);
-  if (description) await user.type(screen.getByLabelText(/Description/), description);
+  // Use findByLabelText (async poll) so the modal is fully mounted before we interact.
+  // Use paste() instead of type() — paste is atomic and does not dispatch individual
+  // keydown/keypress events, so focus cannot drift back to the brief textarea between
+  // characters on re-renders triggered by state changes (e.g. "untouch gates").
+  const nameInput = await screen.findByLabelText("Workflow name");
+  await user.click(nameInput);
+  await user.paste(name);
+  if (description) {
+    const descInput = screen.getByLabelText(/Description/);
+    await user.click(descInput);
+    await user.paste(description);
+  }
   await user.click(screen.getByRole("button", { name: "Save" }));
 }
 

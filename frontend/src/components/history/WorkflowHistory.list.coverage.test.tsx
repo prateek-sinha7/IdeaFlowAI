@@ -107,6 +107,10 @@ class FakeIntersectionObserver {
 async function scrollSentinelIntoView(isIntersecting = true) {
   const live = observers.filter((o) => !o.disconnected);
   const latest = live[live.length - 1];
+  // Guard: if no observer is registered yet (e.g. sentinel not mounted or
+  // the useEffect hasn't run), treat the call as a no-op so tests that assert
+  // "nothing happened" don't crash on a missing observer.
+  if (!latest) return;
   await act(async () => {
     latest.callback([{ isIntersecting } as IntersectionObserverEntry], {} as IntersectionObserver);
   });
