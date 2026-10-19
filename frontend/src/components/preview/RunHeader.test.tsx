@@ -308,3 +308,121 @@ describe("RunHeader — failed state", () => {
     expect(screen.getByText(/Run failed · Security reviewer/)).toBeInTheDocument();
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// RunHeader — backlog download split-button
+//
+// Covers the six acceptance criteria for the downloadVariant="backlog" path:
+// (a) split button renders with the correct controls,
+// (b) chevron opens the dropdown with all 3 items,
+// (c) Zip option calls onDownloadZip,
+// (d) PDF option calls onDownloadPdf,
+// (e) clicking outside closes the dropdown,
+// (f) default variant still renders the single "Download" button (regression).
+// ─────────────────────────────────────────────────────────────────────────────
+describe("RunHeader — backlog download split-button", () => {
+  it("(a) renders split button when downloadVariant=backlog and canDownload=true", () => {
+    render(
+      <RunHeader
+        runState="complete"
+        versionLabel="v1"
+        downloadVariant="backlog"
+        canDownload
+        onDownload={() => {}}
+        onDownloadZip={() => {}}
+        onDownloadPdf={() => {}}
+        onDownloadZipWithPdf={() => {}}
+      />,
+    );
+    expect(screen.getByRole("button", { name: /Download workspace ZIP/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /More download options/ })).toBeInTheDocument();
+    // Dropdown is closed initially — no menu items visible.
+    expect(screen.queryByRole("menuitem")).toBeNull();
+  });
+
+  it("(b) chevron click opens the dropdown with all 3 options", () => {
+    render(
+      <RunHeader
+        runState="complete"
+        versionLabel="v1"
+        downloadVariant="backlog"
+        canDownload
+        onDownload={() => {}}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /More download options/ }));
+    expect(screen.getByRole("menuitem", { name: /Download workspace ZIP archive/ })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: /Download Backlog as PDF/ })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: /Download ZIP with all documents as PDF/ })).toBeInTheDocument();
+  });
+
+  it("(c) clicking the Zip option calls onDownloadZip and closes the menu", () => {
+    const onDownloadZip = vi.fn();
+    render(
+      <RunHeader
+        runState="complete"
+        versionLabel="v1"
+        downloadVariant="backlog"
+        canDownload
+        onDownload={() => {}}
+        onDownloadZip={onDownloadZip}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /More download options/ }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /Download workspace ZIP archive/ }));
+    expect(onDownloadZip).toHaveBeenCalledTimes(1);
+    // Dropdown closes after selection.
+    expect(screen.queryByRole("menuitem")).toBeNull();
+  });
+
+  it("(d) clicking the PDF option calls onDownloadPdf and closes the menu", () => {
+    const onDownloadPdf = vi.fn();
+    render(
+      <RunHeader
+        runState="complete"
+        versionLabel="v1"
+        downloadVariant="backlog"
+        canDownload
+        onDownload={() => {}}
+        onDownloadPdf={onDownloadPdf}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /More download options/ }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /Download Backlog as PDF/ }));
+    expect(onDownloadPdf).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("menuitem")).toBeNull();
+  });
+
+  it("(e) mousedown outside the split-button container closes the dropdown", () => {
+    render(
+      <RunHeader
+        runState="complete"
+        versionLabel="v1"
+        downloadVariant="backlog"
+        canDownload
+        onDownload={() => {}}
+      />,
+    );
+    // Open the menu.
+    fireEvent.click(screen.getByRole("button", { name: /More download options/ }));
+    expect(screen.getByRole("menu")).toBeInTheDocument();
+    // Simulate a mousedown on document.body — outside the split-button.
+    fireEvent.mouseDown(document.body);
+    expect(screen.queryByRole("menu")).toBeNull();
+  });
+
+  it("(f) default variant (no downloadVariant prop) renders the single Download button — regression guard", () => {
+    render(
+      <RunHeader
+        runState="complete"
+        versionLabel="v1"
+        onDownload={() => {}}
+        canDownload
+      />,
+    );
+    expect(screen.getByRole("button", { name: /Download the deliverable/ })).toBeInTheDocument();
+    // No split-button controls present.
+    expect(screen.queryByRole("button", { name: /More download options/ })).toBeNull();
+    expect(screen.queryByRole("menu")).toBeNull();
+  });
+});

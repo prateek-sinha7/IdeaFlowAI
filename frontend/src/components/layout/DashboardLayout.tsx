@@ -1399,9 +1399,13 @@ export function DashboardLayout({
       // FIX-225: new round arrived — no longer preparing.
       setClarifyPreparing(false);
     } else if (!questionnaireData) {
-      // questionnaireData was cleared — clear the questions so the Steps panel
-      // does not show stale questions from a previous run.
+      // questionnaireData was cleared (questionnaire_complete, run switch, terminal).
+      // Clear both the questions list and the preparing indicator so laneClarifyOpen
+      // does not stay stuck for workflows with inline clarify agents (backlog,
+      // prototype_v2) where pipelineAgentCount is already > 0 when clarify runs
+      // and the pipelineAgentCount effect will never fire again to clear the flag.
       setQuestionnaireQuestions([]);
+      setClarifyPreparing(false);
     }
   }, [questionnaireData]);
 
@@ -2202,11 +2206,18 @@ export function DashboardLayout({
       if (freeformInput) {
         responses.push({ question_id: "freeform", answer: freeformInput });
       }
+      // Capture the round count BEFORE calling onRetainClarifyRound — that call
+      // enqueues a setPipelineState update which won't flush until the next render,
+      // so reading pipelineState?.clarifications?.length after the call would return
+      // the stale (pre-update) value and cause the "Preparing your questions…"
+      // indicator to appear again on round 2+ even though answers were already given.
+      const roundsAnsweredSoFar = pipelineState?.clarifications?.length ?? 0;
+
       // Workstream C1 (POR §6.5): fold the answered Q&A into run-scoped state
       // BEFORE clearing the panel — order matters, else the round is lost.
       if (onRetainClarifyRound) {
         const round = {
-          round: (pipelineState?.clarifications?.length ?? 0) + 1,
+          round: roundsAnsweredSoFar + 1,
           qa: questionnaireQuestions.map((q) => {
             const selected = answers[q.id];
             return {
@@ -2225,7 +2236,6 @@ export function DashboardLayout({
       // round submitting (clarifications.length === 0 means no rounds answered
       // yet). A second+ round submit is likely the final one before build starts,
       // so we don't show the indicator to avoid it lingering during agent startup.
-      const roundsAnsweredSoFar = pipelineState?.clarifications?.length ?? 0;
       if (roundsAnsweredSoFar === 0) {
         setClarifyPreparing(true);
       }

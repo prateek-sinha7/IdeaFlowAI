@@ -79,7 +79,7 @@ describe("ISS-126 reopen reconciles a terminal run (source-lock)", () => {
 
   it("runs AFTER the durable replay loop, never before it", () => {
     // ISS-1010: search from the reopen handler's fetch — the first loop in the file is the run-switch handler's.
-    const fetchAt = pageSource.indexOf("const durableFrames = await getRunEvents(currentToken, fullRun.id);");
+    const fetchAt = pageSource.indexOf("const durableFrames = await eventsPromise;");
     expect(fetchAt).toBeGreaterThan(-1);
     const loopStart = pageSource.indexOf("for (const frame of durableFrames)", fetchAt);
     const call = pageSource.indexOf(APPLY_CALL);
@@ -89,7 +89,7 @@ describe("ISS-126 reopen reconciles a terminal run (source-lock)", () => {
   });
 
   it("stays inside the reopen handler, after the durable fetch", () => {
-    const fetchAt = pageSource.indexOf("const durableFrames = await getRunEvents(currentToken, fullRun.id);");
+    const fetchAt = pageSource.indexOf("const durableFrames = await eventsPromise;");
     const call = pageSource.indexOf(APPLY_CALL);
     expect(fetchAt).toBeGreaterThan(-1);
     expect(call).toBeGreaterThan(fetchAt);

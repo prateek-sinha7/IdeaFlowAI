@@ -1343,9 +1343,13 @@ export async function getAnalyticsSummary(
 
 export async function getWorkflow(
   token: string,
-  workflowId: string
+  workflowId: string,
+  includeHeavy = true,
 ): Promise<WorkflowRun> {
-  const raw = await singleFlightGet<RawWorkflowRun>(`/api/runs/${workflowId}`, token);
+  const url = includeHeavy
+    ? `/api/runs/${workflowId}`
+    : `/api/runs/${workflowId}?include_heavy=false`;
+  const raw = await singleFlightGet<RawWorkflowRun>(url, token);
   return normalizeWorkflowRun(raw);
 }
 
@@ -1483,32 +1487,12 @@ export interface DurableFrame {
  * `next_after` while `has_more` holds and returns every page concatenated.
  * An envelope without `has_more` (old backend, mock `{}`) is the last page.
  */
-export async function getRunEvents(
-  token: string,
-  runId: string,
-  afterSeq = 0,
-): Promise<DurableFrame[]> {
-  const pages: RunEventRow[][] = [];
-  let after = afterSeq;
-  for (;;) {
-    // ISS-871 / FIX-647: singleFlightGet so concurrent identical calls (e.g.
-    // handleSelectWorkflowRun firing once pre-remount and again from the
-    // cold-mount T11 effect post-remount) share one in-flight request rather
-    // than launching a second multi-MB fetch. The key carries the page cursor,
-    // so a page never coalesces with a different page. Mirrors getRunFamily.
-    // limit=5000 is the server's max page (runs.py get_run_events, le=5000).
-    const res = await singleFlightGet<RunEventsResponse>(
-      `/api/runs/${encodeURIComponent(runId)}/events?after=${after}&limit=5000`,
-      token,
-    );
-    pages.push(res?.events ?? []);
-    // Only a cursor that moves forward continues: a missing has_more, a missing
-    // or stuck next_after, or a NaN cursor ends the loop, never a request storm.
-    const next = res?.next_after;
-    if (!res?.has_more || typeof next !== "number" || !(next > after)) break;
-    after = next;
-  }
-  return pages.flat().map((row) => ({
+/** Maps a single durable run_event row to a DurableFrame envelope.  Extracted
+ *  so the progressive onPage callback and the final accumulated return both use
+ *  the same transformation — no double-mapping, no divergence between the two
+ *  delivery paths. */
+function mapEventRow(row: RunEventRow): DurableFrame {
+  return {
     type: row.type,
     // Merge the row's authoritative `event_id` + `seq` COLUMNS over payload_json
     // (BUG-018): a durable Concierge chat_reply carries its DISTINCT event_id
@@ -1527,7 +1511,42 @@ export async function getRunEvents(
       event_id: row.event_id,
       seq: row.seq,
     },
-  }));
+  };
+}
+
+export async function getRunEvents(
+  token: string,
+  runId: string,
+  afterSeq = 0,
+  onPage?: (frames: DurableFrame[]) => void,
+): Promise<DurableFrame[]> {
+  const allFrames: DurableFrame[] = [];
+  let after = afterSeq;
+  for (;;) {
+    // ISS-871 / FIX-647: singleFlightGet so concurrent identical calls (e.g.
+    // handleSelectWorkflowRun firing once pre-remount and again from the
+    // cold-mount T11 effect post-remount) share one in-flight request rather
+    // than launching a second multi-MB fetch. The key carries the page cursor,
+    // so a page never coalesces with a different page. Mirrors getRunFamily.
+    // limit=5000 is the server's max page (runs.py get_run_events, le=5000).
+    const res = await singleFlightGet<RunEventsResponse>(
+      `/api/runs/${encodeURIComponent(runId)}/events?after=${after}&limit=5000`,
+      token,
+    );
+    const pageFrames = (res?.events ?? []).map(mapEventRow);
+    allFrames.push(...pageFrames);
+    // FIX-3 (perf): deliver each page to the caller as it resolves so the chat
+    // and Steps panels populate progressively instead of waiting for all pages.
+    // seenEventIdsRef dedup on the consumer side keeps this idempotent with any
+    // concurrent live SSE tail.
+    if (onPage) onPage(pageFrames);
+    // Only a cursor that moves forward continues: a missing has_more, a missing
+    // or stuck next_after, or a NaN cursor ends the loop, never a request storm.
+    const next = res?.next_after;
+    if (!res?.has_more || typeof next !== "number" || !(next > after)) break;
+    after = next;
+  }
+  return allFrames;
 }
 
 /** A single artifact node from GET /api/runs/{id}/artifacts (mirrors the

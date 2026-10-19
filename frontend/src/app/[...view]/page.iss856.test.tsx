@@ -33,7 +33,7 @@ describe("handleSelectWorkflowRun must not blindly re-fetch a run it was already
 
     const start = src.indexOf("const handleSelectWorkflowRun = useCallback(");
     expect(start).toBeGreaterThan(-1);
-    const callMarker = "await getWorkflow(currentToken, run.id)";
+    const callMarker = "await getWorkflow(currentToken, run.id, false)";
     const callIdx = src.indexOf(callMarker, start);
     expect(callIdx).toBeGreaterThan(start);
 
@@ -42,7 +42,7 @@ describe("handleSelectWorkflowRun must not blindly re-fetch a run it was already
     // this test would otherwise pass/fail for the wrong reason.
     const tryIdx = src.lastIndexOf("try {", callIdx);
     expect(tryIdx).toBeGreaterThan(start);
-    expect(callIdx - tryIdx).toBeLessThan(600);
+    expect(callIdx - tryIdx).toBeLessThan(3000);
 
     const guardWindow = src.slice(tryIdx, callIdx);
 

@@ -787,12 +787,20 @@ def export_pptx(
 @router.get("/{workflow_id}", response_model=WorkflowRunResponse)
 def get_run(
     workflow_id: str,
+    include_heavy: bool = Query(True),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """Get a specific workflow run by ID.
 
     Returns 404 if the workflow does not exist or does not belong to the user.
+
+    Pass ``include_heavy=false`` on the history-reopen path to exclude the
+    large ``agent_outputs`` and ``input`` fields (~500 KB – 1 MB each) from
+    the response.  ``output`` (the deliverable) is always returned — it is
+    needed for immediate preview rendering.  All other callers that do not
+    pass this parameter receive the full response (``include_heavy`` defaults
+    to ``True``).
     """
     workflow_run = (
         db.query(WorkflowRun)
@@ -804,6 +812,16 @@ def get_run(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Workflow run not found",
         )
+
+    # FIX-4 (perf): when include_heavy=false, mask the two heavy text columns
+    # before building the response so the ~500 kB – 1 MB agent_outputs blob is
+    # not serialised.  `output` (the deliverable) is always returned — it drives
+    # the preview pane.  Modifying the ORM object in-memory is safe here: this
+    # is a GET handler, db.commit() is never called, so the mutation does not
+    # persist.
+    if not include_heavy:
+        workflow_run.agent_outputs = None
+        workflow_run.input = None
 
     roots = _compute_root_ids(db, current_user.id, [workflow_run])
     return _run_response(
