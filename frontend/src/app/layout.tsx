@@ -10,10 +10,18 @@ import { StoreProvider } from "@/store/StoreProvider";
 import { GlobalPreloadIndicator } from "@/store/GlobalPreloadIndicator";
 
 // Structural/sans font (evidence 11 §B2) — bound to --font-sans in globals.css.
+// NOTE: Using variable-weight syntax ("100..900") instead of an explicit
+// weight array to work around a Next.js 16.3.4 Turbopack regression: the
+// NextFontGoogleFontFileReplacer import-map handler requires each CSS
+// @font-face src URL to carry exactly one query entry. An explicit weight
+// array causes Google Fonts to return separate @font-face blocks per weight
+// × unicode-range combination (30 blocks for 5 weights × 6 ranges), each
+// of which fails. A variable-weight range collapses these into a single
+// @font-face per unicode-range and resolves correctly.
 const manrope = Manrope({
   variable: "--font-manrope",
   subsets: ["latin"],
-  weight: ["400", "500", "600", "700", "800"],
+  display: "swap",
 });
 
 // Reading font occupying the serif slot (evidence 11 §B2) — bound to
@@ -22,7 +30,7 @@ const manrope = Manrope({
 const heebo = Heebo({
   variable: "--font-heebo",
   subsets: ["latin"],
-  weight: ["400", "500", "600", "700"],
+  display: "swap",
 });
 
 export const metadata: Metadata = {
