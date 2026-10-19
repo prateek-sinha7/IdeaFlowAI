@@ -745,8 +745,8 @@ describe("DashboardPage run reopen", () => {
     mount("/runs/r1");
 
     await waitFor(() => expect(props()?.userStoryContent).toBe("# Stories"));
-    expect(h.api.getWorkflow).toHaveBeenCalledWith("tok", "r1");
-    expect(h.api.getRunEvents).toHaveBeenCalledWith("tok", "r1");
+    expect(h.api.getWorkflow).toHaveBeenCalledWith("tok", "r1", false);
+    expect(h.api.getRunEvents).toHaveBeenCalledWith("tok", "r1", 0, expect.any(Function));
     expect(props().contentSourceRunId).toBe("r1");
     expect(props().contentSourceRunType).toBe("user_stories");
     expect(props().reopenedRunStatus).toBeUndefined();
@@ -939,7 +939,7 @@ describe("DashboardPage run reopen", () => {
 
     await waitFor(() => expect(props()?.activePipelineRunId).toBe("r1"));
     expect(props().contentSourceRunType).toBe("ppt");
-    expect(h.api.getWorkflow).toHaveBeenCalledWith("tok", "r1");
+    expect(h.api.getWorkflow).toHaveBeenCalledWith("tok", "r1", false);
   });
 });
 
@@ -1030,7 +1030,7 @@ describe("DashboardPage live stream cold mount", () => {
     mount("/runs/r1/stream");
 
     await waitFor(() => expect(h.conn.attachRun).toHaveBeenCalledWith("r1"));
-    expect(h.api.getWorkflow).toHaveBeenCalledWith("tok", "r1");
+    expect(h.api.getWorkflow).toHaveBeenCalledWith("tok", "r1", false);
     expect(props().initialMainView).toBe("execution");
   });
 

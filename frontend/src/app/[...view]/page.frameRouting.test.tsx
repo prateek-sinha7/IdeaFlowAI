@@ -536,7 +536,7 @@ describe("DashboardPage pipeline lifecycle frames", () => {
       render(<DashboardPage />);
       await waitFor(() => expect(props()?.reopenedRunStatus).toBe("diverted"));
 
-      expect(h.api.getRunEvents).toHaveBeenCalledWith(token, "r1");
+      expect(h.api.getRunEvents).toHaveBeenCalledWith(token, "r1", 0, expect.any(Function));
       expect(h.api.getWorkflows).not.toHaveBeenCalled();
     });
   });

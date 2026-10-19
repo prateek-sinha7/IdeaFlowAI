@@ -118,7 +118,7 @@ describe("ISS-779 — handleSelectWorkflowRun (page.tsx) carries no trackedRunId
 
       // Sanity: genuinely the two-phase async reopen path the card describes.
       expect(body).toContain("trackedRunIdRef.current = run.id");
-      expect(body).toContain("await getRunEvents(");
+      expect(body).toContain("getRunEvents(");
 
       // ISS-779 unfixed: `trackedRunIdRef.current` is WRITTEN in this function
       // (to claim the switch) but never READ back to check it is still current
