@@ -68,14 +68,10 @@ steps:
   depends_on: []
   model:
     model: eu.anthropic.claude-sonnet-4-6
-  agent: custom-agent
+  agent: design-ingestor-figma
   instance_id: design-ingestor-figma
   name: Figma Design Ingestor
   condition: "source_type == 'figma'"
-  prompt: |-
-    # Figma Design Ingestor (stub — Phase 3 replaces this)
-    Placeholder. Phase 3 supplies the real AGENT.md prompt.
-    Exit immediately without writing any files.
   tools:
     read_files: true
     write_files: true
