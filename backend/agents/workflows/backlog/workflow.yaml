@@ -86,7 +86,137 @@ limits:
   max_depth: 2
   wall_clock_seconds: 10800
 steps:
-- depends_on: []
+- strategy: single_shot
+  depends_on: []
+  model:
+    model: eu.anthropic.claude-sonnet-4-6
+  agent: custom-agent
+  instance_id: us-target-clarify
+  name: Target System Clarify
+  produces: [".clarify/target.json", "clarify/answers.json"]
+  consumes: []
+  prompt: |-
+    You are Target System Clarify.
+
+    TOOLS: never call write_todos — the phases below are your plan. Never ls or glob for a
+    file this prompt names by its path.
+
+    The whole pipeline runs after you and generates a backlog for a TARGET system.
+    You ask the user what that target system is — its architecture, framework, frontend,
+    database, and deployment — so every downstream agent writes for the right stack.
+    You record your questions in `.clarify/target.json` and put them to the user once.
+    Do not look for answers: they are written after your turn ends.
+
+    3 phases, in order.
+
+      Phase 1 - Build questions
+      Phase 2 - Record
+      Phase 3 - Ask
+
+    HOW TO WRITE A PATH
+
+    Paths have a leading dot where the folder has one and no leading slash:
+    `.clarify/target.json`. If a tool hands you a path starting with `/`, drop the slash.
+
+    Phase 1 - Build questions
+
+    Rules
+    - Ask EXACTLY the following six questions, in this order, with these ids and options.
+      Do not add questions, drop questions, or change their ids.
+    - Every question gets a recommended answer and one line saying why.
+
+    Questions (ids are fixed: target-1 through target-6):
+
+    target-1  "What is the target system architecture?"
+      options: "Monolith web application", "Microservices", "Serverless / event-driven",
+               "Mobile-first (native iOS/Android)", "API-only backend",
+               "No preference — Architect decides"
+      recommended: "Monolith web application"
+      reasoning: "Monolith is the pragmatic default for a new system; migrate to
+                  microservices only when scale demands it."
+      impactLevel: high
+
+    target-2  "What backend framework and language should the stories target?"
+      options: "Spring Boot / Java", "Node.js (Express or NestJS)", ".NET Core / C#",
+               "Django or FastAPI / Python", "Ruby on Rails",
+               "No preference — Architect decides"
+      recommended: "No preference — Architect decides"
+      reasoning: "No source document states a technology choice; leave it open unless
+                  the user's organisation has a standard."
+      impactLevel: high
+
+    target-3  "What frontend framework should the stories target?"
+      options: "React", "Angular", "Vue.js", "Next.js (React / SSR)",
+               "Server-side rendering only (no SPA)",
+               "No preference — Architect decides"
+      recommended: "React"
+      reasoning: "React is the most widely adopted choice and the safest default when
+                  no source document specifies a technology."
+      impactLevel: high
+
+    target-4  "What database or data storage should the stories target?"
+      options: "PostgreSQL", "MySQL / MariaDB", "MongoDB", "SQL Server",
+               "DynamoDB / cloud-native NoSQL",
+               "No preference — Architect decides"
+      recommended: "PostgreSQL"
+      reasoning: "PostgreSQL is the default open-source relational database and the
+                  right choice unless the source documents show a specific requirement."
+      impactLevel: medium
+
+    target-5  "Where will the target system be deployed?"
+      options: "AWS", "Azure", "Google Cloud Platform",
+               "On-premises / private cloud",
+               "No preference — Architect decides"
+      recommended: "No preference — Architect decides"
+      reasoning: "Deployment target changes infrastructure stories and IaC stories.
+                  Leave open unless the user has an existing cloud commitment."
+      impactLevel: medium
+
+    target-6  "What best describes this backlog project?"
+      options: "New greenfield system", "Migration from the source prototype stack",
+               "Augmentation of an existing platform", "Proof-of-concept / MVP"
+      recommended: "New greenfield system"
+      reasoning: "The usual case when reading a prototype and writing a backlog for
+                  a different stack."
+      impactLevel: high
+
+    Steps
+    1. Prepare the six question objects exactly as above.
+
+    Phase 2 - Record
+
+    Rules
+    - ONE write_file call to `.clarify/target.json`. `content` is TEXT, every item of a
+      list on a line of its own. If the tool says content is invalid, you passed an
+      object — send the same JSON again as text.
+
+    Steps
+    1. write_file `.clarify/target.json` in exactly this shape:
+       {"for": "target", "asked": [<the six question objects, in order>]}
+
+    Phase 3 - Ask
+
+    Rules
+    - `ask_user` is the only way to reach the user. ONE call with all six questions.
+
+    Steps
+    1. Call `ask_user` ONCE with the list of six question objects.
+    2. Stop. Do not call it a second time.
+    3. Reply with one line: "6 target system questions asked."
+
+    HOW TO DELIVER
+
+    Your work file is `.clarify/target.json`. Then deliver the step file the engine asks
+    for with ONE line — your report. It never holds the work.
+  tools:
+    read_files: true
+    write_files: true
+    exec: false
+    tool_sets:
+    - ask_user
+  gates: []
+- depends_on:
+  - custom-agent:us-target-clarify
   agent: custom-agent
   instance_id: us-ui-extract
   name: UI Extract
@@ -570,7 +700,7 @@ steps:
   instance_id: us-solution
   name: Solution Analyst
   produces: ["build/solution/screens.json", "build/solution/features.json", "build/solution/entities.json", "build/solution/integrations.json", "build/solution/roles.json", "build/solution/nfrs.json", "build/solution/platform.json", "build/solution/rules.json", "build/solution/glossary.json", "solution.md"]
-  consumes: ["synthesis.md", "file-synthesis/", ".clarify/solution.json"]
+  consumes: ["synthesis.md", "file-synthesis/", ".clarify/solution.json", ".clarify/target.json", "clarify/answers.json"]
   prompt: |-
     You are the Solution Analyst.
 
@@ -600,7 +730,15 @@ steps:
     1. read_file `synthesis.md` to its end.
     2. ls `file-synthesis/`, then read_file every `file-synthesis/<slug>/synthesis.md` to its end.
     3. read_file `.clarify/solution.json` if it exists — Solution Clarify's assessment, made before you start: the gaps the documents closed ("settled") and the questions put to the user ("asked"). The answers are already in `synthesis.md` under `## Decisions from the user`, as `[user gap-N]` lines; an asked gap still under `## Open gaps` was not answered.
-    4. Say in your reply which line of each file you stopped at and why it is the end.
+    4. read_file `.clarify/target.json` if it exists — the target system the user chose: architecture,
+       backend framework, frontend framework, database, and deployment target. Use these choices
+       throughout the model: when inferring platform items (project setup, data foundation,
+       delivery), NFRs (technology constraints, security posture, deployment pipeline), and
+       inferred integrations. A user-stated technology choice overrides an inferred one.
+    5. read_file `clarify/answers.json` if it exists — all prior question-and-answer pairs. A
+       `target-N` answer is the user's authoritative technology decision for the corresponding
+       target system choice; cite it as `[user target-N]` wherever it drives an item.
+    6. Say in your reply which line of each file you stopped at and why it is the end.
 
     Phase 2 - Screens
 
