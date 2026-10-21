@@ -42,10 +42,6 @@ steps:
   instance_id: design-ingestor-html
   name: HTML Design Ingestor
   condition: "source_type == 'html'"
-  prompt: |-
-    # HTML Design Ingestor (stub — Phase 2 replaces this)
-    Placeholder. Phase 2 supplies the real AGENT.md prompt.
-    Exit immediately without writing any files.
   tools:
     read_files: true
     write_files: true
