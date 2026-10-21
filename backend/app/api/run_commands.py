@@ -2576,6 +2576,12 @@ class LaunchCommand(BaseModel):
     # _resolve_launch_agents passes this count to resolve_launch_od_context so
     # it can detect source_type = "figma" without reading the sandbox.
     figma_frame_count: int | None = None
+    # Design Ingestor (Phase 1 / GAP-1fix): explicit source_type signal from the
+    # wizard.  The frontend sends this as the snake_case key "source_type" inside
+    # extraParams, which the useWorkflow hook merges at the top level of the POST
+    # /api/runs body.  Takes priority over figma_frame_count detection so a Figma
+    # launch is never misidentified as "catalog" even before frames are uploaded.
+    source_type: str | None = None
 
 
 def _reject(
@@ -2767,6 +2773,10 @@ def _resolve_launch_agents(body: "LaunchCommand", compiled=None):
                 # resolve_launch_od_context detects source_type="figma" when the
                 # frontend uploaded frames before calling POST /api/runs.
                 figma_frame_count=body.figma_frame_count,
+                # Design Ingestor (Phase 1 / GAP-1fix): explicit signal wins over
+                # frame-count heuristic.  The wizard always sends source_type so
+                # a Figma launch is detected even when frames land after launch.
+                source_type_override=body.source_type,
             )
         except LookupError as exc:
             raise _reject("template_not_found", str(exc))

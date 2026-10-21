@@ -57,6 +57,7 @@ def resolve_launch_od_context(
     fatal: bool,
     context_providers: list[str] | None = None,
     figma_frame_count: int | None = None,
+    source_type_override: str | None = None,
 ) -> tuple[str, dict | None]:
     """Resolve ``(base_pipeline_type, od_context)`` for a run launch.
 
@@ -123,8 +124,16 @@ def resolve_launch_od_context(
     # never mis-classified as catalog even when template_id is absent.
     # source_type is carried into od_context so selections.json captures it for
     # every downstream agent (opendesign context provider, ingestor step).
-    if figma_frame_count is not None and figma_frame_count > 0:
-        source_type: str = "figma"
+    #
+    # source_type_override (GAP-1fix): the wizard sends the explicit signal via
+    # the frontend's extraParams → source_type field, taking priority over the
+    # frame-count heuristic.  Frames are uploaded AFTER run creation so
+    # figma_frame_count is always None at launch time; the override closes that
+    # timing gap without changing any existing detection path.
+    if source_type_override in ("figma", "html", "catalog"):
+        source_type: str = source_type_override
+    elif figma_frame_count is not None and figma_frame_count > 0:
+        source_type = "figma"
     elif custom_template_body:
         source_type = "html"
     else:

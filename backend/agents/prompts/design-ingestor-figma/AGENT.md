@@ -6,7 +6,7 @@ role: Design Context Builder
 pipeline_type:
 - prototype_v2
 - prototype
-order: 2
+order: 7
 max_tokens: 16384
 prompt_policy: body_only
 ---

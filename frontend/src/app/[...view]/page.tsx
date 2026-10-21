@@ -654,6 +654,8 @@ export default function DashboardPage() {
     stagedUploadIds?: string[];
     agentIds?: string[];
     pipelineType?: string;
+    /** Design Ingestor source_type — forwarded to extraParams as source_type (snake_case). */
+    sourceType?: "catalog" | "html" | "figma";
   } | null>(null);
 
   // Staged ppt run — written when authenticated, consumed when connected.
@@ -894,6 +896,9 @@ export default function DashboardPage() {
     images?: { name: string; mime_type: string; data: string }[];
     stagedUploadIds?: string[];
     agentIds?: string[];
+    pipelineType?: string;
+    /** Design Ingestor source_type — forwarded to extraParams as source_type (snake_case). */
+    sourceType?: "catalog" | "html" | "figma";
   } | null>(null);
   // Pending ppt params. `pipelineType` (spec 017) selects WHICH deck pipeline the
   // staged draft launches — absent means `ppt`, the only one before ppt_v2. The
@@ -994,6 +999,8 @@ export default function DashboardPage() {
         stagedUploadIds: draft.stagedUploadIds,
         agentIds: draft.agentIds,
         pipelineType: draft.pipelineType,
+        // Design Ingestor (GAP-1): carry source_type through to extraParams.
+        sourceType: draft.sourceType,
       };
     } catch { /* ignore malformed session data */ }
   }, [isAuthenticated]);
@@ -2561,6 +2568,8 @@ export default function DashboardPage() {
           stagedUploadIds: draft.stagedUploadIds,
           agentIds: draft.agentIds,
           pipelineType: draft.pipelineType,
+          // Design Ingestor (GAP-1): carry source_type through to extraParams.
+          sourceType: draft.sourceType,
         };
       } catch { return; }
     }
