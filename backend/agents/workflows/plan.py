@@ -512,6 +512,14 @@ class Step:
     # doesn't set it keeps the existing "redo is a no-op" behaviour — INV-3). Default
     # False ⇒ DORMANT on every existing manifest.
     redoable: bool = False
+    # Step-level run condition (design-ingestor / INV-1): a Python expression string
+    # evaluated against the run's od_context at dispatch time. The single allowed
+    # variable is ``source_type`` (one of "catalog" | "html" | "figma"). An empty
+    # string (the default) means "always run" — dormant on every existing step →
+    # INV-3 byte/event-identical. Evaluated inside the ``single_shot`` strategy;
+    # only simple ``source_type`` comparisons are supported (no general DSL).
+    # Absent from every existing manifest → parity (INV-3).
+    condition: str = ""
     # What the step's output is — its review card, its step transcript, its typed
     # artifact: "all" (every word the step streamed, joined, as always) or
     # "last_message" (only its final message: the text after its last tool call or

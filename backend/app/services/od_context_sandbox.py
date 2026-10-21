@@ -58,6 +58,11 @@ def _write_od_context_to_sandbox(sandbox: object, od_context: dict) -> None:
         "ds_name": od_context.get("ds_name"),
         "no_template": od_context.get("no_template", False),
         "is_design_system_required": od_context.get("is_design_system_required"),
+        # Phase 1 (design-ingestor): present when source_type is set; None for
+        # pre-Phase-1 od_contexts that did not include these keys. Written as
+        # JSON null for catalog runs (backward-compatible — old code ignores it).
+        "source_type": od_context.get("source_type"),
+        "figma_frame_count": od_context.get("figma_frame_count"),
     }
     _safe_write(".context/selections.json", json.dumps(selections, indent=2))
 
@@ -223,5 +228,9 @@ def rebuild_od_context_from_sandbox(sandbox: object) -> dict | None:
         "template_body": template_body,
         "template_files": template_files,
         "ds_files": ds_files,
+        # Phase 1 (design-ingestor): None for old sandboxes lacking the field.
+        # Backward-compatible — .get() returns None when key is absent (INV-3).
+        "source_type": selections.get("source_type"),
+        "figma_frame_count": selections.get("figma_frame_count"),
     }
     return od_context

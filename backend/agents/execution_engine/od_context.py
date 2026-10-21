@@ -347,3 +347,36 @@ def load_ppt_od_context(
         "template_files": template_files,
         "ds_files": ds_files,
     }
+
+
+def load_figma_ingest_context(frame_count: int = 0) -> dict[str, Any]:
+    """Build a minimal od_context dict for a Figma-frames run.
+
+    Does NOT call od_loader — there is no catalog template or design system
+    to load. The Design Ingestor agent (design-ingestor-figma) owns all
+    .context/design/ writes for this source type.
+
+    Returns a dict with just enough fields for od_context_sandbox.py to write
+    a sentinel selections.json (so context_already_present() works correctly)
+    and for downstream agents to read source_type from selections.json.
+
+    Phase 3 replaces this stub with the full agent prompt; the dict shape is
+    intentionally minimal for Phase 1 (only selections.json gets written because
+    all body/files fields are empty/None — the existing write guards skip them).
+    """
+    return {
+        "template_id": "custom-figma",
+        "template_name": f"Figma Upload ({frame_count} screens)",
+        "ds_id": "derived",
+        "ds_name": "Derived from Figma",
+        "no_template": False,
+        "is_design_system_required": None,
+        "source_type": "figma",
+        "figma_frame_count": frame_count,
+        # These are intentionally empty — the Ingestor agent writes them
+        "template_body": None,
+        "ds_body": "",
+        "craft_block": "",
+        "template_files": {},
+        "ds_files": {},
+    }

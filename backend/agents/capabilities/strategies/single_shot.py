@@ -56,6 +56,32 @@ class SingleShotStrategy:
         Exactly one ``ctx.runner.run_agent`` call; every event it produces is
         re-yielded unchanged (INV-3). ``ctx`` is typed ``Any`` and the handle is
         reached dynamically so no kernel/app type is imported.
+
+        Step-level condition (design-ingestor / Phase 1): if the compiled step
+        declares a ``condition`` expression, evaluate it against
+        ``ctx.od_context["source_type"]``. A False result short-circuits the
+        strategy (yields nothing → the engine silently skips this step). The
+        condition variable namespace is intentionally minimal: only
+        ``source_type`` is exposed. Absent or empty condition ⇒ always run
+        (dormant for every pre-Phase-1 step — INV-3 byte/event-identical).
         """
+        # ── Condition evaluation ──────────────────────────────────────────────
+        cond: str = getattr(step, "condition", "") or ""
+        if cond:
+            od: dict = getattr(ctx, "od_context", None) or {}
+            source_type: str = od.get("source_type") or "catalog"
+            try:
+                # Restricted eval: only ``source_type`` in namespace; no builtins.
+                # The condition is authored in trusted YAML files (trust="file"),
+                # so eval is acceptable. Fail-open on any error so a mis-typed
+                # condition never silently blocks a run.
+                _result = bool(
+                    eval(cond, {"__builtins__": {}}, {"source_type": source_type})  # noqa: S307
+                )
+            except Exception:  # noqa: BLE001
+                _result = True  # fail-open: run the step if condition can't evaluate
+            if not _result:
+                return  # condition False → skip step, yield nothing
+
         async for event in ctx.runner.run_agent(step, ctx):
             yield event

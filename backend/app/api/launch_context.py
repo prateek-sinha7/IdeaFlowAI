@@ -56,6 +56,7 @@ def resolve_launch_od_context(
     custom_template_body: str | None = None,
     fatal: bool,
     context_providers: list[str] | None = None,
+    figma_frame_count: int | None = None,
 ) -> tuple[str, dict | None]:
     """Resolve ``(base_pipeline_type, od_context)`` for a run launch.
 
@@ -116,6 +117,31 @@ def resolve_launch_od_context(
     # preserve, and a pipeline that declares ``opendesign`` simply gets it.
     if "opendesign" not in context_providers:
         return base_pipeline_type, None
+
+    # ── SOURCE TYPE DETECTION (design-ingestor / Phase 1) ────────────────────
+    # First-match wins. Figma takes priority so a run with uploaded frames is
+    # never mis-classified as catalog even when template_id is absent.
+    # source_type is carried into od_context so selections.json captures it for
+    # every downstream agent (opendesign context provider, ingestor step).
+    if figma_frame_count is not None and figma_frame_count > 0:
+        source_type: str = "figma"
+    elif custom_template_body:
+        source_type = "html"
+    else:
+        source_type = "catalog"
+
+    # ── FIGMA SHORTCUT (design-ingestor / Phase 1) ────────────────────────────
+    # A figma-frames run carries no catalog template_id and no custom_template_body
+    # — the "nothing was asked for" guard below would return None, triggering the
+    # missing_template_context 400. Bypass that path: the Design Ingestor agent
+    # owns .context/design/ for figma runs; we only need a sentinel od_context
+    # so write_od_context_to_sandbox writes selections.json (context_already_present
+    # returns True after launch, preventing a revision from overwriting it).
+    if source_type == "figma":
+        from agents.execution_engine.od_context import load_figma_ingest_context
+        return base_pipeline_type, load_figma_ingest_context(
+            frame_count=figma_frame_count or 0
+        )
 
     # Nothing was ASKED for: no template id and no inline body. This is the
     # blank-canvas / no-template mode — pass template_id="" through to the loader,
@@ -205,5 +231,10 @@ def resolve_launch_od_context(
         if fatal:
             raise
         return base_pipeline_type, None
+
+    # Stamp source_type onto the returned dict so od_context_sandbox.py writes
+    # it into selections.json. Catalog and html runs have no figma_frame_count.
+    od_context["source_type"] = source_type
+    od_context["figma_frame_count"] = None  # only figma runs carry a count
 
     return base_pipeline_type, od_context

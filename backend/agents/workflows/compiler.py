@@ -113,6 +113,7 @@ _ALLOWED_STEP_KEYS: frozenset[str] = frozenset(
         "produces_solution_plan",  # post-step solution-plan extraction flag
         "redoable",  # declared-gate redo opt-in (REDO-GATE follow-up)
         "reply",  # all | last_message: what the step's output is (spec 022 §11)
+        "condition",  # step-level source_type run-condition (design-ingestor)
         # sandbox-git-versioning / Req 17, 18: declared output surface for fan-out
         # merge conflict-resolution. Read from the YAML verbatim; never registry-
         # validated (pure manifest-side declarations — INV-5).
@@ -1197,6 +1198,10 @@ class WorkflowCompiler:
         injects = list(raw.get("injects") or [])  # WIRE-03
         fix = self._compile_fix_policy(raw.get("fix"), where)
         depends_on = list(raw.get("depends_on") or [])
+        # Step-level source_type condition (design-ingestor): declared-but-inert
+        # here; evaluated by the single_shot strategy at dispatch time. Empty
+        # string (absent) → always run (parity for every existing manifest — INV-3).
+        condition = str(raw.get("condition") or "")
         # Per-step render fail-closed knob (quick-260701-bob / REQUIRE-RENDER-KNOB).
         # Pure pass-through: None (absent) preserves the Settings-default behavior
         # (skip-is-a-pass — INV-3); a declared bool threads to the render consumers.
@@ -1282,6 +1287,7 @@ class WorkflowCompiler:
             produces_solution_plan=produces_solution_plan,
             redoable=redoable,
             reply=reply,
+            condition=condition,
             outputs=outputs,
             replaces=replaces,
             # Stamped so the runtime security gate can re-check trust (ADR-0054).

@@ -51,6 +51,40 @@ input_providers:
 - run_images
 seed_files: {}
 steps:
+- strategy: single_shot
+  depends_on: []
+  model:
+    model: eu.anthropic.claude-sonnet-4-6
+  agent: custom-agent
+  instance_id: design-ingestor-html
+  name: HTML Design Ingestor
+  condition: "source_type == 'html'"
+  prompt: |-
+    # HTML Design Ingestor (stub — Phase 2 replaces this)
+    Placeholder. Phase 2 supplies the real AGENT.md prompt.
+    Exit immediately without writing any files.
+  tools:
+    read_files: true
+    write_files: true
+    exec: false
+  gates: []
+- strategy: single_shot
+  depends_on: []
+  model:
+    model: eu.anthropic.claude-sonnet-4-6
+  agent: custom-agent
+  instance_id: design-ingestor-figma
+  name: Figma Design Ingestor
+  condition: "source_type == 'figma'"
+  prompt: |-
+    # Figma Design Ingestor (stub — Phase 3 replaces this)
+    Placeholder. Phase 3 supplies the real AGENT.md prompt.
+    Exit immediately without writing any files.
+  tools:
+    read_files: true
+    write_files: true
+    exec: false
+  gates: []
 - agent: prototype-specify
   strategy: single_shot
   tools:
