@@ -70,7 +70,10 @@ describe("FigmaUploadSection", () => {
     renderSection();
     const file = makeFile("design.fig", "application/octet-stream");
     const input = document.querySelector('input[type="file"][accept=".png,.jpg,.jpeg"]') as HTMLInputElement;
-    await userEvent.upload(input, file);
+    // user-event v14 respects the `accept` attribute by default and filters out
+    // non-matching files before the change event fires. Use applyAccept:false so
+    // the .fig file reaches processFile() and triggers the MIME-type validation.
+    await userEvent.setup({ applyAccept: false }).upload(input, file);
     expect(screen.getByText(/export your screens as PNG from Figma/i)).toBeDefined();
   });
 

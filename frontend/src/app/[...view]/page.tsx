@@ -647,7 +647,7 @@ export default function DashboardPage() {
   // `gateAgentIds` (Phase 6, T5b) is present ONLY when the templates wizard's
   // Review-gates section was touched; absent ⇒ backend static gate default.
   const pendingOdProtoRef = useRef<{
-    templateId: string; designSystemId: string; brief: string; discovery: unknown;
+    templateId: string; designSystemId?: string; brief: string; discovery: unknown;
     customDsBody?: string; customTemplateBody?: string; sourceRunId?: string; gateAgentIds?: string[];
     modelOverrides?: Record<string, string>; selections?: Record<string, Record<string, unknown>>;
     images?: { name: string; mime_type: string; data: string }[];
@@ -2563,6 +2563,13 @@ export default function DashboardPage() {
       } catch { return; }
     }
 
+    // TypeScript's flow analysis cannot prove `pending` is non-null after a
+    // try-block assignment (it conservatively treats try as possibly not executed).
+    // Logically it is always set here: either from the ref, from the try block,
+    // or the catch returned. This guard satisfies the type-checker without
+    // changing runtime behaviour.
+    if (!pending) return;
+
     pendingOdProtoRef.current = null;
     sessionStorage.removeItem("prototype.pending");
     sessionStorage.removeItem("prototype.draft");    // FIX-005: clear stale draft so next fresh wizard open starts empty
@@ -2580,7 +2587,7 @@ export default function DashboardPage() {
     setPendingOdProtoParams({
       brief: pending.brief,
       templateId: pending.templateId,
-      designSystemId: pending.designSystemId,
+      designSystemId: pending.designSystemId ?? "",  // figma-frames path: no DS selected
       discovery: pending.discovery,
       customDsBody: pending.customDsBody,
       customTemplateBody: pending.customTemplateBody,

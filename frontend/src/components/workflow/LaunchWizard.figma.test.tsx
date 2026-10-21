@@ -224,8 +224,8 @@ describe("LaunchWizard — Figma frames branching (FEAT-002)", () => {
     renderWithProviders(<LaunchWizard initialMode="prototype_v2" />, {
       preloadedState: stateWith(makeAgents()),
     });
-    // Wait for brief textarea
-    const brief = await screen.findByLabelText("Describe what you're building");
+    // The textarea has aria-label="Brief" (the section h2 is not a <label>)
+    const brief = await screen.findByLabelText("Brief");
     await user.type(brief, "Build a dashboard prototype");
 
     // Add Figma frame — DS should no longer be required
@@ -243,7 +243,8 @@ describe("LaunchWizard — Figma frames branching (FEAT-002)", () => {
     renderWithProviders(<LaunchWizard initialMode="prototype_v2" />, {
       preloadedState: stateWith(makeAgents()),
     });
-    const brief = await screen.findByLabelText("Describe what you're building");
+    // The textarea has aria-label="Brief" (the section h2 is not a <label>)
+    const brief = await screen.findByLabelText("Brief");
     await user.type(brief, "Build a dashboard prototype");
     // No Figma frames, no DS selected → Continue must be disabled
     const btn = screen.getByRole("button", { name: "Continue" });
