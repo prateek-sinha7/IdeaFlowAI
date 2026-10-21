@@ -1,5 +1,6 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import {
+  adminGetCapacityHistory,
   adminListCapacity,
   getRunEvents,
   onCapacityRejected,
@@ -293,6 +294,47 @@ describe("adminListCapacity", () => {
 
     await expect(adminListCapacity("tok")).rejects.toMatchObject({
       status: 403,
+    });
+  });
+});
+
+describe("adminGetCapacityHistory", () => {
+  it("GETs /api/admin/capacity/history with instance_id and range, omitting period when null", async () => {
+    const history = { instance_id: "i-abc", range: "3h", series: [] };
+    fetchMock.mockResolvedValue(okJson(history));
+
+    const result = await adminGetCapacityHistory("tok", "i-abc", "3h", null);
+
+    expect(result).toEqual(history);
+    const [url, options] = fetchMock.mock.calls[0];
+    const parsed = new URL(String(url), "http://localhost");
+    expect(parsed.pathname).toBe("/api/admin/capacity/history");
+    expect(parsed.searchParams.get("instance_id")).toBe("i-abc");
+    expect(parsed.searchParams.get("range")).toBe("3h");
+    expect(parsed.searchParams.has("period")).toBe(false);
+    expect(options.method).toBe("GET");
+    expect((options.headers as Record<string, string>).Authorization).toBe("Bearer tok");
+  });
+
+  it("sends the period and URL-encodes the instance id when given", async () => {
+    fetchMock.mockResolvedValue(okJson({}));
+
+    await adminGetCapacityHistory("tok", "i-a&b=c", "15d", 60);
+
+    const parsed = new URL(String(fetchMock.mock.calls[0][0]), "http://localhost");
+    expect(parsed.searchParams.get("instance_id")).toBe("i-a&b=c");
+    expect(parsed.searchParams.get("period")).toBe("60");
+  });
+
+  it("propagates a 422 as an ApiError when the backend rejects the period", async () => {
+    fetchMock.mockResolvedValue({
+      ok: false,
+      status: 422,
+      json: async () => ({ detail: "Period 60s is not available for range 30d" }),
+    });
+
+    await expect(adminGetCapacityHistory("tok", "i-abc", "30d", 60)).rejects.toMatchObject({
+      status: 422,
     });
   });
 });

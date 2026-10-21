@@ -23,7 +23,7 @@ import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Pill } from "@/components/ui/Pill";
 import { Tabs } from "@/components/ui/Tabs";
-import { CapacityMatrix } from "@/components/admin/CapacityMatrix";
+import { MachinesPanel } from "@/components/admin/MachinesPanel";
 import { useCapacityMatrix } from "@/hooks/useCapacityMatrix";
 import { useEscapeToClose } from "@/hooks/useEscapeToClose";
 
@@ -429,7 +429,7 @@ export default function AdminPage() {
         />
 
         {activeTab === "machines" ? (
-          <CapacityMatrix state={capacityState} />
+          <MachinesPanel state={capacityState} token={getToken()} />
         ) : (
         <>
         {/* Stat cards */}

@@ -6,8 +6,8 @@
  * the hook's internals — this is a pure presentational component, so the
  * only seam worth testing is "given this state, what renders".
  */
-import { describe, expect, it } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { CapacityMatrix } from "./CapacityMatrix";
 import type { CapacityMatrixState } from "@/hooks/useCapacityMatrix";
 import type { AdminCapacityMatrix } from "@/lib/api";
@@ -188,6 +188,28 @@ describe("CapacityMatrix — ready state, instance table", () => {
   it("shows the 'as of' collection timestamp unconditionally", () => {
     renderReady();
     expect(screen.getByText(/as of/i)).toBeInTheDocument();
+  });
+
+  it("renders instance ids as plain text when no selection handler is given", () => {
+    renderReady();
+    expect(screen.queryByRole("button", { name: /history for/i })).not.toBeInTheDocument();
+  });
+
+  it("renders a selection button per instance and reports clicks when selectable", () => {
+    const onSelectInstance = vi.fn();
+    const matrix = buildMatrix();
+    render(
+      <CapacityMatrix
+        state={{ status: "ready", matrix }}
+        selectedInstanceId="i-self0001"
+        onSelectInstance={onSelectInstance}
+      />,
+    );
+    const button = screen.getByRole("button", { name: "Show metrics history for i-self0001" });
+    expect(button).toHaveAttribute("aria-pressed", "true");
+    fireEvent.click(button);
+    expect(onSelectInstance).toHaveBeenCalledTimes(1);
+    expect(onSelectInstance).toHaveBeenCalledWith("i-self0001");
   });
 
   it("contains no retired palette hex in rendered output", () => {
