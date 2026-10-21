@@ -52,6 +52,7 @@ import { WorkflowDetailView } from "@/components/savedworkflows/WorkflowDetailVi
 // `/workflows/{id}/run` — see the wizardMode early-return below for why.
 import { LaunchWizard } from "@/components/workflow/LaunchWizard";
 import type { LaunchMode } from "@/lib/launchDraft";
+import { uploadFigmaFrames } from "@/lib/prototype-api";
 
 /**
  * Map the SSE connection phase (RunConnectionPhase) onto the ConnectionStatus
@@ -2534,14 +2535,15 @@ export default function DashboardPage() {
           pipelineType?: string;
         };
         const discovery = JSON.parse(sessionStorage.getItem("prototype.discovery") ?? "null");
-        // KAN-87: templateId is now optional (no-template mode). Only require designSystemId.
+        // KAN-87: templateId is now optional (no-template mode). Only require designSystemId
+        // unless figma frames are present (they replace the design system for prototype_v2).
         // ISS-155: the brief clause is GONE here so this reload/reconnect path agrees with
         // the direct path at :426, which dropped it in FIX-216c. While the two disagreed a
         // chained launch fired normally but SILENTLY never started if the user reloaded
         // before SSE connected — same draft, two verdicts. An empty brief is now refused
         // where refusing it is useful: the wizard (`LaunchWizard.canContinue`, with a
         // visible "Add a brief" pill) and the ingress (`launch_run` → `empty_brief`).
-        if (!draft.designSystemId) return;
+        if (!draft.designSystemId && !sessionStorage.getItem("prototype_v2.figmaFrames")) return;
         pending = {
           templateId: draft.templateId ?? "",  // empty string = no template
           designSystemId: draft.designSystemId,
@@ -4516,6 +4518,29 @@ export default function DashboardPage() {
               getWorkflows(freshToken, { limit: 50 })
                 .then(({ runs }) => setRecentRuns(runs))
                 .catch(() => {/* best-effort — stale list is recoverable on next terminal event */});
+            }
+            // Figma frames upload — fire-and-forget after run creation.
+            // LaunchWizard serialised frames as base64 under 'prototype_v2.figmaFrames';
+            // we upload them here once the run_id is known (pre-wizard there is none).
+            const figmaRaw = sessionStorage.getItem("prototype_v2.figmaFrames");
+            if (figmaRaw) {
+              sessionStorage.removeItem("prototype_v2.figmaFrames");
+              try {
+                const serialised = JSON.parse(figmaRaw) as {
+                  b64: string; mime: string; description: string; name: string;
+                }[];
+                const uploadToken = getToken();
+                if (uploadToken && serialised.length > 0) {
+                  Promise.all(
+                    serialised.map(async (f) => {
+                      const res = await fetch(f.b64);
+                      const blob = await res.blob();
+                      return { file: new File([blob], f.name, { type: f.mime }), description: f.description, previewUrl: "" };
+                    }),
+                  ).then((frames) => uploadFigmaFrames(uploadToken, launchedRunId, frames))
+                    .catch(() => { /* non-fatal — the run starts, frames just won't be there */ });
+                }
+              } catch { /* malformed JSON — ignore */ }
             }
             return launchedRunId;
           }

@@ -8,6 +8,7 @@ import { Tabs, type TabItem } from "@/components/ui/Tabs";
 import type { PrototypeTemplate } from "@/lib/prototype-api";
 import type { PPTTemplate } from "@/lib/ppt-api";
 import type { CustomTemplate } from "@/components/workflow/prototype/CustomTemplateModal";
+import type { FigmaFrame } from "@/components/workflow/prototype/FigmaUploadSection";
 
 /**
  * WizardStepper (plan 37-04) — the unified Template -> Design System ->
@@ -78,6 +79,10 @@ export interface WizardStepperProps {
   steps?: StepId[];
 
   className?: string;
+
+  /** Figma frames state forwarded to TemplateGallery (web mode only). */
+  figmaFrames?: FigmaFrame[];
+  onFigmaFramesChange?: (frames: FigmaFrame[]) => void;
 }
 
 const ALL_STEP_IDS = ["template", "design-system", "discovery"] as const;
@@ -109,6 +114,8 @@ export function WizardStepper({
   onStepChange,
   steps = ["template", "design-system", "discovery"],
   className = "",
+  figmaFrames,
+  onFigmaFramesChange,
 }: WizardStepperProps) {
   const [stepState, setStepState] = useState(0);
   const activeStep = step ?? stepState;
@@ -171,6 +178,8 @@ export function WizardStepper({
                 onSelect={onWebSelect}
                 onSelectCustomTemplate={onWebSelectCustomTemplate}
                 selectedCustomTemplateId={webSelectedCustomTemplateId}
+                figmaFrames={figmaFrames}
+                onFigmaFramesChange={onFigmaFramesChange}
               />
             ) : (
               <PPTTemplateGallery

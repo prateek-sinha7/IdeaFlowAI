@@ -30,6 +30,7 @@ import { ATTACH_MAX_CHARS, truncateAttachmentText } from "@/lib/constants";
 import {
   listDesignSystems,
   listPrototypeTemplates,
+  uploadFigmaFrames,
   type DesignSystemListItem,
   type PrototypeTemplate,
 } from "@/lib/prototype-api";
@@ -60,6 +61,7 @@ import type { AgentDef } from "@/types/index";
 import { CUSTOM_AGENT_PREFIX } from "@/store/api/userWorkflows";
 import { buildWorkflowManifest, collectAgentIds, instantiateIfTemplate, overrideDescription } from "@/store/api/userWorkflows";
 import { DOCUMENT_AND_IMAGE_ACCEPT, isBinaryUpload, isTextUpload, withoutOne } from "@/lib/uploadTypes";
+import type { FigmaFrame } from "@/components/workflow/prototype/FigmaUploadSection";
 
 /**
  * LaunchWizard (plan 37-07) — the ONE unified deliverable-launch page. It
@@ -280,6 +282,7 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
   // `attachIndex` is stamped synchronously below because these entries append in
   // stage-RESPONSE order, not attach order.
   const [stagedUploads, setStagedUploads] = useState<{ name: string; stageId: string; attachIndex: number }[]>([]);
+  const [figmaFrames, setFigmaFrames] = useState<FigmaFrame[]>([]);
   // ISS-917: the wizard mounts outside DashboardLayout, so its exits need their
   // own unsaved-input guard. A latch set only by USER writers: the draft restore,
   // library re-seed, plan merge, override overlay and FIX-103's apple auto-select
@@ -762,7 +765,12 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
   // hidden the template step — and with it the design choice — from ppt_v2.
   const isDeck = STEPPER_MODE[mode] === "deck";
   const dsRequired = isDeck && selectedDeckTemplate?.design_system?.requires === true;
-  const dsVisible = isWeb || dsRequired;
+
+  // hasFigmaFrames: true when the user has uploaded Figma screens for prototype_v2.
+  // When true, the DS step is skipped — the frames replace the design system.
+  const hasFigmaFrames = isWeb && mode === "prototype_v2" && figmaFrames.length > 0;
+
+  const dsVisible = (isWeb && !hasFigmaFrames) || dsRequired;
 
   const examplePrompt =
     isWeb ? selectedWebTemplate?.example_prompt : selectedDeckTemplate?.example_prompt;
@@ -963,12 +971,12 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
     // SGV2 11.7: if the source run is non-success, the warning must be acknowledged.
     if (showSourceWarning && !warningAcknowledged) return false;
     if (isWeb) {
-      // KAN-87: template optional; DS required (color tokens).
-      return Boolean(selectedDsId && hasBuildInput);
+      // KAN-87: template optional; DS required (color tokens) — unless Figma frames supplied.
+      return hasFigmaFrames ? Boolean(hasBuildInput) : Boolean(selectedDsId && hasBuildInput);
     }
     // ppt: template required; DS only when the template declares it.
     return Boolean(selectedTemplateId && hasBuildInput && (!dsRequired || selectedDsId));
-  }, [mode, selectedDsId, selectedTemplateId, dsRequired, hasBuildInput, showSourceWarning, warningAcknowledged]);
+  }, [mode, selectedDsId, selectedTemplateId, dsRequired, hasBuildInput, hasFigmaFrames, showSourceWarning, warningAcknowledged]);
 
   // ISS-321: the deliverable this wizard launches, gated on the same
   // `canRunPipeline` the dashboard catalog card uses (HomeLaunchGrid) and the
@@ -1069,7 +1077,7 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
     }
   }, [mode, cfg.eyebrow, pipelineAgents, brief, selectedTemplateId, selectedDsId, isDeck, dsRequired]);
 
-  const handleLaunch = useCallback(() => {
+  const handleLaunch = useCallback(async () => {
     if (!canContinue || locked) return;
     const sourceRunId = isChaining ? (sessionStorage.getItem(CHAIN_SOURCE_RUN_ID_KEY) ?? undefined) : undefined;
     sessionStorage.removeItem(CHAIN_SOURCE_RUN_ID_KEY);
@@ -1121,12 +1129,39 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
       if (discovery) sessionStorage.setItem(DISCOVERY_KEY, discovery);
       else sessionStorage.removeItem(DISCOVERY_KEY);
     }
+    // Figma frames: File objects cannot go in sessionStorage. Convert to base64
+    // data URLs and park under a dedicated key. page.tsx uploads them after run
+    // creation (the run_id is not known at wizard time).
+    if (hasFigmaFrames && figmaFrames.length > 0) {
+      const serialised = await Promise.all(
+        figmaFrames.map(
+          (f) =>
+            new Promise<{ b64: string; mime: string; description: string; name: string }>(
+              (resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = (ev) =>
+                  resolve({
+                    b64: (ev.target?.result as string) ?? "",
+                    mime: f.file.type,
+                    description: f.description,
+                    name: f.file.name,
+                  });
+                reader.onerror = reject;
+                reader.readAsDataURL(f.file);
+              },
+            ),
+        ),
+      );
+      sessionStorage.setItem("prototype_v2.figmaFrames", JSON.stringify(serialised));
+    } else {
+      sessionStorage.removeItem("prototype_v2.figmaFrames");
+    }
     sessionStorage.setItem(draft.pendingKey, "true");
     router.push(routes.home());
   }, [
     canContinue, locked, mode, isChaining, brief, attachedFileContents, attachedImages, stagedUploads,
     dsRequired, isDeck, selectedDsId, selectedTemplateId, customDsBody, customTemplateBody,
-    discoveryAnswers, pipelineAgents, router,
+    discoveryAnswers, pipelineAgents, router, hasFigmaFrames, figmaFrames,
   ]);
 
   // ISS-917 / ISS-982: every user-initiated exit routes through here; Continue
@@ -1394,7 +1429,7 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
             onModeChange={handleModeChange}
             // ISS-189: a deck template that requires a design system gets the DS step,
             // or the picker never mounts while Continue and the pill still demand one.
-            steps={isDeck ? (dsRequired ? ["template", "design-system"] : ["template"]) : ["template", "design-system", "discovery"]}
+            steps={isDeck ? (dsRequired ? ["template", "design-system"] : ["template"]) : (hasFigmaFrames ? ["template", "discovery"] : ["template", "design-system", "discovery"])}
             webTemplates={webTemplates}
             webSelectedId={isWeb && !customTemplateBody ? selectedTemplateId : null}
             onWebSelect={handleSelectTemplate}
@@ -1453,6 +1488,8 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
                 <StepNote>Discovery questions apply to web prototypes. Your deck brief is enough to generate.</StepNote>
               )
             }
+            figmaFrames={figmaFrames}
+            onFigmaFramesChange={setFigmaFrames}
           />
         </section>
 
@@ -1494,7 +1531,7 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
                   a disabled button with no stated reason. */}
               {!hasBuildInput && <Pill label="Add a brief" />}
               {isDeck && !selectedTemplateId && <Pill label="Pick a template" />}
-              {(isWeb || dsRequired) && !selectedDsId && <Pill label="Pick a design system" />}
+              {(isWeb || dsRequired) && !hasFigmaFrames && !selectedDsId && <Pill label="Pick a design system" />}
             </div>
           )}
 

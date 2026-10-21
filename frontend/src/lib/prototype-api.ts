@@ -8,6 +8,7 @@
 
 import { ENV } from "@/lib/env";
 import { handleSessionExpiry } from "@/lib/api";
+import type { FigmaFrame } from "@/components/workflow/prototype/FigmaUploadSection";
 
 const BASE_URL = ENV.API_URL;
 
@@ -100,4 +101,36 @@ export function getTemplateThumbnailUrl(id: string): string {
  */
 export function getDesignSystemPreviewUrl(id: string): string {
   return `${BASE_URL}/api/prototype/design-systems/${encodeURIComponent(id)}/preview`;
+}
+
+/**
+ * Upload Figma screen-export frames to an existing run's .uploads/ sandbox.
+ * Called from page.tsx after run creation (the wizard can't call this
+ * directly because no run_id exists at wizard time).
+ */
+export async function uploadFigmaFrames(
+  token: string,
+  runId: string,
+  frames: FigmaFrame[],
+): Promise<{ run_id: string; files: { name: string; bytes: number }[] }> {
+  const formData = new FormData();
+  frames.forEach((f, i) => {
+    formData.append("files", f.file, f.file.name);
+    if (f.description) {
+      formData.append(`metadata_${i}`, JSON.stringify({ index: i, description: f.description }));
+    }
+  });
+  const res = await fetch(`${BASE_URL}/api/runs/${encodeURIComponent(runId)}/figma-frames`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    body: formData,
+  });
+  if (!res.ok) {
+    if (res.status === 401) {
+      handleSessionExpiry();
+    }
+    const data = await res.json().catch(() => ({})) as { detail?: string };
+    throw new Error(data.detail ?? String(res.status));
+  }
+  return res.json();
 }

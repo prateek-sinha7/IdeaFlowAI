@@ -11,6 +11,7 @@ import {
   deleteCustomTemplate,
   type CustomTemplate,
 } from "./CustomTemplateModal";
+import { FigmaUploadSection, type FigmaFrame } from "./FigmaUploadSection";
 
 interface TemplateGalleryProps {
   templates: PrototypeTemplate[];
@@ -18,6 +19,8 @@ interface TemplateGalleryProps {
   onSelect: (id: string | null) => void;
   onSelectCustomTemplate?: (ct: CustomTemplate | null) => void;
   selectedCustomTemplateId?: string | null;
+  figmaFrames?: FigmaFrame[];
+  onFigmaFramesChange?: (frames: FigmaFrame[]) => void;
 }
 
 // Consolidate raw scenario values into 6 clean buckets
@@ -32,9 +35,9 @@ function getBucket(scenario: string | null): string {
   return "Other";
 }
 
-const CATEGORIES = ["All", "Design", "Marketing", "Operations", "Engineering", "Product", "Finance & HR", "Custom"];
+const CATEGORIES = ["All", "Design", "Marketing", "Operations", "Engineering", "Product", "Finance & HR", "Figma", "Custom"];
 
-export function TemplateGallery({ templates, selectedId, onSelect, onSelectCustomTemplate, selectedCustomTemplateId }: TemplateGalleryProps) {
+export function TemplateGallery({ templates, selectedId, onSelect, onSelectCustomTemplate, selectedCustomTemplateId, figmaFrames, onFigmaFramesChange }: TemplateGalleryProps) {
   const [query, setQuery] = useState("");
   const [activeCategory, setActiveCategory] = useState("All");
   const [detailTemplateId, setDetailTemplateId] = useState<string | null>(null);
@@ -124,11 +127,19 @@ export function TemplateGallery({ templates, selectedId, onSelect, onSelectCusto
                     {savedCustomTemplates.length}
                   </span>
                 )}
+                {cat === "Figma" && (figmaFrames?.length ?? 0) > 0 && (
+                  <span className={`inline-flex h-4 min-w-[16px] items-center justify-center rounded-full px-1 text-[9px] font-bold ${
+                    activeCategory === "Figma" ? "bg-brand text-white" : "bg-line-divider text-ink-600"
+                  }`}>
+                    {figmaFrames!.length}
+                  </span>
+                )}
               </button>
             ))}
           </div>
 
-          {/* Upload custom button — always visible, top-right */}
+          {/* Upload custom button — hidden in Figma tab */}
+          {activeCategory !== "Figma" && (
           <button
             type="button"
             onClick={() => setShowUploadModal(true)}
@@ -138,9 +149,11 @@ export function TemplateGallery({ templates, selectedId, onSelect, onSelectCusto
             <Upload className="h-3.5 w-3.5" />
             Upload custom
           </button>
+          )}
         </div>
 
-        {/* Search */}
+        {/* Search — hidden in Figma tab */}
+        {activeCategory !== "Figma" && (
         <div className="px-3 py-2">
           <div className="relative">
             <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3 w-3 -translate-y-1/2 text-ink-400" />
@@ -155,11 +168,18 @@ export function TemplateGallery({ templates, selectedId, onSelect, onSelectCusto
             />
           </div>
         </div>
+        )}
       </div>
 
       {/* ── Grid ─────────────────────────────────────────────────────── */}
       <div className="overflow-y-auto p-3" style={{ maxHeight: "360px" }}>
-        {activeCategory === "Custom" ? (
+        {activeCategory === "Figma" ? (
+          /* ── Figma tab: FigmaUploadSection ── */
+          <FigmaUploadSection
+            frames={figmaFrames ?? []}
+            onChange={onFigmaFramesChange ?? (() => {})}
+          />
+        ) : activeCategory === "Custom" ? (
           /* ── Custom tab: only custom templates + upload card ── */
           filteredCustom.length === 0 && !query ? (
             /* Empty state — no custom templates yet */
@@ -256,7 +276,9 @@ export function TemplateGallery({ templates, selectedId, onSelect, onSelectCusto
       {/* ── Footer count ─────────────────────────────────────────────── */}
       <div className="border-t border-line-divider px-4 py-1.5">
         <span className="text-[10px] text-ink-400">
-          {activeCategory === "Custom"
+          {activeCategory === "Figma"
+            ? `${figmaFrames?.length ?? 0} frame${(figmaFrames?.length ?? 0) !== 1 ? "s" : ""}`
+            : activeCategory === "Custom"
             ? `${savedCustomTemplates.length} custom template${savedCustomTemplates.length !== 1 ? "s" : ""}`
             : `${filtered.length} template${filtered.length !== 1 ? "s" : ""}${activeCategory !== "All" ? ` · ${activeCategory}` : ""}`
           }
