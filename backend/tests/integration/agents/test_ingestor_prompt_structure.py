@@ -125,10 +125,12 @@ def test_html_ingestor_prompt_mentions_example_html_output() -> None:
 
 @pytest.mark.integration
 def test_both_ingestor_steps_have_read_write_tools() -> None:
-    """design-ingestor-html step must have read_files=true, write_files=true, exec=false.
+    """Both design-ingestor steps must declare read_files=true, write_files=true, exec=false.
 
-    Phase 2 — html only. Phase 3 extends this to also cover design-ingestor-figma.
+    Covers design-ingestor-html in both prototype_v2 and prototype YAMLs,
+    and design-ingestor-figma in prototype_v2 YAML.
     """
+    # Check HTML ingestor in both YAMLs
     for yaml_path in [PROTO_V2_YAML, PROTO_YAML]:
         data = _load_yaml(yaml_path)
         step = _find_step(data, "design-ingestor-html")
@@ -144,6 +146,22 @@ def test_both_ingestor_steps_have_read_write_tools() -> None:
         assert tools.get("exec") is False, (
             f"design-ingestor-html in {yaml_path.name}: tools.exec must be false"
         )
+    # Check Figma ingestor in prototype_v2 YAML
+    v2_data = _load_yaml(PROTO_V2_YAML)
+    figma_step = _find_step(v2_data, "design-ingestor-figma")
+    assert figma_step is not None, (
+        f"design-ingestor-figma step not found in {PROTO_V2_YAML.name}"
+    )
+    figma_tools: dict = figma_step.get("tools", {})
+    assert figma_tools.get("read_files") is True, (
+        f"design-ingestor-figma in {PROTO_V2_YAML.name}: tools.read_files must be true"
+    )
+    assert figma_tools.get("write_files") is True, (
+        f"design-ingestor-figma in {PROTO_V2_YAML.name}: tools.write_files must be true"
+    )
+    assert figma_tools.get("exec") is False, (
+        f"design-ingestor-figma in {PROTO_V2_YAML.name}: tools.exec must be false"
+    )
 
 # ---------------------------------------------------------------------------
 # Phase 3 tests — Figma Ingestor (added after Phase 3 implementation)
@@ -180,7 +198,7 @@ def test_figma_ingestor_step_has_source_type_condition() -> None:
     assert step is not None, f"design-ingestor-figma step not found in {PROTO_V2_YAML.name}"
 
     condition: str = step.get("condition", "")
-    assert condition, f"design-ingestor-figma step has no condition field"
+    assert condition, "design-ingestor-figma step has no condition field"
     assert "source_type" in condition, (
         f"condition {condition!r} must reference source_type"
     )

@@ -52,10 +52,14 @@ def test_figma_manifest_triggers_ingest_context_not_catalog() -> None:
 
 @pytest.mark.integration
 def test_figma_od_context_has_no_template_body() -> None:
-    """The Ingestor agent writes template/SKILL.md; the loader must not."""
+    """The Ingestor agent writes template/SKILL.md; the loader must not pre-populate
+    template_body or ds_body.  Accepts both None and "" (empty string) as falsy —
+    load_figma_ingest_context intentionally returns "" so od_context_sandbox's
+    ``or ""`` guard treats it identically.
+    """
     ctx = load_figma_ingest_context(frame_count=2)
     assert ctx.get("template_body") is None
-    assert ctx.get("ds_body") is None
+    assert not ctx.get("ds_body")  # None or "" — both are correct empty signals
     assert ctx.get("template_files") is None or ctx.get("template_files") == {}
 
 
@@ -99,3 +103,28 @@ def test_figma_od_context_sandbox_writes_only_selections() -> None:
     assert sel["source_type"] == "figma"
     assert sel["figma_frame_count"] == 4
     assert sel["template_id"] == "custom-figma"
+
+
+@pytest.mark.integration
+def test_existing_figma_frame_upload_tests_unaffected() -> None:
+    """The design-ingestor infrastructure must not regress any existing figma frame
+    upload tests.  Runs tests/integration/api/test_figma_frames_api.py in a
+    subprocess and asserts exit code 0.
+    """
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    backend = Path(__file__).resolve().parents[3]
+    target = str(backend / "tests" / "integration" / "api" / "test_figma_frames_api.py")
+    result = subprocess.run(
+        [sys.executable, "-m", "pytest", target, "-q", "--no-header", "--tb=short"],
+        capture_output=True,
+        text=True,
+        cwd=str(backend),
+    )
+    assert result.returncode == 0, (
+        f"Existing figma frame upload tests FAILED (exit={result.returncode}):\n"
+        f"stdout: {result.stdout[-3000:]}\n"
+        f"stderr: {result.stderr[-500:]}"
+    )
