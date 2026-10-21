@@ -1105,7 +1105,6 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
       images: attachedImages,
       // UPLD-05 — see the `stagedUploads` note above. Sorted back into attach order.
       stagedUploadIds: orderedStagedUploadIds(stagedUploads),
-      // `agent_ids` is a SUBSET selector over a pipeline's REGISTERED agents:
       // run_commands.launch_run checks each id against registry.allowed_custom_agent_ids(),
       // which is built from AGENT.md `pipeline_type` frontmatter. 14 of the 35 file
       // workflows are built from `custom-agent` instances instead (pdf_to_prototype, the
@@ -1119,6 +1118,8 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
       // (per-step config), not membership. prototype/ppt/ppt_v2 are unaffected — their
       // steps are registered agents, so nothing is filtered.
       agentIds: pipelineAgents.map((a) => a.id).filter((id) => !id.startsWith(CUSTOM_AGENT_PREFIX)),
+      // Design Ingestor source_type — tells launch_context.py which ingestor path to use.
+      sourceType: hasFigmaFrames ? "figma" : customTemplateBody ? "html" : "catalog",
     });
 
     sessionStorage.setItem(draft.draftKey, draft.draftJson);
