@@ -64,7 +64,13 @@ steps:
     1. read_file this exact path. Do not search for it:
     .uploads/manifest.json
     2. It is a JSON array; each entry has "name".
-    3. For each name, call extract_text with path `.uploads/` followed by the name.
+    3. For each entry in the manifest array, branch on its "type" field and name:
+       a. If the entry has "type": "image" OR the name ends in .png, .jpg, or .jpeg:
+          SKIP extract_text. Derive the slug: strip the extension, replace spaces with
+          hyphens, lowercase. Create ONE synthetic shard recorded for Phase 2 and 3:
+          {"id":"<slug>-s01","slug":"<slug>","format":"image","pages":"1-1",
+           "page_range":"1-1","est_tokens":1000,"source":".uploads/<name>"}
+       b. Otherwise: call extract_text with path `.uploads/` followed by the name.
 
     Phase 2 - Read the shards
 
@@ -74,7 +80,11 @@ steps:
     - Read only manifest.json. Never read document.md — it holds page text.
 
     Steps
-    1. read_file `.extract/<format>/<slug>/manifest.json` for each document.
+    1. For each document from Phase 1:
+       a. If it has a synthetic shard (type="image" or image file extension):
+          Skip read_file. Use the synthetic shard from Phase 1 directly —
+          id, slug, format, pages, page_range, est_tokens, source are already known.
+       b. Otherwise: read_file `.extract/<format>/<slug>/manifest.json`.
     2. Each manifest has a "shards" array. Each shard carries: id, slug, format,
        pages, page_range, est_tokens, source.
     3. Note how many shards each document has. That decides Phase 3.

@@ -52,6 +52,7 @@ from app.api.admin_capacity import router as admin_capacity_router
 from app.api.file_extract import router as file_extract_router
 from app.api.run_files import router as run_files_router
 from app.api.run_figma_export import router as run_figma_export_router
+from app.api.run_figma_frames import router as run_figma_frames_router
 from app.core.config import settings
 from app.models.database import engine
 
@@ -624,6 +625,8 @@ app.include_router(run_files_router)
 # Figma export — Playwright SCRAPE_FN + IRNode mapper in plugin.
 # Shares /api/runs prefix. Falls back to 503 when Playwright unavailable.
 app.include_router(run_figma_export_router)
+# Figma frame upload — Prototype V2 only. Shares /api/runs prefix. No new table/migration.
+app.include_router(run_figma_frames_router)
 
 
 @app.get("/health")
