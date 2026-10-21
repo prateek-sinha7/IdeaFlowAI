@@ -3,8 +3,8 @@ id: design-ingestor-html
 name: HTML Design Ingestor
 description: Reads a user-uploaded HTML file and produces the .context/design/ filesystem structure.
 role: Design Context Builder
-pipeline_type: design_ingestor
-order: 1
+pipeline_type: [prototype_v2, prototype]
+order: 2
 max_tokens: 8192
 prompt_policy: body_only
 ---
