@@ -967,6 +967,7 @@ export default function DashboardPage() {
         stagedUploadIds?: string[];
         agentIds?: string[];
         pipelineType?: string;
+        sourceType?: "catalog" | "html" | "figma";
       };
       const discovery = JSON.parse(sessionStorage.getItem("prototype.discovery") ?? "null");
       // KAN-87: templateId is now optional (no-template mode). Only require designSystemId.
@@ -2533,6 +2534,7 @@ export default function DashboardPage() {
           stagedUploadIds?: string[];
           agentIds?: string[];
           pipelineType?: string;
+          sourceType?: "catalog" | "html" | "figma";
         };
         const discovery = JSON.parse(sessionStorage.getItem("prototype.discovery") ?? "null");
         // KAN-87: templateId is now optional (no-template mode). Only require designSystemId
@@ -2606,6 +2608,8 @@ export default function DashboardPage() {
       // dashboard's webPipeline falls back to `prototype` and a prototype_v2
       // launch silently starts the wrong pipeline.
       ...(pending.pipelineType ? { pipelineType: pending.pipelineType } : {}),
+      // Design Ingestor source_type — tells launch_context.py which ingestor path to use.
+      ...(pending.sourceType ? { sourceType: pending.sourceType } : {}),
     });
   // effectiveConnectionStatus drives the re-run.
   }, [effectiveConnectionStatus]);
@@ -2686,6 +2690,8 @@ export default function DashboardPage() {
       ...(pending.images && pending.images.length > 0 ? { images: pending.images } : {}),
       ...(pending.stagedUploadIds && pending.stagedUploadIds.length > 0 ? { stagedUploadIds: pending.stagedUploadIds } : {}),
       ...(pending.pipelineType ? { pipelineType: pending.pipelineType } : {}),
+      // Design Ingestor source_type — tells launch_context.py which ingestor path to use.
+      ...(pending.sourceType ? { sourceType: pending.sourceType } : {}),
     });
   }, [effectiveConnectionStatus]);
 

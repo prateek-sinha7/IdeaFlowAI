@@ -144,3 +144,127 @@ def test_both_ingestor_steps_have_read_write_tools() -> None:
         assert tools.get("exec") is False, (
             f"design-ingestor-html in {yaml_path.name}: tools.exec must be false"
         )
+
+# ---------------------------------------------------------------------------
+# Phase 3 tests — Figma Ingestor (added after Phase 3 implementation)
+# ---------------------------------------------------------------------------
+
+FIGMA_AGENT_MD = _PROMPTS / "design-ingestor-figma" / "AGENT.md"
+
+
+@pytest.mark.integration
+def test_figma_ingestor_agent_md_exists() -> None:
+    """AGENT.md must exist at agents/prompts/design-ingestor-figma/AGENT.md."""
+    assert FIGMA_AGENT_MD.exists(), (
+        f"design-ingestor-figma AGENT.md not found at {FIGMA_AGENT_MD}. "
+        "Phase 3 must create this file."
+    )
+
+
+@pytest.mark.integration
+def test_figma_ingestor_step_in_prototype_v2_yaml() -> None:
+    """prototype_v2/workflow.yaml must contain a design-ingestor-figma step."""
+    data = _load_yaml(PROTO_V2_YAML)
+    instance_ids = [s.get("instance_id") for s in data.get("steps", [])]
+    assert "design-ingestor-figma" in instance_ids, (
+        f"design-ingestor-figma step not found in {PROTO_V2_YAML.name}. "
+        f"Found instance_ids: {instance_ids}"
+    )
+
+
+@pytest.mark.integration
+def test_figma_ingestor_step_has_source_type_condition() -> None:
+    """The design-ingestor-figma step must have a condition referencing source_type == 'figma'."""
+    data = _load_yaml(PROTO_V2_YAML)
+    step = _find_step(data, "design-ingestor-figma")
+    assert step is not None, f"design-ingestor-figma step not found in {PROTO_V2_YAML.name}"
+
+    condition: str = step.get("condition", "")
+    assert condition, f"design-ingestor-figma step has no condition field"
+    assert "source_type" in condition, (
+        f"condition {condition!r} must reference source_type"
+    )
+    assert "figma" in condition, (
+        f"condition {condition!r} must reference 'figma'"
+    )
+
+
+@pytest.mark.integration
+def test_figma_ingestor_step_has_read_write_tools() -> None:
+    """design-ingestor-figma step must declare read_files=true, write_files=true, exec=false."""
+    data = _load_yaml(PROTO_V2_YAML)
+    step = _find_step(data, "design-ingestor-figma")
+    assert step is not None, "design-ingestor-figma step not found"
+
+    tools: dict = step.get("tools", {})
+    assert tools.get("read_files") is True, "tools.read_files must be true"
+    assert tools.get("write_files") is True, "tools.write_files must be true"
+    assert tools.get("exec") is False, "tools.exec must be false"
+
+
+@pytest.mark.integration
+def test_figma_ingestor_step_before_fi_planner() -> None:
+    """design-ingestor-figma must appear before fi-planner in prototype_v2 YAML."""
+    data = _load_yaml(PROTO_V2_YAML)
+    steps = data.get("steps", [])
+    instance_ids = [s.get("instance_id") for s in steps]
+    assert "design-ingestor-figma" in instance_ids, "design-ingestor-figma step not found"
+    assert "fi-planner" in instance_ids, "fi-planner step not found"
+    figma_idx = instance_ids.index("design-ingestor-figma")
+    planner_idx = instance_ids.index("fi-planner")
+    assert figma_idx < planner_idx, (
+        f"design-ingestor-figma (pos {figma_idx}) must come before "
+        f"fi-planner (pos {planner_idx})"
+    )
+
+
+@pytest.mark.integration
+def test_figma_ingestor_uses_design_ingestor_figma_agent() -> None:
+    """design-ingestor-figma step must use agent: design-ingestor-figma (not custom-agent)."""
+    data = _load_yaml(PROTO_V2_YAML)
+    step = _find_step(data, "design-ingestor-figma")
+    assert step is not None, "design-ingestor-figma step not found"
+    agent = step.get("agent", "")
+    assert agent == "design-ingestor-figma", (
+        f"Expected agent: design-ingestor-figma, got: {agent!r}. "
+        "Using custom-agent means the AGENT.md prompt is never loaded."
+    )
+
+
+@pytest.mark.integration
+def test_figma_ingestor_prompt_mentions_uploads_path() -> None:
+    """design-ingestor-figma AGENT.md must reference .uploads/manifest.json."""
+    content = FIGMA_AGENT_MD.read_text(encoding="utf-8")
+    assert ".uploads/manifest.json" in content, (
+        "design-ingestor-figma AGENT.md must mention '.uploads/manifest.json' "
+        "(where Figma frames are staged by run_figma_frames.py)"
+    )
+
+
+@pytest.mark.integration
+def test_figma_ingestor_prompt_mentions_context_design_outputs() -> None:
+    """design-ingestor-figma AGENT.md must reference all three .context/design/ output files."""
+    content = FIGMA_AGENT_MD.read_text(encoding="utf-8")
+    required = [
+        ".context/design/design-system.md",
+        ".context/design/template/SKILL.md",
+        ".context/design/template/example.html",
+    ]
+    for path in required:
+        assert path in content, (
+            f"design-ingestor-figma AGENT.md must mention '{path}'"
+        )
+
+
+@pytest.mark.integration
+def test_html_ingestor_uses_design_ingestor_html_agent() -> None:
+    """design-ingestor-html step must use agent: design-ingestor-html (not custom-agent)."""
+    for yaml_path in [PROTO_V2_YAML, PROTO_YAML]:
+        data = _load_yaml(yaml_path)
+        step = _find_step(data, "design-ingestor-html")
+        assert step is not None, f"design-ingestor-html step not found in {yaml_path.name}"
+        agent = step.get("agent", "")
+        assert agent == "design-ingestor-html", (
+            f"Expected agent: design-ingestor-html in {yaml_path.name}, got: {agent!r}. "
+            "Using custom-agent means the AGENT.md prompt is never loaded."
+        )
