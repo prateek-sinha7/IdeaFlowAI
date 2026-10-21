@@ -190,4 +190,29 @@ class OpenDesignProvider:
         # legacy byte ORDER (DS/template/example/parts → consumed → CURRENT TASK →
         # skeleton → TEMPLATE COMPLIANCE).
 
+        # (5) Figma Design Reference block — Phase 4 (design-ingestor roadmap).
+        # Emitted ONLY when source_type="figma" AND frames.json exists on the sandbox.
+        # Additive: never changes behavior for catalog or html source types (INV-3).
+        # The agent reads frame PNGs itself via read_file (vision) — we only inject
+        # the manifest listing so it knows which frames exist and in what order.
+        source_type = od.get("source_type")
+        if source_type == "figma":
+            sandbox = getattr(runner, "sandbox", None) if runner else None
+            if sandbox is not None:
+                reader = getattr(sandbox, "read", None)
+                if callable(reader):
+                    try:
+                        frames_raw = reader(
+                            ".context/design/template/figma/frames.json"
+                        )
+                        if frames_raw:
+                            blocks["FIGMA DESIGN REFERENCE"] = (
+                                "The Figma screen exports for this run are listed below.\n"
+                                "Read each frame PNG via read_file (vision) to see the exact\n"
+                                "screens the user designed. Replicate their visual language.\n\n"
+                                f"{frames_raw}"
+                            )
+                    except Exception:  # noqa: BLE001 — degrade gracefully
+                        pass
+
         return blocks
