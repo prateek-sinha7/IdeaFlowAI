@@ -158,11 +158,7 @@ gh api repos/Hexaware-HnI/velocityai/environments/prod --method DELETE
    - Status check named `ci-required` posts to PRs (✓ implemented in ci.yml)
    - CI gates applied separately via GitHub UI or future API updates
 
-2. **CodeQL gate**: This should be added to required status checks separately via:
-   - GitHub UI: Settings > Branch > Add status check `CodeQL`
-   - Or future API stabilization of `required_status_checks` rule
-
-3. **Team reviews**: Code owner enforcement requires `.github/CODEOWNERS` file. Verify it exists and maps code areas to teams.
+2. **Team reviews**: Code owner enforcement requires `.github/CODEOWNERS` file. Verify it exists and maps code areas to teams.
 
 ---
 
