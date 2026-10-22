@@ -754,6 +754,10 @@ class LocalWorkspace:
         if unignored (Requirement 18 AC 3).
         """
         content = "\n".join(self._GITIGNORE_PATHS) + "\n"
+        # Also gitignore .figma/ — binary PNG design assets that should not be
+        # git-tracked (agents write there but the files are not deliverable content;
+        # leaving them untracked causes "degraded" finalization status).
+        content += ".figma/\n"
         (self._root / ".gitignore").write_text(content, encoding="utf-8")
 
     def is_dirty(self) -> bool:
