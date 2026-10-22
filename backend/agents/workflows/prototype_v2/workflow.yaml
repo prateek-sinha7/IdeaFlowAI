@@ -850,6 +850,8 @@ steps:
     2. List every `### <id>` heading. That count is your screen count; say it in your reply.
     3. read_file `.context/selections.json`. Then `ls .context/design` and `ls .context/design/template`, and read_file every file named above that exists, each to its end (page long files until a page comes back shorter than you asked for).
     4. If `.context/design/template/figma/frames.json` exists: read_file it, then for each frame path listed read_file the PNG (vision) — one at a time. These are the user's Figma screens; your theme and composition decisions must replicate their visual language faithfully.
+       If `context/design/template/figma/frames.json` exists (no leading dot — ingestor writes here): read_file it instead, same vision reads.
+       Also read `context/design/design-system.md` and `context/design/template/SKILL.md` if present (the ingestor writes to the no-dot path).
     5. Say which design system and which template were attached, by id, and which design files you read.
 
     Phase 2 - Design

@@ -29,6 +29,7 @@ You are step 1 of the `prototype` workflow. Your brief arrives in the task messa
 - `.context/design/design-system.md` — the selected design system's tokens.
 - `.context/selections.json` — which template/design-system ids were selected.
 - `.context/design/template/figma/frames.json` and frame PNGs — when present (`source_type=figma` runs), read `frames.json` then `read_file` each PNG (vision) one at a time before writing the spec. The frames show the exact screens to replicate; `SKILL.md` explains how to use them.
+- `context/design/template/SKILL.md`, `context/design/template/example.html`, `context/design/design-system.md` — for `source_type=figma` or `source_type=html` runs, the Design Ingestor writes to `context/design/` (without the leading dot) because `.context/` is write-protected for agents. Check this no-dot path if the dot-prefixed versions are absent or empty.
 
 **REVISION MODE** (your context message contains `SPEC KIT ANALYSIS REPORT (REVISION CONTEXT)`, i.e. the `update_specs` gate action re-dispatched you): also read `.agents/01-prototype-specify.md` — your own previous `<spec>` output for this run — before writing the revision. Reading is your job — the engine no longer pastes these into your message.
 

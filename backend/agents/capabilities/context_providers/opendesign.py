@@ -192,27 +192,60 @@ class OpenDesignProvider:
 
         # (5) Figma Design Reference block — Phase 4 (design-ingestor roadmap).
         # Emitted ONLY when source_type="figma" AND frames.json exists on the sandbox.
-        # Additive: never changes behavior for catalog or html source types (INV-3).
-        # The agent reads frame PNGs itself via read_file (vision) — we only inject
-        # the manifest listing so it knows which frames exist and in what order.
+        # For ingestor runs, the Design Ingestor agent writes to context/design/
+        # (no dot) because .context/ is write-protected for agents. Check both
+        # locations: context/design/ first (ingestor writes), then .context/design/
+        # (engine/catalog writes) as fallback. This makes Figma work equivalently
+        # to catalog — the opendesign provider bridges the path difference.
         source_type = od.get("source_type")
+        sandbox = getattr(runner, "sandbox", None) if runner else None
+        _sandbox_reader = getattr(sandbox, "read", None) if sandbox else None
+
+        def _read_design_file(relpath_no_dot: str, relpath_dot: str) -> str | None:
+            """Read from no-dot (ingestor) path first, fall back to dot (engine) path."""
+            if not callable(_sandbox_reader):
+                return None
+            if source_type in ("figma", "html"):
+                val = _sandbox_reader(relpath_no_dot)
+                if val:
+                    return val
+            return _sandbox_reader(relpath_dot)
+
+        # Override ds_body and template_body with ingestor-written content
+        # when the engine's od_context is empty (ingestor runs only).
+        if source_type in ("figma", "html"):
+            if not ds_body:
+                ds_body = _read_design_file(
+                    "context/design/design-system.md",
+                    ".context/design/design-system.md",
+                ) or ""
+                if ds_body and "design_system" in injects and not is_build_task_2_plus:
+                    is_deck_conditional = od.get("is_design_system_required")
+                    if is_deck_conditional is None or bool(is_deck_conditional):
+                        ds_preamble = "Apply these tokens to ALL colors, fonts, and spacing. Map to :root variables: --bg, --fg, --accent, --surface, --border, --muted.\n"
+                        blocks[f"ACTIVE DESIGN SYSTEM: {ds_id}"] = f"{ds_preamble}{ds_body}"
+            if not template_body:
+                template_body = _read_design_file(
+                    "context/design/template/SKILL.md",
+                    ".context/design/template/SKILL.md",
+                ) or ""
+                if template_body and "template" in injects and not is_build_task_2_plus:
+                    blocks[f"ACTIVE TEMPLATE (SKILL.md): {template_id}"] = template_body
+
         if source_type == "figma":
-            sandbox = getattr(runner, "sandbox", None) if runner else None
-            if sandbox is not None:
-                reader = getattr(sandbox, "read", None)
-                if callable(reader):
-                    try:
-                        frames_raw = reader(
-                            ".context/design/template/figma/frames.json"
-                        )
-                        if frames_raw:
-                            blocks["FIGMA DESIGN REFERENCE"] = (
-                                "The Figma screen exports for this run are listed below.\n"
-                                "Read each frame PNG via read_file (vision) to see the exact\n"
-                                "screens the user designed. Replicate their visual language.\n\n"
-                                f"{frames_raw}"
-                            )
-                    except Exception:  # noqa: BLE001 — degrade gracefully
-                        pass
+            try:
+                frames_raw = _read_design_file(
+                    "context/design/template/figma/frames.json",
+                    ".context/design/template/figma/frames.json",
+                )
+                if frames_raw:
+                    blocks["FIGMA DESIGN REFERENCE"] = (
+                        "The Figma screen exports for this run are listed below.\n"
+                        "Read each frame PNG via read_file (vision) to see the exact\n"
+                        "screens the user designed. Replicate their visual language.\n\n"
+                        f"{frames_raw}"
+                    )
+            except Exception:  # noqa: BLE001 — degrade gracefully
+                pass
 
         return blocks

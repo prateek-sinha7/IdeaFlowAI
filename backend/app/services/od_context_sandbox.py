@@ -67,28 +67,30 @@ def _write_od_context_to_sandbox(sandbox: object, od_context: dict) -> None:
     _safe_write(".context/selections.json", json.dumps(selections, indent=2))
 
     # ── .context/design/ — the full design material ──────────────────────────
-    # For figma/html source types, the Design Ingestor agent writes the actual
-    # design files. However, the agent cannot create directories — it can only
-    # write files into existing directories. We must pre-create the .context/design/
-    # tree here with a sentinel file so the directory exists before the agent runs.
-    # Without this, write_file .context/design/design-system.md silently fails
-    # (parent directory absent) and the agent falls back to writing at root level.
+    # For figma/html source types, the Design Ingestor agent writes files to
+    # `context/design/` (WITHOUT the leading dot) because the sandbox write guard
+    # blocks agent writes to `.context/` (reserved for the engine). After the
+    # Ingestor step, we copy from `context/design/` → `.context/design/` here.
+    # This copy runs at write_od_context_to_sandbox call time (before step 1),
+    # so it only seeds what the engine knows at launch; the actual ingestor copy
+    # is handled by rebuild_od_context_from_sandbox (post-ingestor-step reads).
     source_type = od_context.get("source_type")
     if source_type in ("figma", "html"):
-        # Seed the directory tree with a marker. The Ingestor agent overwrites
-        # design-system.md and template/ files with real content.
+        # Pre-create the .context/design/ tree with sentinel markers so the
+        # directory exists. The real files are written by the ingestor agent
+        # to context/design/ (no dot) and bridged by the reader layer.
         _safe_write(
             ".context/design/.ingestor",
-            f"source_type={source_type}\nIngestor agent will write design files here.\n",
+            f"source_type={source_type}\nIngestor agent writes real files to context/design/ (no dot).\n",
         )
         _safe_write(
             ".context/design/template/.ingestor",
-            f"source_type={source_type}\nIngestor agent will write template files here.\n",
+            f"source_type={source_type}\nIngestor agent writes real files to context/design/template/ (no dot).\n",
         )
         if source_type == "figma":
             _safe_write(
                 ".context/design/template/figma/.ingestor",
-                "Ingestor agent will write frames.json and frame references here.\n",
+                "Ingestor agent writes frames.json to context/design/template/figma/ (no dot).\n",
             )
 
     ds_body = od_context.get("ds_body") or ""
@@ -209,25 +211,39 @@ def rebuild_od_context_from_sandbox(sandbox: object) -> dict | None:
 
     # Rebuild the dict from the individual files. Missing files produce empty
     # strings, which is the same as the loader returning empty — safe to pass.
-    ds_body = reader(".context/design/design-system.md") or ""
-    craft_block = reader(".context/design/craft.md") or ""
-    template_body = reader(".context/design/template/SKILL.md") or ""
+    # For figma/html runs, the Design Ingestor agent writes to context/design/
+    # (no dot) because .context/ is write-protected for agents. Read from
+    # context/design/ first for ingestor source types, fall back to .context/design/.
+    source_type = selections.get("source_type")
+    _is_ingestor = source_type in ("figma", "html")
 
-    # Rebuild template_files: the seed + reference files under .context/design/template/
-    # excluding SKILL.md itself (that is template_body above).
+    def _read_design(relpath_no_dot: str, relpath_dot: str) -> str:
+        """Read from no-dot path first (ingestor writes), fall back to dot path (engine writes)."""
+        if _is_ingestor:
+            val = reader(relpath_no_dot)
+            if val:
+                return val
+        return reader(relpath_dot) or ""
+
+    ds_body = _read_design("context/design/design-system.md", ".context/design/design-system.md")
+    craft_block = _read_design("context/design/craft.md", ".context/design/craft.md")
+    template_body = _read_design("context/design/template/SKILL.md", ".context/design/template/SKILL.md")
+
+    # Rebuild template_files from the correct location based on source_type.
     template_files: dict[str, str] = {}
     list_fn = getattr(sandbox, "list_files", None)
     if callable(list_fn):
         try:
             listed, _ = list_fn()
-            template_prefix = ".context/design/template/"
+            template_prefix = "context/design/template/" if _is_ingestor else ".context/design/template/"
             for entry in listed:
                 path: str = entry["path"]
                 if (
                     path.startswith(template_prefix)
-                    and path != f"{template_prefix}SKILL.md"
+                    and not path.endswith("/SKILL.md")
+                    and not path.endswith("/.ingestor")
                 ):
-                    rel = path[len(template_prefix) :]  # e.g. "assets/template.html"
+                    rel = path[len(template_prefix) :]
                     content = reader(path)
                     if content:
                         template_files[rel] = content
@@ -237,7 +253,7 @@ def rebuild_od_context_from_sandbox(sandbox: object) -> dict | None:
     ds_files = {
         name: body
         for name in ("tokens.css", "components.html")
-        if (body := reader(f".context/design/{name}"))
+        if (body := reader(f".context/design/{name}") or reader(f"context/design/{name}"))
     }
 
     od_context: dict = {
