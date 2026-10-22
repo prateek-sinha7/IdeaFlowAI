@@ -2552,7 +2552,7 @@ export default function DashboardPage() {
         // before SSE connected — same draft, two verdicts. An empty brief is now refused
         // where refusing it is useful: the wizard (`LaunchWizard.canContinue`, with a
         // visible "Add a brief" pill) and the ingress (`launch_run` → `empty_brief`).
-        if (!draft.designSystemId && !sessionStorage.getItem("prototype_v2.figmaFrames")) return;
+        if (!draft.designSystemId && !sessionStorage.getItem("prototype_v2.hasFigmaFrames")) return;
         pending = {
           templateId: draft.templateId ?? "",  // empty string = no template
           designSystemId: draft.designSystemId,
@@ -4542,27 +4542,20 @@ export default function DashboardPage() {
                 .catch(() => {/* best-effort — stale list is recoverable on next terminal event */});
             }
             // Figma frames upload — fire-and-forget after run creation.
-            // LaunchWizard serialised frames as base64 under 'prototype_v2.figmaFrames';
-            // we upload them here once the run_id is known (pre-wizard there is none).
-            const figmaRaw = sessionStorage.getItem("prototype_v2.figmaFrames");
-            if (figmaRaw) {
-              sessionStorage.removeItem("prototype_v2.figmaFrames");
+            // LaunchWizard stored frames in the module-level figma-frame-store
+            // (not sessionStorage — avoids QuotaExceededError for large files).
+            const hasFigmaFramesSentinel = sessionStorage.getItem("prototype_v2.hasFigmaFrames");
+            if (hasFigmaFramesSentinel) {
               try {
-                const serialised = JSON.parse(figmaRaw) as {
-                  b64: string; mime: string; description: string; name: string;
-                }[];
+                const { getPendingFigmaFrames, clearPendingFigmaFrames } = await import("@/lib/figma-frame-store");
+                const frames = getPendingFigmaFrames();
+                clearPendingFigmaFrames(); // consume once
                 const uploadToken = getToken();
-                if (uploadToken && serialised.length > 0) {
-                  Promise.all(
-                    serialised.map(async (f) => {
-                      const res = await fetch(f.b64);
-                      const blob = await res.blob();
-                      return { kind: "image" as const, file: new File([blob], f.name, { type: f.mime }), description: f.description, previewUrl: "" };
-                    }),
-                  ).then((frames) => uploadFigmaFrames(uploadToken, launchedRunId, frames))
-                    .catch(() => { /* non-fatal — the run starts, frames just won't be there */ });
+                if (uploadToken && frames.length > 0) {
+                  uploadFigmaFrames(uploadToken, launchedRunId, frames)
+                    .catch(() => { /* non-fatal — run starts, frames just won't be there */ });
                 }
-              } catch { /* malformed JSON — ignore */ }
+              } catch { /* store unavailable — ignore */ }
             }
             return launchedRunId;
           }

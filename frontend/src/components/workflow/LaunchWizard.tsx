@@ -1130,32 +1130,15 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
       if (discovery) sessionStorage.setItem(DISCOVERY_KEY, discovery);
       else sessionStorage.removeItem(DISCOVERY_KEY);
     }
-    // Figma frames: File objects cannot go in sessionStorage. Convert to base64
-    // data URLs and park under a dedicated key. page.tsx uploads them after run
-    // creation (the run_id is not known at wizard time).
+    // Figma frames: File objects cannot go in sessionStorage (QuotaExceededError
+    // for large PNGs or multi-page PDFs). Store them in the module-level
+    // figma-frame-store instead — it survives in-app navigation.
     if (hasFigmaFrames && figmaFrames.length > 0) {
-      const serialised = await Promise.all(
-        figmaFrames.map(
-          (f) =>
-            new Promise<{ b64: string; mime: string; description: string; name: string }>(
-              (resolve, reject) => {
-                const reader = new FileReader();
-                reader.onload = (ev) =>
-                  resolve({
-                    b64: (ev.target?.result as string) ?? "",
-                    mime: f.file.type,
-                    description: f.description,
-                    name: f.file.name,
-                  });
-                reader.onerror = reject;
-                reader.readAsDataURL(f.file);
-              },
-            ),
-        ),
-      );
-      sessionStorage.setItem("prototype_v2.figmaFrames", JSON.stringify(serialised));
+      const { setPendingFigmaFrames } = await import("@/lib/figma-frame-store");
+      setPendingFigmaFrames(figmaFrames);
     } else {
-      sessionStorage.removeItem("prototype_v2.figmaFrames");
+      const { clearPendingFigmaFrames } = await import("@/lib/figma-frame-store");
+      clearPendingFigmaFrames();
     }
     sessionStorage.setItem(draft.pendingKey, "true");
     router.push(routes.home());
