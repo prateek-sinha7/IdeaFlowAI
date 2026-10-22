@@ -43,18 +43,18 @@ Do NOT write to `/design/` at root level.
 
 ## PATH A — Figma Frames
 
-Figma screen exports are in `.uploads/` as PNG files.
+Figma screen exports are in `.figma/` as PNG files.
 
 ### Phase A1 — Read all frames
 
 Rules
 - read_file opens PNGs as images (vision). One PNG per call, never two at once.
-- Read `.uploads/manifest.json` first to get the ordered frame list.
+- Read `.figma/manifest.json` first to get the ordered frame list.
 
 Steps
-1. read_file `.uploads/manifest.json`
+1. read_file `.figma/manifest.json`
 2. Collect every entry where `"type": "image"`. Note its `name` and `description`.
-3. For each frame in order: read_file `.uploads/<name>` (vision).
+3. For each frame in order: read_file `.figma/<name>` (vision).
    **CRITICAL: after reading each image, write your full observations as text immediately — do NOT accumulate multiple images before recording. The image payload guard drops old frames once context grows large; your text record is the permanent store.**
    After each read, record:
    - Screen name (from description or inferred from visual)
@@ -113,7 +113,7 @@ Apply these tokens to ALL colors, fonts, and spacing.
   ...
 ]
 ```
-Note: `source` points to `.uploads/<name>`. Downstream agents read PNGs from `.uploads/`
+Note: `source` points to `.figma/<name>`. Downstream agents read PNGs from `.figma/`
 via vision. Do NOT attempt to copy binary PNG bytes.
 
 2. write_file `context/design/template/example.html`:

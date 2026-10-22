@@ -1,11 +1,14 @@
 """app/api/run_figma_frames.py — FIGMA-01: owner-scoped Figma frame upload for a run.
 
 ``POST /api/runs/{id}/figma-frames`` accepts PNG/JPEG screen exports from Figma
-and lands them under the run's ``RunSandbox`` at the reserved ``.uploads/``
-prefix with manifest entries that carry ``type='image'``.  The fi-planner step
-of Prototype V2 branches on that ``type`` field to skip text extraction and
-instead create a synthetic shard, allowing the prototype pipeline to build from
-visual designs rather than text documents.
+and lands them under the run's ``RunSandbox`` at the dedicated ``.figma/``
+prefix (NOT ``.uploads/``). This keeps ``.uploads/`` for text-extractable
+documents only and avoids cluttering the workspace with PNG assets alongside
+spec PDFs and DOCX files.
+
+The Design Ingestor agent reads frames from ``.figma/`` and the fi-planner
+ignores ``.figma/`` entirely (it only reads ``.uploads/manifest.json``).
+"""
 
 Design constraints honoured (mirrors run_files.py):
   * **Ownership (FIGMA-01)** — the SAME two-layer owner check as
@@ -39,7 +42,6 @@ from fastapi import APIRouter, Depends, Form, HTTPException, UploadFile, status
 from app.agents.sandbox import (
     FamilyLockTimeout,
     RunSandbox,
-    _UPLOADS_PREFIX,
     _safe_segment,
     family_lock,
 )
@@ -67,6 +69,11 @@ _MAX_FRAME_BYTES = 4 * 1024 * 1024  # 4 MB per frame
 _MAX_FRAME_COUNT = 20
 _ALLOWED_FRAME_EXTS: frozenset[str] = frozenset({"png", "jpg", "jpeg"})
 _ALLOWED_FRAME_MIMES: frozenset[str] = frozenset({"image/png", "image/jpeg"})
+
+# Dedicated prefix for Figma frame assets — separate from .uploads/ (documents).
+# Keeps the workspace clean: .uploads/ = text docs, .figma/ = design PNGs.
+# The Design Ingestor reads from .figma/; fi-planner never touches it.
+_FIGMA_PREFIX = ".figma/"
 
 # Friendly 415 message: guides users to the correct Figma export path.
 _UNSUPPORTED_TYPE_MSG = (
@@ -178,7 +185,7 @@ async def upload_figma_frames(
     sandbox = RunSandbox(current_user.id, chain_root_id, runs_root=settings.RUNS_ROOT)
     sandbox.ensure()
 
-    manifest_rel = f"{_UPLOADS_PREFIX}manifest.json"
+    manifest_rel = f"{_FIGMA_PREFIX}manifest.json"
 
     # ── Acquire family lock (family → manifest ordering per run_files.py) ─────
     try:
@@ -210,8 +217,15 @@ async def upload_figma_frames(
                     _safe_segment(base_name, fallback="frame"), used_names
                 )
                 used_names.add(safe)
-                _write_bytes(sandbox, f"{_UPLOADS_PREFIX}{safe}", data)
+                _write_bytes(sandbox, f"{_FIGMA_PREFIX}{safe}", data)
                 manifest[safe] = {
+                    "name": safe,
+                    "mime": mime,
+                    "type": "image",
+                    "description": description,
+                    "has_text": False,
+                }
+                results.append({"name": safe, "bytes": len(data)})
                     "name": safe,
                     "mime": mime,
                     "type": "image",
