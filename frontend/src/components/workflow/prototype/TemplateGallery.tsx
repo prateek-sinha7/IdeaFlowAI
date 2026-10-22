@@ -277,7 +277,12 @@ export function TemplateGallery({ templates, selectedId, onSelect, onSelectCusto
       <div className="border-t border-line-divider px-4 py-1.5">
         <span className="text-[10px] text-ink-400">
           {activeCategory === "Figma"
-            ? `${figmaFrames?.length ?? 0} frame${(figmaFrames?.length ?? 0) !== 1 ? "s" : ""}`
+            ? (() => {
+                const count = figmaFrames?.length ?? 0;
+                const hasPdf = figmaFrames?.some((f) => f.kind === "pdf") ?? false;
+                if (hasPdf) return "1 PDF uploaded";
+                return `${count} frame${count !== 1 ? "s" : ""}`;
+              })()
             : activeCategory === "Custom"
             ? `${savedCustomTemplates.length} custom template${savedCustomTemplates.length !== 1 ? "s" : ""}`
             : `${filtered.length} template${filtered.length !== 1 ? "s" : ""}${activeCategory !== "All" ? ` · ${activeCategory}` : ""}`

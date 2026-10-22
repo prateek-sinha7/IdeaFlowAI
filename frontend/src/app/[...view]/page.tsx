@@ -4557,7 +4557,7 @@ export default function DashboardPage() {
                     serialised.map(async (f) => {
                       const res = await fetch(f.b64);
                       const blob = await res.blob();
-                      return { file: new File([blob], f.name, { type: f.mime }), description: f.description, previewUrl: "" };
+                      return { kind: "image" as const, file: new File([blob], f.name, { type: f.mime }), description: f.description, previewUrl: "" };
                     }),
                   ).then((frames) => uploadFigmaFrames(uploadToken, launchedRunId, frames))
                     .catch(() => { /* non-fatal — the run starts, frames just won't be there */ });

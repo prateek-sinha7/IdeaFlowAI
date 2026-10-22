@@ -59,11 +59,14 @@ logger = logging.getLogger("app.api.run_figma_frames")
 router = APIRouter(prefix="/api/runs", tags=["runs"])
 
 # ── Constants ────────────────────────────────────────────────────────────────
-# Separate from the 10 MB document cap in file_extract — images are lighter.
-_MAX_FRAME_BYTES = 4 * 1024 * 1024  # 4 MB per frame
+# Separate caps: images are small (4 MB), PDFs are multi-page (20 MB max).
+_MAX_FRAME_BYTES = 4 * 1024 * 1024   # 4 MB per PNG/JPG frame
+_MAX_PDF_BYTES   = 20 * 1024 * 1024  # 20 MB for multi-page Figma PDF export
 _MAX_FRAME_COUNT = 20
-_ALLOWED_FRAME_EXTS: frozenset[str] = frozenset({"png", "jpg", "jpeg"})
-_ALLOWED_FRAME_MIMES: frozenset[str] = frozenset({"image/png", "image/jpeg"})
+_ALLOWED_FRAME_EXTS: frozenset[str] = frozenset({"png", "jpg", "jpeg", "pdf"})
+_ALLOWED_FRAME_MIMES: frozenset[str] = frozenset({
+    "image/png", "image/jpeg", "application/pdf",
+})
 
 # Dedicated prefix for Figma frame assets — separate from .uploads/ (documents).
 # Keeps the workspace clean: .uploads/ = text docs, .figma/ = design PNGs.
@@ -72,9 +75,9 @@ _FIGMA_PREFIX = ".figma/"
 
 # Friendly 415 message: guides users to the correct Figma export path.
 _UNSUPPORTED_TYPE_MSG = (
-    "Unsupported file type: {name!r}. Please export your screens as PNG from Figma: "
-    "select a frame → right-click → Export → PNG @ 1×. "
-    "Accepted: .png / .jpg / .jpeg"
+    "Unsupported file type: {name!r}. Accepted formats: "
+    "PNG/JPEG (individual frames) or PDF (File → Export → Export frames to PDF). "
+    "Accepted: .png / .jpg / .jpeg / .pdf"
 )
 
 
@@ -140,13 +143,15 @@ async def upload_figma_frames(
                 detail=_UNSUPPORTED_TYPE_MSG.format(name=name),
             )
 
-        data = await _read_capped(upload, _MAX_FRAME_BYTES)
+        # PDF gets a larger cap (multi-page); images get the 4 MB frame cap.
+        cap = _MAX_PDF_BYTES if ext == "pdf" else _MAX_FRAME_BYTES
+        data = await _read_capped(upload, cap)
         if data is None:
             raise HTTPException(
                 status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
                 detail=(
                     f"File too large: {name!r} "
-                    f"(max {_MAX_FRAME_BYTES // (1024 * 1024)} MB per frame)"
+                    f"(max {cap // (1024 * 1024)} MB)"
                 ),
             )
         validated.append((name, data, ext, mime, descriptions[i]))
@@ -216,7 +221,7 @@ async def upload_figma_frames(
                 manifest[safe] = {
                     "name": safe,
                     "mime": mime,
-                    "type": "image",
+                    "type": "pdf" if ext == "pdf" else "image",
                     "description": description,
                     "has_text": False,
                 }

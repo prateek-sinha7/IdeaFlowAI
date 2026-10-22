@@ -103,6 +103,7 @@ vi.mock("@/components/workflow/WizardStepper", () => ({
         data-testid="add-figma-frame"
         onClick={() => {
           const f: FigmaFrame = {
+            kind: "image",
             file: new File([new Uint8Array(100)], "frame.png", { type: "image/png" }),
             description: "",
             previewUrl: "blob:http://localhost/mock",

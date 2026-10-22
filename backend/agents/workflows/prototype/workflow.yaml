@@ -63,6 +63,8 @@ steps:
     read_files: true
     write_files: true
     exec: false
+  tool_sets:
+    - file_extract
   gates: []
 - agent: prototype-specify
   strategy: single_shot

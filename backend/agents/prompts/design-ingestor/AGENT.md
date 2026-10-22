@@ -41,11 +41,18 @@ Do NOT write to `/design/` at root level.
 
 ---
 
-## PATH A — Figma Frames
+## PATH A — Figma Frames (PNG/JPG or multi-page PDF)
 
-Figma screen exports are in `.figma/` as PNG files.
+After reading `.figma/manifest.json`, check what type of files were uploaded
+and follow the matching branch. Both branches produce the same output files.
 
-### Phase A1 — Read all frames
+---
+
+### Branch A1 — PNG/JPG frames (`type: "image"` entries)
+
+Figma screen exports are individual PNG or JPEG files in `.figma/`.
+
+**Phase A1 — Read all frames**
 
 Rules
 - read_file opens PNGs as images (vision). One PNG per call, never two at once.
@@ -69,9 +76,33 @@ Steps
    - Navigation items visible
    - Key UI sections visible
 
+---
+
+### Branch A2 — Multi-page PDF (`type: "pdf"` entry)
+
+Figma was exported as a single PDF (File → Export → Export frames to PDF).
+Each PDF page = one Figma screen frame.
+
+Steps
+1. read_file `.figma/manifest.json`
+2. Find the entry where `"type": "pdf"`. Note its `name` (e.g. `"design.pdf"`).
+3. Call extract_text with path `.figma/<name>`:
+   This extracts all pages and produces `.extract/pdf/<slug>/` with shard manifests.
+4. read_file `.extract/pdf/<slug>/manifest.json` to get the shards list.
+5. For each shard, read `.extract/pdf/<slug>/shards/<shard-id>/text.md`.
+   In that file, `@[[image-K.png]]` markers indicate page screenshots.
+   For each image marker in order: read_file the corresponding PNG (vision).
+   **CRITICAL: record observations immediately after each image read — same
+   fields as Branch A1. Write them to your reply before moving to the next image.**
+6. After processing all pages, continue with Phase A2 below, treating each
+   page as one frame. In Phase A3, set `"source"` in frames.json to the
+   `.extract/pdf/.../image-K.png` path so downstream agents can read them.
+
+---
+
 ### Phase A2 — Write design-system.md
 
-Synthesise ONE consistent palette across all frames.
+Synthesise ONE consistent palette across all frames (from Branch A1 or A2).
 
 write_file `context/design/design-system.md`:
 ```
