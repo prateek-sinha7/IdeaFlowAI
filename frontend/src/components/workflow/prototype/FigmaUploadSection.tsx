@@ -77,8 +77,29 @@ export function FigmaUploadSection({ frames, onChange }: FigmaUploadSectionProps
     onChange([...frames, { file, description: "", previewUrl }]);
   };
 
+  // processFiles batches all valid files into ONE onChange call to avoid the
+  // React state-closure bug where each processFile call captures the same
+  // stale `frames` value, causing only the last file to survive.
   const processFiles = (list: FileList | File[]) => {
-    Array.from(list).forEach(processFile);
+    const incoming = Array.from(list);
+    const newFrames: FigmaFrame[] = [];
+    let firstError: string | null = null;
+
+    for (const file of incoming) {
+      const err = validateFrame(file, frames.length + newFrames.length);
+      if (err) {
+        if (!firstError) firstError = err;
+        continue; // skip invalid but keep processing the rest
+      }
+      newFrames.push({ file, description: "", previewUrl: URL.createObjectURL(file) });
+    }
+
+    if (firstError) setError(firstError);
+    else setError(null);
+
+    if (newFrames.length > 0) {
+      onChange([...frames, ...newFrames]);
+    }
   };
 
   const removeFrame = (idx: number) => {
@@ -120,6 +141,8 @@ export function FigmaUploadSection({ frames, onChange }: FigmaUploadSectionProps
     try {
       const JSZip = (await import("jszip")).default;
       const zip = await JSZip.loadAsync(file);
+      // Collect all valid image files from the ZIP first, then batch-add them
+      const zipFiles: File[] = [];
       for (const [path, entry] of Object.entries(zip.files)) {
         if (entry.dir) continue;
         const ext = path.split(".").pop()?.toLowerCase();
@@ -127,9 +150,10 @@ export function FigmaUploadSection({ frames, onChange }: FigmaUploadSectionProps
           const blob = await entry.async("blob");
           const fname = path.split("/").pop() ?? path;
           const mime = ext === "png" ? "image/png" : "image/jpeg";
-          processFile(new File([blob], fname, { type: mime }));
+          zipFiles.push(new File([blob], fname, { type: mime }));
         }
       }
+      if (zipFiles.length > 0) processFiles(zipFiles);
     } catch {
       setError("Could not read ZIP file");
     }
