@@ -38,23 +38,10 @@ steps:
   depends_on: []
   model:
     model: eu.anthropic.claude-sonnet-4-6
-  agent: design-ingestor-html
-  instance_id: design-ingestor-html
-  name: HTML Design Ingestor
-  condition: "source_type == 'html'"
-  tools:
-    read_files: true
-    write_files: true
-    exec: false
-  gates: []
-- strategy: single_shot
-  depends_on: []
-  model:
-    model: eu.anthropic.claude-sonnet-4-6
-  agent: design-ingestor-figma
-  instance_id: design-ingestor-figma
-  name: Figma Design Ingestor
-  condition: "source_type == 'figma'"
+  agent: design-ingestor
+  instance_id: design-ingestor
+  name: Design Ingestor
+  condition: "source_type in ['html', 'figma']"
   tools:
     read_files: true
     write_files: true
