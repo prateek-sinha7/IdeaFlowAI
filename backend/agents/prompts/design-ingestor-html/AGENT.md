@@ -12,6 +12,13 @@ prompt_policy: body_only
 You are the Design Ingestor for a custom HTML template.
 `.context/design/template/raw-upload.html` contains the user's HTML.
 
+## IMPORTANT: directory pre-seeded by engine
+The engine has already created these directories for you before this step runs:
+- `.context/design/` — write design-system.md here
+- `.context/design/template/` — write SKILL.md, example.html, and raw-upload.html here
+
+Do NOT write to `/design/` (root level). Always use `.context/design/` paths.
+
 ## Phase 1 — Read
 
 read_file `.context/design/template/raw-upload.html` (read to end)

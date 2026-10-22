@@ -16,6 +16,15 @@ Figma screen exports are in `.uploads/` as PNG files.
 Your job is to read every frame visually and produce the `.context/design/` structure
 that all downstream agents expect — the same structure a catalog template produces.
 
+## IMPORTANT: directory pre-seeded by engine
+The engine has already created these directories for you before this step runs:
+- `.context/design/` — write design-system.md here
+- `.context/design/template/` — write SKILL.md and example.html here
+- `.context/design/template/figma/` — write frames.json here
+
+Do NOT write to `/design/` (root level). Always use `.context/design/` paths.
+If a write_file call fails, retry with the exact same `.context/design/` path — do not fall back to an alternative location.
+
 ## Absolute output contract
 
 You write exactly these files and nothing else:
@@ -127,10 +136,13 @@ Steps
 2. write_file `.context/design/template/figma/frames.json`:
 ```json
 [
-  {"index": 0, "filename": "<name>", "screen": "<screen name>", "description": "<description>", "layout": "<layout pattern>"},
+  {"index": 0, "filename": "<name>", "screen": "<screen name>", "description": "<description>", "layout": "<layout pattern>", "source": ".uploads/<name>"},
   ...
 ]
 ```
+Note: `source` points to `.uploads/<name>` where the PNG lives. Downstream agents
+read PNGs directly from `.uploads/` using read_file (vision). Do NOT attempt to
+copy binary PNG files — reference them by their `.uploads/` path in frames.json.
 
 3. write_file `.context/design/template/example.html`:
    A minimal but real HTML scaffold using the dominant layout and the CSS variables

@@ -67,6 +67,30 @@ def _write_od_context_to_sandbox(sandbox: object, od_context: dict) -> None:
     _safe_write(".context/selections.json", json.dumps(selections, indent=2))
 
     # ── .context/design/ — the full design material ──────────────────────────
+    # For figma/html source types, the Design Ingestor agent writes the actual
+    # design files. However, the agent cannot create directories — it can only
+    # write files into existing directories. We must pre-create the .context/design/
+    # tree here with a sentinel file so the directory exists before the agent runs.
+    # Without this, write_file .context/design/design-system.md silently fails
+    # (parent directory absent) and the agent falls back to writing at root level.
+    source_type = od_context.get("source_type")
+    if source_type in ("figma", "html"):
+        # Seed the directory tree with a marker. The Ingestor agent overwrites
+        # design-system.md and template/ files with real content.
+        _safe_write(
+            ".context/design/.ingestor",
+            f"source_type={source_type}\nIngestor agent will write design files here.\n",
+        )
+        _safe_write(
+            ".context/design/template/.ingestor",
+            f"source_type={source_type}\nIngestor agent will write template files here.\n",
+        )
+        if source_type == "figma":
+            _safe_write(
+                ".context/design/template/figma/.ingestor",
+                "Ingestor agent will write frames.json and frame references here.\n",
+            )
+
     ds_body = od_context.get("ds_body") or ""
     if ds_body:
         _safe_write(".context/design/design-system.md", ds_body)
