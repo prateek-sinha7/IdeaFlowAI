@@ -63,7 +63,7 @@ steps:
     read_files: true
     write_files: true
     exec: false
-  tool_sets:
+    tool_sets:
     - file_extract
   gates: []
 - agent: prototype-specify
