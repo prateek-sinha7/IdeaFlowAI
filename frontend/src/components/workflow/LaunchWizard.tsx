@@ -62,6 +62,7 @@ import { CUSTOM_AGENT_PREFIX } from "@/store/api/userWorkflows";
 import { buildWorkflowManifest, collectAgentIds, instantiateIfTemplate, overrideDescription } from "@/store/api/userWorkflows";
 import { DOCUMENT_AND_IMAGE_ACCEPT, isBinaryUpload, isTextUpload, withoutOne } from "@/lib/uploadTypes";
 import type { FigmaFrame } from "@/components/workflow/prototype/FigmaUploadSection";
+import { setPendingFigmaFrames, clearPendingFigmaFrames } from "@/lib/figma-frame-store";
 
 /**
  * LaunchWizard (plan 37-07) — the ONE unified deliverable-launch page. It
@@ -1134,10 +1135,8 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
     // for large PNGs or multi-page PDFs). Store them in the module-level
     // figma-frame-store instead — it survives in-app navigation.
     if (hasFigmaFrames && figmaFrames.length > 0) {
-      const { setPendingFigmaFrames } = await import("@/lib/figma-frame-store");
       setPendingFigmaFrames(figmaFrames);
     } else {
-      const { clearPendingFigmaFrames } = await import("@/lib/figma-frame-store");
       clearPendingFigmaFrames();
     }
     sessionStorage.setItem(draft.pendingKey, "true");

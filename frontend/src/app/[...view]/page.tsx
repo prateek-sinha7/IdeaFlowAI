@@ -53,6 +53,7 @@ import { WorkflowDetailView } from "@/components/savedworkflows/WorkflowDetailVi
 import { LaunchWizard } from "@/components/workflow/LaunchWizard";
 import type { LaunchMode } from "@/lib/launchDraft";
 import { uploadFigmaFrames } from "@/lib/prototype-api";
+import { getPendingFigmaFrames, clearPendingFigmaFrames } from "@/lib/figma-frame-store";
 
 /**
  * Map the SSE connection phase (RunConnectionPhase) onto the ConnectionStatus
@@ -4547,7 +4548,6 @@ export default function DashboardPage() {
             const hasFigmaFramesSentinel = sessionStorage.getItem("prototype_v2.hasFigmaFrames");
             if (hasFigmaFramesSentinel) {
               try {
-                const { getPendingFigmaFrames, clearPendingFigmaFrames } = await import("@/lib/figma-frame-store");
                 const frames = getPendingFigmaFrames();
                 clearPendingFigmaFrames(); // consume once
                 const uploadToken = getToken();
