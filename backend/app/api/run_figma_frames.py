@@ -8,7 +8,6 @@ spec PDFs and DOCX files.
 
 The Design Ingestor agent reads frames from ``.figma/`` and the fi-planner
 ignores ``.figma/`` entirely (it only reads ``.uploads/manifest.json``).
-"""
 
 Design constraints honoured (mirrors run_files.py):
   * **Ownership (FIGMA-01)** — the SAME two-layer owner check as
@@ -22,11 +21,7 @@ Design constraints honoured (mirrors run_files.py):
     (images are lighter than the 10 MB document cap) → 413; a frame-count cap of 20
     → 413.  Every file is read + validated first; a single rejection writes nothing.
   * **Traversal** — every write resolves through ``RunSandbox.path_for`` under
-    the reserved ``.uploads/`` prefix (same as run_files.py).
-  * **Manifest shape** — each entry carries ``name``, ``mime``, ``type='image'``,
-    ``description``, ``has_text=False``.  The fi-planner branches on
-    ``type='image'`` OR an image file extension to skip extract_text and build a
-    synthetic shard.
+    the ``.figma/`` prefix.
   * **SC-001 intact** — no ``if pipeline_type ==`` added to engine.py.
   * **Additive** — no new table, no migration.
 """
@@ -219,13 +214,6 @@ async def upload_figma_frames(
                 used_names.add(safe)
                 _write_bytes(sandbox, f"{_FIGMA_PREFIX}{safe}", data)
                 manifest[safe] = {
-                    "name": safe,
-                    "mime": mime,
-                    "type": "image",
-                    "description": description,
-                    "has_text": False,
-                }
-                results.append({"name": safe, "bytes": len(data)})
                     "name": safe,
                     "mime": mime,
                     "type": "image",
