@@ -353,16 +353,12 @@ def load_figma_ingest_context(frame_count: int = 0) -> dict[str, Any]:
     """Build a minimal od_context dict for a Figma-frames run.
 
     Does NOT call od_loader — there is no catalog template or design system
-    to load. The Design Ingestor agent (design-ingestor-figma) owns all
-    .context/design/ writes for this source type.
+    to load. The Design Ingestor agent owns all design file writes.
 
-    Returns a dict with just enough fields for od_context_sandbox.py to write
-    a sentinel selections.json (so context_already_present() works correctly)
-    and for downstream agents to read source_type from selections.json.
-
-    Phase 3 replaces this stub with the full agent prompt; the dict shape is
-    intentionally minimal for Phase 1 (only selections.json gets written because
-    all body/files fields are empty/None — the existing write guards skip them).
+    template_body is set to a non-None placeholder so the factory's
+    TemplateMissingError guard passes for agents that declare injects=['template'].
+    The opendesign provider replaces this placeholder with the real SKILL.md
+    content read from context/design/template/SKILL.md at runtime.
     """
     return {
         "template_id": "custom-figma",
@@ -373,8 +369,14 @@ def load_figma_ingest_context(frame_count: int = 0) -> dict[str, Any]:
         "is_design_system_required": None,
         "source_type": "figma",
         "figma_frame_count": frame_count,
-        # These are intentionally empty — the Ingestor agent writes them
-        "template_body": None,
+        # Non-empty placeholder — prevents TemplateMissingError in the factory.
+        # The opendesign provider replaces this at runtime with the real
+        # content from context/design/template/SKILL.md (written by the ingestor).
+        "template_body": (
+            "# Figma Design Mode\n\n"
+            "This run uses Figma screen exports as the design source.\n"
+            "Read context/design/template/SKILL.md for the full design reference.\n"
+        ),
         "ds_body": "",
         "craft_block": "",
         "template_files": {},

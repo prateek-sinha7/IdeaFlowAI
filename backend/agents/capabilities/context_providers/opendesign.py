@@ -214,23 +214,31 @@ class OpenDesignProvider:
         # Override ds_body and template_body with ingestor-written content
         # when the engine's od_context is empty (ingestor runs only).
         if source_type in ("figma", "html"):
-            if not ds_body:
-                ds_body = _read_design_file(
-                    "context/design/design-system.md",
-                    ".context/design/design-system.md",
-                ) or ""
-                if ds_body and "design_system" in injects and not is_build_task_2_plus:
-                    is_deck_conditional = od.get("is_design_system_required")
-                    if is_deck_conditional is None or bool(is_deck_conditional):
-                        ds_preamble = "Apply these tokens to ALL colors, fonts, and spacing. Map to :root variables: --bg, --fg, --accent, --surface, --border, --muted.\n"
-                        blocks[f"ACTIVE DESIGN SYSTEM: {ds_id}"] = f"{ds_preamble}{ds_body}"
-            if not template_body:
-                template_body = _read_design_file(
-                    "context/design/template/SKILL.md",
-                    ".context/design/template/SKILL.md",
-                ) or ""
-                if template_body and "template" in injects and not is_build_task_2_plus:
-                    blocks[f"ACTIVE TEMPLATE (SKILL.md): {template_id}"] = template_body
+            # For ingestor runs, the Design Ingestor writes SKILL.md and
+            # design-system.md to context/design/ (no dot) because .context/
+            # is write-protected for agents. ALWAYS read from disk here —
+            # the od_context values are placeholders, not real content.
+            real_ds = _read_design_file(
+                "context/design/design-system.md",
+                ".context/design/design-system.md",
+            ) or ""
+            if real_ds:
+                ds_body = real_ds
+            real_skill = _read_design_file(
+                "context/design/template/SKILL.md",
+                ".context/design/template/SKILL.md",
+            ) or ""
+            if real_skill:
+                template_body = real_skill
+            # Emit DS block with real content
+            if ds_body and "design_system" in injects and not is_build_task_2_plus:
+                is_deck_conditional = od.get("is_design_system_required")
+                if is_deck_conditional is None or bool(is_deck_conditional):
+                    ds_preamble = "Apply these tokens to ALL colors, fonts, and spacing. Map to :root variables: --bg, --fg, --accent, --surface, --border, --muted.\n"
+                    blocks[f"ACTIVE DESIGN SYSTEM: {ds_id}"] = f"{ds_preamble}{ds_body}"
+            # Emit SKILL.md block with real content
+            if template_body and "template" in injects and not is_build_task_2_plus:
+                blocks[f"ACTIVE TEMPLATE (SKILL.md): {template_id}"] = template_body
 
         if source_type == "figma":
             try:
