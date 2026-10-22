@@ -79,10 +79,9 @@ steps:
     2. It is a JSON array; each entry has "name".
     3. For each entry in the manifest array, branch on its "type" field and name:
        a. If the entry has "type": "image" OR the name ends in .png, .jpg, or .jpeg:
-          SKIP extract_text. Derive the slug: strip the extension, replace spaces with
-          hyphens, lowercase. Create ONE synthetic shard recorded for Phase 2 and 3:
-          {"id":"<slug>-s01","slug":"<slug>","format":"image","pages":"1-1",
-           "page_range":"1-1","est_tokens":1000,"source":".uploads/<name>"}
+          SKIP this entry entirely. Do NOT create a shard task for it.
+          Figma frame images are handled by the Design Ingestor (which already ran).
+          Creating reader tasks for them would double-process the same frames.
        b. Otherwise: call extract_text with path `.uploads/` followed by the name.
 
     Phase 2 - Read the shards
@@ -94,9 +93,7 @@ steps:
 
     Steps
     1. For each document from Phase 1:
-       a. If it has a synthetic shard (type="image" or image file extension):
-          Skip read_file. Use the synthetic shard from Phase 1 directly —
-          id, slug, format, pages, page_range, est_tokens, source are already known.
+       a. Images (type="image" or image file extension) were skipped — no shard exists.
        b. Otherwise: read_file `.extract/<format>/<slug>/manifest.json`.
     2. Each manifest has a "shards" array. Each shard carries: id, slug, format,
        pages, page_range, est_tokens, source.
