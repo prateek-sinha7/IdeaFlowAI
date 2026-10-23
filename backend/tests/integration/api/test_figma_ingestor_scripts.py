@@ -20,7 +20,7 @@ from pathlib import Path
 import pytest
 
 _BACKEND = Path(__file__).resolve().parents[3]
-_SCRIPTS = _BACKEND / "skills" / "global" / "figma-ingestor" / "scripts"
+_SCRIPTS = _BACKEND / "skills" / "global" / "design-ingestor" / "scripts"
 
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────

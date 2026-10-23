@@ -3,8 +3,8 @@
 Disk-read-only tests (no DB, no LLM) verifying that:
 - import-design and import-template skills are placed in skills/velocity/
 - new-ingestion-skills/ is gone
-- figma-ingestor global skill is registered in backend/skills/global/
-- figma-ingestor scripts are present and syntactically valid
+- design-ingestor global skill is registered in backend/skills/global/
+- design-ingestor scripts are present and syntactically valid
 """
 from __future__ import annotations
 
@@ -74,31 +74,31 @@ def test_import_template_scripts_present() -> None:
     assert required <= present, f"Missing scripts: {required - present}"
 
 
-# ── Phase 2: figma-ingestor global skill registered ──────────────────────────
+# ── Phase 2: design-ingestor global skill registered ──────────────────────────
 
 @pytest.mark.integration
 def test_figma_ingestor_skill_dir_exists() -> None:
-    """backend/skills/global/figma-ingestor/ must exist."""
-    assert (_GLOBAL / "figma-ingestor").is_dir(), (
-        "figma-ingestor global skill folder not found at backend/skills/global/figma-ingestor/"
+    """backend/skills/global/design-ingestor/ must exist."""
+    assert (_GLOBAL / "design-ingestor").is_dir(), (
+        "design-ingestor global skill folder not found at backend/skills/global/design-ingestor/"
     )
 
 
 @pytest.mark.integration
 def test_figma_ingestor_skill_md_exists() -> None:
-    """backend/skills/global/figma-ingestor/SKILL.md must exist with correct name field."""
-    skill_md = _GLOBAL / "figma-ingestor" / "SKILL.md"
+    """backend/skills/global/design-ingestor/SKILL.md must exist with correct name field."""
+    skill_md = _GLOBAL / "design-ingestor" / "SKILL.md"
     assert skill_md.exists(), f"SKILL.md missing at {skill_md}"
     content = skill_md.read_text(encoding="utf-8")
-    assert "name: figma-ingestor" in content, (
-        "SKILL.md frontmatter must contain 'name: figma-ingestor'"
+    assert "name: design-ingestor" in content, (
+        "SKILL.md frontmatter must contain 'name: design-ingestor'"
     )
 
 
 @pytest.mark.integration
 def test_figma_ingestor_scripts_dir_exists() -> None:
-    """backend/skills/global/figma-ingestor/scripts/ must contain 4 scripts."""
-    scripts_dir = _GLOBAL / "figma-ingestor" / "scripts"
+    """backend/skills/global/design-ingestor/scripts/ must contain 4 scripts."""
+    scripts_dir = _GLOBAL / "design-ingestor" / "scripts"
     assert scripts_dir.is_dir()
     required = {"figma_extract.py", "figma_to_html.py", "make_ds.py", "ds_schema.py"}
     present = {f.name for f in scripts_dir.iterdir() if f.is_file()}
@@ -108,7 +108,7 @@ def test_figma_ingestor_scripts_dir_exists() -> None:
 @pytest.mark.integration
 def test_figma_ingestor_schema_bundled() -> None:
     """tokens.schema.ts must be bundled inside the skill for sandbox-offline use."""
-    schema_path = _GLOBAL / "figma-ingestor" / "scripts" / "schema" / "tokens.schema.ts"
+    schema_path = _GLOBAL / "design-ingestor" / "scripts" / "schema" / "tokens.schema.ts"
     assert schema_path.exists(), f"tokens.schema.ts not bundled at {schema_path}"
     content = schema_path.read_text(encoding="utf-8")
     assert "TOKEN_SCHEMA" in content or "--bg" in content, (
@@ -118,8 +118,8 @@ def test_figma_ingestor_schema_bundled() -> None:
 
 @pytest.mark.integration
 def test_figma_ingestor_scripts_are_valid_python() -> None:
-    """All .py scripts in figma-ingestor must parse as valid Python."""
-    scripts_dir = _GLOBAL / "figma-ingestor" / "scripts"
+    """All .py scripts in design-ingestor must parse as valid Python."""
+    scripts_dir = _GLOBAL / "design-ingestor" / "scripts"
     for py_file in scripts_dir.glob("*.py"):
         try:
             ast.parse(py_file.read_text(encoding="utf-8"))
@@ -129,14 +129,14 @@ def test_figma_ingestor_scripts_are_valid_python() -> None:
 
 @pytest.mark.integration
 def test_figma_ingestor_registered_in_catalog(monkeypatch) -> None:
-    """skills_catalog.list_global_skills() must include 'figma-ingestor'."""
+    """skills_catalog.list_global_skills() must include 'design-ingestor'."""
     import app.agents.skills_catalog as skills_catalog
     monkeypatch.setattr(skills_catalog, "_GLOBAL_SKILL_DIR", _GLOBAL)
     skills_catalog.clear_cache()
     try:
         ids = {entry.id for entry in skills_catalog.list_global_skills()}
-        assert "figma-ingestor" in ids, (
-            f"figma-ingestor not in catalog. Found: {sorted(ids)}"
+        assert "design-ingestor" in ids, (
+            f"design-ingestor not in catalog. Found: {sorted(ids)}"
         )
     finally:
         skills_catalog.clear_cache()

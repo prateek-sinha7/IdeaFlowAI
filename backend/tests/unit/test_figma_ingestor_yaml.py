@@ -2,8 +2,8 @@
 
 Disk-read-only tests verifying that both workflow YAML files have the
 correct design-ingestor step configuration after Phase 5:
-- exec: true (was exec: false)
-- skills: [figma-ingestor]
+- exec: false (D-01 requires gates for exec: true)
+- skills: [design-ingestor]
 """
 from __future__ import annotations
 
@@ -57,25 +57,25 @@ def test_design_ingestor_has_exec_true_in_prototype() -> None:
 
 @pytest.mark.unit
 def test_design_ingestor_has_figma_ingestor_skill_in_v2() -> None:
-    """design-ingestor step in prototype_v2 must declare skills: [figma-ingestor]."""
+    """design-ingestor step in prototype_v2 must declare skills: [design-ingestor]."""
     data = _load_yaml(_PROTO_V2_YAML)
     step = _find_step(data, "design-ingestor")
     assert step is not None
     skills = step.get("skills", [])
-    assert "figma-ingestor" in skills, (
-        f"design-ingestor in prototype_v2 must have figma-ingestor in skills. Got: {skills}"
+    assert "design-ingestor" in skills, (
+        f"design-ingestor in prototype_v2 must have design-ingestor in skills. Got: {skills}"
     )
 
 
 @pytest.mark.unit
 def test_design_ingestor_has_figma_ingestor_skill_in_prototype() -> None:
-    """design-ingestor step in prototype must declare skills: [figma-ingestor]."""
+    """design-ingestor step in prototype must declare skills: [design-ingestor]."""
     data = _load_yaml(_PROTO_YAML)
     step = _find_step(data, "design-ingestor")
     assert step is not None
     skills = step.get("skills", [])
-    assert "figma-ingestor" in skills, (
-        f"design-ingestor in prototype must have figma-ingestor in skills. Got: {skills}"
+    assert "design-ingestor" in skills, (
+        f"design-ingestor in prototype must have design-ingestor in skills. Got: {skills}"
     )
 
 

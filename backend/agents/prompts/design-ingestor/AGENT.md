@@ -49,7 +49,7 @@ Do this immediately after Step 0. Do not read anything else first.
 
 Figma frame exports are uploaded to `.figma/` with a manifest at `.figma/manifest.json`.
 General run uploads (PDFs, docs) are at `.uploads/manifest.json` — **do not read those**.
-The `figma-ingestor` skill provides reference scripts: `figma_extract.py` (observations → tokens),
+The `design-ingestor` skill provides reference scripts: `figma_extract.py` (observations → tokens),
 `make_ds.py` (mapping → tokens.css + components.html), and `figma_to_html.py` (frames → example.html).
 
 ```
