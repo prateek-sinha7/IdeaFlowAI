@@ -186,10 +186,15 @@ def test_html_ingestor_prompt_mentions_example_html_output() -> None:
 
 @pytest.mark.integration
 def test_figma_ingestor_prompt_mentions_uploads_path() -> None:
-    """Unified AGENT.md must reference .uploads/manifest.json (figma ingestion input)."""
+    """Unified AGENT.md must reference .uploads/manifest.json to distinguish it from .figma/."""
     content = INGESTOR_AGENT_MD.read_text(encoding="utf-8")
+    # AGENT.md should mention .uploads/manifest.json to clarify it's NOT where frames live
     assert ".uploads/manifest.json" in content, \
-        "design-ingestor AGENT.md must mention '.uploads/manifest.json' for the figma path"
+        "design-ingestor AGENT.md must mention '.uploads/manifest.json' " \
+        "(to distinguish from .figma/manifest.json where Figma frames are stored)"
+    # And it MUST reference .figma/manifest.json as the actual frame source
+    assert ".figma/manifest.json" in content, \
+        "design-ingestor AGENT.md must reference '.figma/manifest.json' as the Figma frame manifest"
 
 
 @pytest.mark.integration

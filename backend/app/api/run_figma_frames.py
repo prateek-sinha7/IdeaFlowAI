@@ -235,6 +235,29 @@ async def upload_figma_frames(
                     "utf-8"
                 ),
             )
+
+            # Update figma_frame_count in .context/selections.json so the
+            # Design Ingestor agent sees the actual count (not the launch-time 0).
+            total_image_frames = sum(
+                1 for e in manifest.values() if e.get("type") == "image"
+            )
+            sel_path = sandbox.path_for(".context/selections.json")
+            if sel_path.is_file():
+                try:
+                    sel = json.loads(sel_path.read_text(encoding="utf-8"))
+                    sel["figma_frame_count"] = total_image_frames
+                    # Update template_name to reflect actual count
+                    sel["template_name"] = f"Figma Upload ({total_image_frames} screens)"
+                    sel_path.write_text(
+                        json.dumps(sel, indent=2, ensure_ascii=False),
+                        encoding="utf-8",
+                    )
+                except Exception:  # noqa: BLE001 — non-critical update
+                    logger.warning(
+                        "figma frames upload: failed to update figma_frame_count "
+                        "in selections.json for run=%s",
+                        run_id,
+                    )
     finally:
         _family_lock_ctx.__exit__(None, None, None)
 
