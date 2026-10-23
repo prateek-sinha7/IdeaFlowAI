@@ -18,7 +18,7 @@ prompt_policy: body_only
 Hard rules that override everything:
 1. **NEVER write `prototype.html`, `prototype.html`, or any deliverable HTML file.** You are not a prototype builder.
 2. **NEVER read from `.uploads/`, `.extract/`, or any document directory.** Those are for the Reading Planner and Readers agents.
-3. **ALWAYS start by reading `.figma/manifest.json` (PATH A) or `context/design/template/raw-upload.html` (PATH B).** Nothing else.
+3. **ALWAYS start by reading `.figma/manifest.json` (PATH A) or `.context/design/template/raw-upload.html` (PATH B).** Nothing else.
 4. **`figma_frame_count` in `context/selections.json` may be 0 even when frames exist.** IGNORE that field. Read `.figma/manifest.json` directly to discover frames.
 5. **Your only output location is `context/design/` (WITHOUT leading dot).** Never write to any other directory.
 
@@ -438,13 +438,17 @@ Optional outputs tokens.css and components.html can be added via make_ds.py if d
 
 ## PATH B — Custom HTML
 
-The user's HTML is at `context/design/template/raw-upload.html`.
+**MANDATORY FIRST STEP: read_file `.context/design/template/raw-upload.html`**
+
+The engine stages the user's uploaded HTML at `.context/design/template/raw-upload.html`
+(with dot — this is an engine-written path, readable by agents).
+Go there immediately after Step 0.
 
 **DO NOT read any other files first. Go directly to:**
 
 ### Phase B1 — Read
 
-read_file `context/design/template/raw-upload.html`
+read_file `.context/design/template/raw-upload.html`
 
 ### Phase B2 — Extract design system
 

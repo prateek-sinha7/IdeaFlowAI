@@ -188,6 +188,19 @@ def load_prototype_context(
         else ""
     )
 
+    # ── Build template_files ───────────────────────────────────────────────
+    # For catalog templates, read files from disk. For HTML custom uploads, also
+    # stage the raw HTML as raw-upload.html so the Design Ingestor can read it at
+    # .context/design/template/raw-upload.html (Design Ingestor PATH B).
+    _catalog_files = od_loader.get_template_files(template_id)
+    if custom_template_body and "raw-upload.html" not in _catalog_files:
+        _html = custom_template_body.strip()
+        if len(_html) > EXAMPLE_MAX_CHARS:
+            _html = _html[:EXAMPLE_MAX_CHARS] + "\n...[truncated]"
+        _template_files: dict[str, str] = {**_catalog_files, "raw-upload.html": _html}
+    else:
+        _template_files = _catalog_files
+
     return {
         "template_id": template_id,
         "template_body": template["body"],
@@ -201,7 +214,8 @@ def load_prototype_context(
         "template_name": template.get("name"),
         "ds_name": ds.get("name", ds_id) if not custom_ds_body else ds_id,
         # A custom upload has no folder, so no files; a catalog template brings its own.
-        "template_files": od_loader.get_template_files(template_id),
+        # For HTML custom uploads, raw-upload.html is also included (see above).
+        "template_files": _template_files,
         "ds_files": ds_files,
     }
 
