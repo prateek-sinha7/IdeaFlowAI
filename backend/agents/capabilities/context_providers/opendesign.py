@@ -230,6 +230,27 @@ class OpenDesignProvider:
             ) or ""
             if real_skill:
                 template_body = real_skill
+
+            # Phase 7 (defensive): also read tokens.css and components.html
+            # from the ingestor's no-dot path so agents that inject via
+            # this provider can see the full token set. The sandbox rebuild
+            # (od_context_sandbox.py) already handles ds_files for direct
+            # sandbox reads; this surfaces them for opendesign-injected agents.
+            _real_tokens = _read_design_file(
+                "context/design/tokens.css",
+                ".context/design/tokens.css",
+            )
+            _real_components = _read_design_file(
+                "context/design/components.html",
+                ".context/design/components.html",
+            )
+            # Append tokens.css to ds_body when present so it is part of the
+            # ACTIVE DESIGN SYSTEM block (agents see: DESIGN.md + tokens.css).
+            if _real_tokens and ds_body:
+                ds_body = f"{ds_body}\n\n## Tokens (tokens.css)\n\n```css\n{_real_tokens.strip()}\n```"
+            elif _real_tokens:
+                ds_body = _real_tokens
+
             # Emit DS block with real content
             if ds_body and "design_system" in injects and not is_build_task_2_plus:
                 is_deck_conditional = od.get("is_design_system_required")

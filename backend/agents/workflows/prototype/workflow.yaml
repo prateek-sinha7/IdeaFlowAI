@@ -59,6 +59,7 @@ steps:
   instance_id: design-ingestor
   name: Design Ingestor
   condition: "source_type in ['html', 'figma']"
+  skills: [figma-ingestor]
   tools:
     read_files: true
     write_files: true

@@ -75,23 +75,12 @@ def _write_od_context_to_sandbox(sandbox: object, od_context: dict) -> None:
     # so it only seeds what the engine knows at launch; the actual ingestor copy
     # is handled by rebuild_od_context_from_sandbox (post-ingestor-step reads).
     source_type = od_context.get("source_type")
-    if source_type in ("figma", "html"):
-        # Pre-create the .context/design/ tree with sentinel markers so the
-        # directory exists. The real files are written by the ingestor agent
-        # to context/design/ (no dot) and bridged by the reader layer.
-        _safe_write(
-            ".context/design/.ingestor",
-            f"source_type={source_type}\nIngestor agent writes real files to context/design/ (no dot).\n",
-        )
-        _safe_write(
-            ".context/design/template/.ingestor",
-            f"source_type={source_type}\nIngestor agent writes real files to context/design/template/ (no dot).\n",
-        )
-        if source_type == "figma":
-            _safe_write(
-                ".context/design/template/figma/.ingestor",
-                "Ingestor agent writes frames.json to context/design/template/figma/ (no dot).\n",
-            )
+    # For figma/html source types, the Design Ingestor agent writes all design files
+    # to context/design/ (WITHOUT the leading dot) because the sandbox write guard
+    # blocks agent writes to .context/. The reader layer (rebuild_od_context_from_sandbox)
+    # bridges context/design/ → .context/design/ for downstream agents.
+    # We do NOT pre-create sentinel files in .context/design/ — the Ingestor agent
+    # owns that tree entirely and writes it after running.
 
     ds_body = od_context.get("ds_body") or ""
     if ds_body:

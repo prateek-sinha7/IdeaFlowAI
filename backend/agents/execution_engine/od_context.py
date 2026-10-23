@@ -369,14 +369,15 @@ def load_figma_ingest_context(frame_count: int = 0) -> dict[str, Any]:
         "is_design_system_required": None,
         "source_type": "figma",
         "figma_frame_count": frame_count,
-        # Non-empty placeholder — prevents TemplateMissingError in the factory.
-        # The opendesign provider replaces this at runtime with the real
-        # content from context/design/template/SKILL.md (written by the ingestor).
-        "template_body": (
-            "# Figma Design Mode\n\n"
-            "This run uses Figma screen exports as the design source.\n"
-            "Read context/design/template/SKILL.md for the full design reference.\n"
-        ),
+        # None — the Design Ingestor agent is the sole owner of .context/design/
+        # writes. Setting this to None (falsy) prevents _write_od_context_to_sandbox
+        # from pre-writing a placeholder SKILL.md before the ingestor runs.
+        # Subsequent steps get their od_context rebuilt from disk by
+        # rebuild_od_context_from_sandbox after the ingestor has written
+        # context/design/template/SKILL.md (no leading dot, bridged by reader).
+        # The factory's _compose_injection now skips TemplateMissingError for
+        # source_type in ("figma", "html") — see factory.py.
+        "template_body": None,
         "ds_body": "",
         "craft_block": "",
         "template_files": {},

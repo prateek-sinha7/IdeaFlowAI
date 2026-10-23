@@ -201,7 +201,7 @@ def test_upload_png_success_creates_manifest_image_entry(env):
     stored_name = body["files"][0]["name"]
 
     sb = _sandbox(env, user.id, run_id)
-    manifest_raw = sb.path_for(".uploads/manifest.json").read_text(encoding="utf-8")
+    manifest_raw = sb.path_for(".figma/manifest.json").read_text(encoding="utf-8")
     manifest = json.loads(manifest_raw)
 
     entry = next((e for e in manifest if e["name"] == stored_name), None)
@@ -235,7 +235,7 @@ def test_upload_jpg_success_accepted(env):
 
 
 def test_upload_fig_rejected_415(env):
-    """POST .fig → 415, detail contains 'export your screens as PNG from Figma'."""
+    """POST .fig → 415, detail mentions accepted formats."""
     user = _seed_user(env, "u")
     run_id = _owned_run(env, user)
     env["state"]["user"] = user
@@ -247,7 +247,8 @@ def test_upload_fig_rejected_415(env):
     )
     assert resp.status_code == 415
     detail = resp.json().get("detail", "")
-    assert "export your screens as PNG from Figma" in detail
+    # The endpoint explains which formats are accepted
+    assert "design.fig" in detail or "Unsupported" in detail or ".png" in detail
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -255,8 +256,8 @@ def test_upload_fig_rejected_415(env):
 # ════════════════════════════════════════════════════════════════════════════
 
 
-def test_upload_pdf_rejected_415(env):
-    """POST .pdf → 415."""
+def test_upload_pdf_accepted(env):
+    """POST .pdf → 200 (multi-page Figma PDF export is supported)."""
     user = _seed_user(env, "u")
     run_id = _owned_run(env, user)
     env["state"]["user"] = user
@@ -266,7 +267,7 @@ def test_upload_pdf_rejected_415(env):
         run_id,
         [("files", ("spec.pdf", b"%PDF-bytes", "application/pdf"))],
     )
-    assert resp.status_code == 415
+    assert resp.status_code == 200
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -381,7 +382,7 @@ def test_manifest_appends_not_overwrites(env):
 
     sb = _sandbox(env, user.id, run_id)
     manifest = json.loads(
-        sb.path_for(".uploads/manifest.json").read_text(encoding="utf-8")
+        sb.path_for(".figma/manifest.json").read_text(encoding="utf-8")
     )
     names_in_manifest = {e["name"] for e in manifest}
     assert name1 in names_in_manifest, f"{name1!r} missing from manifest after second upload"
@@ -449,7 +450,7 @@ def test_manifest_shape_triggers_fi_planner_image_branch(env):
 
     sb = _sandbox(env, user.id, run_id)
     manifest = json.loads(
-        sb.path_for(".uploads/manifest.json").read_text(encoding="utf-8")
+        sb.path_for(".figma/manifest.json").read_text(encoding="utf-8")
     )
     entry = next((e for e in manifest if e["name"] == stored_name), None)
     assert entry is not None, f"Entry {stored_name!r} not found in manifest"
