@@ -225,6 +225,15 @@ class Settings(BaseSettings):
     # one must never wedge the background poller.
     HOST_CAPACITY_AWS_CONNECT_TIMEOUT: int = 5
     HOST_CAPACITY_AWS_READ_TIMEOUT: int = 10
+    # Admin history charts (ADR-0056): GET /api/admin/capacity/history reads
+    # CloudWatch on demand — the one sanctioned AWS call on a request path; it
+    # never touches the admission gate. A successful result is cached this
+    # many seconds per (instance, range, period) so an open Machines tab (60s
+    # refresh) or several admins at once cost one GetMetricData call, not N.
+    HOST_CAPACITY_HISTORY_CACHE_SECONDS: int = 60
+    # Upper bound on cached history results. One 15-day / 1-minute entry holds
+    # ~300k datapoints, so the cache is kept deliberately small.
+    HOST_CAPACITY_HISTORY_CACHE_MAX_ENTRIES: int = 16
 
     # ---- Output token ceiling (single source of truth) ----
     # The Anthropic/Bedrock APIs REQUIRE a finite max_tokens on every call — it

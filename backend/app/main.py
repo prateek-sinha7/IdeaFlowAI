@@ -49,6 +49,7 @@ from app.api.prototype_templates import router as prototype_templates_router
 from app.api.ppt_templates import router as ppt_templates_router
 from app.api.admin import router as admin_router
 from app.api.admin_capacity import router as admin_capacity_router
+from app.api.admin_capacity_history import router as admin_capacity_history_router
 from app.api.file_extract import router as file_extract_router
 from app.api.run_files import router as run_files_router
 from app.api.run_figma_export import router as run_figma_export_router
@@ -618,6 +619,10 @@ app.include_router(admin_router)
 # prefix, same as runs_router/run_stream_router/run_commands_router do for
 # /api/runs).
 app.include_router(admin_capacity_router)
+# ADR-0056: admin-only history charts. Its own module because, unlike the
+# matrix above, it reads CloudWatch on demand — keeping admin_capacity.py's
+# "never calls AWS" guarantee literally true.
+app.include_router(admin_capacity_history_router)
 app.include_router(file_extract_router)
 # UPLD-01: owner-scoped, capped document upload → RunSandbox ``.uploads/`` prefix
 # (additive — shares the /api/runs prefix; no new table / migration).

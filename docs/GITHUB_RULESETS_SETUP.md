@@ -84,7 +84,6 @@ Phase 2 Bootstrap Complete
     - Stale reviews dismissed on push
   - Required status checks (strict mode):
     - `ci-required` (Phase 1 aggregator)
-    - `CodeQL`
   - Commit signatures required (GPG)
   - **No bypass actors** (not even admins)
 
@@ -168,7 +167,7 @@ git push origin test/ruleset-verification
 # Open a PR in the GitHub UI to main
 # Verify you cannot merge without:
 #   - 2 approvals
-#   - All checks passing (ci-required, CodeQL)
+#   - All checks passing (ci-required)
 #   - All threads resolved
 #   - Your own approval does not count as one of the two
 ```

@@ -1206,9 +1206,11 @@ exact and load-bearing.
 | `HOST_CAPACITY_RETRY_AFTER_SECONDS` | `HOST_CAPACITY_RETRY_AFTER_SECONDS` | *(not pushed — Settings default only)* |
 | `HOST_CAPACITY_AWS_CONNECT_TIMEOUT` | `HOST_CAPACITY_AWS_CONNECT_TIMEOUT` | *(not pushed — Settings default only)* |
 | `HOST_CAPACITY_AWS_READ_TIMEOUT` | `HOST_CAPACITY_AWS_READ_TIMEOUT` | *(not pushed — Settings default only)* |
+| `HOST_CAPACITY_HISTORY_CACHE_SECONDS` | `HOST_CAPACITY_HISTORY_CACHE_SECONDS` | *(not pushed — Settings default only)* |
+| `HOST_CAPACITY_HISTORY_CACHE_MAX_ENTRIES` | `HOST_CAPACITY_HISTORY_CACHE_MAX_ENTRIES` | *(not pushed — Settings default only)* |
 | *(anything else)* | — | **logged as WARN, dropped** |
 
-The 14 rows marked "not pushed" are still recognized by the loader's
+The 16 rows marked "not pushed" are still recognized by the loader's
 `HOST_CAPACITY_*)` glob case-arm if an SSM parameter under that name ever
 exists (e.g. set by hand, or if `deploy.yml` is extended later) — they are
 simply not currently wired from a GitHub Environment variable. To change one

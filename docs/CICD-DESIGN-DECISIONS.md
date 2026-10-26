@@ -187,7 +187,6 @@ Three rulesets are committed as JSON under `.github/rulesets/`:
      - All review threads must be resolved before merge
    - **Required status checks** (strict: branch must be up-to-date):
      - `ci-required` (Phase 1: aggregator of all CI jobs)
-     - `CodeQL` (GitHub's SAST scanner)
    - **Required signatures**: commits must be GPG-signed
    - **Bypass actors**: `[]` — no one, not even admins
 
@@ -200,7 +199,7 @@ Three rulesets are committed as JSON under `.github/rulesets/`:
      - Stale review dismissal enabled
      - All review threads must be resolved
    - **Required status checks** (strict):
-     - `ci-required` only (CodeQL runs but is advisory)
+     - `ci-required` only
    - **Bypass actors**: `[]`
 
 3. **`tags.json`** — Release tags (`refs/tags/v*`)

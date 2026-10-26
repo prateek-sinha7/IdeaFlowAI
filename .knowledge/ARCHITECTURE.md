@@ -221,9 +221,8 @@ This domain governs how repository changes become evidence, how that evidence be
 flowchart LR
   pr["Pull-request source\nuntrusted"] --> evaluator["ci.yml\nread-only evaluator"]
   evaluator --> evidence["immutable evidence + coverage artifacts"]
-  evidence --> finalizer["ci-authoritative.yml\ntrusted default-branch finalizer"]
-  finalizer --> sonar["secret-bearing Sonar analysis"]
-  sonar --> status["sole ci-required publisher"]
+  evidence --> finalizer["ci-authoritative.yml\ntrusted default-branch attestation"]
+  finalizer --> status["sole ci-required publisher"]
   status --> rules["branch rulesets"]
   rules --> deploy["deploy.yml\nOIDC + SSM guarded release"]
   deploy --> host["host configuration + migration/deploy gates"]
@@ -399,6 +398,11 @@ flowchart LR
   launches --> busy["ServiceBusyProvider\nrecoverable busy UX"]
   handoff --> busy
   iam["IAM + host config + deploy variables"] --> metrics
+  policy -. "instance allow-list only" .-> history["admin_capacity_history.py\non-demand history API"]
+  history --> historyAdapter["host_metrics_history.py\nGetMetricData ranges, 60s cache"]
+  historyAdapter --> cloudwatch[("CloudWatch\nagent + AWS/EC2 + AWS/EBS")]
+  history --> charts["MachinesPanel + useCapacityHistory\nTimeSeriesChart"]
+  matrix --> charts
 ```
 
 ### [Run streaming — the backend-to-browser event contract](architecture/DOMAIN-run-streaming.md)
@@ -504,56 +508,56 @@ flowchart LR
 
 <!-- MODULE-MAP -->
 
-37 logical modules over 984 tracked source files. Each entry links to its
+37 logical modules over 1119 tracked source files. Each entry links to its
 architecture card, which carries an auto-generated file and import rollup. Module
 cards describe FOLDERS and carry no diagrams — for how a concern actually works,
 read the domains above.
 
-### Backend — Python (384 files)
+### Backend — Python (392 files)
 
 | Module | Path | Files |
 |---|---|---|
-| [MOD-backend-agents](architecture/MOD-backend-agents.md) | `backend/agents` | 149 |
+| [MOD-backend-agents](architecture/MOD-backend-agents.md) | `backend/agents` | 151 |
 | [MOD-backend-alembic-versions](architecture/MOD-backend-alembic-versions.md) | `backend/alembic/versions` | 49 |
 | [MOD-backend-app-agents](architecture/MOD-backend-app-agents.md) | `backend/app/agents` | 46 |
-| [MOD-backend-app-api](architecture/MOD-backend-app-api.md) | `backend/app/api` | 33 |
-| [MOD-backend](architecture/MOD-backend.md) | `backend` | 28 |
+| [MOD-backend-app-api](architecture/MOD-backend-app-api.md) | `backend/app/api` | 34 |
+| [MOD-backend](architecture/MOD-backend.md) | `backend` | 30 |
 | [MOD-backend-app-models](architecture/MOD-backend-app-models.md) | `backend/app/models` | 27 |
 | [MOD-backend-app-core](architecture/MOD-backend-app-core.md) | `backend/app/core` | 17 |
 | [MOD-backend-scripts](architecture/MOD-backend-scripts.md) | `backend/scripts` | 12 |
+| [MOD-backend-app-services](architecture/MOD-backend-app-services.md) | `backend/app/services` | 10 |
 | [MOD-backend-evals](architecture/MOD-backend-evals.md) | `backend/evals` | 9 |
-| [MOD-backend-app-services](architecture/MOD-backend-app-services.md) | `backend/app/services` | 7 |
 | [MOD-backend-app-scripts](architecture/MOD-backend-app-scripts.md) | `backend/app/scripts` | 3 |
 | [MOD-backend-alembic](architecture/MOD-backend-alembic.md) | `backend/alembic` | 2 |
 | [MOD-backend-app](architecture/MOD-backend-app.md) | `backend/app` | 2 |
 
-### Frontend — TypeScript (600 files)
+### Frontend — TypeScript (727 files)
 
 | Module | Path | Files |
 |---|---|---|
-| [MOD-frontend-src-components-workflow](architecture/MOD-frontend-src-components-workflow.md) | `frontend/src/components/workflow` | 102 |
-| [MOD-frontend-src-lib](architecture/MOD-frontend-src-lib.md) | `frontend/src/lib` | 83 |
-| [MOD-frontend-src-components-results](architecture/MOD-frontend-src-components-results.md) | `frontend/src/components/results` | 68 |
-| [MOD-frontend-src-hooks](architecture/MOD-frontend-src-hooks.md) | `frontend/src/hooks` | 50 |
-| [MOD-frontend-src-app](architecture/MOD-frontend-src-app.md) | `frontend/src/app` | 49 |
-| [MOD-frontend-src-components-preview](architecture/MOD-frontend-src-components-preview.md) | `frontend/src/components/preview` | 47 |
-| [MOD-frontend-src](architecture/MOD-frontend-src.md) | `frontend/src` | 42 |
-| [MOD-frontend-src-components-chat](architecture/MOD-frontend-src-components-chat.md) | `frontend/src/components/chat` | 39 |
-| [MOD-frontend-src-components-history](architecture/MOD-frontend-src-components-history.md) | `frontend/src/components/history` | 20 |
-| [MOD-frontend-src-components-layout](architecture/MOD-frontend-src-components-layout.md) | `frontend/src/components/layout` | 20 |
+| [MOD-frontend-src-components-workflow](architecture/MOD-frontend-src-components-workflow.md) | `frontend/src/components/workflow` | 135 |
+| [MOD-frontend-src-lib](architecture/MOD-frontend-src-lib.md) | `frontend/src/lib` | 90 |
+| [MOD-frontend-src-app](architecture/MOD-frontend-src-app.md) | `frontend/src/app` | 76 |
+| [MOD-frontend-src-components-results](architecture/MOD-frontend-src-components-results.md) | `frontend/src/components/results` | 72 |
+| [MOD-frontend-src-components-preview](architecture/MOD-frontend-src-components-preview.md) | `frontend/src/components/preview` | 54 |
+| [MOD-frontend-src-hooks](architecture/MOD-frontend-src-hooks.md) | `frontend/src/hooks` | 54 |
+| [MOD-frontend-src](architecture/MOD-frontend-src.md) | `frontend/src` | 47 |
+| [MOD-frontend-src-components-chat](architecture/MOD-frontend-src-components-chat.md) | `frontend/src/components/chat` | 40 |
+| [MOD-frontend-src-components-layout](architecture/MOD-frontend-src-components-layout.md) | `frontend/src/components/layout` | 27 |
+| [MOD-frontend-src-components-history](architecture/MOD-frontend-src-components-history.md) | `frontend/src/components/history` | 24 |
 | [MOD-frontend-src-components-ui](architecture/MOD-frontend-src-components-ui.md) | `frontend/src/components/ui` | 19 |
-| [MOD-frontend-src-components-handoff](architecture/MOD-frontend-src-components-handoff.md) | `frontend/src/components/handoff` | 10 |
-| [MOD-frontend-src-components-settings](architecture/MOD-frontend-src-components-settings.md) | `frontend/src/components/settings` | 9 |
+| [MOD-frontend-src-components-settings](architecture/MOD-frontend-src-components-settings.md) | `frontend/src/components/settings` | 15 |
+| [MOD-frontend-src-components](architecture/MOD-frontend-src-components.md) | `frontend/src/components` | 14 |
+| [MOD-frontend-src-components-handoff](architecture/MOD-frontend-src-components-handoff.md) | `frontend/src/components/handoff` | 13 |
+| [MOD-frontend-src-components-analytics](architecture/MOD-frontend-src-components-analytics.md) | `frontend/src/components/analytics` | 10 |
+| [MOD-frontend-src-components-catalog](architecture/MOD-frontend-src-components-catalog.md) | `frontend/src/components/catalog` | 7 |
 | [MOD-frontend-src-components-savedworkflows](architecture/MOD-frontend-src-components-savedworkflows.md) | `frontend/src/components/savedworkflows` | 7 |
-| [MOD-frontend-src-components-analytics](architecture/MOD-frontend-src-components-analytics.md) | `frontend/src/components/analytics` | 6 |
-| [MOD-frontend-src-components-catalog](architecture/MOD-frontend-src-components-catalog.md) | `frontend/src/components/catalog` | 6 |
-| [MOD-frontend-src-components](architecture/MOD-frontend-src-components.md) | `frontend/src/components` | 5 |
-| [MOD-frontend-src-components-library](architecture/MOD-frontend-src-components-library.md) | `frontend/src/components/library` | 5 |
+| [MOD-frontend-src-components-library](architecture/MOD-frontend-src-components-library.md) | `frontend/src/components/library` | 6 |
 | [MOD-frontend-src-providers](architecture/MOD-frontend-src-providers.md) | `frontend/src/providers` | 5 |
-| [MOD-frontend-src-components-sidebar](architecture/MOD-frontend-src-components-sidebar.md) | `frontend/src/components/sidebar` | 2 |
-| [MOD-frontend-src-styles](architecture/MOD-frontend-src-styles.md) | `frontend/src/styles` | 2 |
+| [MOD-frontend-src-components-sidebar](architecture/MOD-frontend-src-components-sidebar.md) | `frontend/src/components/sidebar` | 4 |
+| [MOD-frontend-src-styles](architecture/MOD-frontend-src-styles.md) | `frontend/src/styles` | 3 |
+| [MOD-frontend-src-components-home](architecture/MOD-frontend-src-components-home.md) | `frontend/src/components/home` | 2 |
 | [MOD-frontend-src-types](architecture/MOD-frontend-src-types.md) | `frontend/src/types` | 2 |
-| [MOD-frontend-src-components-home](architecture/MOD-frontend-src-components-home.md) | `frontend/src/components/home` | 1 |
 | [MOD-frontend-src-context](architecture/MOD-frontend-src-context.md) | `frontend/src/context` | 1 |
 
 <!-- /MODULE-MAP -->

@@ -18,15 +18,8 @@
 #                                              environment mid-change.
 #     Cognito Reconcile                      — scheduled; there is no human in
 #                                              the loop at 03:00 UTC.
-#     Governance Drift                       — scheduled weekly; a live ruleset
-#                                              that drifted from the committed one
-#                                              is invisible without an alarm.
 #     Release                                — a `v*` tag push; a failed release
 #                                              is otherwise silent.
-#   Deliberately NOT yet notified:
-#     CodeQL — it cannot succeed while GitHub Code Security is disabled on this
-#       repository (SARIF upload returns HTTP 403), so an alarm would only
-#       repeat a known licensing gap. Add it here once Code Security is on.
 #   NOT notified:
 #     CI on a pull request — the author is already looking at it, the status is
 #       on their PR, and an issue per red PR would train everyone to ignore this
@@ -71,11 +64,6 @@ on:
       # A tag push runs Release and Deploy side by side. A failed Release (for
       # example a tag outside the release grammar) had no alarm at all (REL-04).
       - "Release"
-      # Scheduled weekly (and fails closed when its read token is missing), so
-      # a red run with no alarm means ruleset drift goes unnoticed — the exact
-      # silent failure this workflow exists to surface. PR-triggered runs are
-      # still excluded by the job condition below.
-      - "Governance Drift"
     types: [completed]
 
 # Read-only by default; the one job widens to `issues: write` and nothing more.

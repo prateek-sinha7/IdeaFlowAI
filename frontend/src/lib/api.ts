@@ -2261,6 +2261,91 @@ export async function adminListCapacity(
   });
 }
 
+// --- Admin capacity history API (ADR-0056) ---
+
+/** Range allow-list, mirroring host_metrics_history.HistoryRange. Up to 15d can be
+ *  read at 1-minute detail; 30d / 90d are hourly only (CloudWatch retention). */
+export type CapacityHistoryRange =
+  | "1h"
+  | "3h"
+  | "12h"
+  | "1d"
+  | "3d"
+  | "1w"
+  | "15d"
+  | "30d"
+  | "90d";
+
+/** Which chart a series belongs to, mirroring host_metrics_history.ChartGroup. */
+export type CapacityHistoryGroup =
+  | "cpu"
+  | "memory"
+  | "disk_used"
+  | "disk_io"
+  | "network"
+  | "swap"
+  | "status";
+
+export type CapacityHistoryUnit = "percent" | "bytes_per_second" | "count";
+
+/** Server-computed summary over the range; all null when the series is empty. */
+export interface CapacityHistorySummary {
+  latest: number | null;
+  min: number | null;
+  avg: number | null;
+  max: number | null;
+}
+
+/** One series, mirroring admin_capacity_history.py's HistorySeriesResponse.
+ *  `values[i]` is the bucket starting at `start + i * period_seconds`; null = no
+ *  datapoint. `error` is set when CloudWatch could not return this series. */
+export interface CapacityHistorySeries {
+  key: string;
+  label: string;
+  group: CapacityHistoryGroup;
+  unit: CapacityHistoryUnit;
+  values: (number | null)[];
+  summary: CapacityHistorySummary;
+  error: string | null;
+}
+
+/** `GET /api/admin/capacity/history`'s response, mirroring CapacityHistoryResponse. */
+export interface AdminCapacityHistory {
+  instance_id: string;
+  range: CapacityHistoryRange;
+  period_seconds: number;
+  /** Periods (seconds) the backend offers for this range, finest first. */
+  allowed_periods: number[];
+  start: string;
+  end: string;
+  fetched_at: string;
+  cached: boolean;
+  cpu_threshold_percent: number;
+  mem_threshold_percent: number;
+  series: CapacityHistorySeries[];
+}
+
+/**
+ * Admin-only metric history for one instance (ADR-0056). Unlike
+ * `adminListCapacity`, this reads CloudWatch on demand (cached ~60s server-side),
+ * so it can take a few seconds for long ranges at 1-minute detail. `instanceId`
+ * must come from `adminListCapacity`'s instance list — anything else is a 404.
+ * Omit `periodSeconds` to let the backend pick the range default.
+ */
+export async function adminGetCapacityHistory(
+  token: string,
+  instanceId: string,
+  range: CapacityHistoryRange,
+  periodSeconds?: number | null,
+): Promise<AdminCapacityHistory> {
+  const params = new URLSearchParams({ instance_id: instanceId, range });
+  if (periodSeconds != null) params.set("period", String(periodSeconds));
+  return request<AdminCapacityHistory>(`/api/admin/capacity/history?${params.toString()}`, {
+    method: "GET",
+    headers: authHeaders(token),
+  });
+}
+
 // --- Capabilities API (API-02 / D-11) ---
 
 /**

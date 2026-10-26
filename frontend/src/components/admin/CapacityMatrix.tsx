@@ -103,9 +103,13 @@ function MetricCell({ value, threshold }: { value: number | null; threshold: num
 
 export interface CapacityMatrixProps {
   state: CapacityMatrixState;
+  /** Row whose history is shown below the table (ADR-0056). */
+  selectedInstanceId?: string | null;
+  /** When given, each instance id becomes a button that selects its row. */
+  onSelectInstance?: (instanceId: string) => void;
 }
 
-export function CapacityMatrix({ state }: CapacityMatrixProps) {
+export function CapacityMatrix({ state, selectedInstanceId = null, onSelectInstance }: CapacityMatrixProps) {
   if (state.status === "loading") {
     return (
       <Card className="shadow-sm">
@@ -215,16 +219,39 @@ export function CapacityMatrix({ state }: CapacityMatrixProps) {
             <tbody>
               {matrix.instances.map((inst) => {
                 const st = instanceState(inst);
+                const isSelected = onSelectInstance != null && inst.instance_id === selectedInstanceId;
                 return (
                   <tr
                     key={inst.instance_id}
-                    className="border-t border-line-divider hover:bg-surface-warm transition-colors"
+                    // Row click is a mouse convenience; the id button below is
+                    // the keyboard/assistive-tech path to the same selection.
+                    onClick={onSelectInstance ? () => onSelectInstance(inst.instance_id) : undefined}
+                    className={[
+                      "border-t border-line-divider transition-colors",
+                      onSelectInstance ? "cursor-pointer" : "",
+                      isSelected ? "bg-brand-fill" : "hover:bg-surface-warm",
+                    ].join(" ")}
                   >
                     <td className="px-5 py-3.5">
                       <div className="flex items-center gap-2">
-                        <span className="text-[12px] font-mono text-ink-900">
-                          {inst.instance_id}
-                        </span>
+                        {onSelectInstance ? (
+                          <button
+                            type="button"
+                            aria-pressed={isSelected}
+                            aria-label={`Show metrics history for ${inst.instance_id}`}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              onSelectInstance(inst.instance_id);
+                            }}
+                            className="rounded-[4px] text-[12px] font-mono text-ink-900 underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
+                          >
+                            {inst.instance_id}
+                          </button>
+                        ) : (
+                          <span className="text-[12px] font-mono text-ink-900">
+                            {inst.instance_id}
+                          </span>
+                        )}
                         {inst.is_self && (
                           <Pill className="text-[9px] px-1.5 py-0.5 uppercase tracking-wide">
                             This instance

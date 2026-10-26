@@ -32,9 +32,7 @@ could publish.
 | `deploy.yml` | Deploy | push to `dev`, `staging`; push of `v*` tags; `workflow_dispatch` | Gate, resolve, build and deploy over SSM |
 | `provision.yml` | Provision | `workflow_dispatch` | One-time bootstrap of a hand-created EC2 host over SSM |
 | `cognito-reconcile.yml` | Cognito Reconcile | daily 03:00 UTC schedule; `workflow_dispatch` | Drift report and retry of pending Cognito deletions |
-| `codeql.yml` | CodeQL | pull request and push to `main` on code paths; Monday schedule; `workflow_dispatch` | Code scanning. Advisory, not one of the mandatory signals |
-| `governance-drift.yml` | Governance Drift | weekly schedule; `workflow_dispatch` (no pull-request trigger: the job holds `GOVERNANCE_READ_TOKEN`, so run it by dispatch after merging a governance change) | Read-only comparison of the live rulesets and environments with the committed ones |
-| `notify-failure.yml` | Notify Failure | `workflow_run` of CI, CI Authoritative, Deploy, Cognito Reconcile, Governance Drift | Opens an alarm issue when an unattended run fails |
+| `notify-failure.yml` | Notify Failure | `workflow_run` of CI, CI Authoritative, Deploy, Cognito Reconcile, Release | Opens an alarm issue when an unattended run fails |
 | `release.yml` | Release | push of `v*` tags | Creates a GitHub Release with generated notes. Independent of Deploy; watched by Notify Failure. Accepts only `vMAJOR.MINOR.PATCH[-prerelease]`, the same grammar Deploy enforces |
 
 Every job runs on the exact runner label `ubuntu-24.04` (never `ubuntu-latest`,
@@ -195,11 +193,11 @@ request, which is what happened previously.
 reachability and keeps these descriptions honest.
 
 The committed `rulesets/*.json` files are the **intent**, not proof of
-enforcement. `governance-drift.yml` is what compares them with the live rulesets
-and environments: when it was introduced (F-11), the live rulesets did not carry
-the `required_status_checks` rule the files declare, so this repository cannot
-show from its own contents that the gate is enforced on GitHub. Check the
-`Governance Drift` run before relying on the merge gate.
+enforcement. No workflow compares them with the live rulesets and environments
+(that check needs an Administration: Read token, which requires an org admin).
+When last checked (F-11), the live rulesets did not carry the
+`required_status_checks` rule the files declare, so verify the live rulesets in
+repository Settings before relying on the merge gate.
 
 An earlier revision of this section, and of both ruleset descriptions, claimed
 `ci-required` was deliberately **not** required, and pointed at a rollout

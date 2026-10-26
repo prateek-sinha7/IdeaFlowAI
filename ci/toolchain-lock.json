@@ -92,8 +92,6 @@
       "docker/build-push-action": { "version": "v5.3.0", "sha": "2cdde995de11925a030ce8070c3d77a52ffcf1c0" },
       "docker/setup-buildx-action": { "version": "v3.3.0", "sha": "d70bba72b1f3fd22344832f00baa16ece964efeb" },
       "dorny/paths-filter": { "version": "v4.0.3", "sha": "ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d" },
-      "github/codeql-action/analyze": { "version": "v3.38.1", "sha": "3ea06614dafe36dec890db3446326e0d40ce53d4" },
-      "github/codeql-action/init": { "version": "v3.38.1", "sha": "3ea06614dafe36dec890db3446326e0d40ce53d4" },
       "hashicorp/setup-terraform": { "version": "v3.1.2", "sha": "b9cd54a3c349d3f38e8881555d616ced269862dd" },
       "terraform-linters/setup-tflint": { "version": "v4.0.0", "sha": "19a52fbac37dacb22a09518e4ef6ee234f2d4987" }
     }
