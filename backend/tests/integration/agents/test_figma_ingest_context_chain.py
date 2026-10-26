@@ -9,6 +9,7 @@ These are unit-style tests (no DB, no LLM) but live in integration/agents/
 because they exercise the cross-module boundary:
   launch_context → od_context → od_context_sandbox.
 """
+
 from __future__ import annotations
 
 import json
@@ -20,6 +21,7 @@ from agents.execution_engine.od_context import load_figma_ingest_context
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 class _FakeSandbox:
     """Minimal duck-typed sandbox for od_context_sandbox tests."""
@@ -40,6 +42,7 @@ class _FakeSandbox:
 # ---------------------------------------------------------------------------
 # load_figma_ingest_context
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.integration
 def test_figma_manifest_triggers_ingest_context_not_catalog() -> None:
@@ -95,9 +98,9 @@ def test_figma_od_context_sandbox_writes_only_selections() -> None:
     assert ".context/selections.json" in written
     # Must NOT write any design/ files (Ingestor owns those)
     design_files = [p for p in written if p.startswith(".context/design/")]
-    assert design_files == [], (
-        f"sandbox wrote design files it should not have: {design_files}"
-    )
+    assert (
+        design_files == []
+    ), f"sandbox wrote design files it should not have: {design_files}"
     # Verify selections.json content
     sel = json.loads(sandbox._files[".context/selections.json"])
     assert sel["source_type"] == "figma"

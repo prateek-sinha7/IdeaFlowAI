@@ -7,6 +7,7 @@ Section 6.3 of the roadmap.
 
 Uses tmp_path for real file I/O via the duck-typed sandbox; no DB, no Bedrock.
 """
+
 from __future__ import annotations
 
 import json
@@ -22,6 +23,7 @@ import pytest
 
 def _make_disk_sandbox(tmp_path) -> Any:
     """Return a duck-typed sandbox backed by real files in tmp_path."""
+
     class _DiskSandbox:
         def write(self, relpath: str, content: str) -> None:
             full = tmp_path / relpath

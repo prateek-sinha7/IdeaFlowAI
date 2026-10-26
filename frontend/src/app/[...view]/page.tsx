@@ -669,6 +669,8 @@ export default function DashboardPage() {
     agentIds?: string[];
     /** Which deck pipeline the staged draft launches (spec 017). Absent = `ppt`. */
     pipelineType?: string;
+    /** Design Ingestor source_type — forwarded to extraParams as source_type (snake_case). */
+    sourceType?: "catalog" | "html" | "figma";
   } | null>(null);
 
   // Phase 12 (§22 / RESUME-03) — wave/subagent tree state assembled from the
@@ -913,6 +915,8 @@ export default function DashboardPage() {
     stagedUploadIds?: string[];
     agentIds?: string[];
     pipelineType?: string;
+    /** Design Ingestor source_type — forwarded to extraParams as source_type (snake_case). */
+    sourceType?: "catalog" | "html" | "figma";
   } | null>(null);
 
   // ISS-844 (QA-PS-040): one-shot guard for the `signedIn` dispatch in the
@@ -1023,6 +1027,7 @@ export default function DashboardPage() {
         stagedUploadIds?: string[];
         agentIds?: string[];
         pipelineType?: string;
+        sourceType?: "catalog" | "html" | "figma";
       };
       // FIX-216c: allow empty brief when chaining (the chain context block IS the
       // brief; wizard canContinue guard already validated it). Only require templateId.
@@ -1044,6 +1049,7 @@ export default function DashboardPage() {
         stagedUploadIds: draft.stagedUploadIds,
         agentIds: draft.agentIds,
         pipelineType: draft.pipelineType,
+        sourceType: draft.sourceType,
       };
     } catch { /* ignore malformed session data */ }
   }, [isAuthenticated]);
@@ -2643,6 +2649,7 @@ export default function DashboardPage() {
           stagedUploadIds?: string[];
           agentIds?: string[];
         pipelineType?: string;
+        sourceType?: "catalog" | "html" | "figma";
         };
         // ISS-155: brief clause dropped to match the direct path at :463 (see the
         // prototype twin above) — the reload path must not reach a different verdict
@@ -2663,6 +2670,7 @@ export default function DashboardPage() {
           stagedUploadIds: draft.stagedUploadIds,
           agentIds: draft.agentIds,
           pipelineType: draft.pipelineType,
+          sourceType: draft.sourceType,
         };
       } catch { return; }
     }

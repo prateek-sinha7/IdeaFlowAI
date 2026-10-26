@@ -5,6 +5,7 @@ correct design-ingestor step configuration after Phase 5:
 - exec: false (D-01 requires gates for exec: true)
 - skills: [design-ingestor]
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -38,9 +39,9 @@ def test_design_ingestor_has_exec_true_in_v2() -> None:
     step = _find_step(data, "design-ingestor")
     assert step is not None, "design-ingestor step not found in prototype_v2"
     tools = step.get("tools", {})
-    assert tools.get("exec") is False, (
-        f"design-ingestor in prototype_v2 must have exec: false (got {tools.get('exec')})"
-    )
+    assert (
+        tools.get("exec") is False
+    ), f"design-ingestor in prototype_v2 must have exec: false (got {tools.get('exec')})"
 
 
 @pytest.mark.unit
@@ -50,9 +51,9 @@ def test_design_ingestor_has_exec_true_in_prototype() -> None:
     step = _find_step(data, "design-ingestor")
     assert step is not None, "design-ingestor step not found in prototype"
     tools = step.get("tools", {})
-    assert tools.get("exec") is False, (
-        f"design-ingestor in prototype must have exec: false (got {tools.get('exec')})"
-    )
+    assert (
+        tools.get("exec") is False
+    ), f"design-ingestor in prototype must have exec: false (got {tools.get('exec')})"
 
 
 @pytest.mark.unit
@@ -62,9 +63,9 @@ def test_design_ingestor_has_figma_ingestor_skill_in_v2() -> None:
     step = _find_step(data, "design-ingestor")
     assert step is not None
     skills = step.get("skills", [])
-    assert "design-ingestor" in skills, (
-        f"design-ingestor in prototype_v2 must have design-ingestor in skills. Got: {skills}"
-    )
+    assert (
+        "design-ingestor" in skills
+    ), f"design-ingestor in prototype_v2 must have design-ingestor in skills. Got: {skills}"
 
 
 @pytest.mark.unit
@@ -74,9 +75,9 @@ def test_design_ingestor_has_figma_ingestor_skill_in_prototype() -> None:
     step = _find_step(data, "design-ingestor")
     assert step is not None
     skills = step.get("skills", [])
-    assert "design-ingestor" in skills, (
-        f"design-ingestor in prototype must have design-ingestor in skills. Got: {skills}"
-    )
+    assert (
+        "design-ingestor" in skills
+    ), f"design-ingestor in prototype must have design-ingestor in skills. Got: {skills}"
 
 
 @pytest.mark.unit
@@ -86,9 +87,9 @@ def test_design_ingestor_still_has_file_extract_tool_set_in_v2() -> None:
     step = _find_step(data, "design-ingestor")
     assert step is not None
     tool_sets = step.get("tools", {}).get("tool_sets", [])
-    assert "file_extract" in tool_sets, (
-        "file_extract tool set must remain on design-ingestor step for PDF support"
-    )
+    assert (
+        "file_extract" in tool_sets
+    ), "file_extract tool set must remain on design-ingestor step for PDF support"
 
 
 @pytest.mark.unit
@@ -99,9 +100,9 @@ def test_design_ingestor_still_has_read_write_tools() -> None:
         step = _find_step(data, "design-ingestor")
         assert step is not None
         tools = step.get("tools", {})
-        assert tools.get("read_files") is True, (
-            f"read_files must be true in {yaml_path.name}"
-        )
-        assert tools.get("write_files") is True, (
-            f"write_files must be true in {yaml_path.name}"
-        )
+        assert (
+            tools.get("read_files") is True
+        ), f"read_files must be true in {yaml_path.name}"
+        assert (
+            tools.get("write_files") is True
+        ), f"write_files must be true in {yaml_path.name}"

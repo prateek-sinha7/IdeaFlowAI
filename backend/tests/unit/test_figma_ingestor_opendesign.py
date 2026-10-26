@@ -6,6 +6,7 @@ source_type in ('figma', 'html') runs.
 
 Zero real I/O: mocks the sandbox reader.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -20,8 +21,12 @@ def _run(coro):
 
 def _make_ctx(source_type: str, has_tokens: bool = True, has_components: bool = True):
     """Minimal ctx with a mocked sandbox reader."""
-    tokens_content = ":root { --bg: #13151f; --accent: #5b5fef; }" if has_tokens else None
-    components_content = "<html><body>Components</body></html>" if has_components else None
+    tokens_content = (
+        ":root { --bg: #13151f; --accent: #5b5fef; }" if has_tokens else None
+    )
+    components_content = (
+        "<html><body>Components</body></html>" if has_components else None
+    )
     ds_body_val = (
         "# Design System\n:root { --bg: #13151f; }"
         if source_type != "catalog"
@@ -32,16 +37,24 @@ def _make_ctx(source_type: str, has_tokens: bool = True, has_components: bool = 
         def read(self, relpath: str) -> str | None:
             mapping = {
                 "context/design/design-system.md": ds_body_val,
-                ".context/design/design-system.md": ds_body_val if source_type == "catalog" else None,
+                ".context/design/design-system.md": ds_body_val
+                if source_type == "catalog"
+                else None,
                 "context/design/template/SKILL.md": "# Template\n",
                 ".context/design/template/SKILL.md": None,
                 "context/design/tokens.css": tokens_content,
-                ".context/design/tokens.css": tokens_content if source_type == "catalog" else None,
+                ".context/design/tokens.css": tokens_content
+                if source_type == "catalog"
+                else None,
                 "context/design/components.html": components_content,
-                ".context/design/components.html": components_content if source_type == "catalog" else None,
-                "context/design/template/figma/frames.json": json.dumps([
-                    {"index": 0, "filename": "frame-1.png", "screen": "Dashboard"}
-                ]) if source_type == "figma" else None,
+                ".context/design/components.html": components_content
+                if source_type == "catalog"
+                else None,
+                "context/design/template/figma/frames.json": json.dumps(
+                    [{"index": 0, "filename": "frame-1.png", "screen": "Dashboard"}]
+                )
+                if source_type == "figma"
+                else None,
                 ".context/design/template/figma/frames.json": None,
             }
             return mapping.get(relpath)
@@ -78,10 +91,12 @@ def test_opendesign_provider_reads_tokens_css_for_figma_run() -> None:
 
     ctx = _make_ctx("figma", has_tokens=True)
     blocks = _run(OpenDesignProvider().load(ctx))
-    ds_keys = [k for k in blocks if "DESIGN SYSTEM" in k.upper() or "ACTIVE DESIGN" in k]
-    assert len(ds_keys) >= 1, (
-        "Provider must emit a DS block for figma run with design-system.md"
-    )
+    ds_keys = [
+        k for k in blocks if "DESIGN SYSTEM" in k.upper() or "ACTIVE DESIGN" in k
+    ]
+    assert (
+        len(ds_keys) >= 1
+    ), "Provider must emit a DS block for figma run with design-system.md"
 
 
 @pytest.mark.unit
@@ -91,9 +106,9 @@ def test_opendesign_provider_figma_block_still_present() -> None:
 
     ctx = _make_ctx("figma")
     blocks = _run(OpenDesignProvider().load(ctx))
-    assert any("FIGMA DESIGN REFERENCE" in k for k in blocks), (
-        "FIGMA DESIGN REFERENCE block must be present for figma run"
-    )
+    assert any(
+        "FIGMA DESIGN REFERENCE" in k for k in blocks
+    ), "FIGMA DESIGN REFERENCE block must be present for figma run"
 
 
 @pytest.mark.unit
@@ -103,6 +118,6 @@ def test_opendesign_provider_catalog_run_unaffected() -> None:
 
     ctx = _make_ctx("catalog")
     blocks = _run(OpenDesignProvider().load(ctx))
-    assert not any("FIGMA DESIGN REFERENCE" in k for k in blocks), (
-        "Catalog run must NOT emit FIGMA DESIGN REFERENCE block"
-    )
+    assert not any(
+        "FIGMA DESIGN REFERENCE" in k for k in blocks
+    ), "Catalog run must NOT emit FIGMA DESIGN REFERENCE block"

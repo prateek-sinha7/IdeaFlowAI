@@ -32,6 +32,7 @@ Outputs:
 
 Pure Python stdlib. No network, no backend venv required.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -43,6 +44,7 @@ from pathlib import Path
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────
+
 
 def _to_kebab(name: str) -> str:
     """Convert a display name to a kebab-case id."""
@@ -56,7 +58,11 @@ def _darken_hex(hex_color: str, percent: int = 15) -> str:
     if len(hex_color) == 3:
         hex_color = "".join(c * 2 for c in hex_color)
     try:
-        r, g, b = int(hex_color[0:2], 16), int(hex_color[2:4], 16), int(hex_color[4:6], 16)
+        r, g, b = (
+            int(hex_color[0:2], 16),
+            int(hex_color[2:4], 16),
+            int(hex_color[4:6], 16),
+        )
         factor = 1 - (percent / 100)
         r = max(0, int(r * factor))
         g = max(0, int(g * factor))
@@ -117,7 +123,14 @@ def _base_px_from_density(density: str | None) -> int:
 # ── aggregation ───────────────────────────────────────────────────────────────
 
 _COLOR_FIELDS = (
-    "bg", "fg", "accent", "surface", "surface_2", "border", "muted", "on_accent"
+    "bg",
+    "fg",
+    "accent",
+    "surface",
+    "surface_2",
+    "border",
+    "muted",
+    "on_accent",
 )
 
 
@@ -148,6 +161,7 @@ def _aggregate_tokens(frames: list[dict]) -> dict[str, str]:
 
 
 # ── source.json builder ───────────────────────────────────────────────────────
+
 
 def _build_source_json(
     manifest: list[dict],
@@ -207,6 +221,7 @@ def _build_source_json(
 
 # ── mapping.json builder ──────────────────────────────────────────────────────
 
+
 def _build_mapping_json(
     obs: dict,
     color_map: dict[str, str],
@@ -232,7 +247,6 @@ def _build_mapping_json(
     bg = color_map.get("bg", "#ffffff")
     fg = color_map.get("fg", "#000000")
     accent = color_map.get("accent", "#0066cc")
-    accent_dark = _darken_hex(accent, 15)
     surface = color_map.get("surface", bg)
     border = color_map.get("border", "#cccccc")
     muted = color_map.get("muted", "#666666")
@@ -240,9 +254,9 @@ def _build_mapping_json(
 
     # Derive section spacing from density
     density_spacing = {
-        "compact":      ("48px", "32px", "24px"),
-        "comfortable":  ("64px", "48px", "32px"),
-        "spacious":     ("80px", "64px", "48px"),
+        "compact": ("48px", "32px", "24px"),
+        "comfortable": ("64px", "48px", "32px"),
+        "spacious": ("80px", "64px", "48px"),
     }
     sec_desktop, sec_tablet, sec_phone = density_spacing.get(
         dominant_density, ("64px", "48px", "32px")
@@ -253,7 +267,7 @@ def _build_mapping_json(
         "--bg": bg,
         "--fg": fg,
         "--accent": accent,
-        "--accent-on": on_accent,           # schema name is --accent-on
+        "--accent-on": on_accent,  # schema name is --accent-on
         "--surface": surface,
         "--border": border,
         "--muted": muted,
@@ -305,13 +319,18 @@ def _build_mapping_json(
 
 # ── main ──────────────────────────────────────────────────────────────────────
 
+
 def main() -> int:
     ap = argparse.ArgumentParser(
         description="Convert Design Ingestor observations → source.json + mapping.json"
     )
     ap.add_argument("--manifest", required=True, help="Path to .figma/manifest.json")
-    ap.add_argument("--obs", required=True, help="Path to context/design/observations.json")
-    ap.add_argument("--out", required=True, help="Output directory for source.json and mapping.json")
+    ap.add_argument(
+        "--obs", required=True, help="Path to context/design/observations.json"
+    )
+    ap.add_argument(
+        "--out", required=True, help="Output directory for source.json and mapping.json"
+    )
     args = ap.parse_args()
 
     manifest_path = Path(args.manifest)
@@ -341,7 +360,9 @@ def main() -> int:
 
     frames = obs.get("frames", [])
     if not frames:
-        print("WARNING: observations.json has no frames — using defaults", file=sys.stderr)
+        print(
+            "WARNING: observations.json has no frames — using defaults", file=sys.stderr
+        )
 
     # Aggregate
     color_map, densities, font_hints = _aggregate_tokens(frames)
@@ -360,8 +381,12 @@ def main() -> int:
     source_path = out_dir / "source.json"
     mapping_path = out_dir / "mapping.json"
 
-    source_path.write_text(json.dumps(source, indent=2, ensure_ascii=False), encoding="utf-8")
-    mapping_path.write_text(json.dumps(mapping, indent=2, ensure_ascii=False), encoding="utf-8")
+    source_path.write_text(
+        json.dumps(source, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
+    mapping_path.write_text(
+        json.dumps(mapping, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
 
     print(f"wrote {source_path}")
     print(f"wrote {mapping_path}")

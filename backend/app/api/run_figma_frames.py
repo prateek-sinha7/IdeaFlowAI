@@ -60,13 +60,17 @@ router = APIRouter(prefix="/api/runs", tags=["runs"])
 
 # ── Constants ────────────────────────────────────────────────────────────────
 # Separate caps: images are small (4 MB), PDFs are multi-page (20 MB max).
-_MAX_FRAME_BYTES = 4 * 1024 * 1024   # 4 MB per PNG/JPG frame
-_MAX_PDF_BYTES   = 20 * 1024 * 1024  # 20 MB for multi-page Figma PDF export
+_MAX_FRAME_BYTES = 4 * 1024 * 1024  # 4 MB per PNG/JPG frame
+_MAX_PDF_BYTES = 20 * 1024 * 1024  # 20 MB for multi-page Figma PDF export
 _MAX_FRAME_COUNT = 20
 _ALLOWED_FRAME_EXTS: frozenset[str] = frozenset({"png", "jpg", "jpeg", "pdf"})
-_ALLOWED_FRAME_MIMES: frozenset[str] = frozenset({
-    "image/png", "image/jpeg", "application/pdf",
-})
+_ALLOWED_FRAME_MIMES: frozenset[str] = frozenset(
+    {
+        "image/png",
+        "image/jpeg",
+        "application/pdf",
+    }
+)
 
 # Dedicated prefix for Figma frame assets — separate from .uploads/ (documents).
 # Keeps the workspace clean: .uploads/ = text docs, .figma/ = design PNGs.
@@ -150,8 +154,7 @@ async def upload_figma_frames(
             raise HTTPException(
                 status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
                 detail=(
-                    f"File too large: {name!r} "
-                    f"(max {cap // (1024 * 1024)} MB)"
+                    f"File too large: {name!r} " f"(max {cap // (1024 * 1024)} MB)"
                 ),
             )
         validated.append((name, data, ext, mime, descriptions[i]))
@@ -205,9 +208,7 @@ async def upload_figma_frames(
         with _manifest_lock(sandbox):
             manifest = _read_manifest(sandbox, manifest_rel)
             # Offset from existing image entries so frame numbering is additive.
-            frame_offset = sum(
-                1 for e in manifest.values() if e.get("type") == "image"
-            )
+            frame_offset = sum(1 for e in manifest.values() if e.get("type") == "image")
             used_names: set[str] = set(manifest)
             results: list[dict] = []
 
@@ -231,9 +232,7 @@ async def upload_figma_frames(
             _write_bytes(
                 sandbox,
                 manifest_rel,
-                json.dumps(list(manifest.values()), ensure_ascii=False).encode(
-                    "utf-8"
-                ),
+                json.dumps(list(manifest.values()), ensure_ascii=False).encode("utf-8"),
             )
 
             # Update figma_frame_count in .context/selections.json so the
@@ -247,7 +246,9 @@ async def upload_figma_frames(
                     sel = json.loads(sel_path.read_text(encoding="utf-8"))
                     sel["figma_frame_count"] = total_image_frames
                     # Update template_name to reflect actual count
-                    sel["template_name"] = f"Figma Upload ({total_image_frames} screens)"
+                    sel["template_name"] = (
+                        f"Figma Upload ({total_image_frames} screens)"
+                    )
                     sel_path.write_text(
                         json.dumps(sel, indent=2, ensure_ascii=False),
                         encoding="utf-8",

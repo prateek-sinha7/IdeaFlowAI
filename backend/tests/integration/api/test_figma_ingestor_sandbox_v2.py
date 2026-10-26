@@ -7,6 +7,7 @@ Uses tmp_path for real file I/O via a duck-typed sandbox. No LLM required —
 these tests verify the CONTRACT of what the updated agent should write,
 not that the agent actually runs.
 """
+
 from __future__ import annotations
 
 import json
@@ -47,58 +48,59 @@ def _make_disk_sandbox(tmp_path: Path) -> Any:
 
 # ── AGENT.md contract tests (Phase 6 readiness checks) ───────────────────────
 
+
 @pytest.mark.integration
 def test_agent_md_mentions_observations_json() -> None:
     """After Phase 6, AGENT.md must write observations.json (new structured format)."""
     content = _INGESTOR_MD.read_text(encoding="utf-8")
-    assert "observations.json" in content, (
-        "AGENT.md must reference observations.json — Phase 6 adds this structured output"
-    )
+    assert (
+        "observations.json" in content
+    ), "AGENT.md must reference observations.json — Phase 6 adds this structured output"
 
 
 @pytest.mark.integration
 def test_agent_md_mentions_exec_figma_extract() -> None:
     """After Phase 6, AGENT.md must instruct agent to exec figma_extract.py."""
     content = _INGESTOR_MD.read_text(encoding="utf-8")
-    assert "figma_extract.py" in content, (
-        "AGENT.md must reference figma_extract.py script — added in Phase 6"
-    )
+    assert (
+        "figma_extract.py" in content
+    ), "AGENT.md must reference figma_extract.py script — added in Phase 6"
 
 
 @pytest.mark.integration
 def test_agent_md_mentions_exec_make_ds() -> None:
     """After Phase 6, AGENT.md must instruct agent to exec make_ds.py."""
     content = _INGESTOR_MD.read_text(encoding="utf-8")
-    assert "make_ds.py" in content, (
-        "AGENT.md must reference make_ds.py script — added in Phase 6"
-    )
+    assert (
+        "make_ds.py" in content
+    ), "AGENT.md must reference make_ds.py script — added in Phase 6"
 
 
 @pytest.mark.integration
 def test_agent_md_mentions_exec_figma_to_html() -> None:
     """After Phase 6, AGENT.md must instruct agent to exec figma_to_html.py."""
     content = _INGESTOR_MD.read_text(encoding="utf-8")
-    assert "figma_to_html.py" in content, (
-        "AGENT.md must reference figma_to_html.py script — added in Phase 6"
-    )
+    assert (
+        "figma_to_html.py" in content
+    ), "AGENT.md must reference figma_to_html.py script — added in Phase 6"
 
 
 @pytest.mark.integration
 def test_agent_md_mentions_tokens_css_output() -> None:
     """After Phase 6, AGENT.md must reference tokens.css as an output file."""
     content = _INGESTOR_MD.read_text(encoding="utf-8")
-    assert "tokens.css" in content, (
-        "AGENT.md must reference tokens.css — new output file after Phase 6"
-    )
+    assert (
+        "tokens.css" in content
+    ), "AGENT.md must reference tokens.css — new output file after Phase 6"
 
 
 @pytest.mark.integration
 def test_agent_md_mentions_components_html_output() -> None:
     """After Phase 6, AGENT.md must reference components.html as an output file."""
     content = _INGESTOR_MD.read_text(encoding="utf-8")
-    assert "components.html" in content, (
-        "AGENT.md must reference components.html — new output file after Phase 6"
-    )
+    assert (
+        "components.html" in content
+    ), "AGENT.md must reference components.html — new output file after Phase 6"
 
 
 @pytest.mark.integration
@@ -108,13 +110,14 @@ def test_agent_md_design_system_md_has_9_section_structure() -> None:
     # The 3 required section headings from reference/design-md.md
     required_sections = ["Visual Theme", "Color Palette", "Typography"]
     for section in required_sections:
-        assert section in content, (
-            f"AGENT.md must instruct agent to write '{section}' section in DESIGN.md format"
-        )
+        assert (
+            section in content
+        ), f"AGENT.md must instruct agent to write '{section}' section in DESIGN.md format"
 
 
 # ── Sandbox output contract tests ─────────────────────────────────────────────
 # These simulate what an updated ingestor should write and verify the contract.
+
 
 @pytest.mark.integration
 def test_tokens_css_written_to_context_design(tmp_path) -> None:
@@ -122,22 +125,34 @@ def test_tokens_css_written_to_context_design(tmp_path) -> None:
     from app.services.od_context_sandbox import rebuild_od_context_from_sandbox
 
     sandbox = _make_disk_sandbox(tmp_path)
-    sandbox.write(".context/selections.json", json.dumps({
-        "template_id": "custom-figma", "ds_id": "derived",
-        "source_type": "figma", "figma_frame_count": 2,
-        "no_template": False, "is_design_system_required": None,
-    }))
-    sandbox.write("context/design/tokens.css",
-                  ":root {\n  --bg: #13151f;\n  --accent: #5b5fef;\n}")
-    sandbox.write("context/design/design-system.md",
-                  "# Design System Inspired by SaaS App\n\n## 1. Visual Theme\n")
+    sandbox.write(
+        ".context/selections.json",
+        json.dumps(
+            {
+                "template_id": "custom-figma",
+                "ds_id": "derived",
+                "source_type": "figma",
+                "figma_frame_count": 2,
+                "no_template": False,
+                "is_design_system_required": None,
+            }
+        ),
+    )
+    sandbox.write(
+        "context/design/tokens.css",
+        ":root {\n  --bg: #13151f;\n  --accent: #5b5fef;\n}",
+    )
+    sandbox.write(
+        "context/design/design-system.md",
+        "# Design System Inspired by SaaS App\n\n## 1. Visual Theme\n",
+    )
 
     rebuilt = rebuild_od_context_from_sandbox(sandbox)
     assert rebuilt is not None
     ds_files = rebuilt.get("ds_files", {})
-    assert "tokens.css" in ds_files, (
-        "rebuild must pick up tokens.css from context/design/"
-    )
+    assert (
+        "tokens.css" in ds_files
+    ), "rebuild must pick up tokens.css from context/design/"
     assert "--bg" in ds_files["tokens.css"], "tokens.css content must be read correctly"
 
 
@@ -147,21 +162,31 @@ def test_components_html_written_to_context_design(tmp_path) -> None:
     from app.services.od_context_sandbox import rebuild_od_context_from_sandbox
 
     sandbox = _make_disk_sandbox(tmp_path)
-    sandbox.write(".context/selections.json", json.dumps({
-        "template_id": "custom-figma", "ds_id": "derived",
-        "source_type": "figma", "figma_frame_count": 2,
-        "no_template": False, "is_design_system_required": None,
-    }))
-    sandbox.write("context/design/components.html",
-                  "<html><body><div style='background:var(--bg)'>Component</div></body></html>")
+    sandbox.write(
+        ".context/selections.json",
+        json.dumps(
+            {
+                "template_id": "custom-figma",
+                "ds_id": "derived",
+                "source_type": "figma",
+                "figma_frame_count": 2,
+                "no_template": False,
+                "is_design_system_required": None,
+            }
+        ),
+    )
+    sandbox.write(
+        "context/design/components.html",
+        "<html><body><div style='background:var(--bg)'>Component</div></body></html>",
+    )
     sandbox.write("context/design/design-system.md", "# Design System\n")
 
     rebuilt = rebuild_od_context_from_sandbox(sandbox)
     assert rebuilt is not None
     ds_files = rebuilt.get("ds_files", {})
-    assert "components.html" in ds_files, (
-        "rebuild must pick up components.html from context/design/"
-    )
+    assert (
+        "components.html" in ds_files
+    ), "rebuild must pick up components.html from context/design/"
 
 
 @pytest.mark.integration
@@ -225,6 +250,6 @@ Use dark navy backgrounds with indigo accents.
     # Verify it has all 9 sections
     content = design_md_path.read_text()
     for section_num in range(1, 10):
-        assert f"## {section_num}." in content, (
-            f"9-section design-system.md must contain '## {section_num}.'"
-        )
+        assert (
+            f"## {section_num}." in content
+        ), f"9-section design-system.md must contain '## {section_num}.'"

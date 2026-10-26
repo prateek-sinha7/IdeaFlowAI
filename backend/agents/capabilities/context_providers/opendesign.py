@@ -218,16 +218,22 @@ class OpenDesignProvider:
             # design-system.md to context/design/ (no dot) because .context/
             # is write-protected for agents. ALWAYS read from disk here —
             # the od_context values are placeholders, not real content.
-            real_ds = _read_design_file(
-                "context/design/design-system.md",
-                ".context/design/design-system.md",
-            ) or ""
+            real_ds = (
+                _read_design_file(
+                    "context/design/design-system.md",
+                    ".context/design/design-system.md",
+                )
+                or ""
+            )
             if real_ds:
                 ds_body = real_ds
-            real_skill = _read_design_file(
-                "context/design/template/SKILL.md",
-                ".context/design/template/SKILL.md",
-            ) or ""
+            real_skill = (
+                _read_design_file(
+                    "context/design/template/SKILL.md",
+                    ".context/design/template/SKILL.md",
+                )
+                or ""
+            )
             if real_skill:
                 template_body = real_skill
 

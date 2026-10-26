@@ -74,7 +74,6 @@ def _write_od_context_to_sandbox(sandbox: object, od_context: dict) -> None:
     # This copy runs at write_od_context_to_sandbox call time (before step 1),
     # so it only seeds what the engine knows at launch; the actual ingestor copy
     # is handled by rebuild_od_context_from_sandbox (post-ingestor-step reads).
-    source_type = od_context.get("source_type")
     # For figma/html source types, the Design Ingestor agent writes all design files
     # to context/design/ (WITHOUT the leading dot) because the sandbox write guard
     # blocks agent writes to .context/. The reader layer (rebuild_od_context_from_sandbox)
@@ -214,9 +213,13 @@ def rebuild_od_context_from_sandbox(sandbox: object) -> dict | None:
                 return val
         return reader(relpath_dot) or ""
 
-    ds_body = _read_design("context/design/design-system.md", ".context/design/design-system.md")
+    ds_body = _read_design(
+        "context/design/design-system.md", ".context/design/design-system.md"
+    )
     craft_block = _read_design("context/design/craft.md", ".context/design/craft.md")
-    template_body = _read_design("context/design/template/SKILL.md", ".context/design/template/SKILL.md")
+    template_body = _read_design(
+        "context/design/template/SKILL.md", ".context/design/template/SKILL.md"
+    )
 
     # Rebuild template_files from the correct location based on source_type.
     template_files: dict[str, str] = {}
@@ -224,7 +227,11 @@ def rebuild_od_context_from_sandbox(sandbox: object) -> dict | None:
     if callable(list_fn):
         try:
             listed, _ = list_fn()
-            template_prefix = "context/design/template/" if _is_ingestor else ".context/design/template/"
+            template_prefix = (
+                "context/design/template/"
+                if _is_ingestor
+                else ".context/design/template/"
+            )
             for entry in listed:
                 path: str = entry["path"]
                 if (
@@ -242,7 +249,10 @@ def rebuild_od_context_from_sandbox(sandbox: object) -> dict | None:
     ds_files = {
         name: body
         for name in ("tokens.css", "components.html")
-        if (body := reader(f".context/design/{name}") or reader(f"context/design/{name}"))
+        if (
+            body := reader(f".context/design/{name}")
+            or reader(f"context/design/{name}")
+        )
     }
 
     od_context: dict = {

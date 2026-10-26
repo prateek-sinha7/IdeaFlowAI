@@ -74,7 +74,11 @@ def test_prototype_launch_od_context_parity():
         _PROTO_TEMPLATE, _PROTO_DS, custom_ds_body=None, custom_template_body=None
     )
     assert base == "prototype"
-    assert od_context == {**expected, "source_type": "catalog", "figma_frame_count": None}
+    assert od_context == {
+        **expected,
+        "source_type": "catalog",
+        "figma_frame_count": None,
+    }
 
 
 def test_ppt_launch_od_context_parity():
@@ -90,7 +94,11 @@ def test_ppt_launch_od_context_parity():
         _PPT_TEMPLATE, None, custom_ds_body=None, custom_template_body=None
     )
     assert base == "ppt"
-    assert od_context == {**expected, "source_type": "catalog", "figma_frame_count": None}
+    assert od_context == {
+        **expected,
+        "source_type": "catalog",
+        "figma_frame_count": None,
+    }
 
 
 def test_undeclared_pipeline_launches_with_none_od_context():
@@ -156,7 +164,11 @@ def test_seam_prototype_parity_via_declared_signal():
         _PROTO_TEMPLATE, _PROTO_DS, custom_ds_body=None, custom_template_body=None
     )
     assert base == "prototype"
-    assert od_context == {**expected, "source_type": "catalog", "figma_frame_count": None}
+    assert od_context == {
+        **expected,
+        "source_type": "catalog",
+        "figma_frame_count": None,
+    }
 
 
 def test_seam_undeclared_returns_none():
@@ -228,4 +240,8 @@ def test_seam_ppt_revision_non_fatal_loads_when_resolvable():
         _PPT_TEMPLATE, None, custom_ds_body=None, custom_template_body=None
     )
     assert base == "ppt_revision"
-    assert od_context == {**expected, "source_type": "catalog", "figma_frame_count": None}
+    assert od_context == {
+        **expected,
+        "source_type": "catalog",
+        "figma_frame_count": None,
+    }

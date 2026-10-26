@@ -87,9 +87,9 @@ class TestManifestContract:
         # Act
         tool_sets = step.tools.tool_sets
         # Assert
-        assert "ask_user" in tool_sets, (
-            f"us-target-clarify must declare ask_user in tool_sets; got {tool_sets!r}"
-        )
+        assert (
+            "ask_user" in tool_sets
+        ), f"us-target-clarify must declare ask_user in tool_sets; got {tool_sets!r}"
 
     def test_us_target_clarify_produces_target_clarify_json(self):
         step = _step("us-target-clarify")
@@ -105,34 +105,34 @@ class TestManifestContract:
         # It must fire before any reading or extraction — no inputs.
         step = _step("us-target-clarify")
         assert step is not None
-        assert step.consumes == [], (
-            f"us-target-clarify should consume nothing; got {step.consumes!r}"
-        )
+        assert (
+            step.consumes == []
+        ), f"us-target-clarify should consume nothing; got {step.consumes!r}"
 
     def test_us_target_clarify_has_no_gate_validators(self):
         # It is a HITL pause step, not a validation gate.
         step = _step("us-target-clarify")
         assert step is not None
-        assert step.gates == [], (
-            f"us-target-clarify must have no gates; got {step.gates!r}"
-        )
+        assert (
+            step.gates == []
+        ), f"us-target-clarify must have no gates; got {step.gates!r}"
 
     def test_us_target_clarify_has_no_depends_on(self):
         # Must start immediately when the run launches.
         step = _step("us-target-clarify")
         assert step is not None
-        assert step.depends_on == [], (
-            f"us-target-clarify must have no depends_on; got {step.depends_on!r}"
-        )
+        assert (
+            step.depends_on == []
+        ), f"us-target-clarify must have no depends_on; got {step.depends_on!r}"
 
     def test_us_ui_extract_depends_on_us_target_clarify(self):
         # The old first step is now gated behind the clarify step.
         step = _step("us-ui-extract")
         assert step is not None, "us-ui-extract step not found in compiled plan"
         dep_ids = step.depends_on
-        assert any("us-target-clarify" in d for d in dep_ids), (
-            f"us-ui-extract must depend on us-target-clarify; got depends_on={dep_ids!r}"
-        )
+        assert any(
+            "us-target-clarify" in d for d in dep_ids
+        ), f"us-ui-extract must depend on us-target-clarify; got depends_on={dep_ids!r}"
 
     def test_only_us_target_clarify_has_empty_depends_on(self):
         # No other step should start unconditionally — every other step must
@@ -194,24 +194,24 @@ class TestQuestionContract:
 
     def test_prompt_contains_all_six_question_ids(self, prompt_text):
         for qid in _REQUIRED_IDS:
-            assert qid in prompt_text, (
-                f"Required question id {qid!r} not found in us-target-clarify prompt"
-            )
+            assert (
+                qid in prompt_text
+            ), f"Required question id {qid!r} not found in us-target-clarify prompt"
 
     def test_prompt_contains_no_other_target_n_ids(self, prompt_text):
         # target-7 or above would indicate a drift from the spec.
         extra = re.findall(r"target-(\d+)", prompt_text)
         ids_found = {f"target-{n}" for n in extra}
         unexpected = ids_found - set(_REQUIRED_IDS)
-        assert not unexpected, (
-            f"Unexpected target-N ids found in prompt: {unexpected!r}"
-        )
+        assert (
+            not unexpected
+        ), f"Unexpected target-N ids found in prompt: {unexpected!r}"
 
     @pytest.mark.parametrize("fragment", _REQUIRED_OPTION_FRAGMENTS)
     def test_prompt_contains_required_option_text(self, prompt_text, fragment):
-        assert fragment in prompt_text, (
-            f"Required option text {fragment!r} not found in us-target-clarify prompt"
-        )
+        assert (
+            fragment in prompt_text
+        ), f"Required option text {fragment!r} not found in us-target-clarify prompt"
 
     def test_prompt_instructs_single_ask_user_call(self, prompt_text):
         # The spec requires exactly ONE ask_user call — the prompt must say so.
@@ -224,9 +224,9 @@ class TestQuestionContract:
     def test_prompt_instructs_write_in_phases(self, prompt_text):
         # The four-phase structure is enforced by the backlog clarify convention.
         for phase in ("Phase 1", "Phase 2", "Phase 3"):
-            assert phase in prompt_text, (
-                f"Expected {phase!r} section in us-target-clarify prompt"
-            )
+            assert (
+                phase in prompt_text
+            ), f"Expected {phase!r} section in us-target-clarify prompt"
 
 
 # ---------------------------------------------------------------------------
@@ -274,9 +274,9 @@ class TestNormalisationOfTargetQuestions:
                     "options": ["A", "B"],
                 }
             )
-            assert out["question_id"] == qid, (
-                f"question_id should be {qid!r}; got {out['question_id']!r}"
-            )
+            assert (
+                out["question_id"] == qid
+            ), f"question_id should be {qid!r}; got {out['question_id']!r}"
 
 
 # ---------------------------------------------------------------------------
@@ -328,9 +328,7 @@ class TestClarifyAnswersAccumulation:
 
     def test_all_six_target_answers_survive_three_further_rounds(self):
         # Arrange: round 0 with all six target answers.
-        target_answers = [
-            _answer(qid, f"answer-{qid}") for qid in _REQUIRED_IDS
-        ]
+        target_answers = [_answer(qid, f"answer-{qid}") for qid in _REQUIRED_IDS]
         state = {
             "answers": target_answers,
             "answered_count": 6,
@@ -351,9 +349,9 @@ class TestClarifyAnswersAccumulation:
         # Assert: all six target answers are still present.
         ids = {a["id"] for a in state["answers"]}
         for qid in _REQUIRED_IDS:
-            assert qid in ids, (
-                f"{qid} must still be in clarify/answers.json after three downstream rounds"
-            )
+            assert (
+                qid in ids
+            ), f"{qid} must still be in clarify/answers.json after three downstream rounds"
 
     def test_a_corrected_target_answer_replaces_the_original(self):
         # An architect may change a target choice mid-run (re-ask with same id).
@@ -410,9 +408,9 @@ class TestSolutionAnalystWiring:
         )
 
     def test_us_solution_consumes_clarify_answers_json(self, solution_step):
-        assert "clarify/answers.json" in solution_step.consumes, (
-            "us-solution must consume clarify/answers.json to access target-N answers"
-        )
+        assert (
+            "clarify/answers.json" in solution_step.consumes
+        ), "us-solution must consume clarify/answers.json to access target-N answers"
 
     def test_us_solution_prompt_instructs_reading_target_clarify_json(
         self, solution_step
@@ -424,9 +422,7 @@ class TestSolutionAnalystWiring:
     ):
         assert "clarify/answers.json" in solution_step.prompt
 
-    def test_us_solution_prompt_contains_target_n_citation_pattern(
-        self, solution_step
-    ):
+    def test_us_solution_prompt_contains_target_n_citation_pattern(self, solution_step):
         # The prompt must teach the agent to cite target answers as [user target-N].
         assert "[user target-N]" in solution_step.prompt, (
             "us-solution prompt must contain the [user target-N] citation token "

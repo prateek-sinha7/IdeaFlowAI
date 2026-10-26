@@ -7,6 +7,7 @@ Integration tests for the three new stdlib-only scripts:
 
 No DB, no LLM, no network. Pure file I/O with tmp_path.
 """
+
 from __future__ import annotations
 
 import ast
@@ -25,12 +26,23 @@ _SCRIPTS = _BACKEND / "skills" / "global" / "design-ingestor" / "scripts"
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 
+
 def _sample_manifest() -> list[dict]:
     return [
-        {"name": "frame-1.png", "mime": "image/png", "type": "image",
-         "description": "Dashboard overview", "has_text": False},
-        {"name": "frame-2.png", "mime": "image/png", "type": "image",
-         "description": "Data table", "has_text": False},
+        {
+            "name": "frame-1.png",
+            "mime": "image/png",
+            "type": "image",
+            "description": "Dashboard overview",
+            "has_text": False,
+        },
+        {
+            "name": "frame-2.png",
+            "mime": "image/png",
+            "type": "image",
+            "description": "Data table",
+            "has_text": False,
+        },
     ]
 
 
@@ -38,21 +50,39 @@ def _sample_observations() -> dict:
     return {
         "frames": [
             {
-                "index": 0, "name": "frame-1.png", "screen": "Dashboard",
-                "layout": "sidebar-nav", "color_scheme": "dark",
-                "bg": "#13151f", "fg": "#e0e0e0", "accent": "#5b5fef",
-                "surface": "#1e2130", "surface_2": "#252a3d",
-                "border": "#2a2f45", "muted": "#9aa0b4", "on_accent": "#ffffff",
-                "font_weight": "medium", "font_density": "compact",
+                "index": 0,
+                "name": "frame-1.png",
+                "screen": "Dashboard",
+                "layout": "sidebar-nav",
+                "color_scheme": "dark",
+                "bg": "#13151f",
+                "fg": "#e0e0e0",
+                "accent": "#5b5fef",
+                "surface": "#1e2130",
+                "surface_2": "#252a3d",
+                "border": "#2a2f45",
+                "muted": "#9aa0b4",
+                "on_accent": "#ffffff",
+                "font_weight": "medium",
+                "font_density": "compact",
                 "font_family_hint": "Inter, system-ui, sans-serif",
             },
             {
-                "index": 1, "name": "frame-2.png", "screen": "Data Table",
-                "layout": "sidebar-nav", "color_scheme": "dark",
-                "bg": "#13151f", "fg": "#e0e0e0", "accent": "#5b5fef",
-                "surface": "#1e2130", "surface_2": "#252a3d",
-                "border": "#2a2f45", "muted": "#9aa0b4", "on_accent": "#ffffff",
-                "font_weight": "medium", "font_density": "compact",
+                "index": 1,
+                "name": "frame-2.png",
+                "screen": "Data Table",
+                "layout": "sidebar-nav",
+                "color_scheme": "dark",
+                "bg": "#13151f",
+                "fg": "#e0e0e0",
+                "accent": "#5b5fef",
+                "surface": "#1e2130",
+                "surface_2": "#252a3d",
+                "border": "#2a2f45",
+                "muted": "#9aa0b4",
+                "on_accent": "#ffffff",
+                "font_weight": "medium",
+                "font_density": "compact",
                 "font_family_hint": "Inter, system-ui, sans-serif",
             },
         ],
@@ -64,12 +94,22 @@ def _sample_observations() -> dict:
 
 def _sample_frames_json() -> list[dict]:
     return [
-        {"index": 0, "filename": "frame-1.png", "screen": "Dashboard",
-         "description": "Dashboard overview", "layout": "sidebar-nav",
-         "source": ".figma/frame-1.png"},
-        {"index": 1, "filename": "frame-2.png", "screen": "Data Table",
-         "description": "Data table view", "layout": "sidebar-nav",
-         "source": ".figma/frame-2.png"},
+        {
+            "index": 0,
+            "filename": "frame-1.png",
+            "screen": "Dashboard",
+            "description": "Dashboard overview",
+            "layout": "sidebar-nav",
+            "source": ".figma/frame-1.png",
+        },
+        {
+            "index": 1,
+            "filename": "frame-2.png",
+            "screen": "Data Table",
+            "description": "Data table view",
+            "layout": "sidebar-nav",
+            "source": ".figma/frame-2.png",
+        },
     ]
 
 
@@ -100,6 +140,7 @@ def _sample_tokens_css() -> str:
 
 # ── figma_extract.py tests ────────────────────────────────────────────────────
 
+
 @pytest.mark.integration
 def test_figma_extract_produces_source_json(tmp_path) -> None:
     """figma_extract.py must write source.json with variables.:root block."""
@@ -114,11 +155,19 @@ def test_figma_extract_produces_source_json(tmp_path) -> None:
     )
 
     result = subprocess.run(
-        [sys.executable, str(_SCRIPTS / "figma_extract.py"),
-         "--manifest", str(tmp_path / "manifest.json"),
-         "--obs", str(tmp_path / "observations.json"),
-         "--out", str(tmp_path)],
-        capture_output=True, text=True, cwd=str(_SCRIPTS),
+        [
+            sys.executable,
+            str(_SCRIPTS / "figma_extract.py"),
+            "--manifest",
+            str(tmp_path / "manifest.json"),
+            "--obs",
+            str(tmp_path / "observations.json"),
+            "--out",
+            str(tmp_path),
+        ],
+        capture_output=True,
+        text=True,
+        cwd=str(_SCRIPTS),
     )
     assert result.returncode == 0, f"figma_extract.py failed:\n{result.stderr}"
 
@@ -146,11 +195,20 @@ def test_figma_extract_produces_mapping_json(tmp_path) -> None:
     )
 
     subprocess.run(
-        [sys.executable, str(_SCRIPTS / "figma_extract.py"),
-         "--manifest", str(tmp_path / "manifest.json"),
-         "--obs", str(tmp_path / "observations.json"),
-         "--out", str(tmp_path)],
-        capture_output=True, text=True, cwd=str(_SCRIPTS), check=True,
+        [
+            sys.executable,
+            str(_SCRIPTS / "figma_extract.py"),
+            "--manifest",
+            str(tmp_path / "manifest.json"),
+            "--obs",
+            str(tmp_path / "observations.json"),
+            "--out",
+            str(tmp_path),
+        ],
+        capture_output=True,
+        text=True,
+        cwd=str(_SCRIPTS),
+        check=True,
     )
 
     mapping_path = tmp_path / "mapping.json"
@@ -177,16 +235,27 @@ def test_figma_extract_colors_match_observations(tmp_path) -> None:
     )
 
     subprocess.run(
-        [sys.executable, str(_SCRIPTS / "figma_extract.py"),
-         "--manifest", str(tmp_path / "manifest.json"),
-         "--obs", str(tmp_path / "observations.json"),
-         "--out", str(tmp_path)],
-        capture_output=True, text=True, cwd=str(_SCRIPTS), check=True,
+        [
+            sys.executable,
+            str(_SCRIPTS / "figma_extract.py"),
+            "--manifest",
+            str(tmp_path / "manifest.json"),
+            "--obs",
+            str(tmp_path / "observations.json"),
+            "--out",
+            str(tmp_path),
+        ],
+        capture_output=True,
+        text=True,
+        cwd=str(_SCRIPTS),
+        check=True,
     )
 
     mapping = json.loads((tmp_path / "mapping.json").read_text())
     assert mapping["tokens"]["--bg"] == "#13151f", "--bg hex must match observations"
-    assert mapping["tokens"]["--accent"] == "#5b5fef", "--accent hex must match observations"
+    assert (
+        mapping["tokens"]["--accent"] == "#5b5fef"
+    ), "--accent hex must match observations"
 
 
 @pytest.mark.integration
@@ -198,7 +267,8 @@ def test_figma_extract_no_network_calls() -> None:
     content = (_SCRIPTS / "figma_extract.py").read_text(encoding="utf-8")
     tree = ast.parse(content)
     imports = [
-        node.names[0].name.split(".")[0] if isinstance(node, ast.Import)
+        node.names[0].name.split(".")[0]
+        if isinstance(node, ast.Import)
         else (node.module.split(".")[0] if node.module else "")
         for node in ast.walk(tree)
         if isinstance(node, (ast.Import, ast.ImportFrom))
@@ -209,6 +279,7 @@ def test_figma_extract_no_network_calls() -> None:
 
 
 # ── make_ds.py (sandbox copy) tests ──────────────────────────────────────────
+
 
 @pytest.mark.integration
 def test_make_ds_produces_tokens_css(tmp_path) -> None:
@@ -225,21 +296,37 @@ def test_make_ds_produces_tokens_css(tmp_path) -> None:
         json.dumps(_sample_observations()), encoding="utf-8"
     )
     subprocess.run(
-        [sys.executable, str(_SCRIPTS / "figma_extract.py"),
-         "--manifest", str(tmp_path / "manifest.json"),
-         "--obs", str(tmp_path / "observations.json"),
-         "--out", str(tmp_path)],
-        capture_output=True, text=True, cwd=str(_SCRIPTS), check=True,
+        [
+            sys.executable,
+            str(_SCRIPTS / "figma_extract.py"),
+            "--manifest",
+            str(tmp_path / "manifest.json"),
+            "--obs",
+            str(tmp_path / "observations.json"),
+            "--out",
+            str(tmp_path),
+        ],
+        capture_output=True,
+        text=True,
+        cwd=str(_SCRIPTS),
+        check=True,
     )
 
     dest = tmp_path / "output"
     dest.mkdir()
     env = {**os.environ, "OD_SCHEMA_PATH": str(_SCRIPTS / "schema")}
     result = subprocess.run(
-        [sys.executable, str(_SCRIPTS / "make_ds.py"),
-         str(tmp_path / "mapping.json"),
-         "--dest", str(dest)],
-        capture_output=True, text=True, env=env, cwd=str(_SCRIPTS),
+        [
+            sys.executable,
+            str(_SCRIPTS / "make_ds.py"),
+            str(tmp_path / "mapping.json"),
+            "--dest",
+            str(dest),
+        ],
+        capture_output=True,
+        text=True,
+        env=env,
+        cwd=str(_SCRIPTS),
     )
     assert result.returncode == 0, f"make_ds.py failed:\n{result.stderr}"
 
@@ -265,31 +352,50 @@ def test_make_ds_produces_components_html(tmp_path) -> None:
         json.dumps(_sample_observations()), encoding="utf-8"
     )
     subprocess.run(
-        [sys.executable, str(_SCRIPTS / "figma_extract.py"),
-         "--manifest", str(tmp_path / "manifest.json"),
-         "--obs", str(tmp_path / "observations.json"),
-         "--out", str(tmp_path)],
-        capture_output=True, text=True, cwd=str(_SCRIPTS), check=True,
+        [
+            sys.executable,
+            str(_SCRIPTS / "figma_extract.py"),
+            "--manifest",
+            str(tmp_path / "manifest.json"),
+            "--obs",
+            str(tmp_path / "observations.json"),
+            "--out",
+            str(tmp_path),
+        ],
+        capture_output=True,
+        text=True,
+        cwd=str(_SCRIPTS),
+        check=True,
     )
 
     dest = tmp_path / "output"
     dest.mkdir()
     env = {**os.environ, "OD_SCHEMA_PATH": str(_SCRIPTS / "schema")}
     subprocess.run(
-        [sys.executable, str(_SCRIPTS / "make_ds.py"),
-         str(tmp_path / "mapping.json"), "--dest", str(dest)],
-        capture_output=True, text=True, env=env, cwd=str(_SCRIPTS), check=True,
+        [
+            sys.executable,
+            str(_SCRIPTS / "make_ds.py"),
+            str(tmp_path / "mapping.json"),
+            "--dest",
+            str(dest),
+        ],
+        capture_output=True,
+        text=True,
+        env=env,
+        cwd=str(_SCRIPTS),
+        check=True,
     )
 
     components_html = dest / "components.html"
     assert components_html.exists(), "components.html not written"
     content = components_html.read_text()
-    assert "var(--bg)" in content or "var(--accent)" in content, (
-        "components.html must reference CSS variables via var(--*)"
-    )
+    assert (
+        "var(--bg)" in content or "var(--accent)" in content
+    ), "components.html must reference CSS variables via var(--*)"
 
 
 # ── figma_to_html.py tests ────────────────────────────────────────────────────
+
 
 @pytest.mark.integration
 def test_figma_to_html_produces_example_html(tmp_path) -> None:
@@ -303,12 +409,21 @@ def test_figma_to_html_produces_example_html(tmp_path) -> None:
     (tmp_path / "tokens.css").write_text(_sample_tokens_css(), encoding="utf-8")
 
     result = subprocess.run(
-        [sys.executable, str(_SCRIPTS / "figma_to_html.py"),
-         "--frames", str(tmp_path / "frames.json"),
-         "--tokens", str(tmp_path / "tokens.css"),
-         "--prefix", "fg",
-         "--out", str(tmp_path / "example.html")],
-        capture_output=True, text=True, cwd=str(_SCRIPTS),
+        [
+            sys.executable,
+            str(_SCRIPTS / "figma_to_html.py"),
+            "--frames",
+            str(tmp_path / "frames.json"),
+            "--tokens",
+            str(tmp_path / "tokens.css"),
+            "--prefix",
+            "fg",
+            "--out",
+            str(tmp_path / "example.html"),
+        ],
+        capture_output=True,
+        text=True,
+        cwd=str(_SCRIPTS),
     )
     assert result.returncode == 0, f"figma_to_html.py failed:\n{result.stderr}"
     assert (tmp_path / "example.html").exists(), "example.html not written"
@@ -325,19 +440,31 @@ def test_figma_to_html_template_contract_nav_items(tmp_path) -> None:
     )
     (tmp_path / "tokens.css").write_text(_sample_tokens_css(), encoding="utf-8")
     subprocess.run(
-        [sys.executable, str(_SCRIPTS / "figma_to_html.py"),
-         "--frames", str(tmp_path / "frames.json"),
-         "--tokens", str(tmp_path / "tokens.css"),
-         "--prefix", "fg",
-         "--out", str(tmp_path / "example.html")],
-        capture_output=True, text=True, cwd=str(_SCRIPTS), check=True,
+        [
+            sys.executable,
+            str(_SCRIPTS / "figma_to_html.py"),
+            "--frames",
+            str(tmp_path / "frames.json"),
+            "--tokens",
+            str(tmp_path / "tokens.css"),
+            "--prefix",
+            "fg",
+            "--out",
+            str(tmp_path / "example.html"),
+        ],
+        capture_output=True,
+        text=True,
+        cwd=str(_SCRIPTS),
+        check=True,
     )
 
     html = (tmp_path / "example.html").read_text()
     assert "nav-item" in html, "example.html missing nav-item class"
     assert "data-go=" in html, "example.html missing data-go attributes"
     nav_count = html.count("data-go=")
-    assert nav_count >= 2, f"example.html must have at least 2 nav items, found {nav_count}"
+    assert (
+        nav_count >= 2
+    ), f"example.html must have at least 2 nav items, found {nav_count}"
 
 
 @pytest.mark.integration
@@ -351,22 +478,32 @@ def test_figma_to_html_template_contract_pattern_sections(tmp_path) -> None:
     )
     (tmp_path / "tokens.css").write_text(_sample_tokens_css(), encoding="utf-8")
     subprocess.run(
-        [sys.executable, str(_SCRIPTS / "figma_to_html.py"),
-         "--frames", str(tmp_path / "frames.json"),
-         "--tokens", str(tmp_path / "tokens.css"),
-         "--prefix", "fg",
-         "--out", str(tmp_path / "example.html")],
-        capture_output=True, text=True, cwd=str(_SCRIPTS), check=True,
+        [
+            sys.executable,
+            str(_SCRIPTS / "figma_to_html.py"),
+            "--frames",
+            str(tmp_path / "frames.json"),
+            "--tokens",
+            str(tmp_path / "tokens.css"),
+            "--prefix",
+            "fg",
+            "--out",
+            str(tmp_path / "example.html"),
+        ],
+        capture_output=True,
+        text=True,
+        cwd=str(_SCRIPTS),
+        check=True,
     )
 
     html = (tmp_path / "example.html").read_text()
     pattern_count = len(re.findall(r"data-pattern=", html))
-    assert pattern_count >= 2, (
-        f"example.html must have one pattern section per frame (got {pattern_count})"
-    )
-    assert 'class="pattern"' in html or "class='pattern'" in html, (
-        "example.html missing class=pattern on sections"
-    )
+    assert (
+        pattern_count >= 2
+    ), f"example.html must have one pattern section per frame (got {pattern_count})"
+    assert (
+        'class="pattern"' in html or "class='pattern'" in html
+    ), "example.html missing class=pattern on sections"
 
 
 @pytest.mark.integration
@@ -380,12 +517,22 @@ def test_figma_to_html_template_contract_root_css_vars(tmp_path) -> None:
     )
     (tmp_path / "tokens.css").write_text(_sample_tokens_css(), encoding="utf-8")
     subprocess.run(
-        [sys.executable, str(_SCRIPTS / "figma_to_html.py"),
-         "--frames", str(tmp_path / "frames.json"),
-         "--tokens", str(tmp_path / "tokens.css"),
-         "--prefix", "fg",
-         "--out", str(tmp_path / "example.html")],
-        capture_output=True, text=True, cwd=str(_SCRIPTS), check=True,
+        [
+            sys.executable,
+            str(_SCRIPTS / "figma_to_html.py"),
+            "--frames",
+            str(tmp_path / "frames.json"),
+            "--tokens",
+            str(tmp_path / "tokens.css"),
+            "--prefix",
+            "fg",
+            "--out",
+            str(tmp_path / "example.html"),
+        ],
+        capture_output=True,
+        text=True,
+        cwd=str(_SCRIPTS),
+        check=True,
     )
 
     html = (tmp_path / "example.html").read_text()
@@ -405,12 +552,22 @@ def test_figma_to_html_active_nav_item(tmp_path) -> None:
     )
     (tmp_path / "tokens.css").write_text(_sample_tokens_css(), encoding="utf-8")
     subprocess.run(
-        [sys.executable, str(_SCRIPTS / "figma_to_html.py"),
-         "--frames", str(tmp_path / "frames.json"),
-         "--tokens", str(tmp_path / "tokens.css"),
-         "--prefix", "fg",
-         "--out", str(tmp_path / "example.html")],
-        capture_output=True, text=True, cwd=str(_SCRIPTS), check=True,
+        [
+            sys.executable,
+            str(_SCRIPTS / "figma_to_html.py"),
+            "--frames",
+            str(tmp_path / "frames.json"),
+            "--tokens",
+            str(tmp_path / "tokens.css"),
+            "--prefix",
+            "fg",
+            "--out",
+            str(tmp_path / "example.html"),
+        ],
+        capture_output=True,
+        text=True,
+        cwd=str(_SCRIPTS),
+        check=True,
     )
 
     html = (tmp_path / "example.html").read_text()
@@ -427,16 +584,26 @@ def test_figma_to_html_one_frame_per_section(tmp_path) -> None:
     (tmp_path / "frames.json").write_text(json.dumps(frames), encoding="utf-8")
     (tmp_path / "tokens.css").write_text(_sample_tokens_css(), encoding="utf-8")
     subprocess.run(
-        [sys.executable, str(_SCRIPTS / "figma_to_html.py"),
-         "--frames", str(tmp_path / "frames.json"),
-         "--tokens", str(tmp_path / "tokens.css"),
-         "--prefix", "fg",
-         "--out", str(tmp_path / "example.html")],
-        capture_output=True, text=True, cwd=str(_SCRIPTS), check=True,
+        [
+            sys.executable,
+            str(_SCRIPTS / "figma_to_html.py"),
+            "--frames",
+            str(tmp_path / "frames.json"),
+            "--tokens",
+            str(tmp_path / "tokens.css"),
+            "--prefix",
+            "fg",
+            "--out",
+            str(tmp_path / "example.html"),
+        ],
+        capture_output=True,
+        text=True,
+        cwd=str(_SCRIPTS),
+        check=True,
     )
 
     html = (tmp_path / "example.html").read_text()
     pattern_count = len(re.findall(r"data-pattern=", html))
-    assert pattern_count == len(frames), (
-        f"Expected {len(frames)} pattern sections, got {pattern_count}"
-    )
+    assert pattern_count == len(
+        frames
+    ), f"Expected {len(frames)} pattern sections, got {pattern_count}"

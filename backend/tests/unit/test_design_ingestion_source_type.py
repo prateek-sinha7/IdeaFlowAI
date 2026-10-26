@@ -10,6 +10,7 @@ Patch discipline (local imports):
   od_loader. We patch them at their DEFINITION site so the module under test
   sees the mock.
 """
+
 from __future__ import annotations
 
 import json
@@ -66,12 +67,19 @@ def _fake_od_context(source_type: str = "catalog", **kwargs) -> dict:
 def _resolve_with_mocks(pipeline_type, template_id, design_system_id, **kwargs):
     """Call resolve_launch_od_context with disk I/O mocked out."""
     from app.api.launch_context import resolve_launch_od_context
-    fake_tmpl = {"id": template_id or "web-prototype", "name": "Web Prototype",
-                 "body": "## Workflow", "craft_required": []}
+
+    fake_tmpl = {
+        "id": template_id or "web-prototype",
+        "name": "Web Prototype",
+        "body": "## Workflow",
+        "craft_required": [],
+    }
     fake_ds = {"id": design_system_id or "github", "name": "GitHub", "body": ":root{}"}
     with (
-        patch("agents.execution_engine.engine.compile_for_run",
-              return_value=SimpleNamespace(context_providers=["opendesign"])),
+        patch(
+            "agents.execution_engine.engine.compile_for_run",
+            return_value=SimpleNamespace(context_providers=["opendesign"]),
+        ),
         patch("app.services.od_loader.get_template", return_value=fake_tmpl),
         patch("app.services.od_loader.get_design_system", return_value=fake_ds),
         patch("app.services.od_loader.get_craft_rules", return_value={}),
@@ -79,10 +87,12 @@ def _resolve_with_mocks(pipeline_type, template_id, design_system_id, **kwargs):
         patch("app.services.od_loader.get_design_system_files", return_value={}),
     ):
         return resolve_launch_od_context(
-            pipeline_type, template_id, design_system_id, fatal=True, **kwargs)
+            pipeline_type, template_id, design_system_id, fatal=True, **kwargs
+        )
 
 
 # --- source_type detection tests ---
+
 
 @pytest.mark.unit
 def test_source_type_catalog_when_template_id_in_catalog():
@@ -97,7 +107,9 @@ def test_source_type_catalog_when_template_id_in_catalog():
 def test_source_type_html_when_custom_template_body_set():
     """custom_template_body set → source_type='html'."""
     _, od = _resolve_with_mocks(
-        "prototype", "custom-12345", "github",
+        "prototype",
+        "custom-12345",
+        "github",
         custom_template_body="<!DOCTYPE html><html><body>hi</body></html>",
     )
     assert od is not None
@@ -109,11 +121,15 @@ def test_source_type_html_when_custom_template_body_set():
 def test_source_type_figma_when_manifest_has_image_entries():
     """figma_frame_count > 0 → source_type='figma', no od_loader call."""
     with patch("app.services.od_loader.get_template") as mock_tmpl:
-        with patch("agents.execution_engine.engine.compile_for_run",
-                   return_value=SimpleNamespace(context_providers=["opendesign"])):
+        with patch(
+            "agents.execution_engine.engine.compile_for_run",
+            return_value=SimpleNamespace(context_providers=["opendesign"]),
+        ):
             from app.api.launch_context import resolve_launch_od_context
+
             _, od = resolve_launch_od_context(
-                "prototype_v2", None, None, fatal=True, figma_frame_count=5)
+                "prototype_v2", None, None, fatal=True, figma_frame_count=5
+            )
     mock_tmpl.assert_not_called()
     assert od is not None
     assert od["source_type"] == "figma"
@@ -124,18 +140,21 @@ def test_source_type_figma_when_manifest_has_image_entries():
 @pytest.mark.unit
 def test_source_type_defaults_catalog_no_custom():
     """No custom body, no figma count → source_type='catalog'."""
-    _, od = _resolve_with_mocks("prototype", "web-prototype", "github",
-                                figma_frame_count=None)
+    _, od = _resolve_with_mocks(
+        "prototype", "web-prototype", "github", figma_frame_count=None
+    )
     assert od is not None
     assert od["source_type"] == "catalog"
 
 
 # --- selections.json tests ---
 
+
 @pytest.mark.unit
 def test_selections_json_includes_source_type_field():
     """_write_od_context_to_sandbox writes source_type into selections.json."""
     from app.services.od_context_sandbox import _write_od_context_to_sandbox
+
     sandbox, store = _make_sandbox()
     _write_od_context_to_sandbox(sandbox, _fake_od_context(source_type="html"))
     data = json.loads(store[".context/selections.json"])
@@ -146,9 +165,11 @@ def test_selections_json_includes_source_type_field():
 def test_selections_json_includes_figma_frame_count():
     """_write_od_context_to_sandbox writes figma_frame_count into selections.json."""
     from app.services.od_context_sandbox import _write_od_context_to_sandbox
+
     sandbox, store = _make_sandbox()
-    _write_od_context_to_sandbox(sandbox, _fake_od_context(source_type="figma",
-                                                            figma_frame_count=7))
+    _write_od_context_to_sandbox(
+        sandbox, _fake_od_context(source_type="figma", figma_frame_count=7)
+    )
     data = json.loads(store[".context/selections.json"])
     assert data["source_type"] == "figma"
     assert data["figma_frame_count"] == 7
@@ -161,6 +182,7 @@ def test_rebuild_reads_source_type_back():
         _write_od_context_to_sandbox,
         rebuild_od_context_from_sandbox,
     )
+
     sandbox, _ = _make_sandbox()
     _write_od_context_to_sandbox(sandbox, _fake_od_context(source_type="html"))
     rebuilt = rebuild_od_context_from_sandbox(sandbox)
@@ -173,11 +195,17 @@ def test_rebuild_reads_source_type_back():
 def test_rebuild_backward_compat_no_source_type_field():
     """rebuild_od_context_from_sandbox returns None for source_type on old sandboxes."""
     from app.services.od_context_sandbox import rebuild_od_context_from_sandbox
-    old_sel = json.dumps({
-        "template_id": "web-prototype", "ds_id": "github",
-        "template_name": "Web Prototype", "ds_name": "GitHub",
-        "no_template": False, "is_design_system_required": None,
-    })
+
+    old_sel = json.dumps(
+        {
+            "template_id": "web-prototype",
+            "ds_id": "github",
+            "template_name": "Web Prototype",
+            "ds_name": "GitHub",
+            "no_template": False,
+            "is_design_system_required": None,
+        }
+    )
     sandbox, _ = _make_sandbox({".context/selections.json": old_sel})
     rebuilt = rebuild_od_context_from_sandbox(sandbox)
     assert rebuilt is not None
@@ -187,10 +215,12 @@ def test_rebuild_backward_compat_no_source_type_field():
 
 # --- load_figma_ingest_context stub tests ---
 
+
 @pytest.mark.unit
 def test_load_figma_ingest_context_returns_correct_shape():
     """load_figma_ingest_context() returns correct keys/values for Phase 1 stub."""
     from agents.execution_engine.od_context import load_figma_ingest_context
+
     ctx = load_figma_ingest_context(frame_count=3)
     assert ctx["source_type"] == "figma"
     assert ctx["figma_frame_count"] == 3
@@ -205,6 +235,7 @@ def test_load_figma_ingest_context_returns_correct_shape():
 def test_load_figma_ingest_context_no_od_loader_call():
     """load_figma_ingest_context() must NOT call od_loader (no catalog lookup)."""
     from agents.execution_engine.od_context import load_figma_ingest_context
+
     with patch("app.services.od_loader.get_template") as mock_tmpl:
         with patch("app.services.od_loader.get_design_system") as mock_ds:
             load_figma_ingest_context(frame_count=2)

@@ -38,6 +38,7 @@ Template contract satisfied:
 
 Pure Python stdlib. No Chrome, no LLM, no backend venv required.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -49,6 +50,7 @@ from pathlib import Path
 
 
 # ── CSS parsing ───────────────────────────────────────────────────────────────
+
 
 def _parse_root_vars(tokens_source: str) -> dict[str, str]:
     """Extract :root CSS variable declarations from a CSS file or markdown :root block."""
@@ -81,9 +83,12 @@ def _read_tokens_source(tokens_path: Path) -> str:
 
 # ── layout helpers ────────────────────────────────────────────────────────────
 
+
 def _determine_layout(frames: list[dict]) -> str:
     """Determine the dominant layout from frames' layout fields."""
-    layouts: list[str] = [f.get("layout", "").lower() for f in frames if f.get("layout")]
+    layouts: list[str] = [
+        f.get("layout", "").lower() for f in frames if f.get("layout")
+    ]
     if not layouts:
         return "sidebar-nav"
     # topbar wins if any frame has it
@@ -99,6 +104,7 @@ def _to_pattern_id(index: int, screen: str) -> str:
 
 
 # ── HTML generation ───────────────────────────────────────────────────────────
+
 
 def _root_block(css_vars: dict[str, str], indent: str = "    ") -> str:
     """Render a :root { ... } block from a dict of CSS vars."""
@@ -407,14 +413,16 @@ def _topbar_html(
 
 # ── main ──────────────────────────────────────────────────────────────────────
 
+
 def main() -> int:
     ap = argparse.ArgumentParser(
         description="Generate template-contract-compliant example.html from Figma frames"
     )
     ap.add_argument("--frames", required=True, help="Path to frames.json")
     ap.add_argument(
-        "--tokens", required=True,
-        help="Path to tokens.css (or design-system.md containing a :root block)"
+        "--tokens",
+        required=True,
+        help="Path to tokens.css (or design-system.md containing a :root block)",
     )
     ap.add_argument("--prefix", default="fg", help="CSS class prefix (e.g. fg)")
     ap.add_argument("--out", required=True, help="Output path for example.html")
@@ -440,7 +448,9 @@ def main() -> int:
         return 1
 
     if not frames:
-        print("ERROR: frames.json is empty — at least one frame required", file=sys.stderr)
+        print(
+            "ERROR: frames.json is empty — at least one frame required", file=sys.stderr
+        )
         return 1
 
     # Parse CSS vars from tokens source

@@ -88,6 +88,7 @@ describe("FigmaUploadSection", () => {
   it("shows_count_error_when_21st_frame_added", async () => {
     // Seed 20 frames
     const existingFrames: FigmaFrame[] = Array.from({ length: 20 }, (_, i) => ({
+      kind: "image" as const,
       file: makeFile(`frame-${i}.png`, "image/png"),
       description: "",
       previewUrl: `blob:http://localhost/mock-${i}`,
@@ -102,6 +103,7 @@ describe("FigmaUploadSection", () => {
   it("calls_revokeObjectURL_and_onChange_when_frame_removed", async () => {
     const user = userEvent.setup();
     const frame: FigmaFrame = {
+      kind: "image",
       file: makeFile("s.png", "image/png"),
       description: "",
       previewUrl: mockObjectURL,
@@ -119,6 +121,7 @@ describe("FigmaUploadSection", () => {
 
   it("shows_N_of_20_badge_when_frames_present", () => {
     const frames: FigmaFrame[] = Array.from({ length: 3 }, (_, i) => ({
+      kind: "image" as const,
       file: makeFile(`f${i}.png`, "image/png"),
       description: "",
       previewUrl: `blob:http://localhost/${i}`,
@@ -130,8 +133,8 @@ describe("FigmaUploadSection", () => {
   it("calls_onChange_with_empty_array_when_clear_all_clicked", async () => {
     const user = userEvent.setup();
     const frames: FigmaFrame[] = [
-      { file: makeFile("a.png", "image/png"), description: "", previewUrl: mockObjectURL },
-      { file: makeFile("b.png", "image/png"), description: "", previewUrl: "blob:http://localhost/b" },
+      { kind: "image", file: makeFile("a.png", "image/png"), description: "", previewUrl: mockObjectURL },
+      { kind: "image", file: makeFile("b.png", "image/png"), description: "", previewUrl: "blob:http://localhost/b" },
     ];
     const onChange = vi.fn();
     render(<FigmaUploadSection frames={frames} onChange={onChange} />);

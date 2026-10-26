@@ -58,7 +58,9 @@ def env(monkeypatch, tmp_path):
     """Self-contained test environment: in-memory SQLite + temp RUNS_ROOT + TestClient."""
     from app.api import run_figma_frames as ff_module
     from app.api import run_engine as ws_module
-    from app.api import run_files as rf_module  # needed: _resolve_chain_root_or_404 calls run_files._get_db
+    from app.api import (
+        run_files as rf_module,
+    )  # needed: _resolve_chain_root_or_404 calls run_files._get_db
     from app.core.config import settings
     from app.models import database as db_module
     from app.models.database import Base
@@ -132,7 +134,12 @@ def _seed_user(env, tag: str) -> _FakeUser:
 
 
 def _seed_run(
-    env, *, user_id: str, owner_id: str, workspace_id: str = "ws-1", status: str = "running"
+    env,
+    *,
+    user_id: str,
+    owner_id: str,
+    workspace_id: str = "ws-1",
+    status: str = "running",
 ) -> str:
     from app.models.workflow import WorkflowRun
 
@@ -302,9 +309,7 @@ def test_upload_oversized_frame_rejected_413(env):
 
     # Build bytes just over 4 MB
     big = _TINY_PNG + b"\x00" * (4 * 1024 * 1024 + 1)
-    resp = _post_frames(
-        env, run_id, [("files", ("huge.png", big, "image/png"))]
-    )
+    resp = _post_frames(env, run_id, [("files", ("huge.png", big, "image/png"))])
     assert resp.status_code == 413
 
 
@@ -319,9 +324,7 @@ def test_upload_21_frames_rejected_413(env):
     run_id = _owned_run(env, user)
     env["state"]["user"] = user
 
-    files = [
-        ("files", (f"s{i}.png", _TINY_PNG, "image/png")) for i in range(21)
-    ]
+    files = [("files", (f"s{i}.png", _TINY_PNG, "image/png")) for i in range(21)]
     resp = _post_frames(env, run_id, files)
     assert resp.status_code == 413
 
@@ -335,12 +338,10 @@ def test_upload_wrong_owner_returns_404_not_403(env):
     """Seed a run owned by userA, authenticate as userB → 404, never 403."""
     owner = _seed_user(env, "owner")
     attacker = _seed_user(env, "attacker")
-    run_id = _owned_run(env, owner)   # belongs to `owner`
-    env["state"]["user"] = attacker   # caller is someone else
+    run_id = _owned_run(env, owner)  # belongs to `owner`
+    env["state"]["user"] = attacker  # caller is someone else
 
-    resp = _post_frames(
-        env, run_id, [("files", ("s.png", _TINY_PNG, "image/png"))]
-    )
+    resp = _post_frames(env, run_id, [("files", ("s.png", _TINY_PNG, "image/png"))])
     assert resp.status_code == 404
     assert resp.status_code != 403
 
@@ -385,8 +386,12 @@ def test_manifest_appends_not_overwrites(env):
         sb.path_for(".figma/manifest.json").read_text(encoding="utf-8")
     )
     names_in_manifest = {e["name"] for e in manifest}
-    assert name1 in names_in_manifest, f"{name1!r} missing from manifest after second upload"
-    assert name2 in names_in_manifest, f"{name2!r} missing from manifest after second upload"
+    assert (
+        name1 in names_in_manifest
+    ), f"{name1!r} missing from manifest after second upload"
+    assert (
+        name2 in names_in_manifest
+    ), f"{name2!r} missing from manifest after second upload"
     assert len(manifest) == 2
 
 
@@ -415,16 +420,18 @@ def test_manifest_dedup_adds_suffix(env):
 
     stored_names = [f["name"] for f in resp.json()["files"]]
     # Both names must be distinct (no silent clobber).
-    assert len(set(stored_names)) == 2, f"Expected 2 distinct names, got: {stored_names}"
+    assert (
+        len(set(stored_names)) == 2
+    ), f"Expected 2 distinct names, got: {stored_names}"
 
     # Now upload a second batch — the first file there should get frame-3.png,
     # demonstrating the frame offset increments correctly.
     r2 = _post_frames(env, run_id, [("files", ("s3.png", _TINY_PNG, "image/png"))])
     assert r2.status_code == 200, r2.text
     name3 = r2.json()["files"][0]["name"]
-    assert name3 not in set(stored_names), (
-        f"Third upload collision: {name3!r} already in {stored_names}"
-    )
+    assert name3 not in set(
+        stored_names
+    ), f"Third upload collision: {name3!r} already in {stored_names}"
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -464,5 +471,7 @@ def test_manifest_shape_triggers_fi_planner_image_branch(env):
 
     # Verify the values that trigger the image branch:
     assert entry["type"] == "image", f"Expected type='image', got {entry['type']!r}"
-    assert entry["has_text"] is False, f"Expected has_text=False, got {entry['has_text']!r}"
+    assert (
+        entry["has_text"] is False
+    ), f"Expected has_text=False, got {entry['has_text']!r}"
     assert entry["mime"] == "image/png"

@@ -148,6 +148,7 @@ def resolve_launch_od_context(
     # returns True after launch, preventing a revision from overwriting it).
     if source_type == "figma":
         from agents.execution_engine.od_context import load_figma_ingest_context
+
         return base_pipeline_type, load_figma_ingest_context(
             frame_count=figma_frame_count or 0
         )

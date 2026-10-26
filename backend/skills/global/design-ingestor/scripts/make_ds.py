@@ -49,21 +49,59 @@ GROUPS = [
     ("Accent", ["--accent", "--accent-on", "--accent-hover", "--accent-active"]),
     ("Semantic", ["--success", "--warn", "--danger"]),
     ("Type families", ["--font-display", "--font-body", "--font-mono"]),
-    ("Type scale", ["--text-xs", "--text-sm", "--text-base", "--text-lg", "--text-xl",
-                    "--text-2xl", "--text-3xl", "--text-4xl",
-                    "--leading-body", "--leading-tight", "--tracking-display"]),
-    ("Spacing", ["--space-1", "--space-2", "--space-3", "--space-4", "--space-5",
-                 "--space-6", "--space-8", "--space-12",
-                 "--section-y-desktop", "--section-y-tablet", "--section-y-phone"]),
+    (
+        "Type scale",
+        [
+            "--text-xs",
+            "--text-sm",
+            "--text-base",
+            "--text-lg",
+            "--text-xl",
+            "--text-2xl",
+            "--text-3xl",
+            "--text-4xl",
+            "--leading-body",
+            "--leading-tight",
+            "--tracking-display",
+        ],
+    ),
+    (
+        "Spacing",
+        [
+            "--space-1",
+            "--space-2",
+            "--space-3",
+            "--space-4",
+            "--space-5",
+            "--space-6",
+            "--space-8",
+            "--space-12",
+            "--section-y-desktop",
+            "--section-y-tablet",
+            "--section-y-phone",
+        ],
+    ),
     ("Radius", ["--radius-sm", "--radius-md", "--radius-lg", "--radius-pill"]),
-    ("Elevation & focus", ["--elev-flat", "--elev-ring", "--elev-raised", "--focus-ring"]),
+    (
+        "Elevation & focus",
+        ["--elev-flat", "--elev-ring", "--elev-raised", "--focus-ring"],
+    ),
     ("Motion", ["--motion-fast", "--motion-base", "--ease-standard"]),
-    ("Layout", ["--container-max", "--container-gutter-desktop",
-                "--container-gutter-tablet", "--container-gutter-phone"]),
+    (
+        "Layout",
+        [
+            "--container-max",
+            "--container-gutter-desktop",
+            "--container-gutter-tablet",
+            "--container-gutter-phone",
+        ],
+    ),
 ]
 
 
-def build_root(m: dict, schema: dict) -> tuple[list[tuple[str, str, str, str]], list[str]]:
+def build_root(
+    m: dict, schema: dict
+) -> tuple[list[tuple[str, str, str, str]], list[str]]:
     """[(name, value, comment, kind)] in schema group order, plus errors."""
     toks = m.get("tokens", {})
     notes = m.get("notes", {})
@@ -83,11 +121,27 @@ def build_root(m: dict, schema: dict) -> tuple[list[tuple[str, str, str, str]], 
             if n in toks and str(toks[n]).strip():
                 rows.append((n, str(toks[n]).strip(), notes.get(n, ""), "given"))
             elif t["layer"] == "A2" and "fallback" in t:
-                rows.append((n, t["fallback"], (notes.get(n, "") + " (schema default)").strip(), "default"))
+                rows.append(
+                    (
+                        n,
+                        t["fallback"],
+                        (notes.get(n, "") + " (schema default)").strip(),
+                        "default",
+                    )
+                )
             elif t["layer"] == "B-slot" and "aliasTo" in t:
-                rows.append((n, t["aliasTo"], (notes.get(n, "") + " (alias: no separate tier)").strip(), "alias"))
+                rows.append(
+                    (
+                        n,
+                        t["aliasTo"],
+                        (notes.get(n, "") + " (alias: no separate tier)").strip(),
+                        "alias",
+                    )
+                )
             else:
-                errors.append(f"{n} ({t['layer']}) has no value and no default -- it must be authored")
+                errors.append(
+                    f"{n} ({t['layer']}) has no value and no default -- it must be authored"
+                )
     for k, v in list(toks.items()) + list((m.get("extensions") or {}).items()):
         v = str(v)
         if v.count("(") != v.count(")") or re.search(
@@ -98,10 +152,14 @@ def build_root(m: dict, schema: dict) -> tuple[list[tuple[str, str, str, str]], 
             )
     unknown = [k for k in toks if k not in by]
     if unknown:
-        errors.append(f"tokens not in the schema (move them to 'extensions'): {unknown}")
+        errors.append(
+            f"tokens not in the schema (move them to 'extensions'): {unknown}"
+        )
     ext = m.get("extensions", {})
     if ext:
-        rows.append(("", "", "── Brand extensions (BRAND_EXTENSIONS allowlist) ", "head"))
+        rows.append(
+            ("", "", "── Brand extensions (BRAND_EXTENSIONS allowlist) ", "head")
+        )
         for n, v in ext.items():
             rows.append((n, str(v).strip(), notes.get(n, ""), "extension"))
     return rows, errors
@@ -139,8 +197,7 @@ def tokens_css(m: dict, rows: list) -> str:
         f"\n"
         f":root {{\n"
         f"{css_lines(rows, '  ')}\n"
-        f"}}\n"
-        + (("\n" + themes + "\n") if themes else "")
+        f"}}\n" + (("\n" + themes + "\n") if themes else "")
     )
 
 
@@ -149,20 +206,42 @@ def components_html(m: dict, rows: list) -> str:
     lang = m.get("lang", "en")
     href = m.get("fonts_href", "")
     link = (
-        '    <link rel="preconnect" href="https://fonts.googleapis.com" />\n'
-        '    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />\n'
-        f'    <link href="{html.escape(href)}" rel="stylesheet" />\n'
-    ) if href else ""
+        (
+            '    <link rel="preconnect" href="https://fonts.googleapis.com" />\n'
+            '    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />\n'
+            f'    <link href="{html.escape(href)}" rel="stylesheet" />\n'
+        )
+        if href
+        else ""
+    )
 
     color_names = [
-        n for n, v, _, _ in rows
-        if n and (
-            re.match(r"^(#|rgb|hsl|oklch|color-mix|var\(--(bg|surface|fg|muted|border|accent))", v)
+        n
+        for n, v, _, _ in rows
+        if n
+        and (
+            re.match(
+                r"^(#|rgb|hsl|oklch|color-mix|var\(--(bg|surface|fg|muted|border|accent))",
+                v,
+            )
             or n in ("--success", "--warn", "--danger")
-        ) and not n.startswith((
-            "--font", "--text", "--space", "--radius", "--elev", "--focus",
-            "--motion", "--ease", "--container", "--section", "--leading", "--tracking"
-        ))
+        )
+        and not n.startswith(
+            (
+                "--font",
+                "--text",
+                "--space",
+                "--radius",
+                "--elev",
+                "--focus",
+                "--motion",
+                "--ease",
+                "--container",
+                "--section",
+                "--leading",
+                "--tracking",
+            )
+        )
     ]
     ext_names = set((m.get("extensions") or {}).keys())
     info_var = "--info" if "--info" in ext_names else "--accent"
@@ -171,24 +250,36 @@ def components_html(m: dict, rows: list) -> str:
 
     swatches = "\n".join(
         f'          <div class="swatch"><span class="chip" style="background:var({n})"></span>'
-        f'<code>{n}</code></div>'
+        f"<code>{n}</code></div>"
         for n in color_names
     )
     scale = "\n".join(
         f'          <div class="type-row"><code>{n}</code>'
         f'<span style="font-size:var({n})">{s}</span></div>'
         for n, s in [
-            ("--text-4xl", "Display"), ("--text-3xl", "Heading 1"),
-            ("--text-2xl", "Section"), ("--text-xl", "Heading 2"),
-            ("--text-lg", "Heading 3"), ("--text-base", "Body text"),
-            ("--text-sm", "Small text"), ("--text-xs", "Caption"),
+            ("--text-4xl", "Display"),
+            ("--text-3xl", "Heading 1"),
+            ("--text-2xl", "Section"),
+            ("--text-xl", "Heading 2"),
+            ("--text-lg", "Heading 3"),
+            ("--text-base", "Body text"),
+            ("--text-sm", "Small text"),
+            ("--text-xs", "Caption"),
         ]
     )
     spaces = "\n".join(
         f'          <div class="space-row"><code>{n}</code>'
         f'<span class="bar" style="width:var({n})"></span></div>'
-        for n in ["--space-1", "--space-2", "--space-3", "--space-4",
-                  "--space-5", "--space-6", "--space-8", "--space-12"]
+        for n in [
+            "--space-1",
+            "--space-2",
+            "--space-3",
+            "--space-4",
+            "--space-5",
+            "--space-6",
+            "--space-8",
+            "--space-12",
+        ]
     )
     radii = "\n".join(
         f'          <div class="radius" style="border-radius:var({n})"><code>{n}</code></div>'
@@ -196,7 +287,7 @@ def components_html(m: dict, rows: list) -> str:
     )
     elevs = "\n".join(
         f'          <div class="card" style="box-shadow:var({n})">'
-        f'<code>{n}</code><p>Surface with {n[2:]}.</p></div>'
+        f"<code>{n}</code><p>Surface with {n[2:]}.</p></div>"
         for n in ["--elev-flat", "--elev-ring", "--elev-raised"]
     )
     themes = theme_blocks(m, "      ")
@@ -301,11 +392,20 @@ def components_html(m: dict, rows: list) -> str:
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="Generate tokens.css and components.html from a mapping.json")
+    ap = argparse.ArgumentParser(
+        description="Generate tokens.css and components.html from a mapping.json"
+    )
     ap.add_argument("mapping", help="Path to mapping.json")
-    ap.add_argument("--dest", required=True, help="Output directory for tokens.css and components.html")
-    ap.add_argument("--print-extensions", action="store_true",
-                    help="Only print the BRAND_EXTENSIONS snippet; write no files")
+    ap.add_argument(
+        "--dest",
+        required=True,
+        help="Output directory for tokens.css and components.html",
+    )
+    ap.add_argument(
+        "--print-extensions",
+        action="store_true",
+        help="Only print the BRAND_EXTENSIONS snippet; write no files",
+    )
     a = ap.parse_args()
 
     m = json.loads(Path(a.mapping).read_text(encoding="utf-8"))
@@ -333,17 +433,23 @@ def main() -> int:
 
     allowed = set(schema["extensions"].get(m["id"], []))
     need = [
-        n for n in m.get("extensions", {})
+        n
+        for n in m.get("extensions", {})
         if n not in allowed and not any(n.startswith(p) for p in schema["prefixes"])
     ]
     snippet = (
-        "  " + f'{m["id"]}: [\n'
-        + "\n".join(
-            f'    "{n}", // {m.get("notes", {}).get(n, "brand-only token")}'
-            for n in need
+        (
+            "  "
+            + f'{m["id"]}: [\n'
+            + "\n".join(
+                f'    "{n}", // {m.get("notes", {}).get(n, "brand-only token")}'
+                for n in need
+            )
+            + "\n  ],"
         )
-        + "\n  ],"
-    ) if need else ""
+        if need
+        else ""
+    )
 
     if a.print_extensions:
         print(snippet or f"nothing to add for '{m['id']}'")
@@ -362,13 +468,15 @@ def main() -> int:
     print(f"wrote {dest / 'components.html'}")
 
     for label, names in (
-        ("from mapping",    [r[0] for r in rows if r[0] and r[3] == "given"]),
+        ("from mapping", [r[0] for r in rows if r[0] and r[3] == "given"]),
         ("schema defaults", [r[0] for r in rows if r[3] == "default"]),
-        ("aliases",         [r[0] for r in rows if r[3] == "alias"]),
-        ("extensions",      [r[0] for r in rows if r[3] == "extension"]),
+        ("aliases", [r[0] for r in rows if r[3] == "alias"]),
+        ("extensions", [r[0] for r in rows if r[3] == "extension"]),
     ):
         if names:
-            print(f"  {label} ({len(names)}): {', '.join(names[:5])}{'…' if len(names) > 5 else ''}")
+            print(
+                f"  {label} ({len(names)}): {', '.join(names[:5])}{'…' if len(names) > 5 else ''}"
+            )
 
     if need:
         print(

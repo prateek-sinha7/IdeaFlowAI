@@ -15,7 +15,9 @@ import os
 import re
 from pathlib import Path
 
-ENTRY_RE = re.compile(r"\{\s*name:\s*\"(--[\w-]+)\"\s*,\s*layer:\s*\"([\w-]+)\"(.*?)\}", re.S)
+ENTRY_RE = re.compile(
+    r"\{\s*name:\s*\"(--[\w-]+)\"\s*,\s*layer:\s*\"([\w-]+)\"(.*?)\}", re.S
+)
 FIELD_RE = {
     "fallback": re.compile(r"fallback:\s*(['\"])(.*?)\1", re.S),
     "aliasTo": re.compile(r"aliasTo:\s*(['\"])(.*?)\1", re.S),
@@ -65,7 +67,11 @@ class _SyntheticRoot:
             # Route to the bundled schema directory
             remainder = parts[1:]  # ("_schema", "tokens.schema.ts") or subset
             if remainder and remainder[0] == "_schema":
-                return self._schema_dir / Path(*remainder[1:]) if len(remainder) > 1 else self._schema_dir
+                return (
+                    self._schema_dir / Path(*remainder[1:])
+                    if len(remainder) > 1
+                    else self._schema_dir
+                )
         return Path(str(self._schema_dir.parent.parent)) / other
 
 
@@ -92,7 +98,9 @@ def load_schema(od_root: "Path | _SyntheticRoot | str") -> dict:
     extensions: dict[str, list[str]] = {}
     for bm in re.finditer(r"([\w-]+|\"[\w-]+\")\s*:\s*\[(.*?)\]", ext_block, re.S):
         extensions[bm.group(1).strip('"')] = re.findall(r"\"(--[\w-]+)\"", bm.group(2))
-    pref_block = text.split("export const BRAND_EXTENSION_PREFIXES", 1)[1].split("];", 1)[0]
+    pref_block = text.split("export const BRAND_EXTENSION_PREFIXES", 1)[1].split(
+        "];", 1
+    )[0]
     prefixes = re.findall(r"\"(--[\w-]+)\"", pref_block)
     return {"tokens": tokens, "extensions": extensions, "prefixes": prefixes}
 
