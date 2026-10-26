@@ -266,6 +266,12 @@ variable "pg_dump_expiry_days" {
   default     = 365
 }
 
+variable "runs_backup_expiry_days" {
+  description = "Days after which current versions of the hourly runs-folder tarballs (runs/ prefix) expire from the S3 backup bucket. Keep equal to pg_dump_expiry_days so dumps and runs archives can be restored as a pair."
+  type        = number
+  default     = 365
+}
+
 variable "enable_vault_lock" {
   description = "If true, applies AWS Backup Vault Lock in compliance mode. ONE-WAY once the cooling-off window passes. Enable only after recovery drills."
   type        = bool

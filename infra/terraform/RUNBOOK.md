@@ -461,10 +461,13 @@ If any routine operation hits 5s, increase `--timeout-graceful-shutdown` to a va
 |---|---|---|---|
 | Postgres data (`/var/lib/postgresql`) | Hourly `pg_dump` → S3 (SSE-KMS) | ~1h | `velocityai-pg-dump.timer` on the EC2 |
 | Postgres data (`/var/lib/postgresql`) | Nightly EBS snapshot (AWS Backup) | ~24h | `modules/backups` (tag-based selection, `Backup=true` on the data volume) |
+| Runs folder (`/opt/velocityai/data/runs`, the backend's `RUNS_ROOT`) | Hourly tarball → S3 `runs/<UTC timestamp>/runs.tar.gz` (SSE-KMS) | ~1h | `velocityai-runs-backup.timer`, installed by `reconcile-host-config.sh` §4b on bootstrap and every deploy |
 | Skills directory (`/opt/velocityai/data/skills`) | Daily tarball → S3 | ~24h | `velocityai-skills-backup.timer` |
 | TLS cert/key | Not backed up — recreated by certbot on rebuild | n/a | — |
 
 Both Postgres paths run independently (belt-and-braces): the EBS path restores fast but is crash-consistent (WAL replay on boot); `pg_dump` is slower to restore but portable to any Postgres host.
+
+The runs folder lives on the **root** volume (`delete_on_termination`), not on the `Backup=true` data volume, so the EBS snapshot path never covers it: the S3 tarball is its only copy off the instance. It runs on the same hourly schedule as `pg_dump` so a restore can pair the database and the run files from the same hour.
 
 ### 6.2 pg_dump verification
 
@@ -478,13 +481,32 @@ sudo systemctl list-timers velocityai-pg-dump.timer
 sudo journalctl -u velocityai-pg-dump.service --since "-2h"
 ```
 
-**Known gap:** the `pg_dump_heartbeat` alarm in `modules/monitoring` expects
-a custom metric `VelocityAI/Backups::PgDumpHeartbeat`, but the current
-`velocityai-pg-dump` script (`infra/scripts/bootstrap-ec2.sh` §16) does not
-publish it — it only logs the dump's byte count. Until a
-`cloudwatch put-metric-data` call is added to that script, treat the
-alarm as **not authoritative** and verify with the commands above instead.
-Tracked as a follow-up fix.
+**Heartbeat alarm:** after each upload the script publishes `PgDumpHeartbeat`
+to `VelocityAI/<Env>` (via `velocityai-cw-namespace`), which is the namespace
+`modules/monitoring`'s `pg_dump_heartbeat` alarm queries. An alarm created
+outside Terraform that still queries `VelocityAI/Backups` never receives data
+and sits in ALARM permanently; re-point it to `VelocityAI/<Env>`.
+
+### 6.2a Runs-folder backup verification
+
+```bash
+# List the last few hourly runs archives
+aws s3 ls "s3://<backup-bucket>/runs/" --region eu-central-1 | tail -5
+
+# On the instance (via SSM)
+sudo systemctl list-timers velocityai-runs-backup.timer
+sudo journalctl -u velocityai-runs-backup.service --since "-2h"
+# Take one now, e.g. right after the first deploy that installs the job
+sudo systemctl start velocityai-runs-backup.service
+```
+
+The job publishes `RunsBackupHeartbeat` to `VelocityAI/<Env>` only after a
+successful upload; `<name_prefix>-runs-backup-heartbeat-stale` alarms when no
+heartbeat arrives for 2 hours. A journal line `WARNING: some files changed while
+being archived` is expected while runs are active; the archive is still
+uploaded. The instance role needs `s3:PutObject` on `<backup-bucket>/runs/*`
+(`policies/s3-backup-rw.json`); without it every run fails with AccessDenied
+and the heartbeat alarm fires.
 
 ### 6.3 Restoring from pg_dump
 
@@ -498,6 +520,30 @@ scoped to the backup bucket/CMK.
 aws s3 cp "s3://<backup-bucket>/postgres/<timestamp>/velocityai.sql.gz" - \
   | gunzip | psql "$DATABASE_URL"
 ```
+
+### 6.3a Restoring the runs folder
+
+Same identity rule as §6.3: the instance role cannot read the bucket, so mint a
+short-lived download URL from an operator session that has `s3:GetObject` +
+`kms:Decrypt`, and extract it on the instance. Pick the archive from the same
+hour as the `pg_dump` you restored, so database rows and run files agree.
+
+```bash
+# 1. Operator workstation: pick the archive and presign it (15 min)
+aws s3 ls "s3://<backup-bucket>/runs/" --region eu-central-1 | tail -5
+aws s3 presign "s3://<backup-bucket>/runs/<timestamp>/runs.tar.gz" \
+  --expires-in 900 --region eu-central-1
+
+# 2. On the instance (SSM session): stop the app, keep the current tree aside, extract
+sudo systemctl stop velocityai-app.service
+sudo mv /opt/velocityai/data/runs "/opt/velocityai/data/runs.pre-restore-$(date -u +%Y%m%dT%H%M%SZ)"
+curl -fsS "<presigned-url>" | sudo tar -xzpf - --numeric-owner -C /opt/velocityai/data
+sudo chown -R 10001:10001 /opt/velocityai/data/runs
+sudo systemctl start velocityai-app.service
+```
+
+The presigned URL is a bearer credential until it expires; don't paste it into
+tickets or chat. Remove `runs.pre-restore-*` once the restore is verified.
 
 ### 6.4 Restoring from EBS snapshot (AWS Backup)
 
@@ -531,8 +577,9 @@ Practice quarterly during a maintenance window; record the last-run date here or
 2. If the data volume was also lost: restore from the latest AWS Backup recovery point (§6.4) **first**, then reattach the restored volume (check `modules/compute`'s attachment wiring — don't assume Terraform adopts a manually created volume).
 3. `terraform apply` the `app` layer with the same tfvars — recreates the EC2 instance (`module.compute`), EIP association, and DNS record. Do **not** pass `image_tag`; the variable no longer exists.
 4. Wait for the `/var/lib/velocityai/.bootstrap-done` sentinel (~6 min). The script auto-detects recovery mode when a Postgres data dir is already present and skips `initdb`. Expect it to end with `SKIP: not starting velocityai-app.service` — correct, not an error. Troubleshooting: [§5.1](#51-running-bootstrap-ec2sh).
-5. **Run the GitHub Actions Deploy workflow** for this environment (**Actions → Deploy → Run workflow → `<env>`**). This is the step that delivers `docker-compose.yml`, pins the image tags, and starts the stack. Without it the box stays idle.
-6. Smoke test: `curl https://<fqdn>/health`, log in, run a small pipeline.
+5. Restore the runs folder from S3 ([§6.3a](#63a-restoring-the-runs-folder)). It lived on the old root volume, so a rebuilt instance starts with an empty one. Skip the `systemctl stop`/`start` lines: the app is not running yet. Use the archive from the same hour as the database state you came back with.
+6. **Run the GitHub Actions Deploy workflow** for this environment (**Actions → Deploy → Run workflow → `<env>`**). This is the step that delivers `docker-compose.yml`, pins the image tags, and starts the stack. Without it the box stays idle.
+7. Smoke test: `curl https://<fqdn>/health`, log in, run a small pipeline, and open an older run's files.
 
 **RTO:** ~35-40 min with the data volume intact (~6 min bootstrap + ~10-15 min build & deploy, longer if the ECR layer cache is cold); ~50-55 min when also restoring from an EBS snapshot. **RPO:** last completed hourly `pg_dump` if falling back past the snapshot.
 

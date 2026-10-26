@@ -21,6 +21,7 @@ log_retention_days          = 14
 daily_backup_retention_days = 120
 cold_storage_after_days     = 30
 pg_dump_expiry_days         = 120
+runs_backup_expiry_days     = 120
 
 # --- Cognito (COGNITO-MIGRATION-PLAN, Phase 1 + Phase 5) --------------------
 # dev is the first environment cut over (dev -> stage -> prod). Creating the

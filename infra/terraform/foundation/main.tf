@@ -45,6 +45,7 @@ module "backups" {
   daily_backup_retention_days = var.daily_backup_retention_days
   cold_storage_after_days     = var.cold_storage_after_days
   pg_dump_expiry_days         = var.pg_dump_expiry_days
+  runs_backup_expiry_days     = var.runs_backup_expiry_days
 
   # Vault Lock — opt-in, ONE-WAY. Default false. Enable only after retention
   # drills (see modules/backups/variables.tf for the full irreversibility note).

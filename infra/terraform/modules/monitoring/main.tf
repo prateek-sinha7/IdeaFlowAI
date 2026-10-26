@@ -1085,7 +1085,8 @@ resource "aws_cloudwatch_metric_alarm" "bedrock_tokens_daily" {
 # The `velocityai-pg-dump` systemd timer (docs/SIMPLE_AWS_DEPLOYMENT.md
 # §11.2 / Appendix B.3) runs hourly and PUTs to s3://.../postgres/<TS>/
 # under SSE-KMS. After a successful upload, the script publishes a
-# CloudWatch custom metric `VelocityAI/Backups::PgDumpHeartbeat = 1` —
+# CloudWatch custom metric `PgDumpHeartbeat = 1` in var.cw_metric_namespace
+# (VelocityAI/<Env>, via /usr/local/bin/velocityai-cw-namespace) —
 # absence of that metric for >2h means the timer is stuck or the host is
 # unreachable, both of which jeopardise the documented RPO 1h.
 #
@@ -1109,6 +1110,35 @@ resource "aws_cloudwatch_metric_alarm" "pg_dump_heartbeat" {
   statistic          = "SampleCount"
   threshold          = 1
   treat_missing_data = "breaching"
+
+  alarm_actions = [aws_sns_topic.alerts.arn]
+  ok_actions    = [aws_sns_topic.alerts.arn]
+
+  tags = {
+    Component = "monitoring"
+  }
+}
+
+# 11b. Runs-folder backup heartbeat — the same RPO-1h backstop for run
+# artifacts.
+#
+# `velocityai-runs-backup.timer` (installed by
+# infra/scripts/reconcile-host-config.sh §4b) tars /opt/velocityai/data/runs
+# hourly to s3://.../runs/<TS>/runs.tar.gz under SSE-KMS and publishes
+# `RunsBackupHeartbeat = 1` in var.cw_metric_namespace only after the upload
+# succeeds. Same shape and reasoning as pg_dump_heartbeat above, including
+# treat_missing_data = "breaching".
+resource "aws_cloudwatch_metric_alarm" "runs_backup_heartbeat" {
+  alarm_name          = "${var.name_prefix}-runs-backup-heartbeat-stale"
+  alarm_description   = "No successful runs-folder backup in the last 2 hours. RPO 1h for run artifacts is at risk — check velocityai-runs-backup.timer / instance health."
+  comparison_operator = "LessThanThreshold"
+  evaluation_periods  = 1
+  metric_name         = "RunsBackupHeartbeat"
+  namespace           = var.cw_metric_namespace
+  period              = 7200 # 2 hours
+  statistic           = "SampleCount"
+  threshold           = 1
+  treat_missing_data  = "breaching"
 
   alarm_actions = [aws_sns_topic.alerts.arn]
   ok_actions    = [aws_sns_topic.alerts.arn]

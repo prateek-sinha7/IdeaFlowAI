@@ -3,7 +3,8 @@
 Owns the environment's observability and audit surface: CloudWatch log groups,
 the full alarm set (host CPU/memory/disk/inodes, nginx 5xx, DB connection
 errors, Bedrock throttles/server-errors/daily-tokens, WebSocket disconnects,
-billing, cert-renew, agent-error rate, stuck workflows, pg_dump heartbeat), the
+billing, cert-renew, agent-error rate, stuck workflows, pg_dump and runs-backup
+heartbeats), the
 SNS alert topics, and a CloudTrail management-event trail with metric-filter
 alarms for unexpected secret reads / KMS decrypts.
 

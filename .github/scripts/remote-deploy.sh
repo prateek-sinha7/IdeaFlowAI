@@ -293,7 +293,7 @@ mv "$LOADER_TMP" /usr/local/bin/velocityai-load-secrets
 mkdir -p "${APP_DIR}/data/runs" "${APP_DIR}/data/skills"
 chown -R 10001:10001 "${APP_DIR}/data/runs" "${APP_DIR}/data/skills"
 
-# ── 5. Host-config reconcile (nginx + CloudWatch agent) ─────────────────────
+# ── 5. Host-config reconcile (nginx + CloudWatch agent + runs backup job) ───
 # bootstrap-ec2.sh runs once per instance, but the nginx site and the agent
 # config legitimately change with the application, so a repo edit would
 # otherwise never reach a live box. The script is idempotent and defines a
@@ -301,8 +301,8 @@ chown -R 10001:10001 "${APP_DIR}/data/runs" "${APP_DIR}/data/skills"
 #   0 — clean
 #   1 — nginx failed; it already rolled the host back. A bad nginx config is a
 #       live-traffic risk, so this ABORTS the deploy.
-#   2 — CloudWatch agent degraded only (observability, not the request path).
-#       Reported loudly, does NOT abort.
+#   2 — CloudWatch agent or runs backup job degraded only (not the request
+#       path). Reported loudly; aborts on stage/prod per the policy below.
 set +e
 bash "${APP_DIR}/reconcile-host-config.sh"
 RECONCILE_STATUS=$?
@@ -321,13 +321,13 @@ elif [ "$RECONCILE_STATUS" -ne 0 ]; then
     # stage/prod deploy that must proceed despite the degradation.
     ALLOW_DEGRADED="${VELOCITYAI_ALLOW_DEGRADED_MONITORING:-0}"
     if { [ "$DEPLOY_ENV" = "stage" ] || [ "$DEPLOY_ENV" = "prod" ]; } && [ "$ALLOW_DEGRADED" != "1" ]; then
-        echo "[deploy] FATAL: reconcile-host-config.sh exited ${RECONCILE_STATUS} (CloudWatch agent DEGRADED) on '${DEPLOY_ENV}'." >&2
-        echo "[deploy]        Observability is a release gate on stage/prod — refusing to report success while monitoring is blind." >&2
+        echo "[deploy] FATAL: reconcile-host-config.sh exited ${RECONCILE_STATUS} (CloudWatch agent or runs backup job DEGRADED) on '${DEPLOY_ENV}'." >&2
+        echo "[deploy]        Observability and backups are a release gate on stage/prod — refusing to report success while either is broken." >&2
         echo "[deploy]        See /var/log/velocityai-reconcile.log on the host for the specific failure." >&2
         echo "[deploy]        Break-glass: set VELOCITYAI_ALLOW_DEGRADED_MONITORING=1 in /etc/velocityai/bootstrap.env to override." >&2
         exit 1
     fi
-    echo "[deploy] WARNING: reconcile-host-config.sh exited ${RECONCILE_STATUS} (CloudWatch agent DEGRADED)" >&2
+    echo "[deploy] WARNING: reconcile-host-config.sh exited ${RECONCILE_STATUS} (CloudWatch agent or runs backup job DEGRADED)" >&2
     echo "[deploy]          see /var/log/velocityai-reconcile.log — continuing with the app deploy (env=${DEPLOY_ENV})." >&2
 fi
 

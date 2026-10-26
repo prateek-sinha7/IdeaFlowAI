@@ -12,7 +12,8 @@
       ],
       "Resource": [
         "${bucket_arn}/postgres/*",
-        "${bucket_arn}/skills/*"
+        "${bucket_arn}/skills/*",
+        "${bucket_arn}/runs/*"
       ]
     }
   ]

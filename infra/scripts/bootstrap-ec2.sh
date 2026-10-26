@@ -907,10 +907,11 @@ systemctl enable --now certbot.timer
 
 # Writes nginx + agent config, installs/validates/reloads nginx, then installs
 # the CloudWatch agent (if absent) and applies its config via fetch-config,
-# which also starts it. L-03/H-07: nginx stays fail-closed (exit 1 aborts
-# bootstrap here rather than shipping); a CloudWatch-agent-only DEGRADED
-# result (exit 2) is reported loudly but does not abort bootstrap — §14a below
-# asserts agent health explicitly and feeds the BOOTSTRAP_DEGRADED gate.
+# which also starts it, and installs the hourly runs-folder backup job.
+# L-03/H-07: nginx stays fail-closed (exit 1 aborts bootstrap here rather than
+# shipping); a DEGRADED result (exit 2: CloudWatch agent or runs backup job) is
+# reported loudly but does not abort bootstrap — §14a below asserts agent
+# health explicitly and feeds the BOOTSTRAP_DEGRADED gate.
 set +e
 bash /opt/velocityai/reconcile-host-config.sh
 RECONCILE_STATUS=$?
@@ -919,8 +920,8 @@ if [[ "$RECONCILE_STATUS" -eq 1 ]]; then
     echo "[bootstrap] ERROR: reconcile-host-config.sh failed on nginx (exit 1) — aborting" >&2
     exit 1
 elif [[ "$RECONCILE_STATUS" -ne 0 ]]; then
-    echo "[bootstrap] WARNING: reconcile-host-config.sh exited $RECONCILE_STATUS (CloudWatch-agent DEGRADED, see /var/log/velocityai-reconcile.log) — continuing; §14a below asserts agent health explicitly" >&2
-    BOOTSTRAP_DEGRADED+=("reconcile-cwagent")
+    echo "[bootstrap] WARNING: reconcile-host-config.sh exited $RECONCILE_STATUS (CloudWatch agent or runs backup job DEGRADED, see /var/log/velocityai-reconcile.log) — continuing; §14a below asserts agent health explicitly" >&2
+    BOOTSTRAP_DEGRADED+=("reconcile-degraded")
 fi
 
 
@@ -1070,6 +1071,10 @@ EOF
 chmod 0755 /usr/local/bin/velocityai-cw-namespace
 
 # ── 16. Backups: pg_dump + skills tarball + stuck-workflow probe ───────
+# The hourly runs-folder backup (velocityai-runs-backup.{service,timer},
+# s3://$BACKUP_BUCKET/runs/<UTC timestamp>/runs.tar.gz) is NOT here: §14's
+# reconcile-host-config.sh §4b installs it, because that script also runs on
+# every deploy and so reaches hosts bootstrapped before the job existed.
 cat > /usr/local/bin/velocityai-pg-dump <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail

@@ -39,6 +39,7 @@ output "alarm_names" {
       aws_cloudwatch_metric_alarm.ws_disconnect_spike.alarm_name,
       aws_cloudwatch_metric_alarm.bedrock_tokens_daily.alarm_name,
       aws_cloudwatch_metric_alarm.pg_dump_heartbeat.alarm_name,
+      aws_cloudwatch_metric_alarm.runs_backup_heartbeat.alarm_name,
       # Phase 3 additions:
       aws_cloudwatch_metric_alarm.cert_renew_failure.alarm_name,   # 21
       aws_cloudwatch_metric_alarm.cert_renew_heartbeat.alarm_name, # 21

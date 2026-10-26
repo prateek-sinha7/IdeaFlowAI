@@ -920,8 +920,8 @@ async def list_sandbox(
 ):
     """List the run workspace: ``{run_id, expired, truncated, files:[...]}``.
 
-    ``expired`` is the real signal for a TTL-swept run — the sandbox sweeper
-    removes the whole run dir after ``RUN_DIR_TTL_HOURS``, and an empty list
+    ``expired`` is the real signal for a run whose sandbox dir is gone (e.g. one
+    deleted by the removed TTL sweep), and an empty list
     would otherwise be indistinguishable from a run that wrote nothing. The UI
     renders a "workspace expired" state on it rather than a bare empty tree.
 
