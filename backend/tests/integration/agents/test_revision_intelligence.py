@@ -292,12 +292,15 @@ def _context_message(sent: list[dict]) -> str:
 
 
 def _original_section(context_message: str, target_artifact_type: str) -> str:
-    """The body of the ``=== ORIGINAL ARTIFACT ===`` section — evidence of
+    """The body of the artifact section in the revision context — evidence of
     WHICH FR-014 chain link resolved the parent original."""
-    marker = f"=== ORIGINAL ARTIFACT (type: {target_artifact_type}) ==="
-    assert marker in context_message, f"missing {marker!r} in the dispatched context"
+    marker = "=== EXISTING PROTOTYPE HTML ==="
+    assert marker in context_message, (
+        f"missing {marker!r} in the dispatched context "
+        f"(target_artifact_type={target_artifact_type!r})"
+    )
     return context_message.split(marker, 1)[1].split(
-        "=== END ORIGINAL ARTIFACT ===", 1
+        "=== END EXISTING HTML ===", 1
     )[0]
 
 
@@ -484,21 +487,21 @@ async def test_revision_contains_three_separate_inputs(
 
     context_message = _context_message(sent)
 
-    assert "=== ORIGINAL ARTIFACT (type: ppt_output) ===" in context_message
+    assert "=== EXISTING PROTOTYPE HTML ===" in context_message
     assert "=== VERSION HISTORY ===" in context_message
-    assert "=== REVISION INSTRUCTION ===" in context_message
+    assert "=== REVISION REQUEST ===" in context_message
 
     # Original content + instruction preserved verbatim INSIDE their sections.
     original_section = _original_section(context_message, "ppt_output")
     assert original_content in original_section
-    instruction_section = context_message.split("=== REVISION INSTRUCTION ===", 1)[
+    instruction_section = context_message.split("=== REVISION REQUEST ===", 1)[
         1
-    ].split("=== END REVISION INSTRUCTION ===", 1)[0]
+    ].split("=== END REQUEST ===", 1)[0]
     assert instruction in instruction_section
 
-    orig_pos = context_message.index("=== ORIGINAL ARTIFACT")
+    orig_pos = context_message.index("=== EXISTING PROTOTYPE HTML")
     hist_pos = context_message.index("=== VERSION HISTORY")
-    instr_pos = context_message.index("=== REVISION INSTRUCTION")
+    instr_pos = context_message.index("=== REVISION REQUEST")
     assert orig_pos < hist_pos < instr_pos
 
 

@@ -100,6 +100,8 @@ def _full_expected_selections(ctx: dict) -> dict:
         "ds_name": ctx.get("ds_name"),
         "no_template": ctx.get("no_template", False),
         "is_design_system_required": ctx.get("is_design_system_required"),
+        "source_type": ctx.get("source_type"),
+        "figma_frame_count": ctx.get("figma_frame_count"),
     }
 
 

@@ -6,9 +6,21 @@ role: Design Context Builder
 pipeline_type:
 - prototype_v2
 - prototype
-order: 2
+order: 1
+icon: "🤖"
 max_tokens: 16384
 prompt_policy: body_only
+---
+
+## Sandbox Reading Guide
+
+You are step 1 of the `prototype` workflow (conditional — only runs when
+`source_type` is `"figma"` or `"html"`). Your user brief arrives in the engine
+context message. Read `context/selections.json` first to determine your path,
+then read either `.figma/manifest.json` (PATH A) or
+`.context/design/template/raw-upload.html` (PATH B). Nothing is pasted into
+your prompt from the sandbox — use `read_file` to load every file you need.
+
 ---
 
 ## ⛔ CRITICAL STOP — READ BEFORE DOING ANYTHING ELSE

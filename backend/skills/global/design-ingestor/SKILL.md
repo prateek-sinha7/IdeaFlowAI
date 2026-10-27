@@ -1,7 +1,7 @@
 ---
 name: design-ingestor
 display_name: Design Ingestor
-description: Scripts for extracting structured design tokens and HTML scaffold from Figma frame exports or custom HTML uploads. Run figma_extract.py after visual observation of Figma frames, then make_ds.py for tokens.css, then figma_to_html.py for example.html. For HTML uploads, extracts CSS variables directly from the uploaded file.
+description: Scripts for extracting design tokens and an HTML scaffold from Figma frame exports or custom HTML uploads. Includes figma_extract.py, make_ds.py, and figma_to_html.py.
 category: workflow
 isBeta: false
 tags:

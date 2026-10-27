@@ -176,7 +176,10 @@ async def test_runs_from_compiled_plan(pipeline_type: str) -> None:
     # `_every_step_agent_loads` above) — a new conditional workflow is covered
     # automatically, and a workflow that loses its routing goes back to strict
     # equality on its own.
-    is_conditional = any(getattr(s, "route", None) for s in compiled.steps)
+    is_conditional = any(
+        getattr(s, "route", None) or getattr(s, "condition", None)
+        for s in compiled.steps
+    )
     has_human_gate = any(
         any(gate in {"human", "before-human"} for gate in s.gates)
         or "ask_user" in (s.tools.tool_sets or [])

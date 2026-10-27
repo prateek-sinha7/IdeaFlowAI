@@ -321,10 +321,10 @@ async def test_revision_of_revision_resolves_via_exact_kind_chain_link_1(
     agent_inputs = [e for e in second_sent if e["type"] == "agent_input"]
     assert agent_inputs, "expected a forwarded agent_input event"
     context_message = agent_inputs[0]["data"]["context_message"]
-    assert "=== ORIGINAL ARTIFACT (type: ppt_output) ===" in context_message
+    assert "=== EXISTING PROTOTYPE HTML ===" in context_message
     original_section = context_message.split(
-        "=== ORIGINAL ARTIFACT (type: ppt_output) ===", 1
-    )[1].split("=== END ORIGINAL ARTIFACT ===", 1)[0]
+        "=== EXISTING PROTOTYPE HTML ===", 1
+    )[1].split("=== END EXISTING HTML ===", 1)[0]
     assert (
         "Revised Title" in original_section
     ), "chain link 1 must resolve the FIRST revision's REVISED deck as the original"

@@ -173,7 +173,7 @@ class TestPipelineAgentsParity:
             "user_stories_revision": 1,
             "ppt": 3,
             "ppt_revision": 1,
-            "prototype": 5,
+            "prototype": 6,
             # KAN-108 (416341b0) added the Revision Validation Agent, taking
             # this pipeline from 1 agent to 2. revision-pipeline-refactor
             # (e0f6beeed) promoted prototype-revision-analyzer to step 0 of the

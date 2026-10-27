@@ -3831,8 +3831,8 @@ async def test_resume_run_prototype_reaches_offset_not_bail():
         # rows were migrated to the base label, so the divergence cannot recur — a
         # run's own type now always yields its own roster. Assert that directly.
         assert (
-            len(_reg.get_pipeline_agents("prototype")) == 5
-        ), "precondition: the prototype roster must be non-empty (5 agents)"
+            len(_reg.get_pipeline_agents("prototype")) == 6
+        ), "precondition: the prototype roster must be non-empty (6 agents)"
         assert _reg.get_pipeline_agents("od_prototype") == [], (
             "the retired label must resolve to nothing rather than silently "
             "inheriting prototype's roster"
@@ -3901,8 +3901,8 @@ async def test_replay_clarify_run_prototype_reaches_offset_not_bail():
         # rows were migrated to the base label, so the divergence cannot recur — a
         # run's own type now always yields its own roster. Assert that directly.
         assert (
-            len(_reg.get_pipeline_agents("prototype")) == 5
-        ), "precondition: the prototype roster must be non-empty (5 agents)"
+            len(_reg.get_pipeline_agents("prototype")) == 6
+        ), "precondition: the prototype roster must be non-empty (6 agents)"
         assert _reg.get_pipeline_agents("od_prototype") == [], (
             "the retired label must resolve to nothing rather than silently "
             "inheriting prototype's roster"

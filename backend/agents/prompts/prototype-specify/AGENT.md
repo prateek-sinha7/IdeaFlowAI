@@ -12,7 +12,7 @@ injects:
 - images
 max_tokens: 32768
 name: Spec Writer Agent
-order: 1
+order: 2
 pipeline_type: prototype
 produces:
 - prototype-specify

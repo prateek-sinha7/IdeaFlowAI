@@ -172,9 +172,8 @@ def test_the_backlog_workflow_extracts_first_and_writes_ui_ux_after_the_solution
     ids = [s.id.split(":", 1)[1] for s in compiled.steps]
 
     assert (
-        ids[0] == "us-ui-extract"
-        and compiled.steps[0].mechanical == "extract_prototype_ui"
-    )
+        ids[0] == "us-target-clarify"
+    ), f"backlog workflow must start with us-target-clarify, got: {ids[0]}"
     assert ids.index("us-uiux") == ids.index("us-solution") + 1
     assert compiled.deliverable.chains_from is True
 

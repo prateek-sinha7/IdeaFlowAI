@@ -358,11 +358,11 @@ class TestPipelineCategoryCounts:
     def test_ppt_and_prototype_counts_reconciled(self):
         cats = self._categories()
         assert cats["ppt"] == 3, "ppt category count must be 3 (od_ppt agents)"
-        # prototype grew 4 -> 5: the prototype-analyze agent (a Spec Kit-style
-        # cross-artifact analysis step) was added to the pipeline.
+        # prototype grew 4 -> 5 -> 6: the prototype-analyze agent (a Spec Kit-style
+        # cross-artifact analysis step) was added, then design-ingestor was added.
         assert (
-            cats["prototype"] == 5
-        ), "prototype category count must be 5 (+ prototype-analyze)"
+            cats["prototype"] == 6
+        ), "prototype category count must be 6 (+ design-ingestor)"
 
     def test_category_counts_match_real_registry(self):
         """For prototype + ppt, the declared category count equals the real

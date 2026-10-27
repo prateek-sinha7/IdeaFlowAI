@@ -16,7 +16,7 @@ import pytest
 
 
 def _run(coro):
-    return asyncio.get_event_loop().run_until_complete(coro)
+    return asyncio.run(coro)
 
 
 def _make_ctx(source_type: str, has_tokens: bool = True, has_components: bool = True):

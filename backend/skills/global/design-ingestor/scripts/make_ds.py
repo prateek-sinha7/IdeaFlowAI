@@ -176,11 +176,11 @@ def css_lines(rows: list[tuple], indent: str) -> str:
 
 
 def theme_blocks(m: dict, indent: str = "") -> str:
-    blocks = []
+    css_rules = []
     for sel, decls in (m.get("themes") or {}).items():
         body = "\n".join(f"{indent}  {k}: {v};" for k, v in decls.items())
-        blocks.append(f"{indent}{sel} {{\n{body}\n{indent}}}")
-    return "\n\n".join(blocks)
+        css_rules.append(f"{indent}{sel} {{\n{body}\n{indent}}}")
+    return "\n\n".join(css_rules)
 
 
 def tokens_css(m: dict, rows: list) -> str:
