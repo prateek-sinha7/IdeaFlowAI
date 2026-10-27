@@ -13369,22 +13369,27 @@ class ExecutionEngine:
             _revision_mode = "artifact"
         _workspace_mode = _revision_mode == "workspace"
 
-        # Compose the revision context message with three clearly separated sections
+        # Compose the revision context message with three clearly separated sections.
+        # MARKER NOTE: these markers MUST match the regexes in previous_run.py
+        # (_extract_existing_artifact, _extract_revision_instruction, _slim_revision_message)
+        # so that (a) prototype.html is seeded from the message, (b) ectx.revision_instruction
+        # captures only the clean user text, and (c) the HTML blob is slimmed out before
+        # it reaches downstream agents via _compose_context_message.
         revision_context = (
-            f"=== ORIGINAL ARTIFACT (type: {target_artifact_type}) ===\n"
+            f"=== EXISTING PROTOTYPE HTML ===\n"
             f"{original_content}\n"
-            f"=== END ORIGINAL ARTIFACT ===\n\n"
+            f"=== END EXISTING HTML ===\n\n"
             f"=== VERSION HISTORY ===\n"
             f"{history_summary}\n"
             f"=== END VERSION HISTORY ===\n\n"
-            f"=== REVISION INSTRUCTION ===\n"
+            f"=== REVISION REQUEST ===\n"
             f"{instruction}\n"
-            f"=== END REVISION INSTRUCTION ==="
+            f"=== END REQUEST ==="
         )
         if _workspace_mode:
             revision_context = (
-                f"=== REVISION INSTRUCTION ===\n{instruction}\n"
-                f"=== END REVISION INSTRUCTION ===\n\n"
+                f"=== REVISION REQUEST ===\n{instruction}\n"
+                f"=== END REQUEST ===\n\n"
                 "The original run's files are in this folder (the run's workspace); "
                 "find what you need with grep/glob/read_file."
             )
@@ -16760,6 +16765,23 @@ class ExecutionEngine:
             ]
         else:
             parts = []  # later agents read context from .agents/ files (Seam 2 removed)
+
+        # ── Revision instruction for downstream pipeline steps ────────────────────
+        # When this run is a prototype/artifact revision, previous_run.py extracts
+        # the clean user instruction from the === REVISION REQUEST === block and
+        # stashes it on ectx.revision_instruction. Surface it here so every non-first
+        # agent (feature-specify, revision-agent, planner, …) always knows what the
+        # user asked for — the raw user_message blob is NOT delivered to step 1+
+        # (brief→agent 1 only), and without this block those agents receive an empty
+        # human turn and ask for clarification. Dormant when revision_instruction is
+        # None (non-revision runs, or marker extraction failure) → byte-identical for
+        # all existing goldens (INV-3). No workflow/agent literal (SC-001).
+        _revision_instruction = getattr(ectx, "revision_instruction", None)
+        if not is_first_agent and _revision_instruction:
+            parts.append(
+                f"=== REVISION INSTRUCTION ===\n{_revision_instruction}\n"
+                "=== END REVISION INSTRUCTION ==="
+            )
 
         # ── [R-28] Retry feedback block ──────────────────────────────────────────
         # Present only when a conditional gate jumped BACKWARD to this step (the
