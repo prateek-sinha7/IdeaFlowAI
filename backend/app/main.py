@@ -1,5 +1,6 @@
 """FastAPI application entry point for the AI SaaS Platform."""
 
+import asyncio
 import json
 import logging
 import os
@@ -15,9 +16,24 @@ from contextlib import asynccontextmanager
 # uvicorn creates the loop, makes asyncio.create_subprocess_exec work correctly.
 # This is a no-op on Linux/macOS (the condition is never true there).
 if sys.platform == "win32":
-    import asyncio
-
     asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+
+
+def _suppress_connection_reset(
+    loop: asyncio.AbstractEventLoop, context: dict
+) -> None:
+    """Suppress harmless WinError 10054 noise from the ProactorEventLoop.
+
+    When an SSE client (browser tab closed, network drop, etc.) abruptly
+    terminates a long-lived connection, the Windows ProactorEventLoop tries
+    to call socket.shutdown(SHUT_RDWR) inside _call_connection_lost() but the
+    socket is already gone — raising a ConnectionResetError that pollutes logs
+    without indicating any real error.  All other exceptions are forwarded to
+    the default handler so genuine problems are still surfaced.
+    """
+    if isinstance(context.get("exception"), ConnectionResetError):
+        return  # benign SSE/HTTP client disconnect teardown — suppress
+    loop.default_exception_handler(context)
 
 from botocore.exceptions import BotoCoreError
 from fastapi import FastAPI, HTTPException, Request
@@ -95,6 +111,7 @@ else:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan: create database tables on startup."""
+    asyncio.get_running_loop().set_exception_handler(_suppress_connection_reset)
     logger.info("🚀 Starting VelocityAI Backend...")
     if settings.ANTHROPIC_API_KEY:
         logger.info(
