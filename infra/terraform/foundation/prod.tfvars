@@ -62,3 +62,4 @@ log_retention_days          = 30
 daily_backup_retention_days = 365
 cold_storage_after_days     = 30
 pg_dump_expiry_days         = 365
+runs_backup_expiry_days     = 365

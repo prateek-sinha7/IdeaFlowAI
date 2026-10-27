@@ -103,6 +103,27 @@ resource "aws_s3_bucket_lifecycle_configuration" "backups" {
       days = var.pg_dump_expiry_days
     }
   }
+
+  # Hourly runs-folder tarballs (velocityai-runs-backup, installed by
+  # infra/scripts/reconcile-host-config.sh §4b). Same tiering as the pg_dumps;
+  # without an expiration the hourly full archives accumulate forever.
+  rule {
+    id     = "expire-runs-backups"
+    status = "Enabled"
+
+    filter {
+      prefix = "runs/"
+    }
+
+    transition {
+      days          = var.transition_to_glacier_ir_days
+      storage_class = "GLACIER_IR"
+    }
+
+    expiration {
+      days = var.runs_backup_expiry_days
+    }
+  }
 }
 
 resource "aws_s3_bucket_policy" "backups" {

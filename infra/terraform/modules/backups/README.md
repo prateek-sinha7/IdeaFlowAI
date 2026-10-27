@@ -1,15 +1,16 @@
 # Module: `backups`
 
 Owns the environment's backup substrate: the S3 bucket that stores `pg_dump`
-archives and the AWS Backup vault + plan + selection (tag-driven) that snapshots
-the data EBS volume. Both are encrypted with the project CMK. Optional Vault
+archives (`postgres/`), the hourly runs-folder tarballs (`runs/`) and the skills
+tarballs (`skills/`), and the AWS Backup vault + plan + selection (tag-driven)
+that snapshots the data EBS volume. Both are encrypted with the project CMK. Optional Vault
 Lock and S3 Object Lock add write-once compliance guarantees.
 
 ## Resources created
 
 - `aws_s3_bucket.backups` (`prevent_destroy`) + versioning, SSE-KMS,
   public-access block, and a lifecycle config (Glacier IR transition,
-  noncurrent-version expiry, pg_dump expiry).
+  noncurrent-version expiry, pg_dump expiry, runs-backup expiry).
 - `aws_backup_vault.this`, `aws_backup_plan.daily`, `aws_backup_selection`
   (selects resources tagged `Backup=true`), and the AWS Backup service role.
 - Optional `aws_backup_vault_lock_configuration` (compliance mode) and S3
@@ -40,7 +41,7 @@ module "backups" {
 | `cold_storage_after_days` | Days before a recovery point moves to cold storage (`retention - cold >= 90`). | `number` | `30` | no |
 | `backup_schedule_cron` | UTC cron for the daily rule. | `string` | `"cron(0 3 ? * * *)"` | no |
 | `backup_selection_tag_key` / `_value` | Tag selecting protected resources. | `string` | `"Backup"` / `"true"` | no |
-| `transition_to_glacier_ir_days` / `pg_dump_expiry_days` / `noncurrent_version_expiration_days` | S3 lifecycle knobs. | `number` | `30` / `365` / `90` | no |
+| `transition_to_glacier_ir_days` / `pg_dump_expiry_days` / `runs_backup_expiry_days` / `noncurrent_version_expiration_days` | S3 lifecycle knobs. | `number` | `30` / `365` / `365` / `90` | no |
 | `enable_vault_lock` + `vault_lock_min/max_retention_days` | Opt-in **one-way** Backup Vault Lock (compliance mode). | `bool`/`number` | `false` / `7` / `365` | no |
 | `enable_object_lock` + `object_lock_retention_days` | Opt-in S3 Object Lock (creation-time only, governance mode). | `bool`/`number` | `false` / `35` | no |
 
@@ -62,4 +63,4 @@ module "backups" {
 - `enable_object_lock` must be set at **bucket creation**; it cannot be
   retrofitted to the existing `prevent_destroy` bucket.
 - Cross-variable validations enforce AWS Backup's `retention - cold_storage >=
-  90` rule and `pg_dump_expiry >= glacier_ir_transition`.
+  90` rule and `pg_dump_expiry` / `runs_backup_expiry >= glacier_ir_transition`.

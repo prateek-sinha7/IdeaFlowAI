@@ -3,9 +3,10 @@
 Creates the EC2 **instance role** and instance profile the application host
 runs under, with least-privilege inline policies rendered from JSON templates
 in `infra/terraform/policies/`. The role grants exactly what the box needs:
-read its SSM parameter tree, decrypt with the project CMK, push pg_dumps to the
-backup bucket, invoke the specific Bedrock model/inference profile, and (by
-default) SSM Session Manager access.
+read its SSM parameter tree, decrypt with the project CMK, push pg_dumps and the
+skills/runs tarballs to the backup bucket (write-only: `postgres/*`, `skills/*`,
+`runs/*`), invoke the specific Bedrock model/inference profile, and (by default)
+SSM Session Manager access.
 
 ## Resources created
 
@@ -44,7 +45,7 @@ module "iam" {
 | `account_id` | AWS account ID. | `string` | — | yes |
 | `region` | AWS region. | `string` | — | yes |
 | `kms_key_arn` | Project CMK the instance role may decrypt with. | `string` | — | yes |
-| `backup_bucket_arn` | S3 backup bucket the instance writes pg_dumps into. | `string` | — | yes |
+| `backup_bucket_arn` | S3 backup bucket the instance writes pg_dumps and the skills/runs tarballs into. | `string` | — | yes |
 | `bedrock_model_id` | Foundation model ID the invoke policy is scoped to. | `string` | — | yes |
 | `bedrock_inference_profile_id` | Cross-region inference profile ID the invoke policy is scoped to. | `string` | — | yes |
 | `bedrock_allowed_inference_profile_ids` | Additional inference profiles the role may invoke (every model the app can select). Foundation-model ARNs are derived from these. | `list(string)` | `[]` | no |

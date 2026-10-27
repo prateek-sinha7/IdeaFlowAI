@@ -24,7 +24,7 @@ variable "kms_key_arn" {
 }
 
 variable "backup_bucket_arn" {
-  description = "ARN of the S3 bucket the instance writes pg_dumps into."
+  description = "ARN of the S3 bucket the instance writes pg_dumps and the skills/runs tarballs into."
   type        = string
 }
 

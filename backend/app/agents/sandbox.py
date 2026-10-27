@@ -3,7 +3,7 @@
 Each pipeline run gets an isolated directory ``<RUNS_ROOT>/<user>/<run>/`` on the
 persistent runs volume. The deepagents disk filesystem backend is rooted here, so
 one user's run can never read or write another's files, and a ``..`` traversal
-cannot escape the run dir. Finished runs are swept after ``RUN_DIR_TTL_HOURS``.
+cannot escape the run dir. Run dirs are never deleted automatically.
 
 This is the user-based workspace isolation requirement, implemented on real disk.
 """
@@ -369,8 +369,8 @@ def _safe_segment(value: str, *, fallback: str) -> str:
 #
 # **Lock file location.**  The lock file lives at
 #   <RUNS_ROOT>/<user_seg>/<revision_root_seg>/.family.lock
-# inside the revision-root directory so it is cleaned up automatically by TTL
-# sweeping of the sandbox.  The parent directory is created on demand (the lock
+# inside the revision-root directory, so it lives exactly as long as that
+# directory does.  The parent directory is created on demand (the lock
 # acquisition ensures the directory exists before opening the file descriptor).
 #
 # **Cross-platform exclusive locking.**
@@ -412,8 +412,8 @@ def _family_lock_path(
 ) -> Path:
     """Return the absolute path of the family lock file for ``(user_seg, root_seg)``.
 
-    The lock file is created inside the revision-root directory so it is
-    cleaned up automatically when the sandbox is swept by the TTL sweeper.
+    The lock file is created inside the revision-root directory, so it lives
+    exactly as long as that directory does.
     ``runs_root`` defaults to ``settings.RUNS_ROOT`` when omitted.
     """
     base = Path(runs_root or settings.RUNS_ROOT).resolve()
@@ -1436,67 +1436,6 @@ def run_dir_expired(root: Path) -> bool:
     # ponytail: a live run's dir is also empty between ensure() and git_init_sandbox()
     # (engine.py), so a listing in that instant reads expired; the Workspace Refresh re-lists.
     return not root.is_dir() or not any(root.iterdir())
-
-
-def sweep_expired(
-    *,
-    ttl_hours: int | None = None,
-    runs_root: str | None = None,
-    protected_run_ids: set[str] | None = None,
-) -> int:
-    """Remove run dirs older than the TTL. Returns the count removed.
-
-    D6 (KAN-139) hardening over the original implementation:
-
-    1. **DB-backed protection set** (``protected_run_ids``): any run directory whose
-       base name (the run_seg derived from the run_id) appears in this set is NEVER
-       deleted, regardless of its mtime. Callers build this set from the union of
-       non-terminal DB run IDs and the in-process ``_PIPELINE_QUEUES`` live registry
-       so an active build run is always protected even if the directory mtime is stale
-       (POSIX directory mtime does NOT advance when files inside are overwritten,
-       e.g. prototype build ``edit_file`` path). When the argument is omitted (or
-       ``None``) the protection set is empty — the pre-D6 behavior is preserved for
-       test callers that do not pass DB context.
-
-    2. **mtime as a second necessary condition only** (not sufficient alone): a run dir
-       is eligible for deletion iff its mtime is past the cutoff AND its run_seg is
-       NOT in ``protected_run_ids``. Either condition blocks deletion.
-
-    Safe to call periodically (on pipeline completion or a timer). Walks exactly two
-    levels: ``<RUNS_ROOT>/<user>/<run>``.
-    """
-    ttl_seconds = (
-        ttl_hours if ttl_hours is not None else settings.RUN_DIR_TTL_HOURS
-    ) * 3600
-    root = Path(runs_root or settings.RUNS_ROOT)
-    if not root.is_dir():
-        return 0
-    cutoff = time.time() - ttl_seconds
-    protected = protected_run_ids or set()
-    removed = 0
-    for user_dir in root.iterdir():
-        if not user_dir.is_dir():
-            continue
-        for run_dir in user_dir.iterdir():
-            try:
-                if not run_dir.is_dir():
-                    continue
-                # D6: protection check BEFORE mtime check so a protected run is
-                # never deleted even with a stale mtime (prototype build path).
-                # run_dir.name is the run_seg derived from the run_id by _safe_segment;
-                # exact match is correct because _safe_segment is injective for UUIDs.
-                if run_dir.name in protected:
-                    continue
-                if run_dir.stat().st_mtime < cutoff:
-                    shutil.rmtree(run_dir, ignore_errors=True)
-                    removed += 1
-            except OSError:
-                continue
-    if removed:
-        logger.info(
-            "sandbox sweep: removed %d expired run dir(s) under %s", removed, root
-        )
-    return removed
 
 
 # ---------------------------------------------------------------------------

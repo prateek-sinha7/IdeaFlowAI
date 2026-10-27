@@ -108,7 +108,6 @@ The backend calls Bedrock unconditionally.
 | `HOST_CAPACITY_GATE_ENABLED` | No | `False` | Enforce admission gate on high capacity. Default OFF (enable per environment after observation). |
 | `MAX_OUTPUT_TOKENS` | No | `32768` | Token ceiling for all LLM calls. Raise only after confirming model supports it. |
 | `AGENT_RECURSION_LIMIT` | No | `400` | Runaway-loop backstop for agent graph recursion. |
-| `RUN_DIR_TTL_HOURS` | No | `168` | Sandbox retention after run completion (7 days, covers revision-parent window). |
 | `SHUTDOWN_STOP_RUNS` | No | `False` (prod), `True` (dev) | Cooperatively cancel in-flight runs on shutdown. Development-only by default. |
 | `SSE_KEEPALIVE_PING_SECONDS` | No | `15` | Ping cadence to keep SSE streams alive (ingress idle-timeout must exceed this). |
 | `SSE_SUBSCRIBER_QUEUE_MAXSIZE` | No | `1000` | Per-subscriber queue size for SSE fan-out (0 = unbounded). |

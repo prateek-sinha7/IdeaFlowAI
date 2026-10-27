@@ -433,10 +433,6 @@ class Settings(BaseSettings):
     # 360 tool calls with its fixes unfinished. The platform must not be the
     # ceiling on a reviewer with genuine volume of work.
     AGENT_RECURSION_LIMIT: int = 2500
-    # Retention for a finished run's sandbox dir before the cleanup sweep removes it.
-    # D6 (KAN-139): raised to 168 hours (7 days) to cover the revision-parent seed
-    # window — the old 48h was too short for users creating revisions the next day.
-    RUN_DIR_TTL_HOURS: int = 168
 
     # ── Render fail-closed default (quick-260701-bob / REQUIRE-RENDER-KNOB) ────
     # The DEFAULT for the per-step ``require_render`` knob when a manifest step does
@@ -472,11 +468,6 @@ class Settings(BaseSettings):
     RESTORE_ADMISSION_CONCURRENCY: int = 4
     RESTORE_ADMISSION_STAGGER_SECONDS: float = 15.0
 
-    # ── Sandbox sweep interval (D6 — KAN-139) ─────────────────────────────────
-    # How often (seconds) the periodic sandbox sweep task runs in the background.
-    # Default = 6 hours (21600s). Set lower in dev to observe sweeps faster.
-    SANDBOX_SWEEP_INTERVAL_SECONDS: int = 21_600
-
     # ── Cross-process revision-family lock (sandbox-git-versioning-v2 task 3.9) ─
     # Maximum seconds any caller may wait to acquire the family lock keyed on
     # (user_id, revision_root_id) before FamilyLockTimeout is raised. The lock
@@ -500,12 +491,6 @@ class Settings(BaseSettings):
     # Parsing/enforcement of this policy is in T3b and later; this setting is the
     # configuration surface only.
     BROWSER_URL_POLICY: str = "file,localhost"
-
-    # RUN_DIR_TTL_HOURS: raised to 168h (7 days) to cover the revision-parent seed
-    # window. The old 48h was too short — a run could be deleted before a user
-    # creates a revision from it. Operator-overridable via the env var.
-    # (Field already declared above; the default value update is noted here for
-    # documentation; update the default if changing.)
 
     # Base URL the IDE-side slash command and the MCP client use to reach
     # Flowin. Used to format the handoff URL returned by /api/handoff/receive.

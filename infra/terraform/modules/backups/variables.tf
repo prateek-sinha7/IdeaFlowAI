@@ -96,6 +96,22 @@ variable "pg_dump_expiry_days" {
   }
 }
 
+variable "runs_backup_expiry_days" {
+  description = "S3 lifecycle: expire current versions of objects under the runs/ prefix (hourly runs-folder tarballs) after N days. Default 365 matches pg_dump_expiry_days so a restore can always pair a database dump with the runs tree from the same hour."
+  type        = number
+  default     = 365
+
+  validation {
+    condition     = var.runs_backup_expiry_days >= 7
+    error_message = "runs_backup_expiry_days must be at least 7."
+  }
+
+  validation {
+    condition     = var.runs_backup_expiry_days >= var.transition_to_glacier_ir_days
+    error_message = "runs_backup_expiry_days must be >= transition_to_glacier_ir_days (otherwise objects expire before they ever transition to Glacier IR)."
+  }
+}
+
 # --- AWS Backup Vault Lock (opt-in) ----------------------------------------
 #
 # Vault Lock locks the AWS Backup vault's retention policy in *compliance

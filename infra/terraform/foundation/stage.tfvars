@@ -18,6 +18,7 @@ log_retention_days          = 30
 daily_backup_retention_days = 180
 cold_storage_after_days     = 30
 pg_dump_expiry_days         = 180
+runs_backup_expiry_days     = 180
 
 # --- Cognito (COGNITO-MIGRATION-PLAN, Phase 1 + Phase 5) --------------------
 # Pool + backend app client + tier/role groups exist in stage. Creating the

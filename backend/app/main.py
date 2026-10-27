@@ -212,131 +212,7 @@ async def lifespan(app: FastAPI):
     except Exception as _startup_exc:
         logger.warning("Startup restoration failed (non-fatal): %s", _startup_exc)
 
-    # D6 (KAN-139): start the periodic sandbox sweep task so run dirs no longer
-    # accumulate on the 60 GB root volume for the process lifetime.
-    # The sweep is DB-backed — it queries non-terminal run IDs PLUS the in-process
-    # live registry before deleting, so an active build run (even one with a stale
-    # directory mtime, e.g. prototype build edit_file path) is never deleted.
-    # TTL is raised to 168 hours (7 days) in config to cover the revision-parent
-    # seed window (48 h was too short).  Scheduled every 6 hours — one sweep per
-    # startup + periodic sweeps thereafter, never blocking the event loop (offloaded
-    # to a thread via asyncio.to_thread).
     import asyncio as _asyncio
-
-    async def _sandbox_sweep_loop() -> None:
-        """Periodic sandbox sweep — runs every SANDBOX_SWEEP_INTERVAL_SECONDS (config)."""
-        while True:
-            await _asyncio.sleep(settings.SANDBOX_SWEEP_INTERVAL_SECONDS)
-            try:
-                from app.models.database import SessionLocal
-                from app.models.workflow import WorkflowRun
-                from app.api.run_engine import _PIPELINE_QUEUES
-                from app.agents.sandbox import sweep_expired
-                from agents.execution_engine.engine import TERMINAL_RUN_STATUSES
-
-                # Task 3.8 (sandbox-git-versioning-v2): build the protected set by
-                # walking parent_run_id via the canonical resolve_revision_root
-                # resolver (Requirement 2 AC 1, V2-Q1).
-                #
-                # The old code walked source_run_id via _find_chain_root, which is
-                # the workflow-chaining edge — not the revision-family edge.  A live
-                # revision therefore never protected its shared physical sandbox
-                # (keyed on parent_run_id root), producing the D1 defect.
-                #
-                # V2 rules:
-                #   • parent_run_id defines physical sandbox identity (V2-Q1).
-                #   • source_run_id is a workflow-chaining edge and NEVER changes the
-                #     physical sandbox (Requirement 2 AC 2–3).
-                #   • A gate-paused OR active descendant protects the family root
-                #     (Requirement 2 AC 14 — "waiting_for_user" is non-terminal).
-                #   • On resolver failure → protected, never deletable
-                #     (Requirement 2 AC 11, AC 15).
-                #   • The DB session MUST be open for the duration of root resolution
-                #     because resolve_revision_root makes per-hop DB queries.
-                from app.api.runs import (
-                    resolve_revision_root,
-                    RevisionRootResolved,
-                )
-
-                _db = SessionLocal()
-                try:
-                    # Fetch (id, user_id) for all non-terminal runs.
-                    # Non-terminal statuses include "waiting_for_user" which covers
-                    # gate-paused runs — they protect the family (Requirement 2 AC 14).
-                    # We use user_id (the authz key) rather than owner_id (the legacy
-                    # backfilled column) for ownership-scoped resolution.
-                    _rows = (
-                        _db.query(WorkflowRun.id, WorkflowRun.user_id)
-                        .filter(WorkflowRun.status.notin_(TERMINAL_RUN_STATUSES))
-                        .all()
-                    )
-                    # Also cover in-process live run ids that may not yet have a
-                    # non-terminal DB row (race window at launch / startup restore).
-                    _live_ids = set(_PIPELINE_QUEUES.keys())
-                    _db_ids = {r.id for r in _rows}
-                    _extra_ids = _live_ids - _db_ids
-                    _extra_rows: list = []
-                    if _extra_ids:
-                        _extra_rows = (
-                            _db.query(WorkflowRun.id, WorkflowRun.user_id)
-                            .filter(WorkflowRun.id.in_(_extra_ids))
-                            .all()
-                        )
-                    _all_pairs = list(_rows) + _extra_rows
-
-                    # Resolve each (run_id, user_id) pair to its revision-root
-                    # sandbox directory id via the canonical parent_run_id walk.
-                    # The DB session stays open here because resolve_revision_root
-                    # issues per-hop queries against it.
-                    #
-                    # On RevisionRootUnresolved (cycle, missing ancestor, cross-owner,
-                    # null principal, DB error) → fail CLOSED: add the run's own id to
-                    # the protected set so the directory is never deleted on a resolver
-                    # failure (Requirement 2 AC 11, AC 15).
-                    protected: set[str] = set()
-                    for _run_id, _user_id in _all_pairs:
-                        if not _user_id:
-                            # Null principal → fail closed: protect the run's own dir.
-                            logger.debug(
-                                "sandbox sweep: null user_id for run %s — protecting (fail closed)",
-                                _run_id,
-                            )
-                            protected.add(_run_id)
-                            continue
-                        _result = resolve_revision_root(_db, _run_id, _user_id)
-                        if isinstance(_result, RevisionRootResolved):
-                            protected.add(_result.root_id)
-                        else:
-                            # RevisionRootUnresolved — fail closed (Requirement 2 AC 11).
-                            logger.debug(
-                                "sandbox sweep: resolve_revision_root failed for run %s "
-                                "(reason=%s visited=%d repeated=%s) — protecting (fail closed)",
-                                _run_id,
-                                _result.reason,
-                                _result.visited_count,
-                                _result.repeated_node,
-                            )
-                            protected.add(_run_id)
-
-                finally:
-                    _db.close()
-
-                # Belt-and-suspenders: also protect the raw live ids directly —
-                # in case the DB row is absent (race at launch) the run's own dir
-                # would not be covered by the resolution above.
-                protected.update(_live_ids)
-
-                removed = await _asyncio.to_thread(
-                    sweep_expired,
-                    ttl_hours=settings.RUN_DIR_TTL_HOURS,
-                    protected_run_ids=protected,
-                )
-                if removed:
-                    logger.info("sandbox sweep: removed %d expired run dir(s)", removed)
-            except Exception as _sweep_exc:  # noqa: BLE001
-                logger.warning("sandbox sweep failed (non-fatal): %s", _sweep_exc)
-
-    _sweep_task = _asyncio.create_task(_sandbox_sweep_loop())
 
     # Event-loop lag watchdog (STABILIZATION.md diagnosability): a 2026-09-02
     # postmortem found the process pinned at ~39% CPU for 5h19m with zero log
@@ -349,8 +225,8 @@ async def lifespan(app: FastAPI):
     # specs/014 (host capacity matrix + admission gate): periodic poller that
     # reads CPU/memory from CloudWatch (via app.services.host_metrics) and
     # publishes a decision into the process-local app.services.capacity_state
-    # holder. Mirrors the sandbox-sweep shape immediately above: interval from
-    # settings, the blocking boto3 call offloaded via asyncio.to_thread, broad
+    # holder. Its shape: interval from settings, the blocking boto3 call
+    # offloaded via asyncio.to_thread, broad
     # non-fatal except (a monitoring outage must never crash the app — D-03),
     # cancel-then-await on shutdown. Skipped entirely when HOST_CAPACITY_ENABLED
     # is off, so a disabled deployment pays zero background cost.
@@ -405,12 +281,6 @@ async def lifespan(app: FastAPI):
     # made that documented ordering guarantee false in every environment — and with
     # SHUTDOWN_STOP_RUNS on it would leave stop_pipeline_drivers() driving runs against
     # an already-closed pool (get_checkpointer() raises after close).
-    _sweep_task.cancel()
-    try:
-        await _sweep_task
-    except _asyncio.CancelledError:
-        pass
-
     _watchdog_task.cancel()
     try:
         await _watchdog_task

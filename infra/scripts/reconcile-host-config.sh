@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # VelocityAI host configuration reconciler.
 #
-# Idempotently configures nginx and the CloudWatch agent on a bootstrapped host.
-# Requires root and /etc/velocityai/bootstrap.env with VELOCITYAI_ENVIRONMENT
-# and VELOCITYAI_FQDN. Exit 1 means nginx/config failure; exit 2 means only
-# CloudWatch-agent degradation, allowing the caller to apply its env policy.
+# Idempotently configures nginx, the CloudWatch agent and the runs-folder backup
+# job on a bootstrapped host. Requires root and /etc/velocityai/bootstrap.env
+# with VELOCITYAI_ENVIRONMENT and VELOCITYAI_FQDN. Exit 1 means nginx/config
+# failure; exit 2 means only a non-ingress degradation (CloudWatch agent or the
+# runs backup job), allowing the caller to apply its env policy.
 
 set -euo pipefail
 exec > >(tee -a /var/log/velocityai-reconcile.log) 2>&1
@@ -15,8 +16,8 @@ if [[ "$EUID" -ne 0 ]]; then
     exit 1
 fi
 
-# Nginx failures are fail-closed. Agent failures are recorded and returned as
-# exit 2 because observability is not the request path.
+# Nginx failures are fail-closed. Agent and backup-job failures are recorded and
+# returned as exit 2 because neither is the request path.
 RECONCILE_DEGRADED=()
 
 # ── 1. Load host identity ──────────────────────────────────────────────
@@ -596,10 +597,184 @@ EOF
     echo "[reconcile] CloudWatch agent config applied and agent is active"
 fi
 
+# ── 4b. Runs-folder backup job ─────────────────────────────────────────
+# Hourly tarball of the backend's runs tree (RUNS_ROOT=/app/runs, bind-mounted
+# from /opt/velocityai/data/runs by docker-compose.yml) into the SAME bucket,
+# KMS key and UTC-timestamp layout as the pg_dump (bootstrap-ec2.sh §16):
+#
+#   s3://<backup-bucket>/runs/<YYYYMMDDTHHMMSSZ>/runs.tar.gz
+#
+# WHY HERE AND NOT NEXT TO THE pg_dump IN bootstrap-ec2.sh §16: bootstrap runs
+# once per instance, so a job added there never reaches a running host without a
+# forced re-provision (which restarts the app). This script runs at bootstrap
+# (§14) AND on every deploy (remote-deploy.sh §5), so the job lands on every
+# existing host with its next deploy and tracks the repo after that.
+#
+# The runs tree lives on the ROOT volume (delete_on_termination), not on the
+# Backup=true data volume, so this archive is its only copy off the instance.
+#
+# Failure here is DEGRADED (exit 2), never fatal: the backup is not the request
+# path, and remote-deploy.sh §5 already blocks a stage/prod deploy on exit 2
+# while dev only warns.
+RUNS_BACKUP_CHANGED=0
+RUNS_BACKUP_WRITE_FAILED=0
+
+degrade_runs_backup() {
+    echo "[reconcile] RUNS BACKUP DEGRADED: $1" >&2
+    RECONCILE_DEGRADED+=("runs-backup: $1")
+}
+
+# write_if_changed <mode> <dest> — stdin -> <dest> via a temp file in the same
+# directory plus rename, so a backup that is mid-run when a deploy lands keeps
+# executing its own copy of the script. Sets RUNS_BACKUP_CHANGED only when the
+# content actually differs, so steady-state deploys leave the timer alone.
+write_if_changed() {
+    local mode="$1" dest="$2" tmp
+    tmp="$(mktemp "${dest}.XXXXXX")" || return 1
+    if ! cat > "$tmp"; then
+        rm -f "$tmp"
+        return 1
+    fi
+    if [[ -f "$dest" ]] && cmp -s "$tmp" "$dest"; then
+        rm -f "$tmp"
+        return 0
+    fi
+    if ! chmod "$mode" "$tmp" || ! mv -f "$tmp" "$dest"; then
+        rm -f "$tmp"
+        return 1
+    fi
+    RUNS_BACKUP_CHANGED=1
+}
+
+write_if_changed 0755 /usr/local/bin/velocityai-runs-backup <<'EOF' || RUNS_BACKUP_WRITE_FAILED=1
+#!/usr/bin/env bash
+# velocityai-runs-backup — hourly snapshot of the runs folder to S3.
+# Installed by reconcile-host-config.sh §4b; run by velocityai-runs-backup.timer.
+# Mirrors velocityai-pg-dump: same bucket, same KMS key, same UTC timestamp,
+# heartbeat only after a successful upload. Restore: RUNBOOK.md §6.3a.
+set -euo pipefail
+: "${VELOCITYAI_BACKUP_BUCKET:?VELOCITYAI_BACKUP_BUCKET is required}"
+: "${VELOCITYAI_KMS_KEY_ID:?VELOCITYAI_KMS_KEY_ID is required}"
+REGION="${VELOCITYAI_REGION:-eu-central-1}"
+# Host side of the backend's RUNS_ROOT=/app/runs bind mount (docker-compose.yml).
+RUNS_DIR_CONFIGURED="${VELOCITYAI_RUNS_DIR:-/opt/velocityai/data/runs}"
+# Free space to leave on the staging filesystem after the worst case.
+RESERVE_BYTES=$((1024 * 1024 * 1024))
+
+# Resolved so a symlinked path is archived as its contents, not as a link.
+RUNS_DIR="$(realpath -e -- "$RUNS_DIR_CONFIGURED" 2>/dev/null || true)"
+if [[ -z "$RUNS_DIR" || ! -d "$RUNS_DIR" ]]; then
+    echo "runs backup: FATAL: ${RUNS_DIR_CONFIGURED} is missing or not a directory" >&2
+    exit 1
+fi
+
+TS=$(date -u +%Y%m%dT%H%M%SZ)
+KEY="runs/${TS}/runs.tar.gz"
+TMP=$(mktemp -d)
+trap 'rm -rf "$TMP"' EXIT
+ARCHIVE="$TMP/runs-${TS}.tar.gz"
+
+# Staged locally, like the pg_dump, so only a complete archive is ever uploaded.
+# The uncompressed size is the worst case for the staged file. du can race a
+# file that disappears mid-walk; the guard is best-effort, tar reports real
+# read errors below.
+NEED=$(du -sb -- "$RUNS_DIR" 2>/dev/null | cut -f1) || true
+AVAIL=$(df --output=avail -B1 -- "$TMP" | tail -n 1 | tr -d '[:space:]')
+if (( ${NEED:-0} + RESERVE_BYTES > AVAIL )); then
+    echo "runs backup: FATAL: not enough space in ${TMP} to stage the archive (runs tree ${NEED:-0} bytes, ${AVAIL} bytes free, ${RESERVE_BYTES} kept in reserve)" >&2
+    exit 1
+fi
+
+# GNU tar exit 1 = files changed while being read. Expected on a live tree and
+# the archive is still complete, so it is kept. 2 or more is a real failure.
+TAR_RC=0
+tar --create --gzip --numeric-owner --file "$ARCHIVE" \
+    --directory "$(dirname -- "$RUNS_DIR")" -- "$(basename -- "$RUNS_DIR")" || TAR_RC=$?
+if (( TAR_RC == 1 )); then
+    echo "runs backup: WARNING: some files changed while being archived (live runs); keeping the archive" >&2
+elif (( TAR_RC != 0 )); then
+    echo "runs backup: FATAL: tar exited ${TAR_RC}; nothing uploaded" >&2
+    exit 1
+fi
+
+aws s3 cp "$ARCHIVE" "s3://${VELOCITYAI_BACKUP_BUCKET}/${KEY}" \
+    --region "$REGION" \
+    --sse aws:kms \
+    --sse-kms-key-id "$VELOCITYAI_KMS_KEY_ID" \
+    --only-show-errors
+CW_NAMESPACE=$(/usr/local/bin/velocityai-cw-namespace)
+aws cloudwatch put-metric-data \
+    --namespace "$CW_NAMESPACE" \
+    --metric-name RunsBackupHeartbeat \
+    --value 1 \
+    --region "$REGION"
+echo "runs backup complete: $(stat -c%s "$ARCHIVE") bytes uploaded to s3://${VELOCITYAI_BACKUP_BUCKET}/${KEY}; metric published to $CW_NAMESPACE"
+EOF
+
+# CAP_DAC_READ_SEARCH: the backend (uid 10001) creates run sandboxes 0700 and
+# lock/temp files 0600 (backend/app/agents/sandbox.py), so a plain `velocityai`
+# job cannot read them. The capability bypasses READ permission checks only; the
+# job still cannot write, chown or delete anything it does not own. The bounding
+# set and NoNewPrivileges keep it from gaining anything else. tar never follows
+# symlinks inside the tree, so an agent-created link is archived as a link.
+write_if_changed 0644 /etc/systemd/system/velocityai-runs-backup.service <<'EOF' || RUNS_BACKUP_WRITE_FAILED=1
+[Unit]
+Description=VelocityAI runs-folder backup to S3
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=velocityai
+Group=velocityai
+EnvironmentFile=/etc/velocityai/bootstrap.env
+ExecStart=/usr/local/bin/velocityai-runs-backup
+TimeoutStartSec=1800
+AmbientCapabilities=CAP_DAC_READ_SEARCH
+CapabilityBoundingSet=CAP_DAC_READ_SEARCH
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=full
+ProtectHome=yes
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+EOF
+
+# Same schedule as velocityai-pg-dump.timer, so a restore can pair the database
+# and the runs tree from the same hour.
+write_if_changed 0644 /etc/systemd/system/velocityai-runs-backup.timer <<'EOF' || RUNS_BACKUP_WRITE_FAILED=1
+[Unit]
+Description=Hourly VelocityAI runs-folder backup
+
+[Timer]
+OnCalendar=hourly
+Persistent=true
+RandomizedDelaySec=120
+Unit=velocityai-runs-backup.service
+
+[Install]
+WantedBy=timers.target
+EOF
+
+# restart (not just daemon-reload) when anything changed, so an edited
+# OnCalendar re-arms. Restarting a timer never interrupts a running backup.
+if [[ "$RUNS_BACKUP_WRITE_FAILED" -eq 1 ]]; then
+    degrade_runs_backup "could not write /usr/local/bin/velocityai-runs-backup or its systemd units"
+elif [[ "$RUNS_BACKUP_CHANGED" -eq 1 ]] \
+     && ! { systemctl daemon-reload && systemctl restart velocityai-runs-backup.timer; }; then
+    degrade_runs_backup "systemctl daemon-reload / restart of velocityai-runs-backup.timer failed"
+elif ! systemctl enable --now velocityai-runs-backup.timer \
+     || ! systemctl is-active --quiet velocityai-runs-backup.timer; then
+    degrade_runs_backup "velocityai-runs-backup.timer is not enabled and active"
+else
+    echo "[reconcile] runs backup job in place: hourly -> s3://<backup-bucket>/runs/<UTC timestamp>/runs.tar.gz (updated=${RUNS_BACKUP_CHANGED})"
+fi
+
 # ── 5. Completion ──────────────────────────────────────────────────────
 if [[ ${#RECONCILE_DEGRADED[@]} -gt 0 ]]; then
     echo "[reconcile] DEGRADED: ${RECONCILE_DEGRADED[*]}" >&2
-    echo "[reconcile] nginx changes (if any) were applied; the CloudWatch agent has unresolved issues — see above." >&2
+    echo "[reconcile] nginx changes (if any) were applied; the CloudWatch agent and/or the runs backup job have unresolved issues — see above." >&2
     echo "[reconcile] complete (DEGRADED) $(date -u --iso-8601=seconds)" >&2
     exit 2
 fi
