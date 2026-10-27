@@ -398,6 +398,8 @@ class LocalWorkspace:
             check=True,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             env=self._git_env(
                 env
             ),  # None ⇒ inherit; clone threads a GIT_ALLOW_PROTOCOL guard
@@ -547,6 +549,8 @@ class LocalWorkspace:
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
+            encoding="utf-8",
+            errors="replace",  # never crash the reader thread on a stray non-UTF-8 byte
             **popen_kwargs,
         )
         try:
@@ -1110,6 +1114,8 @@ class LocalWorkspace:
                 cwd=self._root,
                 stderr=subprocess.DEVNULL,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 env=self._git_env(),
             )
             return [p.strip() for p in out.splitlines() if p.strip()]
@@ -1140,6 +1146,8 @@ class LocalWorkspace:
                 cwd=self._root,
                 stderr=subprocess.DEVNULL,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 env=self._git_env(),
             )
         except Exception:  # noqa: BLE001 — non-raising: callers handle an empty map

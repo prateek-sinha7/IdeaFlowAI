@@ -680,6 +680,8 @@ main();
                 ["node", js_file],
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 timeout=_SUBPROCESS_WALL_TIMEOUT_S,
                 cwd=temp_dir,
                 env=clean_env,
