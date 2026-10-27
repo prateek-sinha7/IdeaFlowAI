@@ -40,3 +40,17 @@ backend/tests/**/*.golden                        -text
 # a file nobody edited.
 backend/uv.lock             text eol=lf
 frontend/package-lock.json  text eol=lf
+
+# Frontend TypeScript/JavaScript source -> always LF.
+#
+# Source-slice tests (e.g. bgTerminalClarify.qaKb035.source.test.ts) read
+# source files with Node's readFileSync and search for LF-delimited sentinels.
+# A CRLF checkout makes those sentinels fail to match on both Windows and Linux,
+# breaking the test suite in CI and locally.  Forcing LF on all frontend source
+# files keeps the in-tree sentinels reliable regardless of the developer's OS.
+*.ts   text eol=lf
+*.tsx  text eol=lf
+*.js   text eol=lf
+*.jsx  text eol=lf
+*.mjs  text eol=lf
+*.cjs  text eol=lf

@@ -42,7 +42,7 @@ describe("FigmaUploadSection", () => {
   it("renders_dashed_empty_state_when_frames_is_empty", () => {
     renderSection();
     expect(screen.getByText(/Drop Figma screens here/i)).toBeDefined();
-    expect(screen.getByRole("button", { name: /Browse files/i })).toBeDefined();
+    expect(screen.getByRole("button", { name: /PNG \/ JPEG/i })).toBeDefined();
   });
 
   it("calls_onChange_with_new_frame_when_valid_png_dropped", async () => {
@@ -112,7 +112,7 @@ describe("FigmaUploadSection", () => {
     render(<FigmaUploadSection frames={[frame]} onChange={onChange} />);
 
     // Hover the card to reveal X button then click it
-    const removeBtn = screen.getByTitle("Remove frame");
+    const removeBtn = screen.getByTitle("Remove");
     await user.click(removeBtn);
 
     expect((URL.revokeObjectURL as ReturnType<typeof vi.fn>)).toHaveBeenCalledWith(mockObjectURL);

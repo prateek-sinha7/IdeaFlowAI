@@ -155,7 +155,10 @@ import { LaunchWizard } from "./LaunchWizard";
 const goldenAsWizardWrites = (name: string) => {
   const s = DRAFT_SCENARIOS.find((x) => x.name === name);
   if (!s) throw new Error(`missing scenario ${name}`);
-  return buildLaunchDraft(s.mode, { ...s.inputs, gatesTouched: true, gateAgentIds: [] }).draftJson;
+  // Mirror the LaunchWizard's sourceType logic: customTemplateBody → "html", else → "catalog".
+  // Figma frames are not exercised in these tests so "figma" is never reached here.
+  const sourceType: "catalog" | "html" = s.inputs.customTemplateBody ? "html" : "catalog";
+  return buildLaunchDraft(s.mode, { ...s.inputs, gatesTouched: true, gateAgentIds: [], sourceType }).draftJson;
 };
 
 // Create test agents matching the expected library

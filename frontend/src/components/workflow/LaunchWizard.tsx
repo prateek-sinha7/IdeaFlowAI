@@ -30,7 +30,6 @@ import { ATTACH_MAX_CHARS, truncateAttachmentText } from "@/lib/constants";
 import {
   listDesignSystems,
   listPrototypeTemplates,
-  uploadFigmaFrames,
   type DesignSystemListItem,
   type PrototypeTemplate,
 } from "@/lib/prototype-api";

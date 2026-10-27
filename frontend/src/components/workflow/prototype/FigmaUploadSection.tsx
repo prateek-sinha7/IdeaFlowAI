@@ -80,6 +80,20 @@ export function FigmaUploadSection({ frames, onChange }: FigmaUploadSectionProps
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const processSingleFile = (file: File) => {
+    const err = validateFile(file, frames);
+    if (err) { setError(err); return; }
+    setError(null);
+    if (file.type === "application/pdf") {
+      const pdfFrame: FigmaPdfFrame = { kind: "pdf", file, description: "" };
+      onChange([...frames, pdfFrame]);
+    } else {
+      const previewUrl = URL.createObjectURL(file);
+      const imgFrame: FigmaImageFrame = { kind: "image", file, description: "", previewUrl };
+      onChange([...frames, imgFrame]);
+    }
+  };
+
   // Clipboard paste — images only (PDF can't be pasted from Figma clipboard)
   useEffect(() => {
     const handler = (e: ClipboardEvent) => {
@@ -99,20 +113,6 @@ export function FigmaUploadSection({ frames, onChange }: FigmaUploadSectionProps
     return () => window.removeEventListener("paste", handler);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [frames, onChange]);
-
-  const processSingleFile = (file: File) => {
-    const err = validateFile(file, frames);
-    if (err) { setError(err); return; }
-    setError(null);
-    if (file.type === "application/pdf") {
-      const pdfFrame: FigmaPdfFrame = { kind: "pdf", file, description: "" };
-      onChange([...frames, pdfFrame]);
-    } else {
-      const previewUrl = URL.createObjectURL(file);
-      const imgFrame: FigmaImageFrame = { kind: "image", file, description: "", previewUrl };
-      onChange([...frames, imgFrame]);
-    }
-  };
 
   // Batch-process multiple files into ONE onChange call (prevents state-closure bug)
   const processFiles = (list: FileList | File[]) => {
