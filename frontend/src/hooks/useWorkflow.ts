@@ -908,7 +908,9 @@ export function handlePipelineMessage(
         return true;
       }
 
-      agentStartTimesRef.current[agentId] = Date.now();
+      agentStartTimesRef.current[agentId] = msg.created_at
+        ? Date.parse(msg.created_at as string)
+        : Date.now(); // FIX: use server timestamp so replay produces accurate elapsed time after refresh
 
       setPipelineState((prev) => {
         const agentIdx = prev.agents.findIndex((a) => a.id === agentId);
@@ -1144,7 +1146,12 @@ export function handlePipelineMessage(
       // Prefer an explicit server-provided duration; fall back to the measured
       // start→complete wall time. ADDITIVE — existing events (no `duration`)
       // keep the measured behavior unchanged.
-      const measured = startTime ? (Date.now() - startTime) / 1000 : null;
+      // FIX: use the event's own server timestamp (always present from both SSE and
+      // durable replay) rather than Date.now(), so elapsed time is accurate after a
+      // hard refresh — replay fires agent_start and agent_complete milliseconds apart,
+      // but their created_at values reflect the real server-side duration.
+      const completedAt = msg.created_at ? Date.parse(msg.created_at as string) : Date.now();
+      const measured = startTime ? (completedAt - startTime) / 1000 : null;
       const duration =
         typeof msg.duration === "number" ? (msg.duration as number) : measured;
 

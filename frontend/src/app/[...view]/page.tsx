@@ -3689,7 +3689,16 @@ export default function DashboardPage() {
         console.error("cold-mount run fetch failed:", runId, err);
       })
       .finally(() => {
-        if (tab) runTabDeepLink.requestOpenTab(tab, deepLinkAgentIdFor(parsedView));
+        // FIX: mirror the already-tracked path's `?? "preview"` fallback so a
+        // cold-mount on the bare run-detail route always lands on the Preview tab
+        // instead of relying on the auto-tab effect, which races against the
+        // pipeline_start → isRunning=true state during durable event replay.
+        const openTab =
+          tab ??
+          (parsedView.screen === "run-detail" || parsedView.screen === "run-version"
+            ? "preview"
+            : undefined);
+        if (openTab) runTabDeepLink.requestOpenTab(openTab, deepLinkAgentIdFor(parsedView));
       });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [viewPathKey, isAuthenticated, handleSelectWorkflowRun, runTabDeepLink.requestOpenTab]);
