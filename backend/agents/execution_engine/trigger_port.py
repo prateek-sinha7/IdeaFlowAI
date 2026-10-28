@@ -25,10 +25,25 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Awaitable, Callable
 
-#: ``(workflow_ref, owner_id, parent_run_id) -> (pipeline_type, agents | None, compiled | None)``
-#: for a saved ``user_workflow_id``. Raises for an unknown / cross-owner id.
-#: ``parent_run_id`` caps the row's compile trust at the firing run's (ISS-1164).
-SavedWorkflowResolver = Callable[[str, str, str], tuple[str, Any, Any]]
+
+@dataclass(frozen=True)
+class ResolvedTriggeredWorkflow:
+    """Complete saved-workflow launch state resolved by the app adapter."""
+
+    pipeline_type: str
+    agents: Any = None
+    compiled: Any = None
+    manifest_json: dict[str, Any] | None = None
+    model_overrides: dict[str, Any] | None = None
+    attached_skills: list[dict[str, Any]] | None = None
+    attached_hooks: list[dict[str, Any]] | None = None
+
+
+#: ``(workflow_ref, owner_id, parent_run_id) -> ResolvedTriggeredWorkflow``: resolves
+#: a saved ``user_workflow_id`` to its complete launch state. Raises for an unknown /
+#: cross-owner id. ``parent_run_id`` caps the row's compile trust at the firing
+#: run's (ISS-1164).
+SavedWorkflowResolver = Callable[[str, str, str], ResolvedTriggeredWorkflow]
 
 #: Keyword-only mint-and-spawn; returns the launch result dict (carries ``run_id``).
 TriggeredRunLauncher = Callable[..., Awaitable[dict]]

@@ -54,6 +54,7 @@ import { LaunchWizard } from "@/components/workflow/LaunchWizard";
 import type { LaunchMode } from "@/lib/launchDraft";
 import { uploadFigmaFrames } from "@/lib/prototype-api";
 import { getPendingFigmaFrames, clearPendingFigmaFrames } from "@/lib/figma-frame-store";
+import { UPLOADS_MISSING_MESSAGE, isUploadsMissingError } from "@/lib/uploadErrors";
 
 /**
  * Map the SSE connection phase (RunConnectionPhase) onto the ConnectionStatus
@@ -4315,6 +4316,7 @@ export default function DashboardPage() {
   }
 
   return (
+    <>
     <DashboardLayout
       activeChatId={activeChatId}
       messages={messages}
@@ -4400,6 +4402,7 @@ export default function DashboardPage() {
       initialSettingsSection={initialSettingsSectionFor(parsedView)}
       pinnedVersion={pinnedVersionFor(parsedView)}
       onStartPipeline={(type, message, agentIds, attachedHooks, extraParams) => {
+        setLaunchError(null);
         const isRevision = type.endsWith("_revision");
         // Workstream C1 (POR §1 gap-2): capture the run's input on every launch
         // (revision or fresh — it is the run's input either way), reset per run.
@@ -4597,8 +4600,12 @@ export default function DashboardPage() {
           }
           // ISS-1137: every launch path ends here, so this is the one place
           // that says why. Null tells the caller the launch was refused (the
-          // Composer and Input panels release their Run latch on it).
-          const reason = launchRefusalMessage(err);
+          // Composer and Input panels release their Run latch on it). A launch
+          // whose documents never reached the server (pre-mint 422
+          // uploads_missing) gets the re-attach instruction.
+          const reason = isUploadsMissingError(err)
+            ? UPLOADS_MISSING_MESSAGE
+            : launchRefusalMessage(err);
           if (reason) setLaunchError(reason);
           return null;
         });
@@ -4683,5 +4690,6 @@ export default function DashboardPage() {
       isAdmin={user?.is_admin ?? false}
       waves={runStore.viewed.waveGroups}
     />
+    </>
   );
 }

@@ -1,12 +1,11 @@
 /**
  * Behavior of the Canvas config rail beyond the fan-out / skills / effort /
- * gate suites: the empty state, header rename, tab navigation, hooks, tool
+ * gate suites: the empty state, header rename, tab navigation, data flow, tool
  * grants and packs, node type, design context, overrides, retry, the route
  * editor and the sub-agent strategy.
  *
  * Boundaries replaced: the capabilities / prompt / workflow-catalog APIs and the
- * (Redux-backed) skills catalog. Redux itself, the shared lever reducer and the
- * hooks catalog run for real through renderWithProviders.
+ * (Redux-backed) skills catalog. Redux itself and the shared lever reducer run for real through renderWithProviders.
  */
 // MERGE NOTE (feat/user-stories-v2 into feat/stale-bug-fixes, 2026-10-12): this suite came
 // from dev (75c58275c) and was written against dev's pre-redesign rail. The 14
@@ -149,7 +148,13 @@ describe("CanvasConfigRail", () => {
       renderRail();
 
       expect(screen.getByDisplayValue("Writer")).toBeInTheDocument();
-      expect(screen.getByText("Agent · step 3 of 4 · Writes drafts")).toBeInTheDocument();
+      expect(screen.getByText("AI agent · step 3 of 4")).toBeInTheDocument();
+    });
+
+    it("names a code step's friendly kind in the header", () => {
+      renderRail({ agent: { ...WRITER, mechanical: "publish" } });
+
+      expect(screen.getByText("Code step · step 3 of 4 · Publish the final file")).toBeInTheDocument();
     });
 
     it("renames the agent on blur with the trimmed name", async () => {
@@ -282,12 +287,30 @@ describe("CanvasConfigRail", () => {
 
     it.skip("says there are no suggestions when none fit", async () => {
       renderRail();
-      await openTab(/hooks/i);
 
-      expect(screen.getByText("No suggested hooks")).toBeInTheDocument();
+      expect(screen.getByRole("tab", { name: "Data" })).toBeInTheDocument();
+      expect(screen.queryByRole("tab", { name: /hooks/i })).not.toBeInTheDocument();
+    });
+
+    it("lists the files an earlier step produces as consumable by this step", async () => {
+      const upstream = mkAgent({ id: "researcher", name: "Researcher", extra: { produces: ["notes.md"] } });
+      renderRail({ priorAgents: [upstream] });
+      await openTab(/data/i);
+
+      expect(screen.getByText("Researcher")).toBeInTheDocument();
+      const box = screen.getByRole("checkbox", { name: "notes.md" });
+      expect(box).not.toBeChecked();
+      // No onDataFlowChange is wired in this suite, so the control is read-only.
+      expect(box).toBeDisabled();
+    });
+
+    it("says no earlier step produces anything when there is nothing to consume", async () => {
+      renderRail();
+      await openTab(/data/i);
+
+      expect(screen.getByText(/No earlier step produces anything yet/)).toBeInTheDocument();
     });
   });
-
   describe("tools tab", () => {
     async function openTools() {
       await openTab(/tools/i);
@@ -368,20 +391,23 @@ describe("CanvasConfigRail", () => {
     });
   });
 
-  describe("config tab: node type", () => {
+  describe("overview tab: node type", () => {
     it("lists model-only controls for an AI agent", async () => {
       renderRail();
+      expect(await nodeTypeRadio("AI agent")).toHaveAttribute("aria-checked", "true");
+      expect(screen.getByRole("radiogroup", { name: "Node type" })).toBeInTheDocument();
+      expect(screen.queryByRole("combobox", { name: "Code step" })).not.toBeInTheDocument();
+
       await openConfig();
 
       expect(screen.getByRole("combobox", { name: "Model" })).toBeInTheDocument();
       expect(screen.getByRole("checkbox", { name: "Design context: Design system" })).toBeInTheDocument();
-      expect(screen.queryByRole("combobox", { name: "Code step" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("radiogroup", { name: "Node type" })).not.toBeInTheDocument();
     });
 
     it("switches an AI agent to the first code step offered", async () => {
       const user = userEvent.setup();
       const { onMechanicalChange } = renderRail();
-      await openConfig();
 
       await waitFor(async () => expect(await nodeTypeRadio("Code")).toBeEnabled());
       await user.click(await nodeTypeRadio("Code"));
@@ -392,7 +418,6 @@ describe("CanvasConfigRail", () => {
     it("switches a code step back to an AI agent", async () => {
       const user = userEvent.setup();
       const { onMechanicalChange } = renderRail({ agent: { ...WRITER, mechanical: "publish" } });
-      await openConfig();
 
       await waitFor(async () => expect(await nodeTypeRadio("AI agent")).toBeEnabled());
       await user.click(await nodeTypeRadio("AI agent"));
@@ -403,20 +428,23 @@ describe("CanvasConfigRail", () => {
     it.skip("shows a code step's kind with its description and hides the model and design controls", async () => {
       const user = userEvent.setup();
       const { onMechanicalChange } = renderRail({ agent: { ...WRITER, mechanical: "publish" } });
-      await openConfig();
+      await nodeTypeRadio("Code");
 
+      expect(screen.getByRole("radio", { name: "Code" })).toHaveAttribute("aria-checked", "true");
       expect(screen.getByRole("combobox", { name: "Code step" })).toHaveValue("publish");
-      expect(screen.getByText("Copy the final file onto the deliverable.")).toBeInTheDocument();
-      expect(screen.queryByRole("combobox", { name: "Model" })).not.toBeInTheDocument();
-      expect(screen.queryByRole("checkbox", { name: /Design context/ })).not.toBeInTheDocument();
+      expect(await screen.findByText("Copy the final file onto the deliverable.")).toBeInTheDocument();
 
       await user.selectOptions(screen.getByRole("combobox", { name: "Code step" }), "assemble_prototype");
       expect(onMechanicalChange).toHaveBeenCalledWith("writer", "assemble_prototype");
+
+      await openConfig();
+      expect(screen.queryByRole("combobox", { name: "Model" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("checkbox", { name: /Design context/ })).not.toBeInTheDocument();
     });
 
     it.skip("names code steps in plain language, humanising any without a friendly name", async () => {
       renderRail({ agent: { ...WRITER, mechanical: "publish" } });
-      await openConfig();
+      await nodeTypeRadio("Code");
 
       const select = screen.getByRole("combobox", { name: "Code step" });
       expect(within(select).getByRole("option", { name: "Publish the final file" })).toBeInTheDocument();
@@ -426,7 +454,7 @@ describe("CanvasConfigRail", () => {
 
     it("shows no description for a code step the catalog does not list", async () => {
       renderRail({ agent: { ...WRITER, mechanical: "retired_step" } });
-      await openConfig();
+      await nodeTypeRadio("AI agent");
 
       expect(screen.queryByText("Copy the final file onto the deliverable.")).not.toBeInTheDocument();
     });
@@ -434,12 +462,11 @@ describe("CanvasConfigRail", () => {
     it.skip("disables the Code option when the catalog offers no code steps", async () => {
       mockGetCapabilities.mockResolvedValue({ ...PALETTE, capabilities: PALETTE.capabilities.filter((c) => c.kind !== "mechanical") });
       renderRail();
-      await openConfig();
 
-      expect(screen.getByRole("option", { name: /^Code —/ })).toBeDisabled();
+      await nodeTypeRadio("AI agent");
+      await waitFor(() => expect(screen.getByRole("radio", { name: "Code" })).toBeDisabled());
     });
   });
-
   describe("config tab: design context", () => {
     it("adds a block in canonical order", async () => {
       const user = userEvent.setup();

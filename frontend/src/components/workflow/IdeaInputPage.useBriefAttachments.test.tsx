@@ -103,7 +103,7 @@ describe("useBriefAttachments", () => {
     });
   });
 
-  it("reads a text file client-side and composes it into the attached-block string", async () => {
+  it("reads a text file client-side into the attached-block string and stages it too", async () => {
     const { result } = renderHook(() => useBriefAttachments());
 
     act(() =>
@@ -112,7 +112,44 @@ describe("useBriefAttachments", () => {
 
     await waitFor(() => expect(result.current.attachedFileContents).toHaveLength(1));
     expect(result.current.fileBlocks).toBe("\n\n=== Attached: notes.txt ===\nhello notes\n=== End: notes.txt ===");
-    expect(api.stageRunFile).not.toHaveBeenCalled();
+    // UPLD-05: the raw file must reach `.uploads/` as well, or a file-reading
+    // workflow refuses the launch (422 uploads_missing) for a text-only brief.
+    expect(api.stageRunFile).toHaveBeenCalledTimes(1);
+    expect(api.stageRunFile).toHaveBeenCalledWith("test-token", expect.objectContaining({ name: "notes.txt" }));
+    await waitFor(() =>
+      expect(result.current.stagedUploads).toEqual([{ name: "notes.txt", stageId: "stage-1", attachIndex: 0 }]),
+    );
+    expect(result.current.uploadGate).toEqual({ kind: "ready" });
+    // Text is read in the browser; only binary documents use the server preview.
+    expect(api.extractFileText).not.toHaveBeenCalled();
+  });
+
+  it("gates Run while a text-only attachment is staging and opens it once the stage lands", async () => {
+    const stage = deferred<{ stage_id: string }>();
+    api.stageRunFile.mockReturnValueOnce(stage.promise);
+    const { result } = renderHook(() => useBriefAttachments());
+
+    act(() =>
+      result.current.handleFiles(asFileList(new File(["# Notes"], "requirements.md", { type: "text/markdown" }))),
+    );
+    expect(result.current.uploadGate).toEqual({ kind: "staging", count: 1 });
+
+    await act(async () => stage.resolve({ stage_id: "stage-md" }));
+
+    expect(result.current.uploadGate).toEqual({ kind: "ready" });
+    expect(result.current.stagedUploads).toEqual([{ name: "requirements.md", stageId: "stage-md", attachIndex: 0 }]);
+  });
+
+  it("records a text-only attachment whose stage failed and blocks Run on it", async () => {
+    api.stageRunFile.mockRejectedValue(Object.assign(new Error("HTTP 413"), { name: "ApiError", status: 413 }));
+    const { result } = renderHook(() => useBriefAttachments());
+
+    act(() =>
+      result.current.handleFiles(asFileList(new File(["# Notes"], "requirements.md", { type: "text/markdown" }))),
+    );
+
+    await waitFor(() => expect(result.current.uploadGate).toEqual({ kind: "failed", names: ["requirements.md"] }));
+    expect(result.current.stagedUploads).toEqual([]);
   });
 
   it("attaches an empty block when the browser reads a text file to a null result", () => {
@@ -171,6 +208,37 @@ describe("useBriefAttachments", () => {
     expect(result.current.attachedFileContents).toEqual([]);
     expect(result.current.stagedUploads).toEqual([]);
     expect(result.current.fileBlocks).toBe("");
+  });
+
+  it("records a 413 stage as failed with the too-large reason instead of swallowing it", async () => {
+    api.stageRunFile.mockRejectedValue(Object.assign(new Error("HTTP 413"), { name: "ApiError", status: 413 }));
+    const { result } = renderHook(() => useBriefAttachments());
+
+    act(() => result.current.handleFiles(asFileList(fileWithSize("big.pdf", 1, "application/pdf"))));
+
+    await waitFor(() =>
+      expect(result.current.documents[0]).toMatchObject({
+        name: "big.pdf",
+        status: "failed",
+        reason: "File is too large for this server (limit 10 MB)",
+      }),
+    );
+    expect(result.current.uploadGate).toEqual({ kind: "failed", names: ["big.pdf"] });
+    expect(result.current.stagedUploads).toEqual([]);
+  });
+
+  it("gates Run while a document is staging and opens it once the stage lands, keeping the stagedUploads shape", async () => {
+    const stage = deferred<{ stage_id: string }>();
+    api.stageRunFile.mockReturnValueOnce(stage.promise);
+    const { result } = renderHook(() => useBriefAttachments());
+
+    act(() => result.current.handleFiles(asFileList(fileWithSize("doc.pdf", 1, "application/pdf"))));
+    expect(result.current.uploadGate).toEqual({ kind: "staging", count: 1 });
+
+    await act(async () => stage.resolve({ stage_id: "stage-doc" }));
+
+    expect(result.current.uploadGate).toEqual({ kind: "ready" });
+    expect(result.current.stagedUploads).toEqual([{ name: "doc.pdf", stageId: "stage-doc", attachIndex: 0 }]);
   });
 
   it("leaves every attachment in place when the removed index does not exist", () => {

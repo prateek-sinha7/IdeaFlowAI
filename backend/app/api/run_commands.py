@@ -108,6 +108,7 @@ from app.api.run_engine import (
 # see its own docstring for why it now exists beside NON_TERMINAL_RUN_STATUSES).
 from agents.execution_engine.engine import TERMINAL_RUN_STATUSES
 from agents.execution_engine.trigger_port import (
+    ResolvedTriggeredWorkflow,
     TriggerLaunchPort,
     register_trigger_launch_port,
 )
@@ -1715,6 +1716,8 @@ async def _dispose_concierge_proposal(
         # The full analysis (## Solution Plan) is now produced by the engine as
         # step 0 of the manifest (produces_solution_plan: true) — no app-layer
         # run_analyzer call needed here (revision-pipeline-refactor).
+        if base_type == "prototype_v2" and target == "prototype_output":
+            target = "prototype_v2_output"
         if target == "prototype_output":
             _tier = await _classify_revision_tier(
                 instruction,
@@ -2608,6 +2611,77 @@ def _reject(
     )
 
 
+def _manifest_seeds_uploads(manifest_json: dict | None) -> bool:
+    """True when the launch manifest's ``seed_files.from_run`` copies anything
+    under ``.uploads/`` into the new run (see ``_seed_from_prior_run``)."""
+    from app.agents.sandbox import _UPLOADS_PREFIX
+
+    seed = (manifest_json or {}).get("seed_files")
+    names = seed.get("from_run") if isinstance(seed, dict) else None
+    if not isinstance(names, list):
+        return False
+    return any(
+        str(name).lstrip("/").removeprefix("./").startswith(_UPLOADS_PREFIX)
+        for name in names
+    )
+
+
+def _guard_uploads_present(
+    *,
+    content: str,
+    staged_upload_ids: list[str] | None,
+    admitted_source_run_id: str | None,
+    manifest_json: dict | None,
+    plan: object,
+) -> None:
+    """Refuse a fresh launch whose documents never reached the server.
+
+    The brief carries the wizard's inlined ``=== Attached: … ===`` blocks, no
+    ``staged_upload_ids`` came with it, and the compiled plan has a step granted
+    the ``file_extract`` tool set — i.e. a workflow that reads its documents
+    from ``.uploads/``. A fresh run's sandbox is new, so ``.uploads/manifest.json``
+    cannot exist and the run would fail only after its first agent spent minutes
+    looking for files. Deny BEFORE the mint (no WorkflowRun row, no sandbox),
+    like every other ingress denial in ``launch_run``.
+
+    A chained launch whose source passed chain admission
+    (``admitted_source_run_id``) may reuse a sandbox whose ``.uploads/`` already
+    exists, and a manifest whose ``seed_files`` copies ``.uploads/`` content
+    seeds it after the mint; both are logged and allowed. A request source id
+    that admission dropped gets a fresh sandbox, so it is guarded like any
+    fresh launch.
+
+    Keyed on the declared tool set only, never a workflow name (SC-001). Logs
+    counts only — never file names or document content.
+    """
+    from agents.execution_engine.user_prompt import parse_inline_attachments
+    from app.api.run_files import declares_file_extract
+
+    attachment_count = len(parse_inline_attachments(content))
+    if attachment_count == 0 or staged_upload_ids or not declares_file_extract(plan):
+        return
+    if admitted_source_run_id or _manifest_seeds_uploads(manifest_json):
+        logger.warning(
+            "launch carries %d inline attachment(s) but no staged uploads "
+            "(chained or seeded launch, not rejected)",
+            attachment_count,
+        )
+        return
+    logger.warning(
+        "launch rejected (uploads_missing): %d inline attachment(s), no staged "
+        "uploads, workflow reads .uploads/",
+        attachment_count,
+    )
+    raise _reject(
+        "uploads_missing",
+        "The attached documents were not uploaded, so this workflow cannot read "
+        "them. Re-attach the files and launch again.",
+        http_status=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        recoverable=True,
+        attachment_count=attachment_count,
+    )
+
+
 def _require_tier_entitlement(
     current_user: User, principal: Principal, pipeline_type: str
 ) -> None:
@@ -3311,14 +3385,14 @@ async def _launch_run_core(
 # (import-linter). Registered below, at import of this module.
 def _resolve_saved_trigger_target(
     workflow_ref: str, owner_id: str, parent_run_id: str
-) -> tuple[str, list | None, CompiledWorkflow | None]:
+) -> ResolvedTriggeredWorkflow:
     """Resolve a saved ``user_workflow_id`` named by a ``trigger: workflow`` outcome.
 
-    Returns ``(pipeline_type, agents, compiled)`` for the new run. Moved verbatim
-    from ``KernelServices.run_trigger_workflow``: the same owner-scoped ``_owned``
-    lookup (a cross-owner / unknown id raises the same ``HTTPException`` 404,
-    IDOR→404) and the same Case 2 (flat ``agent_ids``) / Case 3 (composed
-    manifest) branching ``launch_run`` uses.
+    Returns the complete launch state for the new run: pipeline type, roster or
+    compiled plan, and the row's saved model overrides, skills and hooks. Uses
+    the same owner-scoped ``_owned`` lookup as ``launch_run`` (a cross-owner /
+    unknown id raises the same ``HTTPException`` 404, IDOR→404) and the same
+    Case 2 (flat ``agent_ids``) / Case 3 (composed manifest) branching.
     """
     from app.api.run_engine import _get_db, _parent_run_trust
     from app.api.user_workflows import _owned
@@ -3341,6 +3415,9 @@ def _resolve_saved_trigger_target(
         )
         # ISS-1118/ISS-1129: and it keeps what its target declares on the same step.
         row_overrides = row.overrides_pipeline_type
+        attached_hooks = row.attached_hooks
+        attached_skills = row.attached_skills
+        model_overrides = row.model_overrides
     finally:
         db.close()
 
@@ -3363,30 +3440,45 @@ def _resolve_saved_trigger_target(
         raw_manifest.setdefault("clarify", {"mode": "skip", "defaults": []})
         raw_manifest.setdefault("capabilities", {})
         parsed_manifest = build_manifest_from_dict(raw_manifest, f"workflow:{row_id}")
-        target_compiled = compile_with_baseline(
+        compiled = compile_with_baseline(
             parsed_manifest,
             _CAPABILITY_REGISTRY,
             trust=row_trust,
             overrides=row_overrides,
         )
-        target_pipeline_type = base_pipeline_type
-        target_agents = None
-    else:
-        # Case 2 — flat agent_ids (mirrors launch_run's
-        # USER_WORKFLOW_FLAT branch).
-        import json as _json
+        # Persisted on the run row so resume_run recompiles the SAME workflow at
+        # the SAME trust, exactly as launch_run persists it.
+        persisted_manifest = dict(raw_manifest)
+        persisted_manifest["_trust"] = row_trust
+        if row_overrides:
+            persisted_manifest["_overrides"] = row_overrides
+        return ResolvedTriggeredWorkflow(
+            pipeline_type=base_pipeline_type,
+            compiled=compiled,
+            manifest_json=persisted_manifest,
+            model_overrides=model_overrides,
+            attached_skills=attached_skills,
+            attached_hooks=attached_hooks,
+        )
 
-        from agents.loader import load_agent_spec
+    # Case 2 — flat agent_ids (mirrors launch_run's USER_WORKFLOW_FLAT branch).
+    import json as _json
 
-        agent_ids = _json.loads(row_agents_json) if row_agents_json else []
-        target_agents = [load_agent_spec(aid) for aid in agent_ids]
-        if target_agents:
-            from app.api.composition_order import presort_specs
+    from agents.loader import load_agent_spec
 
-            target_agents = presort_specs(target_agents)
-        target_pipeline_type = base_pipeline_type
-        target_compiled = None
-    return target_pipeline_type, target_agents, target_compiled
+    agent_ids = _json.loads(row_agents_json) if row_agents_json else []
+    agents = [load_agent_spec(aid) for aid in agent_ids]
+    if agents:
+        from app.api.composition_order import presort_specs
+
+        agents = presort_specs(agents)
+    return ResolvedTriggeredWorkflow(
+        pipeline_type=base_pipeline_type,
+        agents=agents,
+        model_overrides=model_overrides,
+        attached_skills=attached_skills,
+        attached_hooks=attached_hooks,
+    )
 
 
 async def _launch_triggered_run(**launch_kwargs: Any) -> dict:
@@ -4011,6 +4103,26 @@ async def launch_run(
         _chain_admission.source_id
     )  # None for declaration_gate
 
+    # ── Uploads-present gate (dev 413 RCA) — last ingress denial before the mint.
+    # The plan is the one the engine will run: the launch-compiled override when
+    # there is one, else the file manifest compile_for_run(pipeline_type) loads.
+    _uploads_plan = compiled
+    if _uploads_plan is None:
+        try:
+            _uploads_plan = _compile_for_run(pipeline_type)
+        except Exception:  # noqa: BLE001 — no plan, no file_extract step to protect
+            _uploads_plan = None
+    _guard_uploads_present(
+        content=content,
+        staged_upload_ids=body.staged_upload_ids,
+        # The admitted id, not the raw request field: only an admitted source
+        # makes the run reuse the chain-root sandbox (_find_chain_root walks
+        # source_run_id, which _launch_run_core writes from this same value).
+        admitted_source_run_id=_admitted_source_id,
+        manifest_json=persisted_manifest,
+        plan=_uploads_plan,
+    )
+
     # ── Mint the WorkflowRun + spawn the driver (mirror websocket.py:1912-1966) ─
     # ═══ JOIN POINT ═════════════════════════════════════════════════════════
     # All 3 LaunchSource branches reconverge HERE — delegates to the shared core
@@ -4180,16 +4292,23 @@ def _apply_terminal_output_columns(
         wr.deliverable_filename = deliverable_filename
     if agent_outputs_collector:
         wr.agent_outputs = json.dumps(agent_outputs_collector)
-    # CWF-002 (fix b): record the run's EFFECTIVE model BEFORE the cost computation so the
-    # estimate_cost_usd line reads the real model instead of the BEDROCK default fallback.
     wr.model_id = model_id
     if run_totals is not None and run_totals.get("total_input_tokens") is not None:
         # The engine's totals: complete, and the cost already priced per model.
         # normalize_usage: an event from before usage_version 2 still holds its cache
         # reads inside input — written back in the current meaning either way.
         usage = normalize_usage(run_totals, prefix="total_")
+        # A total that arrived without a cost is priced here at the run's model,
+        # rather than written back as $0.
+        run_model = wr.model_id or settings.BEDROCK_INFERENCE_PROFILE_ID
         cost = run_totals.get("estimated_cost_usd")
+        if cost is None:
+            cost = usage_cost_usd(
+                run_model, usage, cache_ttl=settings.BEDROCK_PROMPT_CACHE_TTL
+            )
         cost_full = run_totals.get("estimated_cost_full_usd")
+        if cost_full is None:
+            cost_full = usage_cost_full_usd(run_model, usage)
     else:
         # No pipeline_complete (a run that stopped early): sum the steps, price each
         # at its own model.
@@ -5617,6 +5736,13 @@ _REVISION_TIER_TARGET_MAP: dict[str, str] = {
 
 # Prototype v2 (spec 022): small → prototype_v2_revision (Fast);
 # large/feature → prototype_v2_feature_revision (Depth).
+_V2_REVISION_TIER_TARGET_MAP: dict[str, str] = {
+    "small": "prototype_v2_output",
+    "large": "prototype_v2_feature_output",
+    "feature": "prototype_v2_feature_output",
+}
+
+
 _V2_REVISION_TIER_TARGET_MAP: dict[str, str] = {
     "small": "prototype_v2_output",
     "large": "prototype_v2_feature_output",

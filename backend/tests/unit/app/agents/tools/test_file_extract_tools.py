@@ -2809,12 +2809,12 @@ class TestModuleConstants:
             "txt",
             "md",
             "csv",
+            "htm",
+            "html",
             "json",
             "pdf",
             "docx",
             "xlsx",
             "pptx",
-            "htm",
-            "html",
         }
         assert fet._CONVERTED_FORMATS == {"docx", "xlsx", "pptx"}

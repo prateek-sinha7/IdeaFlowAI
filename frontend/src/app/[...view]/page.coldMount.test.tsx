@@ -1351,6 +1351,76 @@ describe("DashboardPage pipeline launch", () => {
   });
 });
 
+// --- pre-mint upload refusal banner
+
+describe("DashboardPage uploads-missing launch banner", () => {
+  const UPLOADS_MISSING_TEXT =
+    "The attached documents did not reach the server. Re-attach them and launch again.";
+  /** The backend's pre-mint refusal for a brief whose documents were never staged. */
+  const uploadsMissing = () =>
+    new ApiError(422, {
+      code: "uploads_missing",
+      message: "The attached documents were not uploaded.",
+      recoverable: true,
+      attachment_count: 2,
+    });
+
+  it("passes the re-attach message to the layout when the server refuses with uploads_missing", async () => {
+    const user = userEvent.setup();
+    h.conn.sendCommand.mockRejectedValue(uploadsMissing());
+    mount("/dashboard");
+    await untilDashboard();
+
+    await user.click(screen.getByRole("button", { name: "Start run" }));
+
+    await waitFor(() => expect(h.layout.props.launchError).toBe(UPLOADS_MISSING_TEXT));
+    expect(h.conn.attachRun).not.toHaveBeenCalled();
+  });
+
+  it("clears the message on the next launch attempt", async () => {
+    const user = userEvent.setup();
+    h.conn.sendCommand.mockRejectedValueOnce(uploadsMissing()).mockResolvedValueOnce("new-run");
+    mount("/dashboard");
+    await untilDashboard();
+    await user.click(screen.getByRole("button", { name: "Start run" }));
+    await waitFor(() => expect(h.layout.props.launchError).toBe(UPLOADS_MISSING_TEXT));
+
+    await user.click(screen.getByRole("button", { name: "Start run" }));
+
+    await waitFor(() => expect(h.conn.attachRun).toHaveBeenCalledWith("new-run"));
+    expect(h.layout.props.launchError).toBeNull();
+  });
+
+  it("clears the message when the user dismisses it", async () => {
+    const user = userEvent.setup();
+    h.conn.sendCommand.mockRejectedValue(uploadsMissing());
+    mount("/dashboard");
+    await untilDashboard();
+    await user.click(screen.getByRole("button", { name: "Start run" }));
+    await waitFor(() => expect(h.layout.props.launchError).toBe(UPLOADS_MISSING_TEXT));
+
+    act(() => h.layout.props.onDismissLaunchError?.());
+
+    await waitFor(() => expect(h.layout.props.launchError).toBeNull());
+  });
+
+  it.each([
+    ["another 422 code", () => new ApiError(422, { code: "bad_payload" })],
+    ["a 503", () => new ApiError(503, "busy")],
+  ])("does not show the re-attach message when the launch fails with %s", async (_label, makeError) => {
+    const user = userEvent.setup();
+    h.conn.sendCommand.mockRejectedValue(makeError());
+    mount("/dashboard");
+    await untilDashboard();
+
+    await user.click(screen.getByRole("button", { name: "Start run" }));
+
+    await waitFor(() => expect(h.conn.sendCommand).toHaveBeenCalled());
+    await waitFor(() => expect(h.layout.props.launchError).not.toBeNull());
+    expect(h.layout.props.launchError).not.toBe(UPLOADS_MISSING_TEXT);
+  });
+});
+
 // --- subscriptions + cleanup
 
 describe("DashboardPage SSE subscriptions", () => {

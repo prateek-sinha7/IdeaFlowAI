@@ -1595,6 +1595,10 @@ class KernelServices:
             )
 
         # ── (1) Resolve workflow_ref (R-12) ──────────────────────────────────────
+        target_manifest_json: dict[str, Any] | None = None
+        target_model_overrides: dict[str, Any] | None = None
+        target_attached_skills: list[dict[str, Any]] | None = None
+        target_attached_hooks: list[dict[str, Any]] | None = None
         if workflow_ref == "self":
             target_pipeline_type = self._pipeline_type
             target_agents: list | None = self._ordered_agents
@@ -1626,13 +1630,16 @@ class KernelServices:
             # must not import app.api (import-linter). ``ectx.run_id`` goes along so
             # the row compiles at no more trust than the run firing this trigger
             # (ISS-1164, QA-KB-126).
-            (
-                target_pipeline_type,
-                target_agents,
-                target_compiled,
-            ) = get_trigger_launch_port().resolve_saved_workflow(
+            target = get_trigger_launch_port().resolve_saved_workflow(
                 workflow_ref, ectx.owner_id, ectx.run_id
             )
+            target_pipeline_type = target.pipeline_type
+            target_agents = target.agents
+            target_compiled = target.compiled
+            target_manifest_json = target.manifest_json
+            target_model_overrides = target.model_overrides
+            target_attached_skills = target.attached_skills
+            target_attached_hooks = target.attached_hooks
 
         # ── (3)/(4) Mint via T27's core — parent_run_id + owner_id/workspace_id
         # unconditionally inherited from ectx (R-15) ─────────────────────────────
@@ -1651,13 +1658,14 @@ class KernelServices:
             compiled=target_compiled,
             od_context=None,
             validated_images=[],
-            model_overrides={},
+            model_overrides=target_model_overrides or {},
             user=SimpleNamespace(id=ectx.owner_id),
             source_workflow_run_id=None,
             selections=None,
             gate_agent_ids=None,
-            attached_skills=None,
-            attached_hooks=None,
+            attached_skills=target_attached_skills,
+            attached_hooks=target_attached_hooks,
+            manifest_json=target_manifest_json,
             parent_run_id_override=ectx.run_id,
             owner_id_override=ectx.owner_id,
             workspace_id_override=ectx.workspace_id,

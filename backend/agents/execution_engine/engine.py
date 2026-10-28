@@ -4848,7 +4848,7 @@ class ExecutionEngine:
         # an offset. The wave_scheduler strategy reads ``is_resuming`` to enable its
         # mid-wave worker filter (a completed wave/worker is not re-invoked). False for
         # every normal run (the mid-wave filter is dormant — byte/event-identical).
-        ectx.is_resuming = _resume_from > 0
+        ectx.is_resuming = _is_resume
         # T16 (R-12, R-14, R-20, F-06): the run's topic slug, computed ONCE here from
         # the user's run input and reused by every step — never recomputed per step,
         # or two steps (the preamble's filename vs. the artifact-guarantee check)
@@ -5077,17 +5077,25 @@ class ExecutionEngine:
         # A workflow that extracts its uploads itself (a step granted the declared
         # ``file_extract`` tool set) must not also receive the wizard's inlined
         # document text: with every page in its prompt the first agent does the
-        # whole workflow on its own. The files are in .uploads/, so keep only names.
+        # whole workflow on its own. Strip a document's text ONLY when
+        # .uploads/manifest.json lists that file — a document that never reached
+        # the sandbox has its inline text as the run's only copy, so it is kept
+        # (and prepare_brief_for_uploads logs a WARNING). The listing maps each
+        # header to a stored name with run_files' sanitize + de-duplicate rule as
+        # it applies to an EMPTY manifest. A reused sandbox (admitted chain root,
+        # or .uploads/ seeded from another run) already holds names: run_files
+        # then stores a new same-named upload under a "-N" name while the listing
+        # points at the older file. .uploads/manifest.json is the authoritative
+        # list there.
         if any("file_extract" in (s.tools.tool_sets or []) for s in compiled.steps):
             from agents.execution_engine.user_prompt import (
-                strip_inline_attachments,
-                write_user_prompt_to_sandbox,
+                strip_attachments_if_uploaded,
             )
+            from app.agents.sandbox import stored_upload_namer
 
-            _stripped = strip_inline_attachments(user_message)
-            if _stripped != user_message:
-                user_message = _stripped
-                write_user_prompt_to_sandbox(sandbox, user_message)
+            user_message = strip_attachments_if_uploaded(
+                sandbox, user_message, name_for=stored_upload_namer()
+            )
         # ── Roster seam (ADR-0003, refined by ADR-0008) ───────────────────────────
         # The plan FILLS IN the roster; it never overrules a caller that has one.
         # ``not agents`` is the load-bearing discriminator: rebuilding whenever the
@@ -15809,6 +15817,10 @@ class ExecutionEngine:
             run_manifest = getattr(wr, "manifest_json", None)
         finally:
             db.close()
+
+        # A resume is a new attempt over durable state. Drop only this run's stale
+        # process-local terminal state; durable rows and events remain authoritative.
+        self._state_machine.forget_run(run_id)
 
         # ── Migration 0040: a run launched from a Composer manifest must resume as
         # THAT workflow. Before this, the registry branch below rebuilt the roster

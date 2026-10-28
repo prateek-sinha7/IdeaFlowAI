@@ -377,6 +377,77 @@ def test_unsatisfiable_custom_composition_rejected_pre_mint(env):
     assert _RecordingEngine.invoked is False
 
 
+_ATTACHED_BRIEF = (
+    "create prototype from given docs\n\n"
+    "=== Attached: Business_Process_Requirements 1.pdf ===\n"
+    "page text\n"
+    "=== End: Business_Process_Requirements 1.pdf ==="
+)
+
+
+@pytest.fixture
+def plan_roster(monkeypatch):
+    """Give the stub engine the real, stateless ``_specs_from_plan``: a
+    custom-agent workflow (prototype_v2) has no registry roster, so launch_run
+    rebuilds it from the compiled plan through the engine."""
+    monkeypatch.setattr(
+        _RecordingEngine,
+        "_specs_from_plan",
+        engine_mod.ExecutionEngine._specs_from_plan,
+        raising=False,
+    )
+
+
+@pytest.mark.parametrize(
+    "extra_body",
+    [
+        {},
+        # prototype_v2 declares no ``chains_from``, so chain admission drops this
+        # id (declaration_gate) and the run would get a fresh, empty sandbox.
+        {"source_workflow_run_id": "00000000-0000-0000-0000-000000000001"},
+    ],
+    ids=["fresh", "source-not-admitted"],
+)
+def test_launch_rejects_uploads_missing_pre_mint_when_attachments_unstaged(
+    env, plan_roster, extra_body
+):
+    """Dev 413 RCA: the brief names attached documents but no stage id came with
+    it, and the workflow has a step granted the ``file_extract`` tool set (it
+    reads ``.uploads/``). The run could only fail minutes later, so the launch is
+    refused PRE-MINT with ``uploads_missing`` — no WorkflowRun, no execute."""
+    user = _seed_user(env)
+    env["state"]["user"] = user
+
+    resp = _post_launch(
+        env, message=_ATTACHED_BRIEF, pipeline_type="prototype_v2", **extra_body
+    )
+
+    assert resp.status_code == 422, resp.text
+    detail = resp.json()["detail"]
+    assert detail["code"] == "uploads_missing"
+    assert detail["attachment_count"] == 1
+    assert "Business_Process_Requirements" not in resp.text
+    assert _run_count(env) == 0
+    assert _RecordingEngine.invoked is False
+
+
+def test_launch_passes_uploads_gate_when_stage_ids_present(env, plan_roster):
+    """Positive control for the gate above: the SAME brief with a stage id is
+    not refused (an unknown stage is skipped at ingest, never a launch error)."""
+    user = _seed_user(env)
+    env["state"]["user"] = user
+
+    resp = _post_launch(
+        env,
+        message=_ATTACHED_BRIEF,
+        pipeline_type="prototype_v2",
+        staged_upload_ids=["0" * 32],
+    )
+
+    assert resp.status_code == 200, resp.text
+    assert _run_count(env) == 1
+
+
 def test_missing_message_is_a_422_bad_payload(env):
     """A launch with no ``message`` is a malformed payload (pydantic 422) — no
     run is minted."""
@@ -874,6 +945,38 @@ def test_owned_source_links_the_child(env):
     child = _latest_run(env)
     assert child.id == resp.json()["run_id"]
     assert child.parent_run_id == parent_id
+
+
+@pytest.mark.issue("ISS-949")
+def test_admitted_chain_source_sets_source_run_id_not_parent(env, monkeypatch):
+    """An admitted owned source is persisted through source_run_id, not revision ancestry."""
+    user = _seed_user(env)
+    parent_id = _seed_run_owned_by(env, user.id)
+    env["state"]["user"] = user
+    from app.api import run_commands as rc
+
+    monkeypatch.setattr(
+        rc,
+        "admit_chain_launch",
+        lambda *_args, **_kwargs: rc.ChainAdmission(
+            active=True,
+            source_id=parent_id,
+            record=None,
+            selection=None,
+            refusal_reason=None,
+        ),
+    )
+    resp = _post_launch(
+        env,
+        message="continue from prior",
+        pipeline_type="user_stories",
+        source_workflow_run_id=parent_id,
+    )
+    assert resp.status_code == 200, resp.text
+    child = _latest_run(env)
+    assert child.id == resp.json()["run_id"]
+    assert child.source_run_id == parent_id
+    assert child.parent_run_id is None
 
 
 @pytest.mark.issue("ISS-949")

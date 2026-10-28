@@ -11,10 +11,10 @@
  */
 
 import { describe, expect, it, vi } from "vitest";
-import { screen, waitFor } from "@testing-library/react";
+import { act, renderHook, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
-import { IdeaInputPage } from "./IdeaInputPage";
+import { IdeaInputPage, useBriefAttachments } from "./IdeaInputPage";
 import { SkillsHooksProvider } from "@/context/SkillsHooksContext";
 import renderWithProviders from "@/test/renderWithProviders";
 
@@ -141,30 +141,26 @@ describe("IdeaInputPage — brief never claims a staged document is unreadable",
   });
 
   it("gives an honest, non-defeatist note (not '[could not extract text]') when staging itself also fails", async () => {
+    // A failed stage now BLOCKS Run (dev-upload fail-fast: launching would mint a
+    // run with no `.uploads/`), so the note is read from the composed brief
+    // blocks the page would send — `useBriefAttachments().fileBlocks` — rather
+    // than from a launch payload. The page-level block is pinned in
+    // IdeaInputPage.attachments.test.tsx.
     mockStageRunFile.mockRejectedValue(new Error("stage failed"));
     mockExtractFileText.mockRejectedValue(new Error("415"));
 
-    const user = userEvent.setup();
-    const { onRun, container } = renderPage();
-
-    await user.type(screen.getByRole("textbox"), "Build the app.");
-
-    const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement;
+    const { result } = renderHook(() => useBriefAttachments());
     const file = new File(["binary content"], "unstageable.xlsx", {
       type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     });
-    await user.upload(fileInput, file);
+    act(() => result.current.handleFiles([file] as unknown as FileList));
 
-    await waitFor(() => expect(screen.getByText("unstageable.xlsx")).toBeInTheDocument());
-    await waitFor(() => expect(mockExtractFileText).toHaveBeenCalled());
-
-    await user.click(screen.getByRole("button", { name: /run workflow/i }));
-
-    expect(onRun).toHaveBeenCalledTimes(1);
-    const [message] = onRun.mock.calls[0];
+    await waitFor(() => expect(result.current.attachedFileContents).toHaveLength(1));
+    const message = result.current.fileBlocks;
     expect(message).toContain("=== Attached: unstageable.xlsx ===");
     expect(message).not.toContain("[could not extract text]");
     expect(message).not.toMatch(/unreadable|empty/i);
     expect(message).toContain("extract_text");
+    expect(result.current.uploadGate).toEqual({ kind: "failed", names: ["unstageable.xlsx"] });
   });
 });
