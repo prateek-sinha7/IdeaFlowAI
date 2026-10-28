@@ -116,7 +116,7 @@ class WorkflowRunResponse(BaseModel):
     title: str
     type: str
     status: str
-    input: str
+    input: Optional[str] = None
     output: Optional[str] = None
     agent_outputs: Optional[str] = None
     agent_count: int

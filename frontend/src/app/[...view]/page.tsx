@@ -52,6 +52,8 @@ import { WorkflowDetailView } from "@/components/savedworkflows/WorkflowDetailVi
 // `/workflows/{id}/run` — see the wizardMode early-return below for why.
 import { LaunchWizard } from "@/components/workflow/LaunchWizard";
 import type { LaunchMode } from "@/lib/launchDraft";
+import { uploadFigmaFrames } from "@/lib/prototype-api";
+import { getPendingFigmaFrames, clearPendingFigmaFrames } from "@/lib/figma-frame-store";
 
 /**
  * Map the SSE connection phase (RunConnectionPhase) onto the ConnectionStatus
@@ -646,13 +648,15 @@ export default function DashboardPage() {
   // `gateAgentIds` (Phase 6, T5b) is present ONLY when the templates wizard's
   // Review-gates section was touched; absent ⇒ backend static gate default.
   const pendingOdProtoRef = useRef<{
-    templateId: string; designSystemId: string; brief: string; discovery: unknown;
+    templateId: string; designSystemId?: string; brief: string; discovery: unknown;
     customDsBody?: string; customTemplateBody?: string; sourceRunId?: string; gateAgentIds?: string[];
     modelOverrides?: Record<string, string>; selections?: Record<string, Record<string, unknown>>;
     images?: { name: string; mime_type: string; data: string }[];
     stagedUploadIds?: string[];
     agentIds?: string[];
     pipelineType?: string;
+    /** Design Ingestor source_type — forwarded to extraParams as source_type (snake_case). */
+    sourceType?: "catalog" | "html" | "figma";
   } | null>(null);
 
   // Staged ppt run — written when authenticated, consumed when connected.
@@ -665,6 +669,8 @@ export default function DashboardPage() {
     agentIds?: string[];
     /** Which deck pipeline the staged draft launches (spec 017). Absent = `ppt`. */
     pipelineType?: string;
+    /** Design Ingestor source_type — forwarded to extraParams as source_type (snake_case). */
+    sourceType?: "catalog" | "html" | "figma";
   } | null>(null);
 
   // Phase 12 (§22 / RESUME-03) — wave/subagent tree state assembled from the
@@ -893,6 +899,9 @@ export default function DashboardPage() {
     images?: { name: string; mime_type: string; data: string }[];
     stagedUploadIds?: string[];
     agentIds?: string[];
+    pipelineType?: string;
+    /** Design Ingestor source_type — forwarded to extraParams as source_type (snake_case). */
+    sourceType?: "catalog" | "html" | "figma";
   } | null>(null);
   // Pending ppt params. `pipelineType` (spec 017) selects WHICH deck pipeline the
   // staged draft launches — absent means `ppt`, the only one before ppt_v2. The
@@ -906,6 +915,8 @@ export default function DashboardPage() {
     stagedUploadIds?: string[];
     agentIds?: string[];
     pipelineType?: string;
+    /** Design Ingestor source_type — forwarded to extraParams as source_type (snake_case). */
+    sourceType?: "catalog" | "html" | "figma";
   } | null>(null);
 
   // ISS-844 (QA-PS-040): one-shot guard for the `signedIn` dispatch in the
@@ -966,6 +977,7 @@ export default function DashboardPage() {
         stagedUploadIds?: string[];
         agentIds?: string[];
         pipelineType?: string;
+        sourceType?: "catalog" | "html" | "figma";
       };
       const discovery = JSON.parse(sessionStorage.getItem("prototype.discovery") ?? "null");
       // KAN-87: templateId is now optional (no-template mode). Only require designSystemId.
@@ -992,6 +1004,8 @@ export default function DashboardPage() {
         stagedUploadIds: draft.stagedUploadIds,
         agentIds: draft.agentIds,
         pipelineType: draft.pipelineType,
+        // Design Ingestor (GAP-1): carry source_type through to extraParams.
+        sourceType: draft.sourceType,
       };
     } catch { /* ignore malformed session data */ }
   }, [isAuthenticated]);
@@ -1013,6 +1027,7 @@ export default function DashboardPage() {
         stagedUploadIds?: string[];
         agentIds?: string[];
         pipelineType?: string;
+        sourceType?: "catalog" | "html" | "figma";
       };
       // FIX-216c: allow empty brief when chaining (the chain context block IS the
       // brief; wizard canContinue guard already validated it). Only require templateId.
@@ -1034,6 +1049,7 @@ export default function DashboardPage() {
         stagedUploadIds: draft.stagedUploadIds,
         agentIds: draft.agentIds,
         pipelineType: draft.pipelineType,
+        sourceType: draft.sourceType,
       };
     } catch { /* ignore malformed session data */ }
   }, [isAuthenticated]);
@@ -2532,16 +2548,18 @@ export default function DashboardPage() {
           stagedUploadIds?: string[];
           agentIds?: string[];
           pipelineType?: string;
+          sourceType?: "catalog" | "html" | "figma";
         };
         const discovery = JSON.parse(sessionStorage.getItem("prototype.discovery") ?? "null");
-        // KAN-87: templateId is now optional (no-template mode). Only require designSystemId.
+        // KAN-87: templateId is now optional (no-template mode). Only require designSystemId
+        // unless figma frames are present (they replace the design system for prototype_v2).
         // ISS-155: the brief clause is GONE here so this reload/reconnect path agrees with
         // the direct path at :426, which dropped it in FIX-216c. While the two disagreed a
         // chained launch fired normally but SILENTLY never started if the user reloaded
         // before SSE connected — same draft, two verdicts. An empty brief is now refused
         // where refusing it is useful: the wizard (`LaunchWizard.canContinue`, with a
         // visible "Add a brief" pill) and the ingress (`launch_run` → `empty_brief`).
-        if (!draft.designSystemId) return;
+        if (!draft.designSystemId && !sessionStorage.getItem("prototype_v2.hasFigmaFrames")) return;
         pending = {
           templateId: draft.templateId ?? "",  // empty string = no template
           designSystemId: draft.designSystemId,
@@ -2557,9 +2575,18 @@ export default function DashboardPage() {
           stagedUploadIds: draft.stagedUploadIds,
           agentIds: draft.agentIds,
           pipelineType: draft.pipelineType,
+          // Design Ingestor (GAP-1): carry source_type through to extraParams.
+          sourceType: draft.sourceType,
         };
       } catch { return; }
     }
+
+    // TypeScript's flow analysis cannot prove `pending` is non-null after a
+    // try-block assignment (it conservatively treats try as possibly not executed).
+    // Logically it is always set here: either from the ref, from the try block,
+    // or the catch returned. This guard satisfies the type-checker without
+    // changing runtime behaviour.
+    if (!pending) return;
 
     pendingOdProtoRef.current = null;
     sessionStorage.removeItem("prototype.pending");
@@ -2578,7 +2605,7 @@ export default function DashboardPage() {
     setPendingOdProtoParams({
       brief: pending.brief,
       templateId: pending.templateId,
-      designSystemId: pending.designSystemId,
+      designSystemId: pending.designSystemId ?? "",  // figma-frames path: no DS selected
       discovery: pending.discovery,
       customDsBody: pending.customDsBody,
       customTemplateBody: pending.customTemplateBody,
@@ -2597,6 +2624,8 @@ export default function DashboardPage() {
       // dashboard's webPipeline falls back to `prototype` and a prototype_v2
       // launch silently starts the wrong pipeline.
       ...(pending.pipelineType ? { pipelineType: pending.pipelineType } : {}),
+      // Design Ingestor source_type — tells launch_context.py which ingestor path to use.
+      ...(pending.sourceType ? { sourceType: pending.sourceType } : {}),
     });
   // effectiveConnectionStatus drives the re-run.
   }, [effectiveConnectionStatus]);
@@ -2620,6 +2649,7 @@ export default function DashboardPage() {
           stagedUploadIds?: string[];
           agentIds?: string[];
         pipelineType?: string;
+        sourceType?: "catalog" | "html" | "figma";
         };
         // ISS-155: brief clause dropped to match the direct path at :463 (see the
         // prototype twin above) — the reload path must not reach a different verdict
@@ -2640,6 +2670,7 @@ export default function DashboardPage() {
           stagedUploadIds: draft.stagedUploadIds,
           agentIds: draft.agentIds,
           pipelineType: draft.pipelineType,
+          sourceType: draft.sourceType,
         };
       } catch { return; }
     }
@@ -2677,6 +2708,8 @@ export default function DashboardPage() {
       ...(pending.images && pending.images.length > 0 ? { images: pending.images } : {}),
       ...(pending.stagedUploadIds && pending.stagedUploadIds.length > 0 ? { stagedUploadIds: pending.stagedUploadIds } : {}),
       ...(pending.pipelineType ? { pipelineType: pending.pipelineType } : {}),
+      // Design Ingestor source_type — tells launch_context.py which ingestor path to use.
+      ...(pending.sourceType ? { sourceType: pending.sourceType } : {}),
     });
   }, [effectiveConnectionStatus]);
 
@@ -3656,7 +3689,16 @@ export default function DashboardPage() {
         console.error("cold-mount run fetch failed:", runId, err);
       })
       .finally(() => {
-        if (tab) runTabDeepLink.requestOpenTab(tab, deepLinkAgentIdFor(parsedView));
+        // FIX: mirror the already-tracked path's `?? "preview"` fallback so a
+        // cold-mount on the bare run-detail route always lands on the Preview tab
+        // instead of relying on the auto-tab effect, which races against the
+        // pipeline_start → isRunning=true state during durable event replay.
+        const openTab =
+          tab ??
+          (parsedView.screen === "run-detail" || parsedView.screen === "run-version"
+            ? "preview"
+            : undefined);
+        if (openTab) runTabDeepLink.requestOpenTab(openTab, deepLinkAgentIdFor(parsedView));
       });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [viewPathKey, isAuthenticated, handleSelectWorkflowRun, runTabDeepLink.requestOpenTab]);
@@ -4516,6 +4558,21 @@ export default function DashboardPage() {
               getWorkflows(freshToken, { limit: 50 })
                 .then(({ runs }) => setRecentRuns(runs))
                 .catch(() => {/* best-effort — stale list is recoverable on next terminal event */});
+            }
+            // Figma frames upload — fire-and-forget after run creation.
+            // LaunchWizard stored frames in the module-level figma-frame-store
+            // (not sessionStorage — avoids QuotaExceededError for large files).
+            const hasFigmaFramesSentinel = sessionStorage.getItem("prototype_v2.hasFigmaFrames");
+            if (hasFigmaFramesSentinel) {
+              try {
+                const frames = getPendingFigmaFrames();
+                clearPendingFigmaFrames(); // consume once
+                const uploadToken = getToken();
+                if (uploadToken && frames.length > 0) {
+                  uploadFigmaFrames(uploadToken, launchedRunId, frames)
+                    .catch(() => { /* non-fatal — run starts, frames just won't be there */ });
+                }
+              } catch { /* store unavailable — ignore */ }
             }
             return launchedRunId;
           }

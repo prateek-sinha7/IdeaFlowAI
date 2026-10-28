@@ -51,11 +51,18 @@ def _revision_triple():
     this case (M10), the real production agents are both more faithful AND the only
     ones for which the assertions below can be genuinely satisfied (see R2's journal
     "Open items" — this swap was anticipated there, not invented here).
+
+    NOTE: design-ingestor (order=1, conditional) was added before prototype-specify in
+    PIPELINE_AGENTS["prototype"]. The spec-revision sub-pipeline is always
+    specify→plan→analyze regardless of preamble agents, so we name them explicitly.
     """
     from agents.loader import load_agent_spec
-    from agents.registry import PIPELINE_AGENTS
 
-    return [load_agent_spec(a) for a in PIPELINE_AGENTS["prototype"][:3]]
+    # The spec-revision triple is always specify / plan / analyze. Using
+    # PIPELINE_AGENTS["prototype"][:3] would pick up design-ingestor as index 0
+    # now that it is registered as a conditional first step (order=1).
+    _SPEC_REVISION_IDS = ["prototype-specify", "prototype-plan", "prototype-analyze"]
+    return [load_agent_spec(a) for a in _SPEC_REVISION_IDS]
 
 
 def _write_ref(ectx, run_id: str, producer_id: str, content: str) -> None:

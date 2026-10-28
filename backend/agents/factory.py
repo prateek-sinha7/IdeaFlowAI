@@ -1126,11 +1126,19 @@ def _compose_injection(spec, ctx: AgentContext, injects: list[str]) -> str:
             return _compose_injection_no_template(spec, od, injects, sections)
         # od_context is present but template_body is missing — this is a real
         # configuration error for an od_* pipeline (template was expected).
-        raise TemplateMissingError(
-            f"Agent '{spec.id}' declares injects=['template', ...] but no template "
-            f"body was loaded (od_context missing 'template_body'). Cannot compose "
-            f"system prompt — halting before execution."
-        )
+        # Exception: for figma/html source types the Design Ingestor writes the
+        # real SKILL.md to disk (context/design/template/SKILL.md) AFTER this
+        # context is built, and the opendesign context_provider injects it at
+        # step-execution time. Suppress the error for those runs and let the
+        # provider supply the template block at runtime.
+        if od.get("source_type") in ("figma", "html"):
+            pass  # provider handles injection from disk; continue building sections
+        else:
+            raise TemplateMissingError(
+                f"Agent '{spec.id}' declares injects=['template', ...] but no template "
+                f"body was loaded (od_context missing 'template_body'). Cannot compose "
+                f"system prompt — halting before execution."
+            )
 
     # 0. CRITICAL OUTPUT RULES — deliberately removed (FIX-017 / 2026-06-17).
     # This block was prototype-specific: rule 2 ("routed sections") and rule 5

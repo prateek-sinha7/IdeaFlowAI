@@ -76,6 +76,7 @@ class TestPrototypePipelineEndpointReturnsRealRegistry:
         assert body["pipeline_type"] == "prototype"
         ids = [a["id"] for a in body["agents"]]
         assert ids == [
+            "design-ingestor",
             "prototype-specify",
             "prototype-plan",
             # KAN-86 (ff94f7c1) added the Spec Kit analyze step between plan and

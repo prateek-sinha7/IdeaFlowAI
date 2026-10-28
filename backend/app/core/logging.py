@@ -40,6 +40,32 @@ class _RequestIdFilter(logging.Filter):
         return True
 
 
+class _SuppressProactorConnectionReset(logging.Filter):
+    """Suppress WinError 10054 log noise from the Windows ProactorEventLoop.
+
+    When an SSE or HTTP client abruptly closes a connection (tab closed,
+    network drop, etc.), asyncio's ProactorEventLoop tries to call
+    socket.shutdown(SHUT_RDWR) in _call_connection_lost() but the socket is
+    already gone — raising a ConnectionResetError that default_exception_handler
+    logs at ERROR on the 'asyncio' logger.  The disconnect is already complete;
+    the error indicates nothing actionable.
+
+    This filter drops those records before they reach any handler so they never
+    appear in the console or JSON log stream.  We match on BOTH the exception
+    type AND the callback name so only this specific teardown path is silenced —
+    any other ConnectionResetError reaching the asyncio logger still gets logged.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if record.levelno != logging.ERROR:
+            return True
+        exc_info = record.exc_info
+        if exc_info and isinstance(exc_info[1], ConnectionResetError):
+            if "_call_connection_lost" in record.getMessage():
+                return False  # suppress — benign SSE/HTTP client disconnect
+        return True
+
+
 class _JsonFormatter(logging.Formatter):
     """M-06: JSON log lines with static service/environment fields + request_id.
 
@@ -316,3 +342,8 @@ def configure_logging() -> None:
     logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
     logging.getLogger("httpx").setLevel(logging.WARNING)
     logging.getLogger("httpcore").setLevel(logging.WARNING)
+    # Suppress WinError 10054 teardown noise from the ProactorEventLoop.
+    # Belt-and-suspenders alongside the asyncio exception handler in main.py:
+    # this filter fires at import time, so it catches any disconnect that
+    # happens before the lifespan's set_exception_handler call runs.
+    logging.getLogger("asyncio").addFilter(_SuppressProactorConnectionReset())

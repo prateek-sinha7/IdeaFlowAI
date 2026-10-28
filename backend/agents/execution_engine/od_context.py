@@ -188,6 +188,19 @@ def load_prototype_context(
         else ""
     )
 
+    # ── Build template_files ───────────────────────────────────────────────
+    # For catalog templates, read files from disk. For HTML custom uploads, also
+    # stage the raw HTML as raw-upload.html so the Design Ingestor can read it at
+    # .context/design/template/raw-upload.html (Design Ingestor PATH B).
+    _catalog_files = od_loader.get_template_files(template_id)
+    if custom_template_body and "raw-upload.html" not in _catalog_files:
+        _html = custom_template_body.strip()
+        if len(_html) > EXAMPLE_MAX_CHARS:
+            _html = _html[:EXAMPLE_MAX_CHARS] + "\n...[truncated]"
+        _template_files: dict[str, str] = {**_catalog_files, "raw-upload.html": _html}
+    else:
+        _template_files = _catalog_files
+
     return {
         "template_id": template_id,
         "template_body": template["body"],
@@ -201,7 +214,8 @@ def load_prototype_context(
         "template_name": template.get("name"),
         "ds_name": ds.get("name", ds_id) if not custom_ds_body else ds_id,
         # A custom upload has no folder, so no files; a catalog template brings its own.
-        "template_files": od_loader.get_template_files(template_id),
+        # For HTML custom uploads, raw-upload.html is also included (see above).
+        "template_files": _template_files,
         "ds_files": ds_files,
     }
 
@@ -346,4 +360,40 @@ def load_ppt_od_context(
         "is_design_system_required": is_design_system_required,
         "template_files": template_files,
         "ds_files": ds_files,
+    }
+
+
+def load_figma_ingest_context(frame_count: int = 0) -> dict[str, Any]:
+    """Build a minimal od_context dict for a Figma-frames run.
+
+    Does NOT call od_loader — there is no catalog template or design system
+    to load. The Design Ingestor agent owns all design file writes.
+
+    template_body is set to a non-None placeholder so the factory's
+    TemplateMissingError guard passes for agents that declare injects=['template'].
+    The opendesign provider replaces this placeholder with the real SKILL.md
+    content read from context/design/template/SKILL.md at runtime.
+    """
+    return {
+        "template_id": "custom-figma",
+        "template_name": f"Figma Upload ({frame_count} screens)",
+        "ds_id": "derived",
+        "ds_name": "Derived from Figma",
+        "no_template": False,
+        "is_design_system_required": None,
+        "source_type": "figma",
+        "figma_frame_count": frame_count,
+        # None — the Design Ingestor agent is the sole owner of .context/design/
+        # writes. Setting this to None (falsy) prevents _write_od_context_to_sandbox
+        # from pre-writing a placeholder SKILL.md before the ingestor runs.
+        # Subsequent steps get their od_context rebuilt from disk by
+        # rebuild_od_context_from_sandbox after the ingestor has written
+        # context/design/template/SKILL.md (no leading dot, bridged by reader).
+        # The factory's _compose_injection now skips TemplateMissingError for
+        # source_type in ("figma", "html") — see factory.py.
+        "template_body": None,
+        "ds_body": "",
+        "craft_block": "",
+        "template_files": {},
+        "ds_files": {},
     }

@@ -195,6 +195,8 @@ def _run_git(
             preexec_fn=_apply_child_rlimits,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=timeout,
         )
     except subprocess.TimeoutExpired:

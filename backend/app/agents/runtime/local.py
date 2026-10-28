@@ -398,6 +398,8 @@ class LocalWorkspace:
             check=True,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             env=self._git_env(
                 env
             ),  # None ⇒ inherit; clone threads a GIT_ALLOW_PROTOCOL guard
@@ -547,6 +549,8 @@ class LocalWorkspace:
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
+            encoding="utf-8",
+            errors="replace",  # never crash the reader thread on a stray non-UTF-8 byte
             **popen_kwargs,
         )
         try:
@@ -754,6 +758,10 @@ class LocalWorkspace:
         if unignored (Requirement 18 AC 3).
         """
         content = "\n".join(self._GITIGNORE_PATHS) + "\n"
+        # Also gitignore .figma/ — binary PNG design assets that should not be
+        # git-tracked (agents write there but the files are not deliverable content;
+        # leaving them untracked causes "degraded" finalization status).
+        content += ".figma/\n"
         (self._root / ".gitignore").write_text(content, encoding="utf-8")
 
     def is_dirty(self) -> bool:
@@ -1106,6 +1114,8 @@ class LocalWorkspace:
                 cwd=self._root,
                 stderr=subprocess.DEVNULL,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 env=self._git_env(),
             )
             return [p.strip() for p in out.splitlines() if p.strip()]
@@ -1136,6 +1146,8 @@ class LocalWorkspace:
                 cwd=self._root,
                 stderr=subprocess.DEVNULL,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 env=self._git_env(),
             )
         except Exception:  # noqa: BLE001 — non-raising: callers handle an empty map

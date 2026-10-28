@@ -205,7 +205,7 @@ describe("DashboardPage shallow run-tab navigation", () => {
   ])("requests the tab for %s without refetching the open run", async (path, tab, agentId) => {
     const view = mount("/runs/r1");
     await waitFor(() => expect(props()?.contentSourceRunId).toBe("r1"));
-    expect(props().deepLinkTarget).toBeNull();
+    expect(props().deepLinkTarget).toEqual(expect.objectContaining({ tab: "preview" }));
 
     navigateShallow(view, path);
 

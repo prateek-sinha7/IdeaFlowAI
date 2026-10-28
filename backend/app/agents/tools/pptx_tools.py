@@ -613,6 +613,8 @@ def _run_audit(script: str, *args: str) -> tuple[int, str]:
         [sys.executable, str(_audit_scripts_dir() / script), str(path), *args],
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         timeout=120,
     )
     return proc.returncode, (proc.stdout + proc.stderr).strip()

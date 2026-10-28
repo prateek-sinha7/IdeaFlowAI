@@ -340,6 +340,22 @@ async def test_workflow_agents_free_of_world_blocks(workflow: str) -> None:
     assert agent_inputs, f"{workflow} emitted no agent_input events"
     first_agent_id = agent_inputs[0]["data"]["agent_id"]
 
+    # Phase 1 / design-ingestor: when a conditional step at spec position 0 is
+    # skipped (e.g. design-ingestor with source_type="catalog"), the first
+    # EXECUTING agent has spec index > 0.  The engine invariant (Req 30 AC 5,
+    # test_phase7_seam2_removal) is that only the agent at index==0 gets the
+    # brief — a positional check that cannot be overridden.  So we only assert
+    # the brief presence when first_agent_id IS the first agent in the compiled
+    # spec (pipeline_start.data.agents[0]).  When a conditional step was skipped
+    # the first executing agent correctly has no brief, and asserting its absence
+    # would duplicate test_row8_non_first_agent_receives_no_brief.
+    _ps = next(
+        (e for e in result.events if e.get("type") == "pipeline_start"),
+        None,
+    )
+    _spec_agents = (_ps or {}).get("data", {}).get("agents") or []
+    _first_spec_agent_id = _spec_agents[0].get("id") if _spec_agents else None
+
     for ev in agent_inputs:
         agent_id = ev["data"]["agent_id"]
         msg = ev["data"].get("context_message", "")
@@ -350,7 +366,7 @@ async def test_workflow_agents_free_of_world_blocks(workflow: str) -> None:
                 assert (
                     marker not in msg
                 ), f"{workflow}/{agent_id} (prompt_policy={policy}) leaked {marker!r}"
-        if agent_id == first_agent_id:
+        if agent_id == first_agent_id and agent_id == _first_spec_agent_id:
             assert (
                 "=== ORIGINAL USER REQUEST ===" in msg
             ), f"{workflow}: first agent {agent_id} is missing the brief"

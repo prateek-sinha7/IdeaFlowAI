@@ -71,6 +71,10 @@ export interface LaunchDraftInputs {
    *  `.uploads/manifest.json`) can actually open. */
   stagedUploadIds?: string[];
   agentIds: string[];
+  /** Design Ingestor source type — "catalog" | "html" | "figma".
+   *  Appended to the draft so launch_context.py receives it explicitly.
+   *  Optional — absent for pre-ingestor drafts (backward-compat). */
+  sourceType?: "catalog" | "html" | "figma";
 }
 
 export interface LaunchDraft {
@@ -114,6 +118,7 @@ export function buildLaunchDraft(mode: LaunchMode, inputs: LaunchDraftInputs): L
     images,
     stagedUploadIds,
     agentIds,
+    sourceType,
   } = inputs;
 
   const draftJson = JSON.stringify({
@@ -137,6 +142,9 @@ export function buildLaunchDraft(mode: LaunchMode, inputs: LaunchDraftInputs): L
     // Appended for every SECOND-deliverable family member (ppt_v2, prototype_v2)
     // so the base `ppt`/`prototype` drafts stay byte-identical to the retired flow.
     ...(mode === "ppt_v2" || mode === "prototype_v2" ? { pipelineType: mode } : {}),
+    // Design Ingestor source_type — appended last, optional, so pre-ingestor
+    // drafts are byte-identical to the retired flow (INV-3 parity gate safe).
+    ...(sourceType ? { sourceType } : {}),
   });
 
   return { ...MODE_KEYS[mode], draftJson };

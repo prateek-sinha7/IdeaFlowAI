@@ -286,7 +286,7 @@ async def test_custom_revision_seed_carries_the_degraded_parent_status(monkeypat
         f"as if it were clean (ISS-735). seed={seeded['p-degraded']!r}"
     )
     assert seeded["p-clean"].endswith(
-        "=== END REVISION INSTRUCTION ==="
+        "=== END REQUEST ==="
     ), f"a clean parent must seed exactly as before. seed={seeded['p-clean']!r}"
 
 

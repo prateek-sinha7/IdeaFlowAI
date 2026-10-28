@@ -255,6 +255,8 @@ export interface DashboardLayoutProps {
      *  side's `pipelineType` (spec 017) so a second web deliverable —
      *  `prototype_v2` — launches itself instead of silently starting `prototype`. */
     pipelineType?: string;
+    /** Design Ingestor source_type — forwarded to extraParams as source_type (snake_case). */
+    sourceType?: "catalog" | "html" | "figma";
   } | null;
   onClearPendingOdProto?: () => void;
   pendingOdPptParams?: {
@@ -1504,6 +1506,9 @@ export function DashboardLayout({
       // moves them into the run's `.uploads/` — without this a file-reading workflow starts
       // with an empty `.uploads/` and its planner has nothing to read.
       ...(pendingOdProtoParams.stagedUploadIds && pendingOdProtoParams.stagedUploadIds.length > 0 ? { staged_upload_ids: pendingOdProtoParams.stagedUploadIds } : {}),
+      // Design Ingestor (GAP-1): tell launch_context.py which ingestor path to take.
+      // Sent as snake_case so LaunchCommand.source_type receives it directly.
+      ...(pendingOdProtoParams.sourceType ? { source_type: pendingOdProtoParams.sourceType } : {}),
     };
 
     if (onStartPipeline) {

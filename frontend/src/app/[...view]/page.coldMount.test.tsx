@@ -918,7 +918,7 @@ describe("DashboardPage run reopen", () => {
     mount("/runs/r1");
     await waitFor(() => expect(props()?.contentSourceRunId).toBe("r1"));
 
-    expect(props().deepLinkTarget).toBeNull();
+    expect(props().deepLinkTarget).toEqual(expect.objectContaining({ tab: "preview" }));
   });
 
   it("threads a pinned version from the path down to the layout", async () => {

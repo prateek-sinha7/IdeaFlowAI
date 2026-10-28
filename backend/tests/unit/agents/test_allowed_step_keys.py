@@ -150,6 +150,12 @@ _DISPOSITIONS: dict[str, tuple[object, object]] = {
     # ── owned write surface: outputs + replaces (plan.py Step.outputs/replaces) ──
     "outputs": (["index.html"], lambda s, c: s.outputs == ["index.html"]),
     "replaces": (True, lambda s, c: s.replaces is True),
+    # ── design-ingestor / Phase 1: step-level source_type run-condition ───────
+    # Consumed directly onto Step.condition (str pass-through in _compile_step).
+    "condition": (
+        "source_type == 'html'",
+        lambda s, c: s.condition == "source_type == 'html'",
+    ),
 }
 
 

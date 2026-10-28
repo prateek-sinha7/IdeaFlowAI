@@ -1,5 +1,6 @@
 """FastAPI application entry point for the AI SaaS Platform."""
 
+import asyncio
 import json
 import logging
 import os
@@ -7,17 +8,6 @@ import sys
 import time
 import uuid
 from contextlib import asynccontextmanager
-
-# ── Windows asyncio fix ────────────────────────────────────────────────────────
-# Playwright (used by the html_render validator) launches a subprocess via
-# asyncio. On Windows the default SelectorEventLoop does NOT support subprocess
-# creation — only the ProactorEventLoop does. Setting the policy here, before
-# uvicorn creates the loop, makes asyncio.create_subprocess_exec work correctly.
-# This is a no-op on Linux/macOS (the condition is never true there).
-if sys.platform == "win32":
-    import asyncio
-
-    asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
 
 from botocore.exceptions import BotoCoreError
 from fastapi import FastAPI, HTTPException, Request
@@ -27,43 +17,67 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy import inspect, text
 
-from app.api.auth import router as auth_router
-from app.api.chats import router as chats_router
-from app.api.agents import router as agents_router
-from app.api.skills import router as skills_router
-from app.api.hooks import router as hooks_router
-from app.api.workflows import router as workflows_router
-from app.api.capabilities import router as capabilities_router
-from app.api.runs import router as runs_router
-from app.api.analytics import router as analytics_router
-from app.api.run_commands import router as run_commands_router
-from app.api.run_stream import router as run_stream_router
-from app.api.user_agents import router as user_agents_router
-from app.api.user_workflows import router as user_workflows_router
-from app.api.handoff import router as handoff_router
-from app.api.settings import router as settings_router
-from app.api.mcp import router as mcp_router
-from app.api.install import router as install_router
-from app.api.websocket_handoff import router as websocket_handoff_router
-from app.api.prototype_templates import router as prototype_templates_router
-from app.api.ppt_templates import router as ppt_templates_router
 from app.api.admin import router as admin_router
 from app.api.admin_capacity import router as admin_capacity_router
 from app.api.admin_capacity_history import router as admin_capacity_history_router
+from app.api.agents import router as agents_router
+from app.api.analytics import router as analytics_router
+from app.api.auth import router as auth_router
+from app.api.capabilities import router as capabilities_router
+from app.api.chats import router as chats_router
 from app.api.file_extract import router as file_extract_router
-from app.api.run_files import router as run_files_router
+from app.api.handoff import router as handoff_router
+from app.api.hooks import router as hooks_router
+from app.api.install import router as install_router
+from app.api.mcp import router as mcp_router
+from app.api.ppt_templates import router as ppt_templates_router
+from app.api.prototype_templates import router as prototype_templates_router
+from app.api.run_commands import router as run_commands_router
 from app.api.run_figma_export import router as run_figma_export_router
+from app.api.run_figma_frames import router as run_figma_frames_router
+from app.api.run_files import router as run_files_router
+from app.api.run_stream import router as run_stream_router
+from app.api.runs import router as runs_router
+from app.api.settings import router as settings_router
+from app.api.skills import router as skills_router
+from app.api.user_agents import router as user_agents_router
+from app.api.user_workflows import router as user_workflows_router
+from app.api.websocket_handoff import router as websocket_handoff_router
+from app.api.workflows import router as workflows_router
 from app.core.config import settings
+from app.core.logging import configure_logging, _request_id_var
 from app.models.database import engine
+
+# ── Windows asyncio fix ────────────────────────────────────────────────────────
+# Playwright (used by the html_render validator) launches a subprocess via
+# asyncio. On Windows the default SelectorEventLoop does NOT support subprocess
+# creation — only the ProactorEventLoop does. Setting the policy here, before
+# uvicorn creates the loop, makes asyncio.create_subprocess_exec work correctly.
+# This is a no-op on Linux/macOS (the condition is never true there).
+if sys.platform == "win32":
+    asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+
+
+def _suppress_connection_reset(loop: asyncio.AbstractEventLoop, context: dict) -> None:
+    """Suppress harmless WinError 10054 noise from the ProactorEventLoop.
+
+    When an SSE client (browser tab closed, network drop, etc.) abruptly
+    terminates a long-lived connection, the Windows ProactorEventLoop tries
+    to call socket.shutdown(SHUT_RDWR) inside _call_connection_lost() but the
+    socket is already gone — raising a ConnectionResetError that pollutes logs
+    without indicating any real error.  All other exceptions are forwarded to
+    the default handler so genuine problems are still surfaced.
+    """
+    if isinstance(context.get("exception"), ConnectionResetError):
+        return  # benign SSE/HTTP client disconnect teardown — suppress
+    loop.default_exception_handler(context)
+
 
 # `settings` above and `app.core.logging`'s own `_early_settings` (imported at
 # that module's top, before its `configure_logging()` reads it) are the SAME
 # object -- Settings() is instantiated once at module import in app.core.config
 # and both names bind to it. Logging setup itself now lives in app.core.logging
 # so main.py isn't carrying it; call it here, at the same point it used to run.
-
-from app.core.logging import configure_logging, _request_id_var  # noqa: E402 - preserves original setup-order point
-
 configure_logging()
 
 logger = logging.getLogger("app.main")
@@ -94,6 +108,7 @@ else:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan: create database tables on startup."""
+    asyncio.get_running_loop().set_exception_handler(_suppress_connection_reset)
     logger.info("🚀 Starting VelocityAI Backend...")
     if settings.ANTHROPIC_API_KEY:
         logger.info(
@@ -499,6 +514,8 @@ app.include_router(run_files_router)
 # Figma export — Playwright SCRAPE_FN + IRNode mapper in plugin.
 # Shares /api/runs prefix. Falls back to 503 when Playwright unavailable.
 app.include_router(run_figma_export_router)
+# Figma frame upload — Prototype V2 only. Shares /api/runs prefix. No new table/migration.
+app.include_router(run_figma_frames_router)
 
 
 @app.get("/health")

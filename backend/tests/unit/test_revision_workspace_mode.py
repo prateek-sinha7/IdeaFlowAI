@@ -35,7 +35,7 @@ OWNER = "ws-mode-owner"
 WS = "ws-x"
 INSTRUCTION = "make the header blue"
 WORKSPACE_MESSAGE = (
-    f"=== REVISION INSTRUCTION ===\n{INSTRUCTION}\n=== END REVISION INSTRUCTION ===\n\n"
+    f"=== REVISION REQUEST ===\n{INSTRUCTION}\n=== END REQUEST ===\n\n"
     "The original run's files are in this folder (the run's workspace); "
     "find what you need with grep/glob/read_file."
 )
@@ -189,11 +189,11 @@ async def test_v1_revision_message_and_gates_unchanged(db_factory, monkeypatch):
     )
     kw = await _revise(monkeypatch, parent, "prototype_output")
     assert kw["user_message"] == (
-        "=== ORIGINAL ARTIFACT (type: prototype_output) ===\n<html>old</html>\n"
-        "=== END ORIGINAL ARTIFACT ===\n\n"
+        "=== EXISTING PROTOTYPE HTML ===\n<html>old</html>\n"
+        "=== END EXISTING HTML ===\n\n"
         "=== VERSION HISTORY ===\n1 version(s) exist for this artifact.\n"
         "=== END VERSION HISTORY ===\n\n"
-        f"=== REVISION INSTRUCTION ===\n{INSTRUCTION}\n=== END REVISION INSTRUCTION ==="
+        f"=== REVISION REQUEST ===\n{INSTRUCTION}\n=== END REQUEST ==="
     )
     assert kw["gate_agent_ids"] == []
 

@@ -190,4 +190,97 @@ class OpenDesignProvider:
         # legacy byte ORDER (DS/template/example/parts → consumed → CURRENT TASK →
         # skeleton → TEMPLATE COMPLIANCE).
 
+        # (5) Figma Design Reference block — Phase 4 (design-ingestor roadmap).
+        # Emitted ONLY when source_type="figma" AND frames.json exists on the sandbox.
+        # For ingestor runs, the Design Ingestor agent writes to context/design/
+        # (no dot) because .context/ is write-protected for agents. Check both
+        # locations: context/design/ first (ingestor writes), then .context/design/
+        # (engine/catalog writes) as fallback. This makes Figma work equivalently
+        # to catalog — the opendesign provider bridges the path difference.
+        source_type = od.get("source_type")
+        sandbox = getattr(runner, "sandbox", None) if runner else None
+        _sandbox_reader = getattr(sandbox, "read", None) if sandbox else None
+
+        def _read_design_file(relpath_no_dot: str, relpath_dot: str) -> str | None:
+            """Read from no-dot (ingestor) path first, fall back to dot (engine) path."""
+            if not callable(_sandbox_reader):
+                return None
+            if source_type in ("figma", "html"):
+                val = _sandbox_reader(relpath_no_dot)
+                if val:
+                    return val
+            return _sandbox_reader(relpath_dot)
+
+        # Override ds_body and template_body with ingestor-written content
+        # when the engine's od_context is empty (ingestor runs only).
+        if source_type in ("figma", "html"):
+            # For ingestor runs, the Design Ingestor writes SKILL.md and
+            # design-system.md to context/design/ (no dot) because .context/
+            # is write-protected for agents. ALWAYS read from disk here —
+            # the od_context values are placeholders, not real content.
+            real_ds = (
+                _read_design_file(
+                    "context/design/design-system.md",
+                    ".context/design/design-system.md",
+                )
+                or ""
+            )
+            if real_ds:
+                ds_body = real_ds
+            real_skill = (
+                _read_design_file(
+                    "context/design/template/SKILL.md",
+                    ".context/design/template/SKILL.md",
+                )
+                or ""
+            )
+            if real_skill:
+                template_body = real_skill
+
+            # Phase 7 (defensive): also read tokens.css and components.html
+            # from the ingestor's no-dot path so agents that inject via
+            # this provider can see the full token set. The sandbox rebuild
+            # (od_context_sandbox.py) already handles ds_files for direct
+            # sandbox reads; this surfaces them for opendesign-injected agents.
+            _real_tokens = _read_design_file(
+                "context/design/tokens.css",
+                ".context/design/tokens.css",
+            )
+            _real_components = _read_design_file(
+                "context/design/components.html",
+                ".context/design/components.html",
+            )
+            # Append tokens.css to ds_body when present so it is part of the
+            # ACTIVE DESIGN SYSTEM block (agents see: DESIGN.md + tokens.css).
+            if _real_tokens and ds_body:
+                ds_body = f"{ds_body}\n\n## Tokens (tokens.css)\n\n```css\n{_real_tokens.strip()}\n```"
+            elif _real_tokens:
+                ds_body = _real_tokens
+
+            # Emit DS block with real content
+            if ds_body and "design_system" in injects and not is_build_task_2_plus:
+                is_deck_conditional = od.get("is_design_system_required")
+                if is_deck_conditional is None or bool(is_deck_conditional):
+                    ds_preamble = "Apply these tokens to ALL colors, fonts, and spacing. Map to :root variables: --bg, --fg, --accent, --surface, --border, --muted.\n"
+                    blocks[f"ACTIVE DESIGN SYSTEM: {ds_id}"] = f"{ds_preamble}{ds_body}"
+            # Emit SKILL.md block with real content
+            if template_body and "template" in injects and not is_build_task_2_plus:
+                blocks[f"ACTIVE TEMPLATE (SKILL.md): {template_id}"] = template_body
+
+        if source_type == "figma":
+            try:
+                frames_raw = _read_design_file(
+                    "context/design/template/figma/frames.json",
+                    ".context/design/template/figma/frames.json",
+                )
+                if frames_raw:
+                    blocks["FIGMA DESIGN REFERENCE"] = (
+                        "The Figma screen exports for this run are listed below.\n"
+                        "Read each frame PNG via read_file (vision) to see the exact\n"
+                        "screens the user designed. Replicate their visual language.\n\n"
+                        f"{frames_raw}"
+                    )
+            except Exception:  # noqa: BLE001 — degrade gracefully
+                pass
+
         return blocks

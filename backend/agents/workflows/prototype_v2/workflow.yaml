@@ -38,6 +38,22 @@ steps:
   depends_on: []
   model:
     model: eu.anthropic.claude-sonnet-4-6
+  agent: design-ingestor
+  instance_id: design-ingestor
+  name: Design Ingestor
+  condition: "source_type in ['html', 'figma']"
+  skills: [design-ingestor]
+  tools:
+    read_files: true
+    write_files: true
+    exec: false
+    tool_sets:
+    - file_extract
+  gates: []
+- strategy: single_shot
+  depends_on: []
+  model:
+    model: eu.anthropic.claude-sonnet-4-6
   agent: custom-agent
   instance_id: fi-planner
   name: Reading Planner
@@ -64,7 +80,12 @@ steps:
     1. read_file this exact path. Do not search for it:
     .uploads/manifest.json
     2. It is a JSON array; each entry has "name".
-    3. For each name, call extract_text with path `.uploads/` followed by the name.
+    3. For each entry in the manifest array, branch on its "type" field and name:
+       a. If the entry has "type": "image" OR the name ends in .png, .jpg, or .jpeg:
+          SKIP this entry entirely. Do NOT create a shard task for it.
+          Figma frame images are handled by the Design Ingestor (which already ran).
+          Creating reader tasks for them would double-process the same frames.
+       b. Otherwise: call extract_text with path `.uploads/` followed by the name.
 
     Phase 2 - Read the shards
 
@@ -74,7 +95,9 @@ steps:
     - Read only manifest.json. Never read document.md — it holds page text.
 
     Steps
-    1. read_file `.extract/<format>/<slug>/manifest.json` for each document.
+    1. For each document from Phase 1:
+       a. Images (type="image" or image file extension) were skipped — no shard exists.
+       b. Otherwise: read_file `.extract/<format>/<slug>/manifest.json`.
     2. Each manifest has a "shards" array. Each shard carries: id, slug, format,
        pages, page_range, est_tokens, source.
     3. Note how many shards each document has. That decides Phase 3.
@@ -826,7 +849,10 @@ steps:
     1. read_file `spec.md` until the end.
     2. List every `### <id>` heading. That count is your screen count; say it in your reply.
     3. read_file `.context/selections.json`. Then `ls .context/design` and `ls .context/design/template`, and read_file every file named above that exists, each to its end (page long files until a page comes back shorter than you asked for).
-    4. Say which design system and which template were attached, by id, and which design files you read.
+    4. If `.context/design/template/figma/frames.json` exists: read_file it, then for each frame path listed read_file the PNG (vision) — one at a time. These are the user's Figma screens; your theme and composition decisions must replicate their visual language faithfully.
+       If `context/design/template/figma/frames.json` exists (no leading dot — ingestor writes here): read_file it instead, same vision reads.
+       Also read `context/design/design-system.md` and `context/design/template/SKILL.md` if present (the ingestor writes to the no-dot path).
+    5. Say which design system and which template were attached, by id, and which design files you read.
 
     Phase 2 - Design
 

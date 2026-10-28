@@ -71,8 +71,8 @@ describe("TemplateGallery reskin — real search / filter / select preserved", (
     render(<TemplateGallery templates={TEMPLATES} selectedId={null} onSelect={vi.fn()} />);
 
     const tabs = screen.getAllByRole("tab");
-    // All + 6 buckets + Custom = 8 category tabs.
-    expect(tabs.length).toBe(8);
+    // All + 6 buckets + Figma + Custom = 9 category tabs.
+    expect(tabs.length).toBe(9);
 
     const marketingTab = tabs.find((t) => within(t).queryByText("Marketing"));
     expect(marketingTab).toBeTruthy();

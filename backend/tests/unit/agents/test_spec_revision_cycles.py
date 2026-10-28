@@ -64,11 +64,20 @@ def _revision_triple():
     giving prototype-analyze its own ``analysis`` kind and narrowing the eligible set to
     it. With that fix, a stand-in from another pipeline is correctly ineligible and these
     tests were asserting eligibility on an agent that should never have had it.
+
+    NOTE: conditional steps (e.g. design-ingestor with ``condition: "source_type in …"``)
+    are intentionally excluded so the triple always resolves to the structural
+    spec/plan/analyze positions regardless of how many pre-pipeline conditional steps the
+    prototype workflow carries.
     """
     from agents.loader import load_agent_spec
-    from agents.registry import PIPELINE_AGENTS
+    from agents.execution_engine.engine import compile_for_run
 
-    return [load_agent_spec(a) for a in PIPELINE_AGENTS["prototype"][:3]]
+    compiled = compile_for_run("prototype")
+    # Skip conditional steps — they are not part of the structural spec/plan/analyze
+    # triple this test file is built around.
+    unconditional_ids = [s.agent_id for s in compiled.steps if not s.condition]
+    return [load_agent_spec(a) for a in unconditional_ids[:3]]
 
 
 def _write_ref(ectx, run_id: str, producer_id: str, content: str) -> None:

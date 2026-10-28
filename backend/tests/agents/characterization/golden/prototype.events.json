@@ -1,13 +1,20 @@
 [
   {
     "data": {
-      "agent_count": 5,
+      "agent_count": 6,
       "agents": [
+        {
+          "icon": "🤖",
+          "id": "design-ingestor",
+          "name": "Design Ingestor",
+          "order": 1,
+          "role": "Design Context Builder"
+        },
         {
           "icon": "📋",
           "id": "prototype-specify",
           "name": "Spec Writer Agent",
-          "order": 1,
+          "order": 2,
           "role": "Specification & Architecture"
         },
         {
@@ -72,12 +79,12 @@
     "data": {
       "agent_id": "prototype-analyze",
       "duration": "<normalized>",
-      "index": 2,
+      "index": 3,
       "input_tokens": "<normalized>",
       "name": "Spec Kit Analyzer",
       "output_length": 528,
       "output_tokens": "<normalized>",
-      "total": 5,
+      "total": 6,
       "total_tokens": "<normalized>"
     },
     "type": "agent_complete"
@@ -86,10 +93,10 @@
     "data": {
       "agent_id": "prototype-analyze",
       "icon": "🔍",
-      "index": 2,
+      "index": 3,
       "name": "Spec Kit Analyzer",
       "role": "Cross-Artifact Quality Analysis",
-      "total": 5
+      "total": 6
     },
     "type": "agent_start"
   },
@@ -240,12 +247,12 @@
     "data": {
       "agent_id": "prototype-build",
       "duration": "<normalized>",
-      "index": 3,
+      "index": 4,
       "input_tokens": "<normalized>",
       "name": "Build Agent",
       "output_length": 24,
       "output_tokens": "<normalized>",
-      "total": 5,
+      "total": 6,
       "total_tokens": "<normalized>"
     },
     "type": "agent_complete"
@@ -254,12 +261,12 @@
     "data": {
       "agent_id": "prototype-build",
       "duration": "<normalized>",
-      "index": 3,
+      "index": 4,
       "input_tokens": "<normalized>",
       "name": "Build Agent",
       "output_length": 84,
       "output_tokens": "<normalized>",
-      "total": 5,
+      "total": 6,
       "total_tokens": "<normalized>"
     },
     "type": "agent_complete"
@@ -268,10 +275,10 @@
     "data": {
       "agent_id": "prototype-build",
       "icon": "🏗️",
-      "index": 3,
+      "index": 4,
       "name": "Build Agent",
       "role": "Incremental HTML Construction",
-      "total": 5
+      "total": 6
     },
     "type": "agent_start"
   },
@@ -279,10 +286,10 @@
     "data": {
       "agent_id": "prototype-build",
       "icon": "🏗️",
-      "index": 3,
+      "index": 4,
       "name": "Build Agent",
       "role": "Incremental HTML Construction",
-      "total": 5
+      "total": 6
     },
     "type": "agent_start"
   },
@@ -363,12 +370,12 @@
     "data": {
       "agent_id": "prototype-plan",
       "duration": "<normalized>",
-      "index": 1,
+      "index": 2,
       "input_tokens": "<normalized>",
       "name": "Task Planner Agent",
       "output_length": 125,
       "output_tokens": "<normalized>",
-      "total": 5,
+      "total": 6,
       "total_tokens": "<normalized>"
     },
     "type": "agent_complete"
@@ -377,10 +384,10 @@
     "data": {
       "agent_id": "prototype-plan",
       "icon": "🗂️",
-      "index": 1,
+      "index": 2,
       "name": "Task Planner Agent",
       "role": "Build Planning & Task Decomposition",
-      "total": 5
+      "total": 6
     },
     "type": "agent_start"
   },
@@ -417,7 +424,7 @@
   {
     "data": {
       "agent_id": "prototype-specify",
-      "context_message": "=== ORIGINAL USER REQUEST ===\nBuild me a thing for managing tasks.\n=== END REQUEST ===",
+      "context_message": "",
       "tool_calls": []
     },
     "type": "agent_input"
@@ -426,12 +433,12 @@
     "data": {
       "agent_id": "prototype-specify",
       "duration": "<normalized>",
-      "index": 0,
+      "index": 1,
       "input_tokens": "<normalized>",
       "name": "Spec Writer Agent",
       "output_length": 44,
       "output_tokens": "<normalized>",
-      "total": 5,
+      "total": 6,
       "total_tokens": "<normalized>"
     },
     "type": "agent_complete"
@@ -440,10 +447,10 @@
     "data": {
       "agent_id": "prototype-specify",
       "icon": "📋",
-      "index": 0,
+      "index": 1,
       "name": "Spec Writer Agent",
       "role": "Specification & Architecture",
-      "total": 5
+      "total": 6
     },
     "type": "agent_start"
   },
@@ -476,12 +483,12 @@
     "data": {
       "agent_id": "prototype-validate",
       "duration": "<normalized>",
-      "index": 4,
+      "index": 5,
       "input_tokens": "<normalized>",
       "name": "Validation Agent",
       "output_length": 32,
       "output_tokens": "<normalized>",
-      "total": 5,
+      "total": 6,
       "total_tokens": "<normalized>"
     },
     "type": "agent_complete"
@@ -490,17 +497,17 @@
     "data": {
       "agent_id": "prototype-validate",
       "icon": "✅",
-      "index": 4,
+      "index": 5,
       "name": "Validation Agent",
       "role": "Structural Validation & Delivery",
-      "total": 5
+      "total": 6
     },
     "type": "agent_start"
   },
   {
     "data": {
       "agents_completed": 6,
-      "agents_total": 5,
+      "agents_total": 6,
       "final_output": "<!doctype html><html><body><section data-page='dashboard'>hi</section></body></html>",
       "pipeline_type": "prototype",
       "status": "degraded",

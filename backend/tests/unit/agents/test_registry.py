@@ -297,8 +297,9 @@ class TestRevisionPipelineRosters:
         ]
 
     def test_prototype_pipeline_unchanged(self):
-        """prototype pipeline must remain the original five-agent roster unchanged."""
+        """prototype pipeline must remain the expected roster unchanged."""
         assert list_agent_ids("prototype") == [
+            "design-ingestor",
             "prototype-specify",
             "prototype-plan",
             "prototype-analyze",
@@ -398,8 +399,9 @@ class TestPrototypePipelineRegressionProperty:
     Validates: Requirements 9.1, 9.4
     """
 
-    # Pre-change canonical prototype pipeline — five agents in order.
+    # Pre-change canonical prototype pipeline — six agents in order.
     _EXPECTED_PROTOTYPE_ROSTER = [
+        "design-ingestor",
         "prototype-specify",
         "prototype-plan",
         "prototype-analyze",
@@ -425,8 +427,8 @@ class TestPrototypePipelineRegressionProperty:
         )
 
     def test_prototype_roster_has_exactly_five_agents(self):
-        """Prototype pipeline must contain exactly 5 agents (guard against additions/deletions)."""
+        """Prototype pipeline must contain exactly 6 agents (guard against additions/deletions)."""
         actual = list_agent_ids("prototype")
         assert (
-            len(actual) == 5
-        ), f"Prototype pipeline should have exactly 5 agents, got {len(actual)}: {actual!r}"
+            len(actual) == 6
+        ), f"Prototype pipeline should have exactly 6 agents, got {len(actual)}: {actual!r}"

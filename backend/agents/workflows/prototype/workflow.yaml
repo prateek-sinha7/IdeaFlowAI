@@ -51,6 +51,22 @@ input_providers:
 - run_images
 seed_files: {}
 steps:
+- strategy: single_shot
+  depends_on: []
+  model:
+    model: eu.anthropic.claude-sonnet-4-6
+  agent: design-ingestor
+  instance_id: design-ingestor
+  name: Design Ingestor
+  condition: "source_type in ['html', 'figma']"
+  skills: [design-ingestor]
+  tools:
+    read_files: true
+    write_files: true
+    exec: false
+    tool_sets:
+    - file_extract
+  gates: []
 - agent: prototype-specify
   strategy: single_shot
   tools:

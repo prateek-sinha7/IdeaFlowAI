@@ -122,8 +122,10 @@ async def test_declared_human_gate_streams_ready_before_approval_and_resumes(
     # Kept as a pin, not a manipulation: since FIX-323 nothing carries an inline
     # attribute, so this strip is a no-op that fails loudly if one comes back
     # and re-introduces the WR-02 declared+inline double-prompt.
-    specs[0] = dataclasses.replace(specs[0], gate=None)
-    assert specs[0].id == "prototype-specify"
+    # design-ingestor (conditional, order=1) may precede prototype-specify; find by id.
+    specify_idx = next(i for i, s in enumerate(specs) if s.id == "prototype-specify")
+    specs[specify_idx] = dataclasses.replace(specs[specify_idx], gate=None)
+    assert specs[specify_idx].id == "prototype-specify"
     assert not [s for s in specs if getattr(s, "gate", None)], (
         "a static inline gate is back — FIX-323 removed them all so the user "
         f"opts in: {[(s.id, s.gate) for s in specs if getattr(s, 'gate', None)]}"
@@ -501,8 +503,10 @@ async def test_declared_gate_rejection_cancels_the_run(monkeypatch) -> None:
     monkeypatch.setattr(engine_mod, "compile_for_run", _patched_compile_for_run)
 
     specs = list(get_pipeline_agents("prototype"))
-    specs[0] = dataclasses.replace(specs[0], gate=None)
-    assert specs[0].id == "prototype-specify"
+    # design-ingestor (conditional, order=1) may precede prototype-specify; find by id.
+    specify_idx = next(i for i, s in enumerate(specs) if s.id == "prototype-specify")
+    specs[specify_idx] = dataclasses.replace(specs[specify_idx], gate=None)
+    assert specs[specify_idx].id == "prototype-specify"
 
     _orig_create_runner = factory_mod.create_runner
     _orig_engine_create_runner = getattr(engine_mod, "create_runner", None)
