@@ -57,6 +57,10 @@ interface AgentThinkingTabProps {
    *  without it `hasAnyData` is false and the EmptyState below tells the user to
    *  "start a pipeline" for a run that has already finished running. */
   isLoadingRunData?: boolean;
+  /** Finished-run reopen (D9) — true while the reopened run's trace (events +
+   *  persisted agent outputs) is still loading. The run's brief is already set by
+   *  then, so `hasAnyData` alone would show an empty overview with no steps. */
+  isLoadingRunTrace?: boolean;
   laneGate?: import("@/components/chat/RunChatLane").GateContext;
   onApproveGate?: (gateKey: string, editedContent?: string) => void;
   onRejectGate?: (gateKey: string) => void;
@@ -112,7 +116,7 @@ function EmptyState({ loading = false }: { loading?: boolean }) {
 // ─── Main export ──────────────────────────────────────────────────────────────
 export function AgentThinkingTab({
   agents, initialAgentId, pipelineState, waves, runInput, originalBriefRootRunId, revisionParentVersion, runFamily,
-  clarifications, clarificationsLoading, isLoadingRunData,
+  clarifications, clarificationsLoading, isLoadingRunData, isLoadingRunTrace,
   laneGate, onApproveGate, onRejectGate, onRedoGate, onUpdateSpecsGate,
   clarifyQuestions, onSubmitClarify, onSkipClarify, onCancelWorkflow,
   specRevisionCount = 0,
@@ -270,7 +274,11 @@ export function AgentThinkingTab({
   // ISS-752 (QA-PS-014): hasAnyData is false for the WHOLE reopen fetch (empty
   // agents, no runInput yet), so the fetch-in-flight flag is what separates
   // "this run's trace is still loading" from "no pipeline has ever run here".
-  if (!hasAnyData) return <EmptyState loading={isLoadingRunData} />;
+  // D9: the same loading state while a reopened run's trace is still on its way
+  // and no step has arrived yet.
+  if (!hasAnyData || (isLoadingRunTrace && agents.length === 0)) {
+    return <EmptyState loading={isLoadingRunData || isLoadingRunTrace} />;
+  }
 
   // SC-001: no workflow-name gate. Every workflow renders through this generic
   // overview → detail drill-down (the former isPrototypePipeline branch is gone).

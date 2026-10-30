@@ -110,8 +110,9 @@ describe("ISS-779 — handleSelectWorkflowRun (page.tsx) carries no trackedRunId
     () => {
       const start = pageSrc.indexOf("const handleSelectWorkflowRun = useCallback(");
       expect(start).toBeGreaterThan(-1);
+      // Finished-run reopen (D3): hydrateAgentOutputs joined the deps.
       const depsMarker =
-        "[runStore.viewed.pipelineState.pipelineRunId, resetPipeline, setWaveGroups, handleWebSocketMessage, setSubmittedBrief, seedRunChatTranscript, runConnection]";
+        "[runStore.viewed.pipelineState.pipelineRunId, resetPipeline, setWaveGroups, handleWebSocketMessage, setSubmittedBrief, seedRunChatTranscript, runConnection, hydrateAgentOutputs]";
       const end = pageSrc.indexOf(depsMarker, start);
       expect(end).toBeGreaterThan(start);
       const body = pageSrc.slice(start, end);

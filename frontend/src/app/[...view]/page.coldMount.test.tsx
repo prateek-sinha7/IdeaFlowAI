@@ -21,7 +21,7 @@ import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { ApiError } from "@/lib/api";
+import { ApiError, STREAM_DELTA_EVENT_TYPES } from "@/lib/api";
 import { signedIn, signedOut, userLoaded } from "@/store/slices/authSlice";
 import type { DashboardLayoutProps } from "@/components/layout/DashboardLayout";
 import type { WorkflowRun } from "@/types/index";
@@ -746,7 +746,9 @@ describe("DashboardPage run reopen", () => {
 
     await waitFor(() => expect(props()?.userStoryContent).toBe("# Stories"));
     expect(h.api.getWorkflow).toHaveBeenCalledWith("tok", "r1", false);
-    expect(h.api.getRunEvents).toHaveBeenCalledWith("tok", "r1", 0, expect.any(Function));
+    // Finished-run reopen (D2): a `{ id }` stub may be finished, so its trace is
+    // fetched without the stream deltas and applied in one batch.
+    expect(h.api.getRunEvents).toHaveBeenCalledWith("tok", "r1", 0, undefined, { excludeTypes: STREAM_DELTA_EVENT_TYPES });
     expect(props().contentSourceRunId).toBe("r1");
     expect(props().contentSourceRunType).toBe("user_stories");
     expect(props().reopenedRunStatus).toBeUndefined();
@@ -867,13 +869,39 @@ describe("DashboardPage run reopen", () => {
   });
 
   it("fetches the run record exactly once for a tab route", async () => {
-    // A tab route reopens via a `{ id }` stub, so getWorkflow is called once.
+    // A tab route reopens via a `{ id }` stub, so the slim record is fetched
+    // once; a finished run adds exactly one heavy read for its persisted agent
+    // outputs (finished-run reopen, D3).
     h.api.getWorkflow.mockResolvedValue(runRecord());
 
     mount("/runs/r1/files");
     await waitFor(() => expect(props()?.contentSourceRunId).toBe("r1"));
 
+    await waitFor(() => expect(h.api.getWorkflow).toHaveBeenCalledTimes(2));
+    expect(h.api.getWorkflow.mock.calls.filter((c) => c[2] === false)).toEqual([["tok", "r1", false]]);
+    expect(h.api.getWorkflow.mock.calls.filter((c) => c[2] === true)).toEqual([["tok", "r1", true]]);
+  });
+
+  it("fetches a live run's record exactly once and never its heavy record", async () => {
+    h.api.getWorkflow.mockResolvedValue(runRecord({ status: "running" }));
+
+    mount("/runs/r1/files");
+    await waitFor(() => expect(h.conn.attachRun).toHaveBeenCalledWith("r1"));
+    await waitFor(() => expect(props()?.isLoadingRunData).toBe(false));
+
     expect(h.api.getWorkflow).toHaveBeenCalledTimes(1);
+    expect(h.api.getWorkflow).toHaveBeenCalledWith("tok", "r1", false);
+  });
+
+  it("routes an app_builder run's output to the user-story slot", async () => {
+    // Mirrors the live pipeline_complete routing, so a reopened app_builder run
+    // opens on its IDE preview instead of the generic deliverable.
+    h.api.getWorkflow.mockResolvedValue(runRecord({ type: "app_builder", output: "# App" }));
+
+    mount("/runs/r1");
+
+    await waitFor(() => expect(props()?.userStoryContent).toBe("# App"));
+    expect(props().genericDeliverable).toBeUndefined();
   });
 
   it("still opens the run when the durable event replay fails", async () => {
@@ -971,7 +999,11 @@ describe("DashboardPage run access failures", () => {
     mount("/runs/r1");
     await settleThroughRetry();
 
-    expect(h.api.getWorkflow).toHaveBeenCalledTimes(2);
+    // The slim record twice (the 404 and its one retry); the recovered finished
+    // run then reads its heavy record once for its agent outputs (D3).
+    expect(h.api.getWorkflow.mock.calls.filter((c) => c[2] === false)).toHaveLength(2);
+    expect(h.api.getWorkflow.mock.calls.filter((c) => c[2] === true)).toHaveLength(1);
+    expect(h.api.getWorkflow).toHaveBeenCalledTimes(3);
     expect(props().userStoryContent).toBe("# Recovered");
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });

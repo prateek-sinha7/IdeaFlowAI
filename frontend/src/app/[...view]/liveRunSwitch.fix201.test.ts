@@ -197,7 +197,9 @@ describe("FIX-201 safety boundary", () => {
   });
 
   it("history-reopen seedRunChatTranscript still present", () => {
-    expect(pageSource).toContain("seedRunChatTranscript(familyChatFrames,");
+    // Finished-run reopen (D2): the family frames now arrive on the loaded
+    // trace object, seeded in the same batch as the replay.
+    expect(pageSource).toContain("seedRunChatTranscript(reopenTrace.familyChatFrames,");
   });
 
   it("FIX-195 Fix-A recentRuns refresh still present", () => {

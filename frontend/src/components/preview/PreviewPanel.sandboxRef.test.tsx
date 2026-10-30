@@ -264,7 +264,8 @@ describe("T7 — ref-scoped preview loads when pipelineState never carried the d
 
     // pipelineState carried no declared name — the effect must fall back to
     // the run's own persisted deliverable_filename before it can resolve one.
-    await waitFor(() => expect(mockGetWorkflow).toHaveBeenCalledWith("test-token", "run-1"));
+    // D8: that fallback reads the SLIM record (no heavy agent outputs).
+    await waitFor(() => expect(mockGetWorkflow).toHaveBeenCalledWith("test-token", "run-1", false));
 
     // The ref-scoped read actually fires, carrying ref=v1 — this is the
     // request the pre-fix code never issued at all.

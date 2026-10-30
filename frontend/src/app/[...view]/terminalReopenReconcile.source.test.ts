@@ -77,11 +77,18 @@ describe("ISS-126 reopen reconciles a terminal run (source-lock)", () => {
     expect(storeWrite).toBeGreaterThan(-1);
   });
 
+  // Finished-run reopen (D2): the reopen handler now awaits ONE loaded trace
+  // (`loadReopenTrace`) and applies it in a single synchronous block.
+  const FETCH_ANCHOR = "const reopenTrace = await loadReopenTrace();";
+  const LOOP_ANCHOR = "for (const frame of reopenTrace.frames)";
+  const HYDRATE_CALL = "applyAgentOutputs(prev, reopenTrace.agentOutputRows";
+  const BATCH_END = "setIsLoadingRunTrace(false)";
+
   it("runs AFTER the durable replay loop, never before it", () => {
     // ISS-1010: search from the reopen handler's fetch — the first loop in the file is the run-switch handler's.
-    const fetchAt = pageSource.indexOf("const durableFrames = await eventsPromise;");
+    const fetchAt = pageSource.indexOf(FETCH_ANCHOR);
     expect(fetchAt).toBeGreaterThan(-1);
-    const loopStart = pageSource.indexOf("for (const frame of durableFrames)", fetchAt);
+    const loopStart = pageSource.indexOf("for (const frame of reopenTrace.frames)", fetchAt);
     const call = pageSource.indexOf(APPLY_CALL);
     expect(loopStart).toBeGreaterThan(-1);
     expect(call).toBeGreaterThan(-1);
@@ -89,10 +96,48 @@ describe("ISS-126 reopen reconciles a terminal run (source-lock)", () => {
   });
 
   it("stays inside the reopen handler, after the durable fetch", () => {
-    const fetchAt = pageSource.indexOf("const durableFrames = await eventsPromise;");
+    const fetchAt = pageSource.indexOf(FETCH_ANCHOR);
     const call = pageSource.indexOf(APPLY_CALL);
     expect(fetchAt).toBeGreaterThan(-1);
     expect(call).toBeGreaterThan(fetchAt);
+  });
+
+  it("hydrates the persisted agent outputs between the replay loop and the terminal reconcile", () => {
+    // D3: hydrating before the loop would be wiped by the replayed agent_start
+    // resets, so it must follow the replay and precede the terminal reconcile.
+    const fetchAt = pageSource.indexOf(FETCH_ANCHOR);
+    const loopStart = pageSource.indexOf(LOOP_ANCHOR, fetchAt);
+    const hydrate = pageSource.indexOf(HYDRATE_CALL, loopStart);
+    const call = pageSource.indexOf(APPLY_CALL, loopStart);
+    expect(loopStart).toBeGreaterThan(-1);
+    expect(hydrate).toBeGreaterThan(loopStart);
+    expect(call).toBeGreaterThan(hydrate);
+  });
+
+  it("applies the loaded trace in one synchronous block (no await between replay and the end of loading)", () => {
+    // D2: an await inside the block would let React commit a half-applied
+    // finished run (isRunning true, partial steps), which is the tab-bounce bug.
+    const fetchAt = pageSource.indexOf(FETCH_ANCHOR);
+    const loopStart = pageSource.indexOf(LOOP_ANCHOR, fetchAt);
+    const batchEnd = pageSource.indexOf(BATCH_END, loopStart);
+    expect(loopStart).toBeGreaterThan(-1);
+    expect(batchEnd).toBeGreaterThan(loopStart);
+    expect(pageSource.slice(loopStart, batchEnd)).not.toContain("await ");
+  });
+
+  it("resets the replay state and registers the run before the record fetch starts", () => {
+    // D1: with the run registered first, no early event page is dropped as
+    // foreign (and marked applied), and no applied page is wiped by a late reset.
+    const start = pageSource.indexOf("const handleSelectWorkflowRun = useCallback(");
+    expect(start).toBeGreaterThan(-1);
+    const recordFetch = pageSource.indexOf("getWorkflow(currentToken, run.id, false)", start);
+    const reset = pageSource.indexOf("resetPipeline();", start);
+    const register = pageSource.indexOf("launchedRunIdsRef.current.add(run.id)", start);
+    expect(recordFetch).toBeGreaterThan(-1);
+    expect(reset).toBeGreaterThan(-1);
+    expect(register).toBeGreaterThan(-1);
+    expect(reset).toBeLessThan(recordFetch);
+    expect(register).toBeLessThan(recordFetch);
   });
 
   it("deleted the formerly-unreachable pipeline_cancelled/pipeline_failed switch arm (ISS-139)", () => {

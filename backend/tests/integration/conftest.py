@@ -39,7 +39,7 @@ def postgres_container() -> Generator[PostgresContainer, None, None]:
     """
     container = PostgresContainer(
         image="postgres:17-alpine",
-        user="testuser",
+        username="testuser",
         password="testpass",
         dbname="test_db",
     )

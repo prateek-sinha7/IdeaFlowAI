@@ -17,7 +17,9 @@ Isolation notes
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
+import inspect
 import json
 import logging
 from datetime import datetime, timedelta, timezone
@@ -512,6 +514,16 @@ class TestRunResponse:
         assert resp.id == "run-1"
         assert resp.created_at == T0
 
+    # ISS-1213 | kills: response model rejecting a None input (500)
+    def test_run_response_nulls_input_and_agent_outputs_when_include_heavy_false(self):
+        run = _row(input="BIG BRIEF", agent_outputs='[{"a": 1}]')
+        resp = _run_response(run, "root-9", include_heavy=False)
+        assert resp.input is None
+        assert resp.agent_outputs is None
+        assert resp.output == "out"
+        assert run.input == "BIG BRIEF"
+        assert run.agent_outputs == '[{"a": 1}]'
+
     # Plan #28 | B23 | kills: `and` -> `or` on (db, user_id)
     def test_run_response_nulls_computed_fields_when_user_id_missing(self):
         db = _db()
@@ -873,6 +885,37 @@ class TestGetRun:
             "workflow_runs.id = 'run-1'",
             "workflow_runs.user_id = 'user-1'",
         ]
+
+    # ISS-1213 | kills: WorkflowRunResponse.input required (500 on include_heavy=false)
+    def test_get_run_nulls_heavy_fields_when_include_heavy_false(self, make_client):
+        run = _row(input="BIG BRIEF", agent_outputs='[{"a": 1}]')
+        resp = make_client(_db(_Q(first=run), _Q(), _Q(), _Q())).get(
+            "/api/runs/run-1?include_heavy=false"
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["input"] is None
+        assert body["agent_outputs"] is None
+        assert body["output"] == "out"
+
+    # ISS-1213 | kills: blanking the attached ORM row instead of the payload
+    def test_get_run_does_not_mutate_row_when_include_heavy_false(self, make_client):
+        run = _row(input="BIG BRIEF", agent_outputs='[{"a": 1}]')
+        resp = make_client(_db(_Q(first=run), _Q(), _Q(), _Q())).get(
+            "/api/runs/run-1?include_heavy=false"
+        )
+        assert resp.status_code == 200
+        assert run.input == "BIG BRIEF"
+        assert run.agent_outputs == '[{"a": 1}]'
+
+    # ISS-1213 | kills: include_heavy default flipped / heavy fields dropped on plain GET
+    def test_get_run_returns_heavy_fields_when_include_heavy_omitted(self, make_client):
+        run = _row(input="BIG BRIEF", agent_outputs='[{"a": 1}]')
+        resp = make_client(_db(_Q(first=run), _Q(), _Q(), _Q())).get("/api/runs/run-1")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["input"] == "BIG BRIEF"
+        assert body["agent_outputs"] == '[{"a": 1}]'
 
     # Plan #50 | B41 | kills: return 403/200 for missing or cross-owner run
     def test_get_run_returns_404_when_run_missing_or_foreign(self, make_client):
@@ -1481,18 +1524,18 @@ class TestGetRunEvents:
     def test_get_run_events_returns_404_when_store_denies_run(
         self, make_client, scoped_store
     ):
-        scoped_store.return_value.get_run.return_value = None
+        scoped_store.return_value.get_run_in_session.return_value = None
         resp = make_client(_db(_Q(first=_row()))).get("/api/runs/run-1/events")
         assert resp.status_code == 404
-        scoped_store.return_value.read_events.assert_not_called()
+        scoped_store.return_value.read_events_page_in_session.assert_not_called()
 
     # Plan #99 | B77 | kills: drop created_at / UTC promotion / wrong after passing
     def test_get_run_events_returns_events_with_utc_created_at_when_rows_exist(
         self, make_client, scoped_store
     ):
         store = scoped_store.return_value
-        store.get_run.return_value = object()
-        store.read_events_page.return_value = [
+        store.get_run_in_session.return_value = object()
+        store.read_events_page_in_session.return_value = [
             SimpleNamespace(seq=6, event_id="e6", type="chat_message", payload_json='{"a":1}', created_at=T0),
             SimpleNamespace(seq=7, event_id="e7", type="done", payload_json="{}", created_at=None),
         ]  # fmt: skip
@@ -1508,9 +1551,10 @@ class TestGetRunEvents:
                 {"seq": 7, "event_id": "e7", "type": "done", "payload_json": "{}", "created_at": None},
             ],
         }  # fmt: skip
-        store.read_events_page.assert_awaited_once_with(
-            "run-1", after_seq=5, limit=1001
+        store.read_events_page_in_session.assert_called_once_with(
+            "run-1", after_seq=5, limit=1001, types=None, exclude_types=None
         )
+        store.get_run_in_session.assert_called_once_with("run-1")
         scoped_store.assert_called_once_with(
             owner_id="user-1", workspace_id="ws-2", session=db
         )
@@ -1520,8 +1564,8 @@ class TestGetRunEvents:
         self, make_client, scoped_store
     ):
         store = scoped_store.return_value
-        store.get_run.return_value = object()
-        store.read_events_page.return_value = []
+        store.get_run_in_session.return_value = object()
+        store.read_events_page_in_session.return_value = []
         resp = make_client(_db(_Q(first=_row()))).get("/api/runs/run-1/events")
         assert resp.json() == {
             "workflow_id": "run-1",
@@ -1530,8 +1574,8 @@ class TestGetRunEvents:
             "next_after": 0,
             "events": [],
         }
-        store.read_events_page.assert_awaited_once_with(
-            "run-1", after_seq=0, limit=1001
+        store.read_events_page_in_session.assert_called_once_with(
+            "run-1", after_seq=0, limit=1001, types=None, exclude_types=None
         )
 
     # Plan #101 | B77 | kills: accept non-int `after`
@@ -1542,6 +1586,96 @@ class TestGetRunEvents:
         assert resp.status_code == 422
         assert resp.json()["detail"][0]["loc"] == ["query", "after"]
         assert resp.json()["detail"][0]["type"] == "int_parsing"
+
+    # kills: drop the allow-list / pass it unsorted or with duplicates
+    def test_get_run_events_passes_type_allow_list_when_types_given(
+        self, make_client, scoped_store
+    ):
+        store = scoped_store.return_value
+        store.get_run_in_session.return_value = object()
+        store.read_events_page_in_session.return_value = []
+        resp = make_client(_db(_Q(first=_row()))).get(
+            "/api/runs/run-1/events?types=chat_reply,chat_message,chat_reply"
+        )
+        assert resp.status_code == 200
+        store.read_events_page_in_session.assert_called_once_with(
+            "run-1",
+            after_seq=0,
+            limit=1001,
+            types=("chat_message", "chat_reply"),
+            exclude_types=None,
+        )
+
+    # kills: drop the deny-list / pass it unsorted or with duplicates
+    def test_get_run_events_passes_exclude_list_when_exclude_types_given(
+        self, make_client, scoped_store
+    ):
+        store = scoped_store.return_value
+        store.get_run_in_session.return_value = object()
+        store.read_events_page_in_session.return_value = []
+        resp = make_client(_db(_Q(first=_row()))).get(
+            "/api/runs/run-1/events?exclude_types=agent_thinking,agent_chunk,agent_chunk"
+        )
+        assert resp.status_code == 200
+        store.read_events_page_in_session.assert_called_once_with(
+            "run-1",
+            after_seq=0,
+            limit=1001,
+            types=None,
+            exclude_types=("agent_chunk", "agent_thinking"),
+        )
+
+    # kills: accept both filters at once (ambiguous read)
+    def test_get_run_events_returns_422_when_types_and_exclude_types_both_given(
+        self, make_client, scoped_store
+    ):
+        resp = make_client(_db(_Q(first=_row()))).get(
+            "/api/runs/run-1/events?types=chat_message&exclude_types=agent_chunk"
+        )
+        assert resp.status_code == 422
+        assert resp.json() == {"detail": "Invalid event type filter"}
+        scoped_store.return_value.read_events_page_in_session.assert_not_called()
+
+    # kills: widen an empty / malformed filter into an unfiltered read
+    @pytest.mark.parametrize("raw", ["", "A", "agent_chunk;drop", "a,,b"])
+    def test_get_run_events_returns_422_when_type_token_invalid(
+        self, make_client, scoped_store, raw
+    ):
+        resp = make_client(_db(_Q(first=_row()))).get(
+            "/api/runs/run-1/events", params={"types": raw}
+        )
+        assert resp.status_code == 422
+        assert resp.json() == {"detail": "Invalid event type filter"}
+        scoped_store.return_value.read_events_page_in_session.assert_not_called()
+
+    # kills: drop the 32-token cap
+    def test_get_run_events_returns_422_when_too_many_types(
+        self, make_client, scoped_store
+    ):
+        raw = ",".join(f"t{i}" for i in range(33))
+        resp = make_client(_db(_Q(first=_row()))).get(
+            "/api/runs/run-1/events", params={"exclude_types": raw}
+        )
+        assert resp.status_code == 422
+        assert resp.json() == {"detail": "Invalid event type filter"}
+        scoped_store.return_value.read_events_page_in_session.assert_not_called()
+
+    # kills: revert the handler to `async def` (store read back on the event loop)
+    def test_get_run_events_reads_store_off_event_loop_when_called(
+        self, make_client, scoped_store
+    ):
+        def _assert_no_running_loop(*_args, **_kwargs):
+            with pytest.raises(RuntimeError):
+                asyncio.get_running_loop()
+            return []
+
+        store = scoped_store.return_value
+        store.get_run_in_session.return_value = object()
+        store.read_events_page_in_session.side_effect = _assert_no_running_loop
+        resp = make_client(_db(_Q(first=_row()))).get("/api/runs/run-1/events")
+        assert resp.status_code == 200
+        store.read_events_page_in_session.assert_called_once()
+        assert not inspect.iscoroutinefunction(runs_mod.get_run_events)
 
 
 # =========================================================================== family

@@ -1073,7 +1073,8 @@ interface RawWorkflowRun {
   title: string;
   type: string;
   status: string;
-  input: string;
+  // ISS-1213: null when fetched with ?include_heavy=false (history reopen).
+  input: string | null;
   output: string | null;
   agent_outputs: string | null;
   agent_count: number;
@@ -1136,7 +1137,7 @@ function normalizeWorkflowRun(raw: RawWorkflowRun): WorkflowRun {
     title: raw.title,
     type: raw.type as WorkflowType,
     status: raw.status as WorkflowRun["status"],
-    input: raw.input,
+    input: raw.input ?? "",
     output: raw.output ?? undefined,
     agentOutputs,
     tokenUsage,
@@ -1493,6 +1494,14 @@ export interface DurableFrame {
  * ISS-1155: the endpoint returns one bounded page, so this follows
  * `next_after` while `has_more` holds and returns every page concatenated.
  * An envelope without `has_more` (old backend, mock `{}`) is the last page.
+ *
+ * Optional `filter` (finished-run perf): `types` is an allow-list sent as
+ * `&types=a,b`, `excludeTypes` a deny-list sent as `&exclude_types=a,b`. The
+ * server applies it in SQL before LIMIT, so `has_more`/`next_after` page over
+ * the FILTERED log; the param rides on EVERY page URL (and therefore on the
+ * single-flight key). The two are mutually exclusive server-side (422), so
+ * `types` wins when both are set. An omitted filter, or empty lists, leaves the
+ * URL byte-identical to the unfiltered call.
  */
 /** Maps a single durable run_event row to a DurableFrame envelope.  Extracted
  *  so the progressive onPage callback and the final accumulated return both use
@@ -1521,13 +1530,39 @@ function mapEventRow(row: RunEventRow): DurableFrame {
   };
 }
 
+/** Chat rows only: what family members and the completion catch-up need. */
+export const CHAT_EVENT_TYPES = ["chat_message", "chat_reply"] as const;
+
+/** Per-token stream deltas: the bulk of a finished run's log, superseded by
+ *  `workflow_runs.agent_outputs` when the settled-run hydration predicate holds. */
+export const STREAM_DELTA_EVENT_TYPES = ["agent_chunk", "agent_thinking"] as const;
+
+/** Server-side `/events` type filter (`types` allow-list XOR `exclude_types`
+ *  deny-list). Tokens must match `^[a-z][a-z0-9_]{0,63}$`, at most 32. */
+export interface RunEventTypeFilter {
+  types?: readonly string[];
+  excludeTypes?: readonly string[];
+}
+
+/** Builds the `&types=` / `&exclude_types=` suffix for a filter ("" when none). */
+function runEventTypeFilterQuery(filter?: RunEventTypeFilter): string {
+  const encode = (tokens: readonly string[]) => tokens.map(encodeURIComponent).join(",");
+  if (filter?.types && filter.types.length > 0) return `&types=${encode(filter.types)}`;
+  if (filter?.excludeTypes && filter.excludeTypes.length > 0) {
+    return `&exclude_types=${encode(filter.excludeTypes)}`;
+  }
+  return "";
+}
+
 export async function getRunEvents(
   token: string,
   runId: string,
   afterSeq = 0,
   onPage?: (frames: DurableFrame[]) => void,
+  filter?: RunEventTypeFilter,
 ): Promise<DurableFrame[]> {
   const allFrames: DurableFrame[] = [];
+  const filterQuery = runEventTypeFilterQuery(filter);
   let after = afterSeq;
   for (;;) {
     // ISS-871 / FIX-647: singleFlightGet so concurrent identical calls (e.g.
@@ -1537,7 +1572,7 @@ export async function getRunEvents(
     // so a page never coalesces with a different page. Mirrors getRunFamily.
     // limit=5000 is the server's max page (runs.py get_run_events, le=5000).
     const res = await singleFlightGet<RunEventsResponse>(
-      `/api/runs/${encodeURIComponent(runId)}/events?after=${after}&limit=5000`,
+      `/api/runs/${encodeURIComponent(runId)}/events?after=${after}&limit=5000${filterQuery}`,
       token,
     );
     const pageFrames = (res?.events ?? []).map(mapEventRow);

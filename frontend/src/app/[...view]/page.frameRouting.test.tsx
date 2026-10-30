@@ -13,6 +13,7 @@
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { CHAT_EVENT_TYPES, STREAM_DELTA_EVENT_TYPES } from "@/lib/api";
 import type { DashboardLayoutProps } from "@/components/layout/DashboardLayout";
 import type { WorkflowRun } from "@/types/index";
 
@@ -432,7 +433,8 @@ describe("DashboardPage pipeline lifecycle frames", () => {
         await vi.advanceTimersByTimeAsync(400);
       });
 
-      expect(h.api.getRunEvents).toHaveBeenCalledWith(token, "r1", 0);
+      // D4: the catch-up keeps only chat frames, so it asks the server for only those.
+      expect(h.api.getRunEvents).toHaveBeenCalledWith(token, "r1", 0, undefined, { types: CHAT_EVENT_TYPES });
     });
   });
 
@@ -536,7 +538,8 @@ describe("DashboardPage pipeline lifecycle frames", () => {
       render(<DashboardPage />);
       await waitFor(() => expect(props()?.reopenedRunStatus).toBe("diverted"));
 
-      expect(h.api.getRunEvents).toHaveBeenCalledWith(token, "r1", 0, expect.any(Function));
+      // D2: the reopen may be finished, so its log is read without stream deltas.
+      expect(h.api.getRunEvents).toHaveBeenCalledWith(token, "r1", 0, undefined, { excludeTypes: STREAM_DELTA_EVENT_TYPES });
       expect(h.api.getWorkflows).not.toHaveBeenCalled();
     });
   });

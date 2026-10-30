@@ -28,6 +28,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, field_serializer
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -116,6 +117,8 @@ class WorkflowRunResponse(BaseModel):
     title: str
     type: str
     status: str
+    # None when fetched with ``include_heavy=false`` (history reopen): get_run
+    # nulls ``input`` and ``agent_outputs`` to keep the payload small.
     input: Optional[str] = None
     output: Optional[str] = None
     agent_outputs: Optional[str] = None
@@ -521,7 +524,12 @@ def _build_finalization_projection(
 
 
 def _run_response(
-    run, root_id: str, *, db: Session | None = None, user_id: str | None = None
+    run,
+    root_id: str,
+    *,
+    db: Session | None = None,
+    user_id: str | None = None,
+    include_heavy: bool = True,
 ) -> "WorkflowRunResponse":
     """Build a ``WorkflowRunResponse`` injecting the server-computed root_run_id.
 
@@ -534,6 +542,12 @@ def _run_response(
     When ``db`` and ``user_id`` are supplied the chain-source + finalization
     projection is populated (task 9.3).  The detail endpoint (get_run) always
     supplies both; other callers may omit them and get None for the new fields.
+
+    When ``include_heavy`` is false the two large text columns (``input`` and
+    ``agent_outputs``) are blanked in the response payload only.  The ORM row
+    is never touched: ``workflow_runs.input`` is NOT NULL, so blanking the
+    attached instance would turn any later flush or commit on the session
+    into an ``IntegrityError``.
     """
     # The model_fields loop covers all scalar ORM-backed fields.  The new
     # Optional fields (chain_source, chain_context_installed, …) are NOT ORM
@@ -559,6 +573,9 @@ def _run_response(
         if name not in _COMPUTED_FIELDS
     }
     kwargs["root_run_id"] = root_id
+    if not include_heavy:
+        kwargs["input"] = None
+        kwargs["agent_outputs"] = None
 
     # Populate chain/finalization fields when db is available.
     if db is not None and user_id is not None:
@@ -813,19 +830,19 @@ def get_run(
             detail="Workflow run not found",
         )
 
-    # FIX-4 (perf): when include_heavy=false, mask the two heavy text columns
-    # before building the response so the ~500 kB – 1 MB agent_outputs blob is
-    # not serialised.  `output` (the deliverable) is always returned — it drives
-    # the preview pane.  Modifying the ORM object in-memory is safe here: this
-    # is a GET handler, db.commit() is never called, so the mutation does not
-    # persist.
-    if not include_heavy:
-        workflow_run.agent_outputs = None
-        workflow_run.input = None
-
+    # FIX-4 (perf): when include_heavy=false, ``_run_response`` masks the two
+    # heavy text columns in the payload so the ~500 kB – 1 MB agent_outputs blob
+    # is not serialised.  `output` (the deliverable) is always returned — it
+    # drives the preview pane.  The ORM instance is deliberately NOT mutated
+    # (ISS-1213): blanking the attached row would leave it dirty on the shared
+    # session, and ``workflow_runs.input`` is NOT NULL.
     roots = _compute_root_ids(db, current_user.id, [workflow_run])
     return _run_response(
-        workflow_run, roots[workflow_run.id], db=db, user_id=current_user.id
+        workflow_run,
+        roots[workflow_run.id],
+        db=db,
+        user_id=current_user.id,
+        include_heavy=include_heavy,
     )
 
 
@@ -1398,14 +1415,45 @@ async def get_run_artifacts(
     return {"workflow_id": workflow_id, "artifacts": tree}
 
 
+# /events type filter (types / exclude_types): every comma-separated token is a
+# lowercase event-type identifier, at most _MAX_EVENT_TYPE_FILTER of them. The
+# allow-list shape keeps arbitrary bytes out of the IN-list (ASVS V5).
+_EVENT_TYPE_TOKEN = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
+_MAX_EVENT_TYPE_FILTER = 32
+
+
+def _parse_event_type_filter(raw: str | None) -> tuple[str, ...] | None:
+    """Parse a comma-separated event-type filter into a sorted, de-duplicated tuple.
+
+    ``None`` (param absent) → ``None`` (no filter). An empty value, an empty token,
+    a token outside ``_EVENT_TYPE_TOKEN`` or more than ``_MAX_EVENT_TYPE_FILTER``
+    tokens → 422: a malformed filter is rejected, never widened into "all types".
+    """
+    if raw is None:
+        return None
+    tokens = raw.split(",")
+    if (
+        not raw
+        or len(tokens) > _MAX_EVENT_TYPE_FILTER
+        or any(not _EVENT_TYPE_TOKEN.fullmatch(t) for t in tokens)
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Invalid event type filter",
+        )
+    return tuple(sorted(set(tokens)))
+
+
 @router.get("/{workflow_id}/events")
-async def get_run_events(
+def get_run_events(
     workflow_id: str,
     after: int = Query(0, ge=0),
     limit: int = Query(1000, ge=1, le=5000),
+    types: str | None = Query(None, max_length=2048),
+    exclude_types: str | None = Query(None, max_length=2048),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
-):
+) -> JSONResponse:
     """Return the run's ``run_events`` rows with ``seq > after`` (API-05, D-11).
 
     Rows are ordered by ``seq`` ascending, each carrying ``seq`` + a unique
@@ -1413,12 +1461,27 @@ async def get_run_events(
     (non-int → 422; ASVS V5 — never reaches raw SQL) and flows into the
     parameterized ORM ``.filter()``. A cross-owner or missing run returns 404.
 
-    ISS-1155: one page of at most ``limit`` rows, never the whole log. This
-    handler runs its read and its encoding ON the event loop (injected
-    session), so an unbounded reply froze the process (107,409 rows, 53 MB,
-    4.4 s). ``has_more`` says rows remain; ``next_after`` (the last returned
-    ``seq``, or ``after`` when empty) is the ``after`` of the next page.
+    ``types`` (allow-list) or ``exclude_types`` (deny-list), comma-separated
+    event types, filter the rows in SQL inside ``ScopedStore`` under the same
+    owner+workspace scope; pages walk the filtered log. The two are mutually
+    exclusive; an empty or malformed value, or more than 32 tokens, returns 422.
+
+    ISS-1155: one page of at most ``limit`` rows, never the whole log. This is a
+    plain ``def``, so FastAPI runs it in its threadpool: the DB read and the JSON
+    encoding (the ``JSONResponse`` is built here) both run off the event loop.
+    An unbounded reply used to freeze the process when this ran on the loop
+    (107,409 rows, 53 MB, 4.4 s). ``has_more`` says rows remain; ``next_after``
+    (the last returned ``seq``, or ``after`` when empty) is the ``after`` of the
+    next page.
     """
+    if types is not None and exclude_types is not None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Invalid event type filter",
+        )
+    wanted_types = _parse_event_type_filter(types)
+    excluded_types = _parse_event_type_filter(exclude_types)
+
     workflow_run = (
         db.query(WorkflowRun)
         .filter(WorkflowRun.id == workflow_id, WorkflowRun.user_id == current_user.id)
@@ -1437,17 +1500,23 @@ async def get_run_events(
         workspace_id=workflow_run.workspace_id,
         session=db,
     )
-    if await store.get_run(workflow_id) is None:
+    if store.get_run_in_session(workflow_id) is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Workflow run not found",
         )
 
     # One extra row answers has_more without a COUNT over the log.
-    rows = await store.read_events_page(workflow_id, after_seq=after, limit=limit + 1)
+    rows = store.read_events_page_in_session(
+        workflow_id,
+        after_seq=after,
+        limit=limit + 1,
+        types=wanted_types,
+        exclude_types=excluded_types,
+    )
     has_more = len(rows) > limit
     rows = rows[:limit]
-    return {
+    payload = {
         "workflow_id": workflow_id,
         "after": after,
         "has_more": has_more,
@@ -1472,6 +1541,8 @@ async def get_run_events(
             for r in rows
         ],
     }
+    # Encoded here, in the threadpool thread, not on the event loop.
+    return JSONResponse(content=payload)
 
 
 class FamilyMemberResponse(BaseModel):

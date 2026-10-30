@@ -59,7 +59,7 @@ steps:
 - strategy: single_shot
   depends_on: []
   model:
-    model: eu.anthropic.claude-sonnet-4-6
+    model: eu.anthropic.claude-sonnet-5
   agent: custom-agent
   instance_id: blr-analyst
   name: Revision Analyst
@@ -188,7 +188,7 @@ steps:
   depends_on:
   - custom-agent:blr-analyst
   model:
-    model: eu.anthropic.claude-sonnet-4-6
+    model: eu.anthropic.claude-sonnet-5
   agent: custom-agent
   instance_id: blr-plan
   name: Revision Planner
@@ -251,7 +251,7 @@ steps:
   - custom-agent:blr-plan
   consumes: ["revisions/{run_id}/tasks.json"]
   model:
-    model: eu.anthropic.claude-sonnet-4-6
+    model: eu.anthropic.claude-sonnet-5
   agent: custom-agent
   instance_id: blr-write
   name: Revision Writers
@@ -303,7 +303,7 @@ steps:
   depends_on:
   - custom-agent:blr-write
   model:
-    model: eu.anthropic.claude-sonnet-4-6
+    model: eu.anthropic.claude-sonnet-5
   agent: custom-agent
   instance_id: blr-review
   name: Revision Reviewer

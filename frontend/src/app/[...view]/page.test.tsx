@@ -154,6 +154,17 @@ function makeJwt(sub: string): string {
 
 const launchedIds = () => JSON.parse(sessionStorage.getItem("tab_launched_run_ids") ?? "null") as string[] | null;
 
+/**
+ * The open run's record was fetched by its own open and never again: one slim
+ * read (`includeHeavy=false`) plus, because the run is finished, exactly one
+ * heavy read for its persisted agent outputs (finished-run reopen, D3).
+ */
+async function expectFinishedRunRecordFetchedOnce() {
+  await waitFor(() => expect(h.api.getWorkflow).toHaveBeenCalledTimes(2));
+  expect(h.api.getWorkflow).toHaveBeenCalledWith(token, "r1", false);
+  expect(h.api.getWorkflow).toHaveBeenCalledWith(token, "r1", true);
+}
+
 let token = "";
 let testCounter = 0;
 let consoleError: ReturnType<typeof vi.spyOn>;
@@ -210,7 +221,7 @@ describe("DashboardPage shallow run-tab navigation", () => {
     navigateShallow(view, path);
 
     await waitFor(() => expect(props().deepLinkTarget).toEqual(expect.objectContaining({ tab, agentId })));
-    expect(h.api.getWorkflow).toHaveBeenCalledTimes(1);
+    await expectFinishedRunRecordFetchedOnce();
   });
 
   it("requests the preview tab when the path returns to the bare run route", async () => {
@@ -220,7 +231,7 @@ describe("DashboardPage shallow run-tab navigation", () => {
     navigateShallow(view, "/runs/r1");
 
     await waitFor(() => expect(props().deepLinkTarget).toEqual(expect.objectContaining({ tab: "preview" })));
-    expect(h.api.getWorkflow).toHaveBeenCalledTimes(1);
+    await expectFinishedRunRecordFetchedOnce();
   });
 
   it("requests the Preview tab when the path moves to a pinned version of the open run", async () => {
@@ -233,7 +244,7 @@ describe("DashboardPage shallow run-tab navigation", () => {
     // ISS-1026: /runs/{id}/versions/{v} is the pinned twin of run-detail, so a
     // shallow move onto it opens Preview, as /runs/{id} does.
     expect(props().deepLinkTarget).toMatchObject({ tab: "preview" });
-    expect(h.api.getWorkflow).toHaveBeenCalledTimes(1);
+    await expectFinishedRunRecordFetchedOnce();
   });
 });
 

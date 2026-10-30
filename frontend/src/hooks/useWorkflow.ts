@@ -7,6 +7,7 @@ import type { AgentRunState, PipelineRunState, AttachedHook, ClarifyRound, WaveW
 // shared handlePipelineMessage reducer is transport-agnostic and untouched.
 import { getToken, postAnswers } from "@/lib/api";
 import { runUsage, sumWorkers } from "@/lib/runStats";
+import { applyAgentOutputs, type PersistedAgentOutputRow } from "@/lib/settledRunHydration";
 import { useRunConnection } from "@/providers/RunConnectionProvider";
 
 export interface UseWorkflowReturn {
@@ -37,6 +38,11 @@ export interface UseWorkflowReturn {
   // A14 — optional second arg: the run's persisted `warnings`, forwarded
   // verbatim to applyTerminalStatus (see its own doc for the undefined rule).
   reconcileTerminalStatus: (status: string, warnings?: string[], usage?: Parameters<typeof applyTerminalStatus>[3]) => void;
+  // Finished-run perf (plan D3) — fill Steps output/thinking from the run's
+  // persisted `agent_outputs` after a delta-free replay. Routed through the SAME
+  // applyAgentOutputs the run store uses (INV-12). Call only when
+  // canHydrateFromAgentOutputs holds.
+  hydrateAgentOutputs: (rows: readonly PersistedAgentOutputRow[]) => void;
 }
 
 const INITIAL_STATE: PipelineRunState = {
@@ -201,6 +207,10 @@ export function useWorkflow(): UseWorkflowReturn {
     [],
   );
 
+  const hydrateAgentOutputs = useCallback((rows: readonly PersistedAgentOutputRow[]) => {
+    setPipelineState((prev) => applyAgentOutputs(prev, rows));
+  }, []);
+
   const isRunning = pipelineState.isRunning;
 
   return {
@@ -213,6 +223,7 @@ export function useWorkflow(): UseWorkflowReturn {
     retainClarifyRound,
     retainAgentEdit,
     reconcileTerminalStatus,
+    hydrateAgentOutputs,
   };
 }
 

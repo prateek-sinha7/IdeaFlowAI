@@ -5,6 +5,7 @@ import { fetchSkills, skillsCleared } from "@/store/slices/skillsSlice";
 import { fetchHooks, hooksCleared } from "@/store/slices/hooksSlice";
 import { fetchWorkflows, globalCleared } from "@/store/slices/globalSlice";
 import { resetLiveNotificationsCache } from "@/hooks/useNotifications";
+import { clearPdfUrlCache } from "@/lib/pdfObjectUrlCache";
 import type { RootState, AppDispatch } from "@/store/index";
 
 export const listenerMiddleware = createListenerMiddleware();
@@ -77,5 +78,8 @@ listenerMiddleware.startListening({
     // useNotifications keeps live (running/gate) entries in module memory across
     // in-app remounts; they must not survive into the next account.
     resetLiveNotificationsCache();
+    // Finished-run PDF object URLs (SandboxPdfPreview) are module memory too:
+    // revoke them now instead of waiting for the next account to evict them.
+    clearPdfUrlCache();
   },
 });

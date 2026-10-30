@@ -59,6 +59,7 @@ import asyncio
 import logging
 import time
 import uuid
+from collections.abc import Collection
 from datetime import datetime, timezone
 from typing import Any
 
@@ -413,29 +414,99 @@ class ScopedStore:
 
         return await self._run_bounded("read_events", _body, run_id=run_id)
 
+    def _events_page_query(
+        self,
+        session: Any,
+        run_id: str,
+        after_seq: int,
+        limit: int,
+        types: Collection[str] | None,
+        exclude_types: Collection[str] | None,
+    ) -> list[Any]:
+        """Shared sync body of ``read_events_page`` / ``read_events_page_in_session``.
+
+        Defines the scope, type filter, order and bound ONCE so the async and the
+        sync entry points can never drift apart. ``types`` (allow-list) and
+        ``exclude_types`` (deny-list) are materialised as ``tuple(sorted(...))`` for a
+        deterministic IN-list (see ``last_event_of_types``). An EMPTY ``types``
+        returns ``[]``: an empty allow-list must never widen into "every type".
+        """
+        from app.models.run_event import RunEvent
+
+        wanted = None if types is None else tuple(sorted(types))
+        if wanted is not None and not wanted:
+            return []
+        query = session.query(RunEvent).filter(
+            RunEvent.run_id == run_id,
+            RunEvent.seq > after_seq,
+        )
+        if wanted is not None:
+            query = query.filter(RunEvent.type.in_(wanted))
+        if exclude_types:
+            query = query.filter(RunEvent.type.notin_(tuple(sorted(exclude_types))))
+        query = self._scope_owner_ws(query, RunEvent)
+        return query.order_by(RunEvent.seq.asc()).limit(max(0, int(limit))).all()
+
     async def read_events_page(
-        self, run_id: str, after_seq: int, *, limit: int
+        self,
+        run_id: str,
+        after_seq: int,
+        *,
+        limit: int,
+        types: Collection[str] | None = None,
+        exclude_types: Collection[str] | None = None,
     ) -> list[Any]:
         """Return the FIRST ``limit`` rows of ``read_events(run_id, after_seq)``: the
         same owner+workspace scope and ``seq > after_seq`` filter, ascending, with the
         bound pushed into SQL (ISS-1155). Following ``after_seq=<last seq returned>``
         walks the whole log one page at a time.
 
+        ``types`` keeps only rows whose ``type`` is in the allow-list (an empty
+        allow-list returns ``[]``, never everything); ``exclude_types`` drops rows
+        whose ``type`` is in the deny-list. Both filters run in SQL before the
+        ``LIMIT``, so pages walk the FILTERED log.
+
         ``read_events`` itself stays unbounded (see ``read_events_of_types``): it is the
         replay primitive behind SSE resume and engine resume. ``limit`` is clamped at 0
         because a negative SQL LIMIT means "no limit" on SQLite.
         """
-        from app.models.run_event import RunEvent
+        if types is not None and not types:
+            # Skip the session acquisition entirely: an empty allow-list is [].
+            return []
+        return await self._run_bounded(
+            "read_events_page",
+            lambda session: self._events_page_query(
+                session, run_id, after_seq, limit, types, exclude_types
+            ),
+            run_id=run_id,
+        )
 
-        def _body(session: Any) -> list[Any]:
-            query = session.query(RunEvent).filter(
-                RunEvent.run_id == run_id,
-                RunEvent.seq > after_seq,
+    def read_events_page_in_session(
+        self,
+        run_id: str,
+        after_seq: int,
+        *,
+        limit: int,
+        types: Collection[str] | None = None,
+        exclude_types: Collection[str] | None = None,
+    ) -> list[Any]:
+        """Sync twin of :meth:`read_events_page` for an INJECTED request session.
+
+        For sync request handlers, which FastAPI already runs in its threadpool, so
+        the query runs off the event loop. Never call it from the event loop. It
+        applies the same default-deny ``_scope_owner_ws`` scope, type filter, order
+        and bound as the async method (shared ``_events_page_query``).
+
+        Raises ``RuntimeError`` when the store was built without a session: this
+        twin never opens its own ``SessionLocal``.
+        """
+        if self._session is None:
+            raise RuntimeError(
+                "read_events_page_in_session requires an injected session"
             )
-            query = self._scope_owner_ws(query, RunEvent)
-            return query.order_by(RunEvent.seq.asc()).limit(max(0, int(limit))).all()
-
-        return await self._run_bounded("read_events_page", _body, run_id=run_id)
+        return self._events_page_query(
+            self._session, run_id, after_seq, limit, types, exclude_types
+        )
 
     async def last_event_of_types(
         self, run_id: str, types: Any, after_seq: int = 0
@@ -772,14 +843,32 @@ class ScopedStore:
 
         A cross-owner run id resolves to ``None`` (default-deny) → the 404 source
         at the API (``app/api/runs.py`` IDOR→404 precedent)."""
+        return await self._run_bounded(
+            "get_run", lambda session: self._run_query(session, run_id), run_id=run_id
+        )
+
+    def _run_query(self, session: Any, run_id: str) -> Any | None:
+        """Shared sync body of ``get_run`` / ``get_run_in_session`` (scope defined once)."""
         from app.models.workflow import WorkflowRun
 
-        def _body(session: Any) -> Any | None:
-            query = session.query(WorkflowRun).filter(WorkflowRun.id == run_id)
-            query = self._scope_owner_ws(query, WorkflowRun)
-            return query.first()
+        query = session.query(WorkflowRun).filter(WorkflowRun.id == run_id)
+        query = self._scope_owner_ws(query, WorkflowRun)
+        return query.first()
 
-        return await self._run_bounded("get_run", _body, run_id=run_id)
+    def get_run_in_session(self, run_id: str) -> Any | None:
+        """Sync twin of :meth:`get_run` for an INJECTED request session.
+
+        For sync request handlers, which FastAPI already runs in its threadpool, so
+        the query runs off the event loop. Never call it from the event loop. Same
+        default-deny ``_scope_owner_ws`` scope as :meth:`get_run` (shared
+        ``_run_query``): a cross-owner run id resolves to ``None``.
+
+        Raises ``RuntimeError`` when the store was built without a session: this
+        twin never opens its own ``SessionLocal``.
+        """
+        if self._session is None:
+            raise RuntimeError("get_run_in_session requires an injected session")
+        return self._run_query(self._session, run_id)
 
     async def persist_budget_snapshot(self, run_id: str, snapshot: dict) -> None:
         """Write the fan-out ``BudgetSnapshot`` to ``workflow_runs.budget_snapshot_json``.

@@ -197,6 +197,16 @@ export interface DashboardLayoutProps {
   // is in flight. Pure passthrough to PreviewPanel, which is the only surface
   // that can tell "still fetching" from "empty run" with it.
   isLoadingRunData?: boolean;
+  // Finished-run reopen (D9) — true while the reopened run's trace is still
+  // loading. Pure passthrough to PreviewPanel → AgentThinkingTab (Steps loading).
+  isLoadingRunTrace?: boolean;
+  // Finished-run reopen (D7) — the reopened run the server reports as finished.
+  // Its live-only side effects (the running notification) stay off; also handed
+  // to PreviewPanel so its deliverable lookup uses the record it already has.
+  settledReopen?: import("@/types/index").SettledReopen | null;
+  // ISS-804 (D6) — the page's cached /family loader. When given, the family
+  // effect below shares one request per run with the page's chat seed.
+  loadRunFamily?: (runId: string) => Promise<RunFamily>;
   questionnaireData?: {
     questions: {
       id: string; question: string; options: string[]; answerType?: string;
@@ -471,6 +481,9 @@ export function DashboardLayout({
   reopenedFailedAgents,
   reopenedAgentNameById,
   isLoadingRunData,
+  isLoadingRunTrace,
+  settledReopen,
+  loadRunFamily,
   onStartPipeline,
   onResetPipeline,
   launchError,
@@ -756,10 +769,14 @@ export function DashboardLayout({
   const [runFamily, setRunFamily] = useState<RunFamily | null>(null);
   useEffect(() => {
     if (!contentSourceRunId) { setRunFamily(null); return; }
-    getRunFamily(getToken() || "", contentSourceRunId)
+    // ISS-804: prefer the page's cached loader (one /family request per run).
+    const request = loadRunFamily
+      ? loadRunFamily(contentSourceRunId)
+      : getRunFamily(getToken() || "", contentSourceRunId);
+    request
       .then(setRunFamily)
       .catch(() => setRunFamily(null));
-  }, [contentSourceRunId]);
+  }, [contentSourceRunId, loadRunFamily]);
 
   const dismissToast = useCallback((id: string) => {
     setToasts(prev => prev.filter(t => t.id !== id));
@@ -1085,10 +1102,14 @@ export function DashboardLayout({
   // Detect when od_prototype/ppt starts (fired from dashboard/page.tsx directly,
   // not through handleQuestionnaireSubmit) and create a notification for it.
   const odProtoNotifCreated = useRef(false);
+  // D7: a reopened run the server reports as finished is not starting, even
+  // while its replay transiently reads isRunning — never announce it as running.
+  const settledReopenRunId = settledReopen?.runId ?? null;
   useEffect(() => {
     if (
       pipelineState?.isRunning &&
-      (pipelineState.pipeline_type === "prototype" || pipelineState.pipeline_type === "ppt")
+      (pipelineState.pipeline_type === "prototype" || pipelineState.pipeline_type === "ppt") &&
+      !(settledReopenRunId !== null && pipelineState.pipelineRunId === settledReopenRunId)
     ) {
       if (odProtoNotifCreated.current) return;
       odProtoNotifCreated.current = true;
@@ -1144,7 +1165,7 @@ export function DashboardLayout({
       odProtoNotifId.current = null;
       odPptNotifId.current = null;
     }
-  }, [pipelineState?.isRunning, pipelineState?.pipeline_type, pipelineState?.pipelineRunId]);
+  }, [pipelineState?.isRunning, pipelineState?.pipeline_type, pipelineState?.pipelineRunId, settledReopenRunId]);
 
   // Update agentsTotal when pipeline_start arrives with the real agent list
   useEffect(() => {
@@ -3512,6 +3533,8 @@ export function DashboardLayout({
                       reopenedFailedAgents={reopenedFailedAgents}
                       reopenedAgentNameById={reopenedAgentNameById}
                       isLoadingRunData={isLoadingRunData}
+                      isLoadingRunTrace={isLoadingRunTrace}
+                      settledRun={settledReopen ?? null}
                       runFamily={runFamily}
                       liveRunId={contentSourceRunId ?? null}
                       pinnedVersion={pinnedVersion}

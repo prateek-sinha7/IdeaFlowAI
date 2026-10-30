@@ -404,6 +404,16 @@ export type WorkflowType = "user_stories" | "user_stories_revision" | "ppt" | "p
 // as a distinct "Diverted to X" card treatment, never as "Completed".
 export type WorkflowStatus = "running" | "completed" | "failed" | "cancelled" | "degraded" | "revising" | "planning" | "generating" | "waiting_for_user" | "clarifying" | "analyzing" | "diverted";
 
+/** A reopened run the server reports as finished (terminal status), as the run
+ *  screen learned it from the run record. Live-only side effects (the running
+ *  notification, Preview's record refetch) key off it; it is cleared when a live
+ *  lifecycle frame for the same run arrives (a resume). */
+export interface SettledReopen {
+  runId: string;
+  status: WorkflowStatus;
+  deliverableFilename: string | null;
+}
+
 export interface WorkflowRun {
   id: string;
   title: string;

@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter, usePathname, notFound } from "next/navigation";
 import { buildLoginRedirect } from "@/lib/authRedirect";
-import { getToken, getChat, logout, deleteChat, getWorkflows, getWorkflow, getMe, postGate, getRunEvents, getRunFamily, ApiError, handleSessionExpiry, launchRefusalMessage } from "@/lib/api";
+import { getToken, getChat, logout, deleteChat, getWorkflows, getWorkflow, getMe, postGate, getRunEvents, getRunFamily, ApiError, handleSessionExpiry, launchRefusalMessage, CHAT_EVENT_TYPES, STREAM_DELTA_EVENT_TYPES, type DurableFrame } from "@/lib/api";
+import { applyAgentOutputs, canHydrateFromAgentOutputs, parsePersistedAgentOutputs, type PersistedAgentOutputRow } from "@/lib/settledRunHydration";
 import { useAppDispatch } from "@/store/hooks";
 import { signedIn, userLoaded, signedOut } from "@/store/slices/authSlice";
 import type { ConnectionStatus } from "@/hooks/useHandoffSocket";
@@ -25,7 +26,7 @@ import { DashboardLayout, type DashboardLayoutProps, type MainView, type SavedCo
 // SC-001 fix: the settings sub-tab type, seeded from parseViewPath below and
 // threaded through DashboardLayout to AccountSettings' own initialSection prop.
 import type { SettingsSection } from "@/components/settings/AccountSettings";
-import type { ChatMessage, ChatSession, StreamMessage, ProcessStep, WorkflowRun, WorkflowStatus, WorkflowType, User, WaveGroup, GenericDeliverable, ReviewGateReadyData } from "@/types/index";
+import type { ChatMessage, ChatSession, StreamMessage, ProcessStep, WorkflowRun, WorkflowStatus, WorkflowType, User, WaveGroup, GenericDeliverable, ReviewGateReadyData, SettledReopen } from "@/types/index";
 import { deriveDeliverableMimetype, resolveReopenMimetype } from "@/types/index";
 import type { ChatMode } from "@/components/chat/ChatInput";
 // IN-01 (16 review): SHARED failed-agent-id parser (single source of truth, no
@@ -628,6 +629,19 @@ export default function DashboardPage() {
   // ISS-739's locked_constraints: an EXPLICIT fetch-in-flight boolean, never an
   // inferred `terminal && !content` guess (the ISS-017 REJECTED hack).
   const [isLoadingRunData, setIsLoadingRunData] = useState(false);
+  // Finished-run reopen: true while a reopened run's durable trace (events +
+  // persisted agent outputs) is still loading, so the Steps tab shows its
+  // loading state instead of an empty overview. Set in handleSelectWorkflowRun's
+  // prelude for a non-live-build reopen; cleared in the same synchronous batch
+  // that applies the trace (terminal runs) or right after the record (live runs).
+  const [isLoadingRunTrace, setIsLoadingRunTrace] = useState(false);
+  // The reopened run the server reports as finished (set from its record). Gates
+  // live-only side effects downstream (DashboardLayout's running notification,
+  // PreviewPanel's record refetch). The ref mirrors it for the stable
+  // handleWebSocketMessage callback, which clears both on a live lifecycle frame
+  // for that run (a resume).
+  const [settledReopen, setSettledReopen] = useState<SettledReopen | null>(null);
+  const settledReopenRunIdRef = useRef<string | null>(null);
   // ISS-021 (18-03) — generic deliverable channel. A pipeline_complete (live) or
   // history-reopen whose pipeline_type matched NONE of the known FE render
   // branches feeds this single channel: the declared/derived mimetype + filename
@@ -737,15 +751,27 @@ export default function DashboardPage() {
    *  live-remount path both call getRunFamily for the same run within a
    *  session.  A cached resolved Promise re-delivers its value on the next
    *  microtask tick — no second network request, no stale data.
-   *  FIX-6 (perf). */
-  const cachedGetRunFamily = (token: string, runId: string): ReturnType<typeof getRunFamily> => {
+   *  FIX-6 (perf). ISS-804: DashboardLayout's family effect shares this cache
+   *  through `loadRunFamily`, so one reopen issues one /family request. A
+   *  rejected request is evicted so the next caller retries instead of
+   *  re-reading the failure. */
+  const cachedGetRunFamily = useCallback((token: string, runId: string): ReturnType<typeof getRunFamily> => {
     let p = familyFetchCacheRef.current.get(runId);
     if (!p) {
-      p = getRunFamily(token, runId);
-      familyFetchCacheRef.current.set(runId, p);
+      const request = getRunFamily(token, runId);
+      p = request;
+      familyFetchCacheRef.current.set(runId, request);
+      Promise.resolve(request).catch(() => {
+        if (familyFetchCacheRef.current.get(runId) === request) familyFetchCacheRef.current.delete(runId);
+      });
     }
     return p;
-  };
+  }, []);
+  // The family loader handed to DashboardLayout (stable identity).
+  const loadRunFamily = useCallback(
+    (runId: string) => cachedGetRunFamily(getToken() || "", runId),
+    [cachedGetRunFamily],
+  );
 
   // ─── Per-run state store (FIX-201 / KAN-168 concurrent-run isolation) ────────
   // Root cause of all cross-contamination: questionnaireData and reviewGateData
@@ -1183,6 +1209,23 @@ export default function DashboardPage() {
       frameType === "stream_attached"
     ) {
       return;
+    }
+
+    // Finished-run reopen (D7): a LIVE lifecycle frame for the run the screen
+    // reopened as finished means it is running again (a resume), so its live-only
+    // side effects must come back. Replayed frames describe the past and never
+    // clear it. Keyed on the run id only (SC-001).
+    if (
+      !isReplay &&
+      settledReopenRunIdRef.current !== null &&
+      (frameType === "pipeline_start" ||
+        frameType === "planner_start" ||
+        frameType === "agent_start" ||
+        frameType === "pipeline_reconnected") &&
+      resolveFrameRunId(msg as unknown as Record<string, unknown>, sourceRunId) === settledReopenRunIdRef.current
+    ) {
+      settledReopenRunIdRef.current = null;
+      setSettledReopen(null);
     }
 
     // Phase 12 (§22) — wave/subagent lifecycle events route into the wave-tree
@@ -1679,7 +1722,10 @@ export default function DashboardPage() {
             // producing a duplicate. Re-read contentSourceRunIdRef inside the async
             // body (it's set synchronously two lines above).
             const _completingRunId = completingRunId;
-            void (async () => {
+            // Finished-run reopen (D7): only a LIVE completion can race the detach.
+            // A replayed pipeline_complete belongs to a log the reopen already
+            // read in full, so the catch-up would only re-download it.
+            if (!isReplay) void (async () => {
               try {
                 const tok = getToken();
                 if (!tok || !_completingRunId) return;
@@ -1700,7 +1746,7 @@ export default function DashboardPage() {
                 // after all other chat events and therefore after lastSeq.
                 // ISS-926: the completing run's OWN cursor (seq is per run).
                 const afterSeq = getRunChatLastSeqRef.current?.(_completingRunId) ?? 0;
-                const frames = await getRunEvents(tok, _completingRunId, afterSeq);
+                const frames = await getRunEvents(tok, _completingRunId, afterSeq, undefined, { types: CHAT_EVENT_TYPES });
                 // Only forward chat frames — pipeline/agent frames for a completed
                 // run must not re-trigger the reducer (they'd re-fire agent state).
                 const chatFrames = frames.filter(
@@ -2321,7 +2367,7 @@ export default function DashboardPage() {
   const effectiveReconnect = runConnection.reattach;
 
   // Workflow pipeline state
-  const { pipelineState, startPipeline, resetPipeline, handleMessage: handlePipelineMsg, submitQuestionnaire, retainClarifyRound, retainAgentEdit, reconcileTerminalStatus } = useWorkflow();
+  const { pipelineState, startPipeline, resetPipeline, handleMessage: handlePipelineMsg, submitQuestionnaire, retainClarifyRound, retainAgentEdit, hydrateAgentOutputs, reconcileTerminalStatus } = useWorkflow();
   // KAN-98: store pending gate edits so review_gate_approved can apply them to
   // the live agent state (planAgent.output etc.) for the Thinking tab display.
   const pendingGateEditRef = useRef<{ agentId: string; editedContent: string } | null>(null);
@@ -3023,30 +3069,89 @@ export default function DashboardPage() {
       // while it runs. Cleared in the finally below, on every exit path.
       setIsLoadingRunData(true);
 
+      // Finished-run reopen (D1): reset the replay state and register the run
+      // BEFORE any event download starts, so no frame of this run is ever
+      // dropped as foreign (and marked applied) and no applied page is wiped by
+      // a later reset. Skipped for the run this tab is building live: replaying
+      // it from 0 would wipe live progress and gate/questionnaire state.
+      const isLiveBuild = run.id === pipelineState.pipelineRunId;
+      settledReopenRunIdRef.current = null;
+      setSettledReopen(null);
+      setIsLoadingRunTrace(!isLiveBuild);
+      const resetForReplay = () => {
+        // ISS-063 / ISS-679: never replay into an entry that already holds a
+        // finished run (its revision count would read 0); an in-flight run keeps
+        // its entry. initRun projects the fresh entry, since the viewport already
+        // points at this run (switchViewTo above).
+        if (!runStore.get(run.id)?.pipelineState.isRunning) runStore.initRun(run.id);
+        // Reset the per-run FE replay state (seen-set / seq cursor / wave groups)
+        // and the reducer's agents[] so the prior run's state does not poison the
+        // new view (mirrors the launch path's pipeline_start reset + startPipeline).
+        resetReplayState({
+          seen: seenEventIdsRef.current,
+          setLastSeq: (n) => {
+            lastSeqRef.current = n;
+          },
+          setWaveGroups,
+        });
+        resetPipeline();
+        // KAN-125: register this reopened run as locally-known so the
+        // isForeignFrame guard (in handleWebSocketMessage) lets its durable
+        // events pass through to pipelineState. Without this, a run opened
+        // from history that was NOT launched in this session would be blocked
+        // because launchedRunIdsRef doesn't contain its id.
+        launchedRunIdsRef.current.add(run.id);
+        // KAN-125 MULTI-TAB FIX — persist to sessionStorage so the set
+        // survives a same-tab page refresh.
+        persistLaunchedIds();
+        // KAN-125 FIX — the reducer gate in handleWebSocketMessage routes the
+        // durable frames (and any later live frames of a non-terminal run) to
+        // pipelineState only for activelyBuildingRunIdRef.
+        activelyBuildingRunIdRef.current = run.id;
+      };
+      if (!isLiveBuild) resetForReplay();
+
+      // The record's status decides how the trace loads, and the caller may
+      // already know it (a History row) or not (a `{ id }` stub from T7/T11).
+      const knownLiveStatus = !!run.status && !REOPEN_TERMINAL_STATUSES.has(run.status);
+      // A LIVE run's log is walked page by page and each page applied as it
+      // lands (onPage), so its trace builds up progressively; seenEventIdsRef
+      // dedup keeps that idempotent with the live SSE tail. `livePagesApply`
+      // stops a walk the record later proves terminal from painting further.
+      let livePagesApply = true;
+      const startLiveWalk = () =>
+        getRunEvents(currentToken, run.id, 0, (pageFrames) => {
+          if (!livePagesApply || isSwitchGenerationStale(switchGen)) return;
+          for (const frame of pageFrames) {
+            handleWebSocketMessage(
+              { type: frame.type, data: frame.data } as unknown as StreamMessage,
+              run.id,
+              true, // ISS-785: replayed frame — no recents refetch
+            );
+          }
+        });
+      let liveEventsPromise: ReturnType<typeof getRunEvents> | null = null;
+      // FIX-2+3 (perf) / D2: a run that may be finished starts its trace download
+      // NOW, in parallel with the record, but without the per-token stream deltas
+      // (about 2% of the rows; the Steps text comes from the record's persisted
+      // agent outputs) and without onPage, so it is applied in one batch. If the
+      // record says live, this speculative walk is discarded.
+      let settledEventsPromise: ReturnType<typeof getRunEvents> | null = null;
+      if (!isLiveBuild) {
+        if (knownLiveStatus) {
+          liveEventsPromise = startLiveWalk();
+          void Promise.resolve(liveEventsPromise).catch(() => {});
+        } else {
+          settledEventsPromise = getRunEvents(currentToken, run.id, 0, undefined, { excludeTypes: STREAM_DELTA_EVENT_TYPES });
+          // Handled here so a discarded or failed speculative walk never surfaces
+          // as an unhandled rejection; the trace loader still sees the failure.
+          void Promise.resolve(settledEventsPromise).catch(() => {});
+        }
+      }
+      // True once the trace load below owns clearing isLoadingRunTrace.
+      let traceHandedOff = false;
+
       try {
-        // FIX-2+3 (perf): launch the events fetch immediately — it only needs
-        // runId + token, which are both available right now.  Running it in
-        // parallel with getWorkflow overlaps the ~764 ms first-fetch with the
-        // event-page waterfall so events begin arriving while we are still
-        // waiting for run metadata.  Gated on non-live-build: re-fetching events
-        // for the LIVE build would replay from 0 over live progress (same
-        // reasoning as the replay gate below).
-        // onPage delivers each page's frames progressively to the steps/chat
-        // panel as they arrive; seenEventIdsRef dedup makes this idempotent with
-        // the live SSE tail.
-        const eventsPromise: ReturnType<typeof getRunEvents> =
-          run.id !== pipelineState.pipelineRunId
-            ? getRunEvents(currentToken, run.id, 0, (pageFrames) => {
-                if (isSwitchGenerationStale(switchGen)) return;
-                for (const frame of pageFrames) {
-                  handleWebSocketMessage(
-                    { type: frame.type, data: frame.data } as unknown as StreamMessage,
-                    run.id,
-                    true, // ISS-785: replayed frame — no recents refetch
-                  );
-                }
-              })
-            : Promise.resolve([]);
 
         // ISS-856 (QA-PS-048): a caller that has just fetched the full record
         // (History's version picker, the toast/notification fetch-then-open)
@@ -3108,7 +3213,11 @@ export default function DashboardPage() {
         const isContentTerminal =
           fullRun.status === "completed" || fullRun.status === "degraded";
         if (fullRun.output && isContentTerminal) {
-          if (fullRun.type === "user_stories" || fullRun.type === "user_stories_revision") {
+          // app_builder rides the user-story slot exactly as the live
+          // pipeline_complete branch routes it, so a reopened app_builder run
+          // opens straight on its IDE preview instead of the generic deliverable.
+          if (fullRun.type === "user_stories" || fullRun.type === "user_stories_revision"
+            || fullRun.type === "app_builder" || fullRun.type === "app_builder_revision") {
             setUserStoryContent(fullRun.output);
           } else if (fullRun.type === "ppt" || fullRun.type === "ppt_v2" || fullRun.type === "ppt_revision") {
             // spec 017 — same normalization as the live path above: a ppt_v2 run
@@ -3183,11 +3292,36 @@ export default function DashboardPage() {
           ),
         );
 
+        // Finished-run reopen (D2/D7): the record decides how the trace loads.
+        const isTerminalReopen = REOPEN_TERMINAL_STATUSES.has(fullRun.status);
+        if (isTerminalReopen) {
+          // Publish the settled run so live-only side effects downstream (the
+          // running notification, Preview's record refetch) stay off for it.
+          settledReopenRunIdRef.current = fullRun.id;
+          setSettledReopen({
+            runId: fullRun.id,
+            status: fullRun.status,
+            deliverableFilename: fullRun.deliverableFilename ?? null,
+          });
+          // The caller believed the run was live and its progressive walk has
+          // already painted pages (or the store entry still claims isRunning):
+          // stop that walk and start the batch from a clean slate.
+          if (!isLiveBuild && (liveEventsPromise !== null || runStore.get(fullRun.id)?.pipelineState.isRunning)) {
+            livePagesApply = false;
+            liveEventsPromise = null;
+            runStore.initRun(fullRun.id);
+            resetForReplay();
+          }
+        } else {
+          // A live run's trace streams in page by page, so Steps never waits on
+          // a batch: its loading state ends with the record.
+          setIsLoadingRunTrace(false);
+        }
+
         // FIX-1 (perf): Phase A complete — preview pane content is set and the
-        // skeleton can clear NOW, before the event waterfall starts.  The event
-        // replay runs in a fire-and-forget IIFE below (Phase B) so it does not
-        // gate the skeleton.  seenEventIdsRef dedup keeps Phase-B frames
-        // idempotent with the live SSE tail and the onPage progressive delivery.
+        // skeleton can clear NOW, before the event waterfall starts.  The trace
+        // loads in a fire-and-forget IIFE below (Phase B) so it does not gate
+        // the skeleton.
         setIsLoadingRunData(false);
 
         // DEF-44-12-4 (Piece 1) — bind the run-screen LIVE state (the Steps
@@ -3217,54 +3351,161 @@ export default function DashboardPage() {
           const _reopenBrief = (_reopenParsed.revisionInstruction ?? _reopenParsed.brief ?? "").split("\n")[0].trim();
           setSubmittedBrief(_reopenBrief || fullRun.title || "");
 
-          // Sync setup: reset replay state and refs so live SSE frames are routed
-          // correctly BEFORE any async I/O starts.  These run synchronously so the
-          // routing is already correct when the Phase-B IIFE fires its first await.
-          // Reset the per-run FE replay state (seen-set / seq cursor / wave groups)
-          // and the reducer's agents[] so the prior run's state does not poison the
-          // new view (mirrors the launch path's pipeline_start reset + startPipeline).
-          resetReplayState({
-            seen: seenEventIdsRef.current,
-            setLastSeq: (n) => {
-              lastSeqRef.current = n;
-            },
-            setWaveGroups,
-          });
-          resetPipeline();
-          // KAN-125: register this reopened run as locally-known so the
-          // isForeignFrame guard (in handleWebSocketMessage) lets its durable
-          // events pass through to pipelineState. Without this, a run opened
-          // from history that was NOT launched in this session would be blocked
-          // because launchedRunIdsRef doesn't contain its id.
-          launchedRunIdsRef.current.add(fullRun.id);
-          // KAN-125 MULTI-TAB FIX — persist to sessionStorage so the set
-          // survives a same-tab page refresh.
-          persistLaunchedIds();
-          // Also set trackedRunIdRef so the questionnaire/review gate guards
-          // correctly scope to the viewed run.
+          // The replay state was reset and the run registered in the prelude
+          // (D1), before any download started. Also set trackedRunIdRef so the
+          // questionnaire/review gate guards correctly scope to the viewed run.
           trackedRunIdRef.current = fullRun.id;
           // KAN-125 FIX — also update activelyBuildingRunIdRef so the reducer
           // gate in handleWebSocketMessage routes the durable frames (and any
           // subsequent live frames for a non-terminal run) to pipelineState.
           activelyBuildingRunIdRef.current = fullRun.id;
 
-          // FIX-1 (perf): Phase B — event replay runs in a fire-and-forget IIFE
-          // so it does NOT gate the skeleton (setIsLoadingRunData(false) already
-          // fired above).  FIX-2: we consume eventsPromise — the already-in-flight
-          // request launched in parallel with getWorkflow — so by the time we
-          // await here, some or all pages may have already resolved and the onPage
-          // callbacks have already applied them progressively.  The for-loop
-          // replay below is a safety net: seenEventIdsRef dedup makes frames that
-          // arrived via onPage no-ops, so only frames whose onPage fired before
-          // resetReplayState (extremely rare on slow networks) are re-applied.
+          // Phase B — load the run's trace.
+          //  - Terminal run (D2/D3): the delta-free walk started in the prelude
+          //    plus the heavy record's persisted agent outputs. When those rows
+          //    cannot reproduce every step's text (a pass left open, a dropped
+          //    re-run), fall back to the FULL log instead, with no hydration.
+          //  - Live run: the progressive page-by-page walk (onPage applies each
+          //    page as it lands; the replay below is then a deduped safety net).
+          // Family members contribute their chat frames only (KAN-154 / FIX-174).
+          const loadReopenTrace = async (): Promise<{
+            frames: DurableFrame[];
+            agentOutputRows: PersistedAgentOutputRow[] | null;
+            familyChatFrames: DurableFrame[];
+          }> => {
+            let durableFrames: DurableFrame[];
+            let agentOutputRows: PersistedAgentOutputRow[] | null = null;
+            if (isTerminalReopen) {
+              const [settledFrames, heavyRun] = await Promise.all([
+                settledEventsPromise
+                  ?? getRunEvents(currentToken, fullRun.id, 0, undefined, { excludeTypes: STREAM_DELTA_EVENT_TYPES }),
+                // ISS-856: a caller that handed over the full record already
+                // carries agent_outputs; a slim row or `{ id }` stub does not.
+                run.input !== undefined
+                  ? Promise.resolve(run)
+                  : getWorkflow(currentToken, fullRun.id, true).catch(() => null),
+              ]);
+              const rows = parsePersistedAgentOutputs(heavyRun?.agentOutputs);
+              if (canHydrateFromAgentOutputs(settledFrames, rows)) {
+                durableFrames = settledFrames;
+                agentOutputRows = rows;
+              } else {
+                durableFrames = await getRunEvents(currentToken, fullRun.id);
+              }
+            } else {
+              durableFrames = await (liveEventsPromise ?? startLiveWalk());
+            }
+            // KAN-154 (Gap 1): family-aware chat seed — also fetch chat_reply rows
+            // from the run's revision family so the transcript shows the full history
+            // of all versions, not just the selected run. getRunFamily returns members
+            // ordered by created_at (root first); we fetch each OTHER member's chat
+            // events (server-side type filter) and seed only the chat frames.
+            // Best-effort: any per-member fetch failure is tolerated so the primary
+            // run's seed is never blocked.
+            // DEF-44-12-4 (Piece 3) — for the PRIMARY run we reuse the
+            // already-fetched durableFrames (no second fetch). Family members are
+            // fetched in parallel; their events are merged by family order before
+            // seeding so the transcript reads in the correct run-creation order.
+            let familyChatFrames = [...durableFrames];
+            try {
+              // FIX-6 (perf) / ISS-804: the cached family promise is shared with
+              // T11 and DashboardLayout's family effect, so one /family request.
+              const family = await cachedGetRunFamily(currentToken, fullRun.id);
+              // family.members is ordered by created_at ASC (root first, then
+              // revisions in chronological order). fullRun.id is already covered
+              // by durableFrames — fetch the OTHER members only.
+              const otherMembers = (family?.members ?? []).filter(
+                (m: { id: string }) => m.id !== fullRun.id,
+              );
+              if (otherMembers.length > 0) {
+                const memberFrameArrays = await Promise.allSettled(
+                  otherMembers.map((m: { id: string }) =>
+                    getRunEvents(currentToken, m.id, 0, undefined, { types: CHAT_EVENT_TYPES }),
+                  ),
+                );
+                // FIX-174: build an ordered map: family member id → its chat frames.
+                // family.members is created_at ASC so we can reconstruct the correct
+                // chronological order across runs. We MUST NOT sort by raw `seq`
+                // values here because seq is per-run-scoped (each run starts at 1),
+                // so a revision run's seq 1 would sort before the parent run's
+                // seq 200, placing "Revision started" at the top of the transcript.
+                const memberFramesByMemberId = new Map<string, (typeof durableFrames)>();
+                otherMembers.forEach((m, i) => {
+                  const result = memberFrameArrays[i];
+                  if (result.status === "fulfilled") {
+                    // Keep only chat frames — pipeline reducer frames for other members
+                    // are intentionally excluded (they'd overwrite pipelineState which
+                    // should reflect the OPENED run, not every family member's agents).
+                    memberFramesByMemberId.set(
+                      m.id,
+                      result.value.filter(
+                        (f) => f.type === "chat_message" || f.type === "chat_reply",
+                      ),
+                    );
+                  }
+                });
+
+                // Build the ordered transcript: interleave runs in the family's
+                // chronological order (family.members is created_at ASC). For each
+                // family member that is NOT the currently-opened run, append its chat
+                // frames in their own within-run seq order. The opened run's frames
+                // (durableFrames) are included as non-chat + chat — they anchor the
+                // pipeline state seed. We place each member's frames relative to the
+                // opened run by family position.
+                //
+                // Strategy: determine where fullRun.id sits in the ordered members
+                // list; prepend earlier members' frames and append later members'
+                // frames around the primary run's frames.
+                const allMemberIds = (family?.members ?? []).map(
+                  (m: { id: string }) => m.id,
+                );
+                const openedRunIndex = allMemberIds.indexOf(fullRun.id);
+
+                // Frames from members BEFORE the opened run (earlier in time) go first
+                const priorChatFrames: (typeof durableFrames) = [];
+                for (let i = 0; i < openedRunIndex; i++) {
+                  const mid = allMemberIds[i];
+                  const mFrames = memberFramesByMemberId.get(mid);
+                  if (mFrames) priorChatFrames.push(...mFrames);
+                }
+                // Frames from members AFTER the opened run (later in time) go last
+                const laterChatFrames: (typeof durableFrames) = [];
+                for (let i = openedRunIndex + 1; i < allMemberIds.length; i++) {
+                  const mid = allMemberIds[i];
+                  const mFrames = memberFramesByMemberId.get(mid);
+                  if (mFrames) laterChatFrames.push(...mFrames);
+                }
+
+                // Final order: earlier-run chats → opened run's full frames (pipeline
+                // seed + chat) → later-run chats. This preserves chronological order
+                // across the family without mixing per-run seq numbers.
+                familyChatFrames = [
+                  ...priorChatFrames,
+                  ...durableFrames,
+                  ...laterChatFrames,
+                ];
+              }
+            } catch {
+              // Family fetch failed — fall back to single-run transcript (no crash).
+              familyChatFrames = [...durableFrames];
+            }
+            return { frames: durableFrames, agentOutputRows, familyChatFrames };
+          };
+
+          // FIX-1 (perf): Phase B runs in a fire-and-forget IIFE so it does NOT
+          // gate the skeleton (setIsLoadingRunData(false) already fired above).
+          // D2: everything after the trace lands — replay, agent-output
+          // hydration, terminal reconcile, transcript seed — runs as ONE
+          // synchronous block, so React commits only the final state of a
+          // finished run (no isRunning flash, no tab bounce).
+          traceHandedOff = true;
           void (async () => {
             try {
-              // FIX-2: consume the already-in-flight events promise.
-              const durableFrames = await eventsPromise;
+              const reopenTrace = await loadReopenTrace();
               // ISS-779 (QA-SG-004): drop this replay if the user has already
               // navigated to a different run while the fetch was in flight.
               if (isSwitchGenerationStale(switchGen)) return;
-              for (const frame of durableFrames) {
+              for (const frame of reopenTrace.frames) {
                 // These frames all belong to the run being REOPENED — pass its id so
                 // the foreign-run guard adopts them (trackedRunIdRef was already
                 // pointed at fullRun.id synchronously above; the contentSourceRunId
@@ -3276,6 +3517,16 @@ export default function DashboardPage() {
                   } as unknown as StreamMessage,
                   fullRun.id,
                   true, // ISS-785: replayed frame — no recents refetch
+                );
+              }
+              // D3 — the delta-free replay left each step's streamed text empty;
+              // fill it from the persisted per-pass rows, in BOTH containers (the
+              // FIX-201 bridge copies legacy into the store, so the two must agree).
+              // Only present when canHydrateFromAgentOutputs held.
+              if (reopenTrace.agentOutputRows) {
+                hydrateAgentOutputs(reopenTrace.agentOutputRows);
+                runStore.updatePipelineState(fullRun.id, (prev) =>
+                  applyAgentOutputs(prev, reopenTrace.agentOutputRows ?? []),
                 );
               }
               // ISS-126 — reconcile the reopened run against its PERSISTED status.
@@ -3338,114 +3589,24 @@ export default function DashboardPage() {
                 // erase the historical gate card from the reopened transcript.
                 runStore.update(fullRun.id, { questionnaireData: null });
               }
-              // KAN-154 (Gap 1): family-aware chat seed — also fetch chat_reply rows
-              // from the run's revision family so the transcript shows the full history
-              // of all versions, not just the selected run. getRunFamily returns members
-              // ordered by created_at (root first); we fetch each PRIOR member's events
-              // and seed only the chat frames. Best-effort: any per-member fetch failure
-              // is tolerated so the primary run's seed is never blocked.
-              // DEF-44-12-4 (Piece 3) — seed the prior chat turns. For the PRIMARY run
-              // we reuse the already-fetched durableFrames (no second fetch). Family
-              // members are fetched cheaply in parallel; their events are merged
-              // chronologically by family order before seeding so the transcript reads
-              // in the correct run-creation order.
-              let familyChatFrames = [...durableFrames];
-              try {
-                // FIX-6 (perf): use the cached family promise so T11 and this path
-                // never issue two requests for the same run's family.
-                const family = await cachedGetRunFamily(currentToken, fullRun.id);
-                // family.members is ordered by created_at ASC (root first, then
-                // revisions in chronological order). fullRun.id is already covered
-                // by durableFrames — fetch the OTHER members only.
-                const otherMembers = (family?.members ?? []).filter(
-                  (m: { id: string }) => m.id !== fullRun.id,
-                );
-                if (otherMembers.length > 0) {
-                  const memberFrameArrays = await Promise.allSettled(
-                    otherMembers.map((m: { id: string }) =>
-                      getRunEvents(currentToken, m.id),
-                    ),
-                  );
-                  // FIX-174: build an ordered map: family member id → its chat frames.
-                  // family.members is created_at ASC so we can reconstruct the correct
-                  // chronological order across runs. We MUST NOT sort by raw `seq`
-                  // values here because seq is per-run-scoped (each run starts at 1),
-                  // so a revision run's seq 1 would sort before the parent run's
-                  // seq 200, placing "Revision started" at the top of the transcript.
-                  const memberFramesByMemberId = new Map<string, (typeof durableFrames)>();
-                  otherMembers.forEach((m, i) => {
-                    const result = memberFrameArrays[i];
-                    if (result.status === "fulfilled") {
-                      // Keep only chat frames — pipeline reducer frames for other members
-                      // are intentionally excluded (they'd overwrite pipelineState which
-                      // should reflect the OPENED run, not every family member's agents).
-                      memberFramesByMemberId.set(
-                        m.id,
-                        result.value.filter(
-                          (f) => f.type === "chat_message" || f.type === "chat_reply",
-                        ),
-                      );
-                    }
-                  });
-
-                  // Build the ordered transcript: interleave runs in the family's
-                  // chronological order (family.members is created_at ASC). For each
-                  // family member that is NOT the currently-opened run, append its chat
-                  // frames in their own within-run seq order. The opened run's frames
-                  // (durableFrames) are included as non-chat + chat — they anchor the
-                  // pipeline state seed. We place each member's frames relative to the
-                  // opened run by family position.
-                  //
-                  // Strategy: determine where fullRun.id sits in the ordered members
-                  // list; prepend earlier members' frames and append later members'
-                  // frames around the primary run's frames.
-                  const allMemberIds = (family?.members ?? []).map(
-                    (m: { id: string }) => m.id,
-                  );
-                  const openedRunIndex = allMemberIds.indexOf(fullRun.id);
-
-                  // Frames from members BEFORE the opened run (earlier in time) go first
-                  const priorChatFrames: (typeof durableFrames) = [];
-                  for (let i = 0; i < openedRunIndex; i++) {
-                    const mid = allMemberIds[i];
-                    const mFrames = memberFramesByMemberId.get(mid);
-                    if (mFrames) priorChatFrames.push(...mFrames);
-                  }
-                  // Frames from members AFTER the opened run (later in time) go last
-                  const laterChatFrames: (typeof durableFrames) = [];
-                  for (let i = openedRunIndex + 1; i < allMemberIds.length; i++) {
-                    const mid = allMemberIds[i];
-                    const mFrames = memberFramesByMemberId.get(mid);
-                    if (mFrames) laterChatFrames.push(...mFrames);
-                  }
-
-                  // Final order: earlier-run chats → opened run's full frames (pipeline
-                  // seed + chat) → later-run chats. This preserves chronological order
-                  // across the family without mixing per-run seq numbers.
-                  familyChatFrames = [
-                    ...priorChatFrames,
-                    ...durableFrames,
-                    ...laterChatFrames,
-                  ];
-                }
-              } catch {
-                // Family fetch failed — fall back to single-run transcript (no crash).
-                familyChatFrames = [...durableFrames];
-              }
               // seedTranscript resets the hook's seen-set + seq cursor so the
               // re-fetch-after-send (DEF-44-12-2) pulls only newer events.
               // Pass isTerminalRun=true for completed/failed/cancelled/degraded runs so
               // gate chat_reply cards are auto-resolved (no pending review box).
-              seedRunChatTranscript(familyChatFrames, REOPEN_TERMINAL_STATUSES.has(fullRun.status));
+              seedRunChatTranscript(reopenTrace.familyChatFrames, REOPEN_TERMINAL_STATUSES.has(fullRun.status));
               // FIX-201 (KAN-168): switch the store viewport to the reopened run so
               // its pipelineState (agents, progress) renders correctly. Without this,
               // the store still projects whichever live run was previously viewed —
               // Jump Back In / Run History selections always showed the live run's agents.
               runStoreSwitchViewToRef.current(fullRun.id);
+              // Same synchronous block as the replay above, so Steps leaves its
+              // loading state in the very commit that brings the steps.
+              setIsLoadingRunTrace(false);
             } catch (seedErr) {
               // Log-and-continue: a seed fetch failure must not break the reopen
               // content path already set above.
               console.error("Failed to seed run trace on open:", seedErr);
+              if (!isSwitchGenerationStale(switchGen)) setIsLoadingRunTrace(false);
             }
           })();
         }
@@ -3497,13 +3658,17 @@ export default function DashboardPage() {
         // failed, or handed to the bounded retry above (which re-enters this
         // same function and sets the flag again).
         setIsLoadingRunData(false);
+        // The trace never started loading (record failed, live build, or the
+        // retry above): end its loading state too, unless a newer switch owns it.
+        if (!traceHandedOff && !isSwitchGenerationStale(switchGen)) setIsLoadingRunTrace(false);
       }
     },
     // DEF-44-12-4 — the closure now reads pipelineState.pipelineRunId and calls
     // resetPipeline/setWaveGroups/handleWebSocketMessage/setSubmittedBrief, so
     // they MUST be deps (refs seenEventIdsRef/lastSeqRef are stable, omitted).
     // BUG-013: handleSelectWorkflowRun now calls runConnection.attachRun on reopen.
-    [runStore.viewed.pipelineState.pipelineRunId, resetPipeline, setWaveGroups, handleWebSocketMessage, setSubmittedBrief, seedRunChatTranscript, runConnection]
+    // D3: hydrateAgentOutputs fills a finished run's Steps text after the replay.
+    [runStore.viewed.pipelineState.pipelineRunId, resetPipeline, setWaveGroups, handleWebSocketMessage, setSubmittedBrief, seedRunChatTranscript, runConnection, hydrateAgentOutputs]
   );
 
   // ISS-840 (QA-KB-067): what DashboardLayout's run-open clicks (History row,
@@ -3847,7 +4012,9 @@ export default function DashboardPage() {
                       if (mid === runId) return Promise.resolve(durableFrames);
                       const tok = getToken();
                       if (!tok) return Promise.resolve([] as typeof durableFrames);
-                      return getRunEvents(tok, mid);
+                      // Only chat frames are kept below, so ask the server for
+                      // only those (D4 type filter).
+                      return getRunEvents(tok, mid, 0, undefined, { types: CHAT_EVENT_TYPES });
                     }),
                   );
                   const allFrames: typeof durableFrames = [];
@@ -4347,6 +4514,12 @@ export default function DashboardPage() {
       // ISS-739 (QA-PS-014) — the reopen fetch-in-flight signal, threaded to the
       // run surfaces so "still fetching" stops rendering as "empty run".
       isLoadingRunData={isLoadingRunData}
+      // Finished-run reopen: the Steps trace-loading flag (D9), the settled
+      // run that gates live-only side effects (D7), and the shared /family
+      // loader so the layout and the chat seed issue one request (D6).
+      isLoadingRunTrace={isLoadingRunTrace}
+      settledReopen={settledReopen}
+      loadRunFamily={loadRunFamily}
       submittedBrief={submittedBrief}
       // ISS-063 — which spec-revision cycle this run is in. Derived per run inside
       // the pipeline reducer from the accumulated agent restart counts, so the
@@ -4438,6 +4611,10 @@ export default function DashboardPage() {
         setReopenedRunStatus(undefined);
         setReopenedFailedAgents(undefined);
         setReopenedAgentNameById(undefined);
+        // D7: a new launch is live, so no settled reopen gates its side effects.
+        settledReopenRunIdRef.current = null;
+        setSettledReopen(null);
+        setIsLoadingRunTrace(false);
         // ISS-1137: and the previous launch's refusal banner.
         setLaunchError(null);
         if (!isRevision) {

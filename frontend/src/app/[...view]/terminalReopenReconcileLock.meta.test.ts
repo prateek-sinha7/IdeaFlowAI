@@ -32,8 +32,9 @@ describe("ISS-126 source-lock stays in step with page.tsx (QA-KB-071)", () => {
   });
 
   // ISS-1010 — the ordering case must search the replay loop from the reopen fetch, not the first loop in the file.
+  // Finished-run reopen (D2): the reopen's replay loop now walks the loaded trace (`reopenTrace.frames`).
   it("ISS-1010: the ordering case searches the replay loop from the reopen fetch", () => {
     const body = caseBody('it("runs AFTER the durable replay loop');
-    expect(body).toMatch(/indexOf\("for \(const frame of durableFrames\)",\s*\w+\)/);
+    expect(body).toMatch(/indexOf\("for \(const frame of reopenTrace\.frames\)",\s*\w+\)/);
   });
 });

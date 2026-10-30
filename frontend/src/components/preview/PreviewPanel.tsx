@@ -214,12 +214,16 @@ function GenericDeliverablePreview({
   agentOutputs,
   runId,
   selectedRef,
+  cacheablePdf,
 }: {
   deliverable: GenericDeliverable;
   agentOutputs?: import("@/components/results/FilesTab").AgentOutputItem[];
   runId?: string;
   // ISS-973 — the shown member's version tag, for the PDF read (SandboxPdfPreview).
   selectedRef?: string | null;
+  // RCA item 9 — the run is no longer writing its deliverable, so the PDF's
+  // object URL may be reused across Preview tab re-entries (SandboxPdfPreview).
+  cacheablePdf?: boolean;
 }) {
   const { theme } = useTheme();
   const mimetype = (deliverable.mimetype || "").toLowerCase();
@@ -231,6 +235,7 @@ function GenericDeliverablePreview({
         runId={runId}
         path={deliverable.filename}
         selectedRef={selectedRef}
+        cacheable={cacheablePdf}
         fallback={
           <div className="flex h-full items-center justify-center px-6 text-sm text-ink-500">
             {deliverable.filename} could not be loaded. It can be downloaded from the Files tab.
@@ -466,6 +471,13 @@ interface PreviewPanelProps {
   // from the fetcher — never a client-side `terminal && !content` inference
   // (the hack ISS-017 already rejected for the failure signal below).
   isLoadingRunData?: boolean;
+  // Finished-run reopen (D9) — the reopened run's trace (events + persisted agent
+  // outputs) is still loading; the Steps tab shows its loading state meanwhile.
+  isLoadingRunTrace?: boolean;
+  // Finished-run reopen (D8) — the reopened run the server reports as finished,
+  // with the deliverable filename its record declared. When it names the active
+  // run, the deliverable lookup below trusts it instead of refetching the record.
+  settledRun?: import("@/types/index").SettledReopen | null;
   // Revision Families (B3 / POR §5 D5) — the on-screen content's revision family
   // (root + ordered members) fetched by DashboardLayout keyed on
   // contentSourceRunId, and the id of the currently-live run. BOTH optional and
@@ -811,7 +823,7 @@ function RunDataSkeleton() {
   );
 }
 
-export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, genericDeliverable, isStreaming, initialTab, onTabSelect, onOpenLiveRun, workflowType, rawPipelineType, pptxCode, onRevisePpt, onReviseUserStory, onRevisePrototype, onReviseAppBuilder, agentOutputs, agents, pipelineState, reopenedRunStatus, reopenedFailedAgents, reopenedAgentNameById, isLoadingRunData, runFamily, liveRunId, pinnedVersion, runInput, clarifications, deepLinkTarget, laneGate, onApproveGate, onRejectGate, onRedoGate, onUpdateSpecsGate, clarifyQuestions, onSubmitClarify, onSkipClarify, onCancelWorkflow, waves, onShare, onDownload, specRevisionCount = 0 }: PreviewPanelProps) {
+export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, genericDeliverable, isStreaming, initialTab, onTabSelect, onOpenLiveRun, workflowType, rawPipelineType, pptxCode, onRevisePpt, onReviseUserStory, onRevisePrototype, onReviseAppBuilder, agentOutputs, agents, pipelineState, reopenedRunStatus, reopenedFailedAgents, reopenedAgentNameById, isLoadingRunData, isLoadingRunTrace, settledRun, runFamily, liveRunId, pinnedVersion, runInput, clarifications, deepLinkTarget, laneGate, onApproveGate, onRejectGate, onRedoGate, onUpdateSpecsGate, clarifyQuestions, onSubmitClarify, onSkipClarify, onCancelWorkflow, waves, onShare, onDownload, specRevisionCount = 0 }: PreviewPanelProps) {
   const [activeTab, setActiveTab] = useState<PanelTab>("preview");
   // ─── Plan 07 — manual typed-renderer switcher override ───────────────────────
   // null = follow the generic auto-dispatch (the PRIMARY route); a non-null value
@@ -1456,6 +1468,23 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
   // disabled rather than handing over a mislabelled one.
   const [deliverableBundle, setDeliverableBundle] = useState(false);
 
+  // D8: the settled-run facts the lookup keys on are computed here as plain
+  // values, so the effect re-runs when the run settles or its declared file
+  // becomes known, never on each pipelineState / header-state change of a run
+  // whose answer is already in hand.
+  // Also resolve when the server reports "completed"/"degraded" but hasContent is
+  // false (e.g. backlog runs whose deliverable is a sandbox file, never inline
+  // text, so headerRunState stays "idle" instead of "complete"). That fact comes
+  // from the settled reopen record (reopenedRunStatus never carries "completed").
+  const settledForActive = settledRun && settledRun.runId === activeRunId ? settledRun : null;
+  const isSettledRun =
+    headerRunState === "complete" ||
+    settledForActive?.status === "completed" ||
+    settledForActive?.status === "degraded";
+  // The declared deliverable, from the live stream or the record the page
+  // already fetched. Null with a settled record means "declares none" (ISS-313).
+  const knownDeclared = pipelineState?.deliverableFilename ?? settledForActive?.deliverableFilename ?? null;
+  const hasSettledRecord = settledForActive !== null;
   useEffect(() => {
     setDeliverableFile(null);
     setDeliverableBundle(false);
@@ -1465,10 +1494,6 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
     // U1: also resolve while a tag is pinned (sandboxSelectedRef), even if the
     // CURRENT/live run isn't complete yet — browsing an older tag has to keep
     // working while a later revision is still running.
-    // Also resolve when the server reports "completed" but hasContent is false
-    // (e.g. backlog runs whose deliverable is a sandbox file, never inline text,
-    // so headerRunState stays "idle" instead of "complete").
-    const isSettledRun = headerRunState === "complete" || reopenedRunStatus === "completed";
     if (!activeRunId || (!isSettledRun && !sandboxSelectedRef)) return;
     let cancelled = false;
     void (async () => {
@@ -1497,9 +1522,12 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
         // with no request ever issued. Fall back to the run's OWN persisted
         // declaration (resolveRunDeliverable's documented `declared` contract)
         // before assuming the workflow declares no deliverable at all.
-        let declared = pipelineState?.deliverableFilename ?? null;
-        if (!declared) {
-          const run = await getWorkflow(token, activeRunId);
+        // D8: the settled reopen already carries that declaration, so only a run
+        // with neither source asks the server, and then for the SLIM record (the
+        // heavy one is megabytes of agent outputs this lookup never reads).
+        let declared = knownDeclared;
+        if (!declared && !hasSettledRecord) {
+          const run = await getWorkflow(token, activeRunId, false);
           if (cancelled) return;
           declared = run.deliverableFilename ?? null;
         }
@@ -1523,7 +1551,7 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
       }
     })();
     return () => { cancelled = true; };
-  }, [activeRunId, headerRunState, reopenedRunStatus, sandboxSelectedRef, displayRef, pipelineState?.deliverableFilename]);
+  }, [activeRunId, isSettledRun, knownDeclared, hasSettledRecord, sandboxSelectedRef, displayRef]);
 
   // ── U1: browsing a tag fetches that tag's deliverable bytes, read-only ────
   // Reuses the SAME resolved path the header Download button already found —
@@ -1752,7 +1780,7 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
     //    custom/unknown deliverable, and for any first-party type that lacked
     //    first-party content but carries a generic deliverable.
     if (effGenericDeliverable?.content) {
-      return <GenericDeliverablePreview deliverable={effGenericDeliverable} agentOutputs={effAgentOutputs} runId={activeRunId ?? undefined} selectedRef={displayRef} />;
+      return <GenericDeliverablePreview deliverable={effGenericDeliverable} agentOutputs={effAgentOutputs} runId={activeRunId ?? undefined} selectedRef={displayRef} cacheablePdf={!isStillRunning} />;
     }
 
     return null;
@@ -2071,6 +2099,7 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
                    EmptyState tells the user to "start a pipeline" for a run that
                    already ran. */
                 isLoadingRunData={isLoadingRunData}
+                isLoadingRunTrace={isLoadingRunTrace}
                 waves={waves}
                 runInput={effRunInput}
                 clarifications={effClarifications}
