@@ -28,6 +28,7 @@ refuses a real DB connection there.
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from uuid import uuid4
 
 import pytest
 from fastapi import Depends, FastAPI
@@ -93,7 +94,9 @@ def env():
 def _mint(env, **row_kwargs) -> str:
     plaintext, prefix, digest = mint_api_key()
     defaults = dict(
-        id=f"k-{prefix}",
+        # The prefix is short and random, so two keys minted in one test can
+        # share it; a prefix-derived id then collides on the primary key.
+        id=f"k-{uuid4().hex}",
         user_id=env["user"].id,
         name="test",
         token_prefix=prefix,
