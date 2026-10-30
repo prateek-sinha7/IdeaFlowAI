@@ -76,6 +76,18 @@ ARTIFACT_KINDS: frozenset[str] = frozenset(
 )
 
 
+def _is_path_label(kind: str) -> bool:
+    """True for a manifest ``produces`` label that names a work file or folder.
+
+    A manifest step's ``produces`` is a free-form label (R-29: routing is a plain
+    string intersection with a downstream ``consumes``), and file-oriented
+    workflows label by path: ``build/tasks.json``, ``.extract/``. A ``/`` or
+    ``.`` never appears in a snake_case kind, so such a label cannot be a typo of
+    one, and warning on it is noise (run f755b22b logged it for every step).
+    """
+    return "/" in kind or "." in kind
+
+
 @dataclass
 class ArtifactRef:
     """A typed reference to one produced artifact version (plan §6:454-466 + D-01).
@@ -149,9 +161,14 @@ class ArtifactGraph:
         typed ``consumes`` route and FR-014 chain link) but the write proceeds —
         the vocabulary must never break a run. ``*_output`` kinds (the
         FE-supplied revision-target kinds flowing through ``_handle_revision``)
-        are the documented carve-out and do not warn.
+        are the documented carve-out and do not warn, and so are path-shaped
+        labels (see ``_is_path_label``).
         """
-        if kind not in ARTIFACT_KINDS and not kind.endswith("_output"):
+        if (
+            kind not in ARTIFACT_KINDS
+            and not kind.endswith("_output")
+            and not _is_path_label(kind)
+        ):
             logger.warning(
                 "artifact kind %r is outside ARTIFACT_KINDS — typed consumes "
                 "routing and the FR-014 revision lookup match kinds EXACTLY, "

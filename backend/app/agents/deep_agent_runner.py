@@ -331,6 +331,39 @@ _DUPLICATE_IMAGE_PLACEHOLDER = (
     "conversation. Do NOT read it again.]"
 )
 
+# The provider refuses the WHOLE request when any single image block is over its
+# per-image ceiling (Anthropic/Bedrock: 5 MB, 5,242,880 bytes). Run f755b22b's
+# backlog reader read a 5,473,764-byte screen screenshot and the step failed with
+# a ValidationException on the very next model call — evicting by recency cannot
+# help, because the image was unseen this turn and so was never a candidate.
+# Measured on the base64 string length, the stricter of the two readings of the
+# limit (base64 is 4/3 of the decoded size), with headroom below 5 MiB.
+_MAX_IMAGE_BLOCK_BASE64_CHARS = 5_000_000
+_OVERSIZED_IMAGE_PLACEHOLDER = (
+    "[{path} — this image is over the model's 5 MB per-image limit, so it could "
+    "not be shown. Do NOT read it again — work from the text that accompanies it.]"
+)
+
+
+def _largest_media_payload(message: Any) -> int:
+    """Length of the biggest base64 payload among a ToolMessage's media blocks."""
+    content = getattr(message, "content", None)
+    if not isinstance(content, list):
+        return 0
+    largest = 0
+    for block in content:
+        if not isinstance(block, dict) or block.get("type") == "text":
+            continue
+        source = block.get("source")
+        data = (
+            block.get("base64")
+            or block.get("data")
+            or (source.get("data") if isinstance(source, dict) else None)
+        )
+        if isinstance(data, str):
+            largest = max(largest, len(data))
+    return largest
+
 
 def _media_blocks_in(message: Any) -> int:
     """Count non-text content blocks on a ToolMessage (0 for plain-string content)."""
@@ -384,6 +417,13 @@ class _ImagePayloadGuardMiddleware(AgentMiddleware[Any, Any, Any]):
             if n == 0:
                 continue
             path = (msg.additional_kwargs or {}).get("read_file_path") or "binary file"
+            # An image over the per-image ceiling fails the request outright, seen
+            # or unseen, so it is replaced before any budget or dedupe decision and
+            # never spends budget.
+            payload = _largest_media_payload(msg)
+            if payload > _MAX_IMAGE_BLOCK_BASE64_CHARS:
+                rewrite[i] = _OVERSIZED_IMAGE_PLACEHOLDER.format(path=path)
+                continue
             # A newer read of the SAME path already carries this image — drop the
             # older copy regardless of budget, and don't spend budget on it.
             if path in seen_paths:
@@ -418,7 +458,7 @@ class _ImagePayloadGuardMiddleware(AgentMiddleware[Any, Any, Any]):
                 additional_kwargs=dict(old.additional_kwargs or {}),
             )
         logger.info(
-            "image-payload guard: dropped %d stale image block(s), kept the %d most recent",
+            "image-payload guard: dropped %d image block(s) (stale or oversized), kept the %d most recent",
             len(rewrite),
             self._keep,
         )

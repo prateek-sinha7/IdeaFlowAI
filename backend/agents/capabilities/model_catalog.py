@@ -346,6 +346,24 @@ _ENTRIES: tuple[ModelEntry, ...] = (
         reasoning=Reasoning(mode="adaptive", levels=("none", "on")),
     ),
     ModelEntry(
+        # EU cross-region inference profile for Sonnet 5.5. Used by the
+        # workflow manifests under agents/workflows/*/workflow.yaml.
+        # NOTE: pricing/context mirror Sonnet 5 pending operator confirmation
+        # against the live Bedrock pricing page.
+        id="eu.anthropic.claude-sonnet-5-5",
+        label="Claude Sonnet 5.5",
+        description="Latest Sonnet model. Near-Opus intelligence for coding, agents, and professional work. 1M token context.",
+        tier="balanced",
+        cost_class="standard",
+        provider="bedrock",
+        context_window=1000000,
+        user_allowed=True,
+        pricing=Pricing(3e-6, 15e-6, 0.3e-6, 3.75e-6, 6e-6),
+        vision=True,
+        supports_prompt_caching=True,
+        reasoning=Reasoning(mode="adaptive", levels=("none", "on")),
+    ),
+    ModelEntry(
         # Deprecated (not retired) per AWS's Bedrock lifecycle table — prefer
         # Sonnet 4.5/4.6. Kept `eu.`-prefixed for parity with the rest of
         # this catalog (unlike Haiku 3.5 above, an `eu.` inference profile

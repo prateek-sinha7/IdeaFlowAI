@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import hashlib
 import html.parser
+import io
 import json
 import os
 import re
@@ -177,6 +178,16 @@ _HANDLERS_SCRIPT = r"""
 _VIEWPORT = {"width": 1280, "height": 900}
 _GOTO_TIMEOUT_MS = 30000
 _SCREENSHOT_TIMEOUT_MS = 5000
+
+# A screen's screenshot is later read_file'd by a Reader and sent to the model as
+# one base64 image block. The provider refuses the whole request when one block is
+# over 5 MB (base64 is 4/3 of the PNG), or when a side is over 8000 px. An element
+# screenshot is as tall as the element, so a long screen easily passes both: run
+# f755b22b's reader failed on a 5,473,764-byte screen PNG. A screenshot over either
+# cap is scaled down, aspect kept, until it fits; one under both is left untouched.
+_MAX_SCREENSHOT_BYTES = 3_500_000
+_MAX_SCREENSHOT_SIDE = 7_900
+_FIT_ATTEMPTS = 6
 
 # fenced-block cap per Script <n> page (spec §6.1) — a script bigger than this
 # spans several pages of the SAME heading, READ in slices.
@@ -487,14 +498,63 @@ def _gather_browser(source_path: Path) -> tuple[list[dict], list[dict], list[dic
 
 
 def _screenshot_screen(page: Any, selector: str) -> bytes | None:
-    """The screen element's screenshot, or a viewport screenshot if it has no box."""
+    """The screen element's screenshot, or a viewport screenshot if it has no box.
+
+    Either is passed through ``_fit_screenshot`` so it stays under the model's
+    per-image limits.
+    """
     try:
-        return page.locator(selector).screenshot(timeout=_SCREENSHOT_TIMEOUT_MS)
+        shot = page.locator(selector).screenshot(timeout=_SCREENSHOT_TIMEOUT_MS)
     except Exception:  # noqa: BLE001 — no box (zero-size / detached) → viewport
         try:
-            return page.screenshot()
+            shot = page.screenshot()
         except Exception:  # noqa: BLE001
             return None
+    return _fit_screenshot(shot)
+
+
+def _fit_screenshot(png: bytes) -> bytes:
+    """Scale a PNG down until it is under both screenshot caps.
+
+    Returns ``png`` unchanged when it already fits, or when Pillow cannot decode
+    it; the runner's image-payload guard is the backstop for anything that still
+    gets through.
+    """
+    if not png:
+        return png
+    try:
+        from PIL import Image
+
+        with Image.open(io.BytesIO(png)) as im:
+            width, height = im.size
+            if (
+                len(png) <= _MAX_SCREENSHOT_BYTES
+                and max(width, height) <= _MAX_SCREENSHOT_SIDE
+            ):
+                return png
+            source = im.convert("RGBA") if im.mode not in ("RGB", "RGBA") else im.copy()
+    except Exception:  # noqa: BLE001 — undecodable: keep the original bytes
+        return png
+
+    out = png
+    size = len(png)
+    scale = min(1.0, _MAX_SCREENSHOT_SIDE / max(width, height))
+    for _ in range(_FIT_ATTEMPTS):
+        if size > _MAX_SCREENSHOT_BYTES:
+            # PNG size tracks pixel count, so scale each side by the square root
+            # of the overshoot, with a margin so one pass usually suffices.
+            scale *= (_MAX_SCREENSHOT_BYTES / size) ** 0.5 * 0.9
+        new_size = (max(1, int(width * scale)), max(1, int(height * scale)))
+        buf = io.BytesIO()
+        source.resize(new_size, Image.Resampling.LANCZOS).save(
+            buf, format="PNG", optimize=True
+        )
+        out = buf.getvalue()
+        size = len(out)
+        if size <= _MAX_SCREENSHOT_BYTES:
+            break
+    source.close()
+    return out
 
 
 def _read_script_content(page: Any, idx: int) -> str:

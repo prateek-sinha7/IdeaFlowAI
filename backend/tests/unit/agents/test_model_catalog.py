@@ -34,6 +34,7 @@ _EXPECTED_IDS = {
     "eu.anthropic.claude-sonnet-4-6",
     "us.anthropic.claude-sonnet-5",
     "eu.anthropic.claude-sonnet-5",
+    "eu.anthropic.claude-sonnet-5-5",
     "eu.anthropic.claude-sonnet-4-20250514-v1:0",
     "eu.anthropic.claude-opus-4-5-20251101-v1:0",
     "eu.anthropic.claude-opus-4-6-v1",
@@ -68,7 +69,7 @@ def test_catalog_lists_five_fully_fielded_entries() -> None:
     entries = ModelCatalog().list()
     # 11 = 9 Claude (incl. the us. Haiku 4.5 + us. Sonnet 5 geo twins) + 2 GPT-5.6.
     # Haiku 3.5 was removed 2026-09-22 — AWS serves it in no form in eu-north-1.
-    assert len(entries) == 11
+    assert len(entries) == 12
     for entry in entries:
         assert isinstance(entry, ModelEntry)
         for field in _FIELDS:
@@ -97,7 +98,7 @@ def test_catalog_lists_five_fully_fielded_entries() -> None:
 def test_ids_get_and_is_allowed() -> None:
     catalog = ModelCatalog()
     assert set(catalog.ids()) == _EXPECTED_IDS
-    assert len(catalog.ids()) == 11  # no duplicates
+    assert len(catalog.ids()) == 12  # no duplicates
 
     for model_id in _EXPECTED_IDS:
         assert catalog.is_allowed(model_id) is True
@@ -216,6 +217,7 @@ def test_selectable_models_is_alphabetical() -> None:
         "Claude Sonnet 4.5",
         "Claude Sonnet 4.6",
         "Claude Sonnet 5",
+        "Claude Sonnet 5.5",
         "GPT-5.6 Luna",
         "GPT-5.6 Sol",
     ], labels

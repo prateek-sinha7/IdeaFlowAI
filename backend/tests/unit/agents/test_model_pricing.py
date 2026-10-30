@@ -105,9 +105,9 @@ def test_pricing_covers_every_catalog_model() -> None:
     own row — GPT-5.6 is a different rate card, not a geo variant.
     """
     entries = ModelCatalog().list()
-    # 11 = 9 Claude (2 of them geo twins) + GPT-5.6 Luna and Sol.
-    # Was 12 until Haiku 3.5 was removed on 2026-09-22 (unavailable in eu-north-1).
-    assert len(entries) == 11, (
+    # 12 = 10 Claude (2 of them geo twins, incl. eu. Sonnet 5.5) + GPT-5.6 Luna and Sol.
+    # Haiku 3.5 was removed on 2026-09-22 (unavailable in eu-north-1).
+    assert len(entries) == 12, (
         f"catalog size changed ({len(entries)}) — a model was added or removed. "
         f"Review its per-token rates, then update this pin: "
         f"{[e.id for e in entries]}"
