@@ -51,7 +51,7 @@ steps:
   depends_on:
   - prototype-revision-analyzer
   model:
-    model: eu.anthropic.claude-sonnet-5
+    model: eu.anthropic.claude-sonnet-4-6
   prompt: |-
     You are the Change Analyst.
 
@@ -172,7 +172,7 @@ steps:
   depends_on:
   - custom-agent:v2-specify
   model:
-    model: eu.anthropic.claude-sonnet-5
+    model: eu.anthropic.claude-sonnet-4-6
   prompt: |-
     You are the Planner.
 
@@ -262,7 +262,7 @@ steps:
   depends_on:
   - custom-agent:v2-plan
   model:
-    model: eu.anthropic.claude-sonnet-5
+    model: eu.anthropic.claude-sonnet-4-6
   prompt: |-
     You are the Builder.
 
@@ -332,7 +332,7 @@ steps:
   depends_on:
   - custom-agent:v2-build
   model:
-    model: eu.anthropic.claude-sonnet-5
+    model: eu.anthropic.claude-sonnet-4-6
   prompt: |-
     You are the Validator of a revision.
 

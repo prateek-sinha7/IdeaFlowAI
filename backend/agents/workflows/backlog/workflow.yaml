@@ -89,7 +89,7 @@ steps:
 - strategy: single_shot
   depends_on: []
   model:
-    model: eu.anthropic.claude-sonnet-5
+    model: eu.anthropic.claude-sonnet-4-6
   agent: custom-agent
   instance_id: us-target-clarify
   name: Target System Clarify
@@ -226,7 +226,7 @@ steps:
   depends_on:
   - custom-agent:us-ui-extract
   model:
-    model: eu.anthropic.claude-sonnet-5
+    model: eu.anthropic.claude-sonnet-4-6
   agent: custom-agent
   instance_id: us-planner
   name: Reading Planner
@@ -335,7 +335,7 @@ steps:
   depends_on:
   - custom-agent:us-planner
   model:
-    model: eu.anthropic.claude-sonnet-5
+    model: eu.anthropic.claude-sonnet-4-6
   agent: custom-agent
   instance_id: us-readers
   name: Readers
@@ -482,7 +482,7 @@ steps:
   depends_on:
   - custom-agent:us-readers
   model:
-    model: eu.anthropic.claude-sonnet-5
+    model: eu.anthropic.claude-sonnet-4-6
   agent: custom-agent
   instance_id: us-synth
   name: Synthesizer
@@ -695,7 +695,7 @@ steps:
   depends_on:
   - custom-agent:us-close
   model:
-    model: eu.anthropic.claude-sonnet-5
+    model: eu.anthropic.claude-sonnet-4-6
   agent: custom-agent
   instance_id: us-solution
   name: Solution Analyst
@@ -819,7 +819,7 @@ steps:
   depends_on:
   - custom-agent:us-solution
   model:
-    model: eu.anthropic.claude-sonnet-5
+    model: eu.anthropic.claude-sonnet-4-6
   agent: custom-agent
   instance_id: us-uiux
   name: UI/UX Writer
@@ -994,7 +994,7 @@ steps:
   depends_on:
   - custom-agent:us-api-clarify
   model:
-    model: eu.anthropic.claude-sonnet-5
+    model: eu.anthropic.claude-sonnet-4-6
   agent: custom-agent
   instance_id: us-api
   name: API Designer
@@ -1187,7 +1187,7 @@ steps:
   depends_on:
   - custom-agent:us-architect-clarify
   model:
-    model: eu.anthropic.claude-sonnet-5
+    model: eu.anthropic.claude-sonnet-4-6
   agent: custom-agent
   instance_id: us-architect
   name: Architect
@@ -1376,7 +1376,7 @@ steps:
   depends_on:
   - custom-agent:us-backlog-clarify
   model:
-    model: eu.anthropic.claude-sonnet-5
+    model: eu.anthropic.claude-sonnet-4-6
   agent: custom-agent
   instance_id: us-backlog
   name: Backlog Planner
@@ -1535,7 +1535,7 @@ steps:
   depends_on:
   - custom-agent:us-writer-tasks
   model:
-    model: eu.anthropic.claude-sonnet-5
+    model: eu.anthropic.claude-sonnet-4-6
   agent: custom-agent
   instance_id: us-write
   name: Story Writers
@@ -1678,7 +1678,7 @@ steps:
   depends_on:
   - custom-agent:us-assemble
   model:
-    model: eu.anthropic.claude-sonnet-5
+    model: eu.anthropic.claude-sonnet-4-6
   agent: custom-agent
   instance_id: us-review
   name: Reviewer

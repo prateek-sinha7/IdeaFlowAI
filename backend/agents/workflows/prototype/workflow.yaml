@@ -54,7 +54,7 @@ steps:
 - strategy: single_shot
   depends_on: []
   model:
-    model: eu.anthropic.claude-sonnet-5
+    model: eu.anthropic.claude-sonnet-4-6
   agent: design-ingestor
   instance_id: design-ingestor
   name: Design Ingestor

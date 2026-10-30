@@ -37,7 +37,7 @@ steps:
 - strategy: single_shot
   depends_on: []
   model:
-    model: eu.anthropic.claude-sonnet-5
+    model: eu.anthropic.claude-sonnet-4-6
   agent: design-ingestor
   instance_id: design-ingestor
   name: Design Ingestor
@@ -53,7 +53,7 @@ steps:
 - strategy: single_shot
   depends_on: []
   model:
-    model: eu.anthropic.claude-sonnet-5
+    model: eu.anthropic.claude-sonnet-4-6
   agent: custom-agent
   instance_id: fi-planner
   name: Reading Planner
@@ -158,7 +158,7 @@ steps:
   depends_on:
   - custom-agent:fi-planner
   model:
-    model: eu.anthropic.claude-sonnet-5
+    model: eu.anthropic.claude-sonnet-4-6
   agent: custom-agent
   instance_id: fi-readers
   name: Readers
@@ -323,7 +323,7 @@ steps:
     model: eu.anthropic.claude-haiku-4-5-20251001-v1:0
     fallback:
     - eu.anthropic.claude-haiku-4-5-20251001-v1:0
-    - eu.anthropic.claude-sonnet-5
+    - eu.anthropic.claude-sonnet-4-6
   agent: custom-agent
   instance_id: fi-synth
   name: Synthesizer
@@ -454,7 +454,7 @@ steps:
     model: eu.anthropic.claude-haiku-4-5-20251001-v1:0
     fallback:
     - eu.anthropic.claude-haiku-4-5-20251001-v1:0
-    - eu.anthropic.claude-sonnet-5
+    - eu.anthropic.claude-sonnet-4-6
   agent: custom-agent
   instance_id: fi-gaps
   name: Clarify
@@ -559,7 +559,7 @@ steps:
     model: eu.anthropic.claude-haiku-4-5-20251001-v1:0
     fallback:
     - eu.anthropic.claude-haiku-4-5-20251001-v1:0
-    - eu.anthropic.claude-sonnet-5
+    - eu.anthropic.claude-sonnet-4-6
   agent: custom-agent
   instance_id: fi-close
   name: Answer Integrator
@@ -643,7 +643,7 @@ steps:
   produces:
   - spec
   model:
-    model: eu.anthropic.claude-sonnet-5
+    model: eu.anthropic.claude-sonnet-4-6
   agent: custom-agent
   instance_id: pb-spec
   name: Analyst
@@ -810,7 +810,7 @@ steps:
   produces:
   - screens
   model:
-    model: eu.anthropic.claude-sonnet-5
+    model: eu.anthropic.claude-sonnet-4-6
   agent: custom-agent
   instance_id: pb-design
   name: Architect
@@ -1017,7 +1017,7 @@ steps:
     model: eu.anthropic.claude-haiku-4-5-20251001-v1:0
     fallback:
     - eu.anthropic.claude-haiku-4-5-20251001-v1:0
-    - eu.anthropic.claude-sonnet-5
+    - eu.anthropic.claude-sonnet-4-6
   agent: custom-agent
   instance_id: pb-build
   name: Builders
@@ -1070,7 +1070,7 @@ steps:
 - depends_on:
   - custom-agent:pb-assemble
   model:
-    model: eu.anthropic.claude-sonnet-5
+    model: eu.anthropic.claude-sonnet-4-6
   agent: custom-agent
   instance_id: pb-validate
   name: Validator
@@ -1199,7 +1199,7 @@ steps:
   # Sonnet, not Haiku: the Presenter is the last step and must measure and fix the
   # design faults the Validator hands it; on Haiku it found and fixed none.
   model:
-    model: eu.anthropic.claude-sonnet-5
+    model: eu.anthropic.claude-sonnet-4-6
   agent: custom-agent
   instance_id: pb-present
   name: Presenter
