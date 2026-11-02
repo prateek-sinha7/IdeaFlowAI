@@ -40,7 +40,8 @@ from tests.agents._scripted_model import (  # noqa: E402  (import-for-side-effec
 # derives a concrete fallback chain (standard → [cheap]). Chosen from the live
 # catalog (ModelCatalog().list()): sonnet = standard, haiku = cheap.
 PRIMARY_STANDARD = "eu.anthropic.claude-sonnet-4-5-20250929-v1:0"  # standard
-FALLBACK_CHEAP = "eu.anthropic.claude-haiku-4-5-20251001-v1:0"  # cheap
+# The FIRST cheap catalog entry, which the tier descent picks.
+FALLBACK_CHEAP = "eu.anthropic.claude-haiku-5-5"  # cheap
 ONLY_CHEAP = FALLBACK_CHEAP  # cheap → chain_for == [] → single-entry chain
 
 
@@ -210,6 +211,36 @@ async def test_throttle_advances() -> None:
     )
     assert retry_tid.startswith(primary_tid), (
         f"retry thread_id {retry_tid!r} should derive from the base " f"{primary_tid!r}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_run_agent_records_fallback_usage_when_fallback_model_completes() -> None:
+    """Tokens a fallback model produced are recorded under ``fallback_usage`` keyed by
+    THAT model, so the run cost prices them on the model that ran, not the primary."""
+    from agents.capabilities.token_usage import usage_cost_usd
+
+    # Arrange + Act: the standard primary throttles; the cheap fallback completes
+    # with one scripted turn of usage=(5 input, 3 output).
+    results, _built_for, _events, _thread_ids = await _drive_one_agent(
+        primary=PRIMARY_STANDARD,
+        throttle_ids={PRIMARY_STANDARD},
+    )
+
+    # Assert: the record keeps the primary as its model, and attributes the tokens
+    # to the fallback model.
+    record = results[-1]
+    assert record["model_id"] == PRIMARY_STANDARD
+    fallback = record["fallback_usage"]
+    assert set(fallback) == {FALLBACK_CHEAP}
+    assert fallback[FALLBACK_CHEAP]["output_tokens"] == record["output_tokens"] > 0
+    # Priced on the fallback (cheap) model — strictly less than on the primary.
+    plain = {k: v for k, v in record.items() if k != "fallback_usage"}
+    assert usage_cost_usd(record["model_id"], record) < usage_cost_usd(
+        record["model_id"], plain
+    )
+    assert usage_cost_usd(record["model_id"], record) == usage_cost_usd(
+        FALLBACK_CHEAP, plain
     )
 
 

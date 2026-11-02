@@ -112,7 +112,13 @@ from agents.execution_engine.run_log import RunLog, RunTrace  # noqa: E402
 from agents.execution_engine.state_machine import TERMINAL_STATES, get_state_machine  # noqa: E402
 from agents.capabilities.model_catalog import ModelCatalog  # noqa: E402
 from agents.capabilities.token_usage import (  # noqa: E402
+    FALLBACK_USAGE_KEY,
+    LONG_CONTEXT_KEY,
     USAGE_VERSION,
+    ModelUsage,
+    UsageCounts,
+    add_long_context,
+    add_model_usage,
     usage_cost_full_usd,
     usage_cost_usd,
 )
@@ -8076,7 +8082,9 @@ class ExecutionEngine:
             # Each agent priced at its OWN model (a run mixes Sonnet and Haiku; one
             # run-level model priced all of run c4cbd381 as Haiku: $21.60 for $61.43),
             # the four counts at their own rates (agents/capabilities/token_usage.py).
-            # Aux calls carry no model id: priced at the run's model.
+            # An aux call is priced on the model it reports (cached_invoke and the
+            # fix sub-agent stamp ``model_id``); one that reports none falls back
+            # to the run's model.
             "estimated_cost_usd": round(
                 sum(
                     usage_cost_usd(
@@ -8088,7 +8096,9 @@ class ExecutionEngine:
                 )
                 + sum(
                     usage_cost_usd(
-                        _run_model, u, cache_ttl=_settings.BEDROCK_PROMPT_CACHE_TTL
+                        u.get("model_id") or _run_model,
+                        u,
+                        cache_ttl=_settings.BEDROCK_PROMPT_CACHE_TTL,
                     )
                     for u in aux_token_usage
                 ),
@@ -8106,7 +8116,10 @@ class ExecutionEngine:
                     usage_cost_full_usd(r.get("model_id") or _run_model, r)
                     for r in results
                 )
-                + sum(usage_cost_full_usd(_run_model, u) for u in aux_token_usage),
+                + sum(
+                    usage_cost_full_usd(u.get("model_id") or _run_model, u)
+                    for u in aux_token_usage
+                ),
                 6,
             ),
             # input/total exclude cache reads (agents/capabilities/token_usage.py).
@@ -10221,6 +10234,15 @@ class ExecutionEngine:
                 # ISS-032: per-agent prompt-cache split (0 under the scripted model).
                 agent_cache_read_tokens = 0
                 agent_cache_write_tokens = 0
+                # Tiered pricing: the subset of this agent's counts from requests
+                # billed at the model's long-context tier. Stays None for a
+                # flat-priced model (and the scripted model), so every record and
+                # event built below is byte-identical (INV-3).
+                agent_long_context: UsageCounts | None = None
+                # The part of this agent's counts produced by a fallback model after
+                # a throttle, keyed by that model — so it is priced on the model
+                # that actually ran, not on the primary. None on the normal path.
+                agent_fallback_usage: dict[str, ModelUsage] | None = None
 
                 # ── MODEL-02 fallback chain (APPROACH B — engine-level rebuild-and-retry) ──
                 # Above the botocore retries (model_factory.py): on a SUSTAINED transient
@@ -10349,6 +10371,27 @@ class ExecutionEngine:
                                     agent_cache_write_tokens += (
                                         event.get("cache_write_tokens", 0) or 0
                                     )
+                                    agent_long_context = add_long_context(
+                                        agent_long_context, event
+                                    )
+                                    # The model that produced THIS usage event: the
+                                    # armed chain's cursor (advanced on a throttle,
+                                    # below), else ctx.model. Only a real id can be
+                                    # priced or keyed on.
+                                    _usage_model = (
+                                        _resolver.current()
+                                        if _resolver is not None
+                                        and hasattr(_resolver, "current")
+                                        else ctx.model
+                                    )
+                                    if (
+                                        isinstance(_usage_model, str)
+                                        and _usage_model
+                                        and _usage_model != _resolved_model_id
+                                    ):
+                                        agent_fallback_usage = add_model_usage(
+                                            agent_fallback_usage, _usage_model, event
+                                        )
                                 elif etype == "tool_call":
                                     _reply_from = len(output_chunks)
                                     # ── Prototype task progress ──────────────────────────────
@@ -10967,6 +11010,17 @@ class ExecutionEngine:
                         # below; 0 under the scripted characterization model).
                         "cache_read_tokens": agent_cache_read_tokens,
                         "cache_write_tokens": agent_cache_write_tokens,
+                        # Pricing subsets — each present only when non-empty.
+                        **(
+                            {LONG_CONTEXT_KEY: agent_long_context}
+                            if agent_long_context
+                            else {}
+                        ),
+                        **(
+                            {FALLBACK_USAGE_KEY: agent_fallback_usage}
+                            if agent_fallback_usage
+                            else {}
+                        ),
                         # Internal: the run cost prices each agent at its own model.
                         "model_id": _resolved_model_id,
                         # ISS-028: the task identity of THIS completed invocation ("" for a
@@ -11044,6 +11098,19 @@ class ExecutionEngine:
                         # golden-neutral; the WS collector sums these into the run totals).
                         "cache_read_tokens": agent_cache_read_tokens,
                         "cache_write_tokens": agent_cache_write_tokens,
+                        # Pricing subsets, so persisted agent_outputs and Analytics
+                        # price them correctly. Present only when non-empty, and
+                        # stripped by _VOLATILE_STRIP_KEYS — golden-neutral (INV-3).
+                        **(
+                            {LONG_CONTEXT_KEY: agent_long_context}
+                            if agent_long_context
+                            else {}
+                        ),
+                        **(
+                            {FALLBACK_USAGE_KEY: agent_fallback_usage}
+                            if agent_fallback_usage
+                            else {}
+                        ),
                         # input/total exclude cache reads (agents/capabilities/token_usage.py).
                         "usage_version": USAGE_VERSION,
                     },
@@ -11535,16 +11602,21 @@ class ExecutionEngine:
                     # already reported was already paid for, and a cancel must not
                     # erase it from the bill.
                     if aux_usage_sink is not None and _ev.get("type") == "usage":
-                        aux_usage_sink(
-                            {
-                                "input_tokens": _ev.get("input_tokens", 0) or 0,
-                                "output_tokens": _ev.get("output_tokens", 0) or 0,
-                                "cache_read_tokens": _ev.get("cache_read_tokens", 0)
-                                or 0,
-                                "cache_write_tokens": _ev.get("cache_write_tokens", 0)
-                                or 0,
-                            }
-                        )
+                        _fix_usage: dict = {
+                            "input_tokens": _ev.get("input_tokens", 0) or 0,
+                            "output_tokens": _ev.get("output_tokens", 0) or 0,
+                            "cache_read_tokens": _ev.get("cache_read_tokens", 0) or 0,
+                            "cache_write_tokens": _ev.get("cache_write_tokens", 0) or 0,
+                        }
+                        # These calls are the largest prompts in a run, so they are
+                        # the ones a long-context tier bills — keep the runner's
+                        # per-call classification and the model that produced it.
+                        if isinstance(_ev.get(LONG_CONTEXT_KEY), dict):
+                            _fix_usage[LONG_CONTEXT_KEY] = _ev[LONG_CONTEXT_KEY]
+                        _fix_model = getattr(fix_agent, "model_id", None)
+                        if isinstance(_fix_model, str) and _fix_model:
+                            _fix_usage["model_id"] = _fix_model
+                        aux_usage_sink(_fix_usage)
                     if cancel_event and cancel_event.is_set():
                         return
                     # INTERNAL: consume only — do NOT yield. The runner writes

@@ -537,7 +537,9 @@ def test_sc04_reasoning_mode_none_sends_no_field(
 
     real = mc.ModelCatalog().get(HAIKU_45)
     assert real is not None
-    silent = dataclasses.replace(real, reasoning=mc.Reasoning(mode="none", levels=()))
+    silent = dataclasses.replace(
+        real, reasoning=mc.Reasoning(mode="none", levels=(), default_effort=None)
+    )
     monkeypatch.setattr(mc.ModelCatalog, "resolve", lambda self, mid: silent)
 
     assert _bedrock_fields(monkeypatch, HAIKU_45) is None
@@ -574,10 +576,35 @@ _PRE_CHANGE_FIELDS: dict[str, dict | None] = {
     "eu.anthropic.claude-sonnet-5": {"thinking": {"type": "adaptive"}},
 }
 
-# id → the success criterion that authorises its divergence from _PRE_CHANGE_FIELDS.
-_PARITY_EXCEPTIONS = {
-    LUNA: "FR-01 — did not exist pre-change; effort mode sends nothing without an effort",
-    SOL: "FR-01 — did not exist pre-change; effort mode sends nothing without an effort",
+HAIKU_55 = "eu.anthropic.claude-haiku-5-5"
+SONNET_55 = "eu.anthropic.claude-sonnet-5-5"
+
+# id → (the request an unset effort produces, the decision that authorises it).
+# Every model here either did not exist pre-change or deliberately sends its
+# catalog ``default_effort`` explicitly, so it has no pre-change payload to match.
+_PARITY_EXCEPTIONS: dict[str, tuple[dict, str]] = {
+    LUNA: (
+        {"reasoning": {"effort": "medium"}},
+        "default_effort=medium — the provider's own default, now sent explicitly",
+    ),
+    SOL: (
+        {"reasoning": {"effort": "medium"}},
+        "default_effort=medium — the provider's own default, now sent explicitly",
+    ),
+    HAIKU_55: (
+        {
+            "thinking": {"type": "adaptive", "display": "summarized"},
+            "output_config": {"effort": "xhigh"},
+        },
+        "new model; default_effort=xhigh, summarized thinking so the tab has text",
+    ),
+    SONNET_55: (
+        {
+            "thinking": {"type": "adaptive", "display": "summarized"},
+            "output_config": {"effort": "high"},
+        },
+        "new model; default_effort=high (provider default), summarized thinking",
+    ),
 }
 
 
@@ -585,11 +612,10 @@ def test_sc05_every_catalog_model_is_byte_identical_without_an_effort(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """SC-05 / INV-3 — a step that sets no effort must produce the request it
-    produced before spec 020, for EVERY model in the catalog.
+    produced before spec 020, for EVERY model in the catalog — except the models
+    listed in ``_PARITY_EXCEPTIONS``, each pinned to its own decided request.
 
-    9 of the 11 catalog models are Claude and every shipped workflow runs on
-    one, so this is the criterion that actually protects production. A regression
-    here means existing runs changed behaviour silently.
+    A regression here means existing runs changed behaviour silently.
     """
     from agents.capabilities.model_catalog import ModelCatalog
 
@@ -597,9 +623,8 @@ def test_sc05_every_catalog_model_is_byte_identical_without_an_effort(
     for entry in ModelCatalog().list():
         actual = _bedrock_fields(monkeypatch, entry.id)  # no effort — today's path
         if entry.id in _PARITY_EXCEPTIONS:
-            assert (
-                actual is None
-            ), f"{entry.id}: {_PARITY_EXCEPTIONS[entry.id]} — expected no fields, got {actual}"
+            expected, reason = _PARITY_EXCEPTIONS[entry.id]
+            assert actual == expected, f"{entry.id} ({reason}): got {actual}"
         else:
             assert entry.id in _PRE_CHANGE_FIELDS, (
                 f"{entry.id} is new to the catalog but has no recorded pre-change payload and no "
@@ -611,7 +636,7 @@ def test_sc05_every_catalog_model_is_byte_identical_without_an_effort(
             ), f"parity broken for {entry.id}"
         checked += 1
     assert (
-        checked == 11
+        checked == 13
     ), f"catalog changed size ({checked}); re-record the parity fixture"
 
 
@@ -660,3 +685,115 @@ def test_temperature_pinned_only_when_thinking_is_on(
     mock_cls = _mock_chat_bedrock(monkeypatch)
     build_model(SOL, max_tokens=32768, effort="high")
     assert "temperature" not in mock_cls.call_args.kwargs
+
+
+# ---------------------------------------------------------------------------
+# Claude 5.5 family — real effort levels, catalog default effort, display
+#
+# The AWS adaptive-thinking guide is the contract: the level rides in a SEPARATE
+# ``output_config`` object (inside ``thinking`` is a ValidationException), and
+# with thinking disabled Bedrock caps effort at "high" (xhigh/max → 400).
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("level", ["low", "medium", "high", "xhigh", "max"])
+def test_build_model_sends_output_config_effort_when_5_5_level_set(
+    monkeypatch: pytest.MonkeyPatch, level: str
+) -> None:
+    # Arrange + Act
+    fields = _bedrock_fields(monkeypatch, SONNET_55, effort=level)
+    # Assert: the level is outside ``thinking``, verbatim.
+    assert fields == {
+        "thinking": {"type": "adaptive", "display": "summarized"},
+        "output_config": {"effort": level},
+    }
+
+
+def test_build_model_uses_catalog_default_when_legacy_on_effort_on_5_5(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    # Arrange: "on" was the only Claude level before the 5.5 family offered levels.
+    with caplog.at_level("WARNING", logger="app.agents.model_factory"):
+        # Act
+        fields = _bedrock_fields(monkeypatch, HAIKU_55, effort="on")
+    # Assert: treated as "the model's default" (xhigh), silently — not dropped.
+    assert fields == {
+        "thinking": {"type": "adaptive", "display": "summarized"},
+        "output_config": {"effort": "xhigh"},
+    }
+    assert "is not offered by" not in caplog.text
+
+
+def test_build_model_disables_thinking_when_5_5_effort_none(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    assert _bedrock_fields(monkeypatch, HAIKU_55, effort="none") == {
+        "thinking": {"type": "disabled"}
+    }
+
+
+def test_build_model_sends_no_default_effort_when_thinking_disabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A one-shot classifier call must stay as small as it was: no default level.
+    assert _bedrock_fields(monkeypatch, HAIKU_55, disable_thinking=True) == {
+        "thinking": {"type": "disabled"}
+    }
+    assert _bedrock_fields(monkeypatch, LUNA, disable_thinking=True) is None
+
+
+@pytest.mark.parametrize("level", ["low", "medium", "high"])
+def test_build_model_keeps_explicit_effort_when_thinking_disabled(
+    monkeypatch: pytest.MonkeyPatch, level: str
+) -> None:
+    assert _bedrock_fields(
+        monkeypatch, HAIKU_55, effort=level, disable_thinking=True
+    ) == {"thinking": {"type": "disabled"}, "output_config": {"effort": level}}
+
+
+@pytest.mark.parametrize("level", ["xhigh", "max"])
+def test_build_model_caps_effort_at_high_when_thinking_disabled(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture, level: str
+) -> None:
+    with caplog.at_level("WARNING", logger="app.agents.model_factory"):
+        fields = _bedrock_fields(
+            monkeypatch, HAIKU_55, effort=level, disable_thinking=True
+        )
+    assert fields == {
+        "thinking": {"type": "disabled"},
+        "output_config": {"effort": "high"},
+    }
+    assert "capping at 'high'" in caplog.text
+
+
+def test_build_model_sends_no_default_effort_when_global_thinking_switch_off(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # THINKING_BUDGET_TOKENS <= 0 is the operator's "send nothing extra" switch.
+    monkeypatch.setattr(settings, "THINKING_BUDGET_TOKENS", 0)
+    assert _bedrock_fields(monkeypatch, HAIKU_55) is None
+    assert _bedrock_fields(monkeypatch, LUNA) is None
+
+
+def test_build_model_passes_effort_to_chat_anthropic_when_5_5_level_set(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Arrange: the local-dev Anthropic-direct path.
+    monkeypatch.setattr(settings, "ANTHROPIC_API_KEY", "sk-test")
+    mock_cls = _mock_chat_anthropic(monkeypatch)
+    # Act
+    build_model("claude-haiku-5-5", max_tokens=32768, effort="low")
+    # Assert: ChatAnthropic takes effort as its own field; display stays on thinking.
+    kwargs = mock_cls.call_args.kwargs
+    assert kwargs["effort"] == "low"
+    assert kwargs["thinking"]["display"] == "summarized"
+    assert kwargs["temperature"] == 1
+
+
+def test_build_model_sends_no_effort_to_chat_anthropic_when_model_has_no_levels(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "ANTHROPIC_API_KEY", "sk-test")
+    mock_cls = _mock_chat_anthropic(monkeypatch)
+    build_model("claude-haiku-4-5-20251001", max_tokens=32768)
+    assert "effort" not in mock_cls.call_args.kwargs

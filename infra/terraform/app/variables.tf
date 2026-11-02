@@ -164,13 +164,13 @@ variable "dns_ttl_seconds" {
 variable "bedrock_model_id" {
   description = "Bedrock foundation-model ID the app invokes. Used as the Bedrock CloudWatch alarm dimension."
   type        = string
-  default     = "anthropic.claude-haiku-4-5-20251001-v1:0"
+  default     = "anthropic.claude-haiku-5-5"
 }
 
 variable "bedrock_inference_profile_id" {
   description = "Cross-region inference profile ID. Becomes the active model_id dimension when use_inference_profile_for_app = true."
   type        = string
-  default     = "eu.anthropic.claude-haiku-4-5-20251001-v1:0"
+  default     = "eu.anthropic.claude-haiku-5-5"
 }
 
 variable "use_inference_profile_for_app" {

@@ -22,6 +22,7 @@ from agents.capabilities.model_pricing import (
     _regional_premium,
     _resolve_pricing,
     estimate_cost_usd,
+    long_context_threshold,
 )
 
 _BACKEND = Path(__file__).resolve().parents[3]
@@ -105,9 +106,9 @@ def test_pricing_covers_every_catalog_model() -> None:
     own row — GPT-5.6 is a different rate card, not a geo variant.
     """
     entries = ModelCatalog().list()
-    # 12 = 10 Claude (2 of them geo twins, incl. eu. Sonnet 5.5) + GPT-5.6 Luna and Sol.
+    # 13 = 11 Claude (2 of them geo twins, incl. eu. Sonnet 5.5 + Haiku 5.5) + GPT-5.6 Luna and Sol.
     # Haiku 3.5 was removed on 2026-09-22 (unavailable in eu-north-1).
-    assert len(entries) == 12, (
+    assert len(entries) == 13, (
         f"catalog size changed ({len(entries)}) — a model was added or removed. "
         f"Review its per-token rates, then update this pin: "
         f"{[e.id for e in entries]}"
@@ -168,11 +169,14 @@ def test_resolve_normalized_variant(variant_id: str, seed_id: str) -> None:
     assert _resolve_pricing(variant_id) == seed.pricing
 
 
-def test_resolve_unknown_falls_back_to_cheap() -> None:
-    # (c) an unknown id resolves to the catalog's cheap (Haiku) tier.
-    cheap = next(e for e in ModelCatalog().list() if e.cost_class == "cheap")
-    assert _resolve_pricing("nonsense-model") == cheap.pricing
-    assert _resolve_pricing("") == cheap.pricing
+def test_resolve_pricing_returns_most_expensive_cheap_rate_when_model_unknown() -> None:
+    # (c) an unknown id is priced at the most expensive cheap-tier rate — an upper
+    # bound for the cheap tier that does not depend on catalog order (the first
+    # cheap entry is Haiku 5.5 at $0.10/1M, which would under-report 10x).
+    cheap = [e.pricing for e in ModelCatalog().list() if e.cost_class == "cheap"]
+    assert _resolve_pricing("nonsense-model") == max(cheap, key=lambda p: p.input)
+    assert _resolve_pricing("nonsense-model").input == 1e-6
+    assert _resolve_pricing("") == max(cheap, key=lambda p: p.input)
 
 
 # ---------------------------------------------------------------------------
@@ -266,3 +270,59 @@ def test_token_usage_prices_through_the_shared_pricing_function() -> None:
     src = (_BACKEND / "agents" / "capabilities" / "token_usage.py").read_text()
     assert _SHARED_IMPORT in src
     assert not [lit for lit in _RATE_LITERALS if lit in src]
+
+
+# ---------------------------------------------------------------------------
+# Long-context tier
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "model_id",
+    [
+        "eu.anthropic.claude-haiku-5-5",
+        "us.anthropic.claude-haiku-5-5",
+        "claude-haiku-5-5",
+    ],
+)
+def test_long_context_threshold_returns_100k_when_model_is_haiku_5_5(
+    model_id: str,
+) -> None:
+    assert long_context_threshold(model_id) == 100_000
+
+
+@pytest.mark.parametrize(
+    "model_id",
+    ["eu.anthropic.claude-sonnet-5-5", "nonsense-model", "", None],
+    ids=["flat-model", "unknown-model", "empty", "none"],
+)
+def test_long_context_threshold_returns_none_when_model_has_no_tier(
+    model_id: str | None,
+) -> None:
+    assert long_context_threshold(model_id) is None
+
+
+def test_estimate_cost_usd_uses_long_tier_rates_when_long_context_requested() -> None:
+    # global. = no regional premium, so the list rates apply as-is.
+    model = "global.anthropic.claude-haiku-5-5"
+    assert estimate_cost_usd(model, 1_000_000, 1_000_000) == pytest.approx(0.6)
+    assert estimate_cost_usd(
+        model, 1_000_000, 1_000_000, long_context=True
+    ) == pytest.approx(3.0)
+
+
+def test_estimate_cost_usd_ignores_long_context_flag_when_model_is_flat_priced() -> (
+    None
+):
+    model = "global.anthropic.claude-sonnet-5-5"
+    assert estimate_cost_usd(model, 1000, 1000, long_context=True) == estimate_cost_usd(
+        model, 1000, 1000
+    )
+
+
+def test_estimate_cost_usd_prices_sonnet_5_5_cache_read_at_5_percent_of_input() -> None:
+    # Anthropic halved the Sonnet 5.5 cache-read rate to $0.10/1M on 2026-10-07.
+    model = "global.anthropic.claude-sonnet-5-5"
+    assert estimate_cost_usd(model, 0, 0, cache_read_tokens=1_000_000) == pytest.approx(
+        0.10
+    )

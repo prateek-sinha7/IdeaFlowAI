@@ -102,7 +102,7 @@ class Settings(BaseSettings):
     # ---- Anthropic direct API (local dev fallback) ----
     # When set, uses langchain-anthropic instead of Bedrock.
     ANTHROPIC_API_KEY: str = ""
-    ANTHROPIC_MODEL_ID: str = "claude-haiku-4-5-20251001"
+    ANTHROPIC_MODEL_ID: str = "claude-haiku-5-5"
 
     # ---- Mistral (free-tier fallback / eval-harness opt-in) ----
     # When set, build_model() can reach langchain-mistralai's ChatMistralAI —
@@ -121,7 +121,7 @@ class Settings(BaseSettings):
     # infra/policies/bedrock-invoke.json scopes invoke to this exact ID, the
     # cross-region inference-profile ID, and the EU regions the profile fans
     # out to.
-    BEDROCK_MODEL_ID: str = "anthropic.claude-haiku-4-5-20251001-v1:0"
+    BEDROCK_MODEL_ID: str = "anthropic.claude-haiku-5-5"
     # The GLOBAL default model for every run that sets no override (spec 020 /
     # FR-13). The application invokes the inference profile (not the
     # foundation-model ID directly), so CloudWatch metrics dimension by this
@@ -137,8 +137,8 @@ class Settings(BaseSettings):
     # entries stay on `eu.` prefixes and keep EU residency; `global.anthropic.*`
     # exists but was deliberately declined for exactly this reason.
     #
-    # Revert = put back "eu.anthropic.claude-haiku-4-5-20251001-v1:0". One line,
-    # no other code changes, no data migration.
+    # Revert = put back "eu.anthropic.claude-haiku-5-5" (the EU-resident cheap
+    # default). One line, no other code changes, no data migration.
     BEDROCK_INFERENCE_PROFILE_ID: str = "global.openai.gpt-5.6-luna"
     # Optional override for the coding agent in /flowin-handoff. Coding-task
     # quality benefits from Sonnet over Haiku; the test + compliance agents

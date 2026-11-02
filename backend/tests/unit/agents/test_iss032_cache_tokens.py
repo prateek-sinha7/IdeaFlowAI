@@ -19,6 +19,7 @@ Offline (no network / DB / Bedrock) coverage of the prompt-cache token surfacing
 from __future__ import annotations
 
 import pathlib
+import re
 
 import pytest
 
@@ -86,8 +87,14 @@ def test_cache_token_counts_partial_dict_defaults_missing() -> None:
 
 def test_usage_event_emits_both_cache_keys_source_pin() -> None:
     src = pathlib.Path("app/agents/deep_agent_runner.py").read_text(encoding="utf-8")
-    # The on_chat_model_end usage-emit is the one usage record, both cache keys included.
-    assert 'yield {"type": "usage", **usage_from_metadata(meta)}' in src
+    # The on_chat_model_end usage-emit is the one usage record, both cache keys
+    # included, classified on the runner's own model for tiered pricing. Matched
+    # on whitespace-collapsed source so the formatter's line breaks don't matter.
+    flat = re.sub(r"\s+", " ", src)
+    assert re.search(
+        r'yield \{ "type": "usage", \*\*usage_from_metadata\(meta, self\.model_id\),? \}',
+        flat,
+    ), "the runner's usage event must be built by usage_from_metadata(meta, self.model_id)"
 
 
 # ── 3. Cost split (no double-count) ────────────────────────────────────────

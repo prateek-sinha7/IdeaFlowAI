@@ -591,3 +591,58 @@ def test_mechanical_kinds_match_registry() -> None:
     assert (
         compiler_mod._ALLOWED_MECHANICAL_KINDS == registry_mechanical
     ), f"mechanical kinds mismatch: compiler has {compiler_mod._ALLOWED_MECHANICAL_KINDS}, registry has {registry_mechanical}"
+
+
+# ---------------------------------------------------------------------------
+# Step effort — validated against THIS model's levels (spec 020)
+# ---------------------------------------------------------------------------
+
+
+def _effort_step(model: str, effort: str) -> WorkflowManifest:
+    return _manifest(
+        steps=[
+            {
+                "agent": "a",
+                "strategy": "single_shot",
+                "model": {"model": model, "effort": effort},
+            }
+        ]
+    )
+
+
+@pytest.mark.parametrize(
+    "model",
+    ["eu.anthropic.claude-sonnet-5-5", "eu.anthropic.claude-haiku-5-5"],
+)
+def test_compile_accepts_legacy_on_effort_when_model_offers_real_levels(
+    model: str,
+) -> None:
+    # "on" was the only Claude level before the 5.5 family; a step saved then must
+    # still compile (it runs at the model's catalog default).
+    compiled = WorkflowCompiler().compile(
+        _effort_step(model, "on"), CapabilityRegistry()
+    )
+    assert compiled.steps[0].model.effort == "on"
+
+
+def test_compile_accepts_real_level_when_5_5_model_offers_it() -> None:
+    compiled = WorkflowCompiler().compile(
+        _effort_step("eu.anthropic.claude-sonnet-5-5", "xhigh"), CapabilityRegistry()
+    )
+    assert compiled.steps[0].model.effort == "xhigh"
+
+
+def test_compile_rejects_real_level_when_model_offers_only_on_off() -> None:
+    with pytest.raises(CompilerError) as exc:
+        WorkflowCompiler().compile(
+            _effort_step("eu.anthropic.claude-sonnet-5", "xhigh"), CapabilityRegistry()
+        )
+    assert "invalid model effort 'xhigh'" in str(exc.value)
+
+
+def test_compile_rejects_on_effort_when_model_is_not_claude() -> None:
+    # The alias is Claude-only: GPT-5.6 never had an "on" level.
+    with pytest.raises(CompilerError):
+        WorkflowCompiler().compile(
+            _effort_step("global.openai.gpt-5.6-luna", "on"), CapabilityRegistry()
+        )

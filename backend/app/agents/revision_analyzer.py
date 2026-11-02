@@ -177,8 +177,11 @@ async def run_analyzer(
                     "duration": duration,
                     "output_length": len(response.content),
                     # usage_metadata is a dict — getattr() on it always read 0, so
-                    # this step's tokens were never counted. The one usage record:
-                    **usage_from_metadata(getattr(response, "usage_metadata", None)),
+                    # this step's tokens were never counted. The one usage record,
+                    # classified on the model that ran for tiered pricing:
+                    **usage_from_metadata(
+                        getattr(response, "usage_metadata", None), effective_model_id
+                    ),
                 },
             }
         )

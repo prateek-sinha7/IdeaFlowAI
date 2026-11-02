@@ -320,9 +320,9 @@ steps:
   depends_on:
   - custom-agent:fi-readers
   model:
-    model: eu.anthropic.claude-haiku-4-5-20251001-v1:0
+    model: eu.anthropic.claude-haiku-5-5
     fallback:
-    - eu.anthropic.claude-haiku-4-5-20251001-v1:0
+    - eu.anthropic.claude-haiku-5-5
     - eu.anthropic.claude-sonnet-5-5
   agent: custom-agent
   instance_id: fi-synth
@@ -451,9 +451,9 @@ steps:
   depends_on:
   - custom-agent:fi-synth
   model:
-    model: eu.anthropic.claude-haiku-4-5-20251001-v1:0
+    model: eu.anthropic.claude-haiku-5-5
     fallback:
-    - eu.anthropic.claude-haiku-4-5-20251001-v1:0
+    - eu.anthropic.claude-haiku-5-5
     - eu.anthropic.claude-sonnet-5-5
   agent: custom-agent
   instance_id: fi-gaps
@@ -556,9 +556,9 @@ steps:
   depends_on:
   - custom-agent:fi-gaps
   model:
-    model: eu.anthropic.claude-haiku-4-5-20251001-v1:0
+    model: eu.anthropic.claude-haiku-5-5
     fallback:
-    - eu.anthropic.claude-haiku-4-5-20251001-v1:0
+    - eu.anthropic.claude-haiku-5-5
     - eu.anthropic.claude-sonnet-5-5
   agent: custom-agent
   instance_id: fi-close
@@ -1014,9 +1014,9 @@ steps:
   # its derived chain is empty and one Bedrock 5xx (after the SDK's own retries) failed the
   # worker — and one failed wave worker fails the run (KRN-004). Retry Haiku, then Sonnet.
   model:
-    model: eu.anthropic.claude-haiku-4-5-20251001-v1:0
+    model: eu.anthropic.claude-haiku-5-5
     fallback:
-    - eu.anthropic.claude-haiku-4-5-20251001-v1:0
+    - eu.anthropic.claude-haiku-5-5
     - eu.anthropic.claude-sonnet-5-5
   agent: custom-agent
   instance_id: pb-build

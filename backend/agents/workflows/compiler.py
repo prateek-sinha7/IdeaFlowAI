@@ -1509,6 +1509,11 @@ class WorkflowCompiler:
             valid = (
                 entry.reasoning.levels if entry is not None else REASONING_EFFORT_LEVELS
             )
+            # "on" was the only Claude level before the 5.5 family offered real
+            # ones; a step saved then still compiles, and runs at the model's
+            # default (model_factory.reasoning_fields rule 3).
+            if entry is not None and entry.reasoning.mode in ("adaptive", "budget"):
+                valid = (*valid, "on") if "on" not in valid else valid
             if effort not in valid:
                 raise CompilerError(
                     f"invalid model effort {effort!r} in {where} — "

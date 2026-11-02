@@ -27,8 +27,8 @@ route53_zone_name = "velocityai.test"
 app_subdomain     = "app"
 dns_ttl_seconds   = 60
 
-bedrock_model_id              = "anthropic.claude-haiku-4-5-20251001-v1:0"
-bedrock_inference_profile_id  = "eu.anthropic.claude-haiku-4-5-20251001-v1:0"
+bedrock_model_id              = "anthropic.claude-haiku-5-5"
+bedrock_inference_profile_id  = "eu.anthropic.claude-haiku-5-5"
 use_inference_profile_for_app = true
 
 # Validated lengths; real values are irrelevant under LocalStack.

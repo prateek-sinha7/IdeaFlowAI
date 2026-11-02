@@ -107,7 +107,7 @@ Written in EARS, the standard this workflow enforces on its own output.
 ### 4.2 Reading (prompts)
 
 - **FR-010** | event | When `extract_text` is called on an `.html` or `.htm` upload, the tool shall materialise it into `.extract/html/<slug>/` with one page per screen, dialog or state, then its script pages, and a `manifest.json` whose shards have the same shape as a PDF's.
-- **FR-011** | ubiquitous | Each screen page shall hold a `text.md` listing the screen's fields (label, control, required, validation attributes, options copied exactly), actions (label and target), tables (columns and up to five real rows), hidden states and messages, and reference its screenshot `image-1.png`.
+- **FR-011** | ubiquitous | Each screen page shall hold a `text.md` listing the screen's fields (label, control, required, validation attributes, options copied exactly), actions (label and target), tables (columns and up to five real rows), hidden states and messages, and reference its screenshot `image-1.png`; a screen too tall for one picture references `image-1.png` … `image-N.png`, top to bottom.
 - **FR-012** | unwanted | If an upload listed in `.uploads/manifest.json` has no task, then the Reading Planner shall record it under `skipped` in `build/tasks.json` with the reason.
 - **FR-013** | unwanted | If no browser can be launched, then the tool shall materialise the page from its static markup and say so in the manifest (`"rendered_by": "static"`) and in its receipt.
 - **FR-014** | event | When the Reading Planner runs, it shall write one task per shard — web pages included — and one per text upload into `build/tasks.json`.
@@ -176,10 +176,11 @@ Every JSON file is written with ONE `write_file` call, as one line of text (prot
 The PDF layout, so every downstream prompt treats a web page like any other document:
 
 ```text
-.extract/html/<slug>/manifest.json         source, source_sha256, source_format "html", rendered_by "chromium" | "static",
+.extract/html/<slug>/manifest.json         source, source_sha256, source_format "html", format_version 2, rendered_by "chromium" | "static",
                                            page_count, pages{}, shards[] (the same packer), screens[{page, id, title, kind}]
 .extract/html/<slug>/pages/NN/text.md      one screen, or one script chunk
-.extract/html/<slug>/pages/NN/image-1.png  that screen's screenshot (screen pages, browser route only)
+.extract/html/<slug>/pages/NN/image-K.png  that screen's screenshot: image-1.png, or image-1.png … image-N.png top to bottom
+                                           when the screen is too tall for one picture (screen pages, browser route only)
 .extract/html/<slug>/document.md           every page, one file
 ```
 

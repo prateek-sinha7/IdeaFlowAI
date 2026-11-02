@@ -113,7 +113,7 @@ async def lifespan(app: FastAPI):
     if settings.ANTHROPIC_API_KEY:
         logger.info(
             "   LLM provider: anthropic-direct (model=%s)",
-            settings.ANTHROPIC_MODEL_ID or "claude-haiku-4-5",
+            settings.ANTHROPIC_MODEL_ID or "claude-haiku-5-5",
         )
     elif settings.AWS_BEARER_TOKEN_BEDROCK:
         logger.info(

@@ -43,6 +43,12 @@ class Pricing:
     cache_read: float
     cache_write_5m: float
     cache_write_1h: float
+    # Tiered long-context pricing (e.g. Claude Haiku 5.5). When a single
+    # request's prompt (uncached input + cache read + cache write) EXCEEDS
+    # ``long_context_threshold`` tokens, every token of THAT request is billed
+    # at ``long_context`` rates. ``None`` = flat pricing at any prompt size.
+    long_context_threshold: int | None = None
+    long_context: "Pricing | None" = None
 
 
 # Leading geographic/provider prefix tokens stripped (iteratively) when
@@ -81,6 +87,7 @@ _MAX_OUTPUT_TOKENS_BY_FAMILY: dict[str, int] = {
     **{
         family: 128000
         for family in (
+            "claude-haiku-5-5",
             "claude-sonnet-4-6",
             "claude-sonnet-5",
             "claude-sonnet-5-5",
@@ -135,16 +142,30 @@ class Reasoning:
       - ``budget``   -> {"thinking": {"type": "enabled", ...}}    (Claude <= 4.6)
       - ``none``     -> nothing is sent                           (Haiku 3.5)
 
-    ``levels`` is what a picker may offer; ``()`` means no control at all. The
-    two Claude modes carry ``("none", "on")`` rather than the full six because
-    the thinking budget is pinned at maximum, so low..max would produce
-    byte-identical requests — six labels for two behaviours is a control that
-    lies. Sonnet 5 gains real levels once langchain-aws is upgraded (spec §7),
-    by changing one row here and nothing else.
+    ``levels`` is what a picker may offer; ``()`` means no control at all.
+    Budget-mode Claude carries ``("none", "on")``: the thinking budget is pinned
+    at maximum, so low..max would produce byte-identical requests. An adaptive
+    model that lists real levels (the Claude 5.5 family) gets them sent as
+    ``output_config.effort`` through ``additional_model_request_fields`` — that
+    works on the pinned langchain-aws, no upgrade needed. Sonnet 5 keeps
+    ``("none", "on")`` until its levels are verified, by changing one row here.
+
+    ``default_effort`` is the level a step that sets no effort runs at, so
+    every reasoning model has thinking attached by default. ``"on"`` means
+    "thinking on, no level sent" (today's behaviour for budget models and
+    Sonnet 5). A real level is sent explicitly. ``None`` only for ``mode="none"``.
+    No default value: a new entry must choose, because the choice is a cost
+    decision (a higher level spends more output tokens).
+
+    ``display`` is ``thinking.display`` for adaptive thinking. Bedrock returns an
+    EMPTY thinking text unless it is ``"summarized"``, so the Thinking tab shows
+    nothing without it. ``None`` sends no field.
     """
 
     mode: str
     levels: tuple[str, ...]
+    default_effort: str | None
+    display: str | None = None
 
 
 @dataclass(frozen=True)
@@ -188,6 +209,51 @@ class ModelEntry:
 # affect resolution/fallback, which key off id / cost_class.
 # ---------------------------------------------------------------------------
 _ENTRIES: tuple[ModelEntry, ...] = (
+    # FIRST cheap entry, deliberately: ModelResolver's tier-descent fallback
+    # takes the first user-allowed id per cost_class, so a Sonnet step that is
+    # throttled falls back to Haiku 5.5 (90% cheaper than Haiku 4.5 at list).
+    # Unknown-model PRICING does not depend on this order — see
+    # model_pricing._cheap_pricing.
+    ModelEntry(
+        # EU cross-region inference profile for Haiku 5.5. Per the AWS model
+        # card (docs.aws.amazon.com/bedrock/latest/userguide/
+        # model-card-anthropic-claude-haiku-5-5.html): 1M context, 128K max
+        # output, adaptive thinking on by default (can be turned off).
+        # Pricing: $0.10 in / $0.50 out per 1M for prompts <= 100K tokens,
+        # $0.50 / $2.50 above that; cache read $0.01, 5m write $0.125 (list
+        # price, Oct 2026). Bedrock global matches list and geo profiles add
+        # 10% (_regional_premium). The long-context cache rates are derived
+        # with the standard multipliers (read 0.1x, write 1.25x / 2x) — no
+        # source publishes them yet; operator to confirm on the Bedrock page.
+        id="eu.anthropic.claude-haiku-5-5",
+        label="Claude Haiku 5.5",
+        description="Latest fast, cost-efficient Haiku model. Great for high-volume tasks. 1M token context.",
+        tier="fast",
+        cost_class="cheap",
+        provider="bedrock",
+        context_window=1000000,
+        user_allowed=True,
+        pricing=Pricing(
+            0.1e-6,
+            0.5e-6,
+            0.01e-6,
+            0.125e-6,
+            0.2e-6,
+            long_context_threshold=100_000,
+            long_context=Pricing(0.5e-6, 2.5e-6, 0.05e-6, 0.625e-6, 1e-6),
+        ),
+        vision=True,
+        supports_prompt_caching=True,
+        # Adaptive thinking + real effort levels (sent as output_config.effort).
+        # Haiku 5.5 accepts low..max. Our default is XHIGH: on the cheapest
+        # model, deeper thinking is the better quality-per-dollar trade.
+        reasoning=Reasoning(
+            mode="adaptive",
+            levels=REASONING_EFFORT_LEVELS,
+            default_effort="xhigh",
+            display="summarized",
+        ),
+    ),
     ModelEntry(
         id="eu.anthropic.claude-haiku-4-5-20251001-v1:0",
         label="Claude Haiku 4.5",
@@ -200,7 +266,7 @@ _ENTRIES: tuple[ModelEntry, ...] = (
         pricing=Pricing(1e-6, 5e-6, 0.1e-6, 1.25e-6, 2e-6),
         vision=True,
         supports_prompt_caching=True,
-        reasoning=Reasoning(mode="budget", levels=("none", "on")),
+        reasoning=Reasoning(mode="budget", levels=("none", "on"), default_effort="on"),
     ),
     ModelEntry(
         # US cross-region inference profile for Haiku 4.5 — use when the
@@ -218,13 +284,13 @@ _ENTRIES: tuple[ModelEntry, ...] = (
         pricing=Pricing(1e-6, 5e-6, 0.1e-6, 1.25e-6, 2e-6),
         vision=True,
         supports_prompt_caching=True,
-        reasoning=Reasoning(mode="budget", levels=("none", "on")),
+        reasoning=Reasoning(mode="budget", levels=("none", "on"), default_effort="on"),
     ),
     # --- OpenAI GPT-5.6 (spec 020) ------------------------------------------
-    # NOT FIRST IN THIS TUPLE, deliberately: model_pricing._resolve_pricing
-    # degrades an unknown id to the FIRST cost_class="cheap" entry, so a leading
-    # Luna would silently reprice every unknown model from $1.00/1M to $0.20/1M —
-    # a 5x under-estimate caught only by test_none_model_prices_as_haiku_1x.
+    # NOT FIRST IN THIS TUPLE, deliberately: the tier-descent fallback takes the
+    # FIRST cheap entry, and a Claude step should fall back to Claude. Unknown-id
+    # PRICING no longer depends on order — model_pricing._cheap_pricing takes the
+    # most expensive cheap rate (pinned by test_none_model_prices_as_haiku_1x).
     #
     # GLOBAL CRIS is the only option for both from eu-north-1: AWS publishes no
     # in-Region and no `eu.` profile on bedrock-runtime (the geo ids are us./in.
@@ -252,7 +318,11 @@ _ENTRIES: tuple[ModelEntry, ...] = (
         # Bedrock supports prompt caching for this model on the Responses API
         # ONLY. A cachePoint on Converse returns AccessDeniedException — measured.
         supports_prompt_caching=False,
-        reasoning=Reasoning(mode="effort", levels=REASONING_EFFORT_LEVELS),
+        # "medium" is the provider's own default for GPT-5.6, now sent
+        # explicitly so the step's reasoning level is visible and stable.
+        reasoning=Reasoning(
+            mode="effort", levels=REASONING_EFFORT_LEVELS, default_effort="medium"
+        ),
     ),
     ModelEntry(
         id="global.openai.gpt-5.6-sol",
@@ -266,7 +336,9 @@ _ENTRIES: tuple[ModelEntry, ...] = (
         pricing=Pricing(4e-6, 20e-6, 0.4e-6, 5e-6, 5e-6),
         vision=True,
         supports_prompt_caching=False,
-        reasoning=Reasoning(mode="effort", levels=REASONING_EFFORT_LEVELS),
+        reasoning=Reasoning(
+            mode="effort", levels=REASONING_EFFORT_LEVELS, default_effort="medium"
+        ),
     ),
     # REMOVED 2026-09-22 — Claude Haiku 3.5. AWS does not serve it in eu-north-1
     # in ANY form: `list_foundation_models` returns zero `claude-3-5-haiku` rows
@@ -288,7 +360,7 @@ _ENTRIES: tuple[ModelEntry, ...] = (
         pricing=Pricing(3e-6, 15e-6, 0.3e-6, 3.75e-6, 6e-6),
         vision=True,
         supports_prompt_caching=True,
-        reasoning=Reasoning(mode="budget", levels=("none", "on")),
+        reasoning=Reasoning(mode="budget", levels=("none", "on"), default_effort="on"),
     ),
     ModelEntry(
         id="eu.anthropic.claude-sonnet-4-6",
@@ -305,7 +377,7 @@ _ENTRIES: tuple[ModelEntry, ...] = (
         pricing=Pricing(3e-6, 15e-6, 0.3e-6, 3.75e-6, 6e-6),
         vision=True,
         supports_prompt_caching=True,
-        reasoning=Reasoning(mode="budget", levels=("none", "on")),
+        reasoning=Reasoning(mode="budget", levels=("none", "on"), default_effort="on"),
     ),
     ModelEntry(
         # US cross-region inference profile for Sonnet 5 — use when the
@@ -323,7 +395,9 @@ _ENTRIES: tuple[ModelEntry, ...] = (
         pricing=Pricing(3e-6, 15e-6, 0.3e-6, 3.75e-6, 6e-6),
         vision=True,
         supports_prompt_caching=True,
-        reasoning=Reasoning(mode="adaptive", levels=("none", "on")),
+        reasoning=Reasoning(
+            mode="adaptive", levels=("none", "on"), default_effort="on"
+        ),
     ),
     ModelEntry(
         # EU cross-region inference profile for Sonnet 5 — use when the
@@ -343,13 +417,20 @@ _ENTRIES: tuple[ModelEntry, ...] = (
         pricing=Pricing(3e-6, 15e-6, 0.3e-6, 3.75e-6, 6e-6),
         vision=True,
         supports_prompt_caching=True,
-        reasoning=Reasoning(mode="adaptive", levels=("none", "on")),
+        reasoning=Reasoning(
+            mode="adaptive", levels=("none", "on"), default_effort="on"
+        ),
     ),
     ModelEntry(
         # EU cross-region inference profile for Sonnet 5.5. Used by the
         # workflow manifests under agents/workflows/*/workflow.yaml.
-        # NOTE: pricing/context mirror Sonnet 5 pending operator confirmation
-        # against the live Bedrock pricing page.
+        # Per the AWS model card (model-card-anthropic-claude-sonnet-5-5.html):
+        # 1M context, 128K max output, adaptive thinking on by default, effort
+        # low..max (provider default high). No long-context pricing tier.
+        # Pricing: $2 in / $10 out per 1M; cache read $0.10 (0.05x — Anthropic
+        # halved it on 2026-10-07), cache write $2.50 (5m) / $4 (1h). Bedrock
+        # global matches list; geo profiles add 10% (_regional_premium).
+        # Operator to confirm on the Bedrock pricing page.
         id="eu.anthropic.claude-sonnet-5-5",
         label="Claude Sonnet 5.5",
         description="Latest Sonnet model. Near-Opus intelligence for coding, agents, and professional work. 1M token context.",
@@ -358,10 +439,18 @@ _ENTRIES: tuple[ModelEntry, ...] = (
         provider="bedrock",
         context_window=1000000,
         user_allowed=True,
-        pricing=Pricing(3e-6, 15e-6, 0.3e-6, 3.75e-6, 6e-6),
+        pricing=Pricing(2e-6, 10e-6, 0.1e-6, 2.5e-6, 4e-6),
         vision=True,
         supports_prompt_caching=True,
-        reasoning=Reasoning(mode="adaptive", levels=("none", "on")),
+        # Our default is HIGH, the provider's own default. Medium was tried to
+        # cut cost and lowered output quality on the shipped workflows; a step
+        # that needs more sets xhigh/max explicitly.
+        reasoning=Reasoning(
+            mode="adaptive",
+            levels=REASONING_EFFORT_LEVELS,
+            default_effort="high",
+            display="summarized",
+        ),
     ),
     ModelEntry(
         # Deprecated (not retired) per AWS's Bedrock lifecycle table — prefer
@@ -379,7 +468,7 @@ _ENTRIES: tuple[ModelEntry, ...] = (
         pricing=Pricing(3e-6, 15e-6, 0.3e-6, 3.75e-6, 6e-6),
         vision=True,
         supports_prompt_caching=True,
-        reasoning=Reasoning(mode="budget", levels=("none", "on")),
+        reasoning=Reasoning(mode="budget", levels=("none", "on"), default_effort="on"),
     ),
     ModelEntry(
         id="eu.anthropic.claude-opus-4-5-20251101-v1:0",
@@ -393,7 +482,7 @@ _ENTRIES: tuple[ModelEntry, ...] = (
         pricing=Pricing(5e-6, 25e-6, 0.5e-6, 6.25e-6, 10e-6),
         vision=True,
         supports_prompt_caching=True,
-        reasoning=Reasoning(mode="budget", levels=("none", "on")),
+        reasoning=Reasoning(mode="budget", levels=("none", "on"), default_effort="on"),
     ),
     ModelEntry(
         id="eu.anthropic.claude-opus-4-6-v1",
@@ -408,7 +497,7 @@ _ENTRIES: tuple[ModelEntry, ...] = (
         pricing=Pricing(5e-6, 25e-6, 0.5e-6, 6.25e-6, 10e-6),
         vision=True,
         supports_prompt_caching=True,
-        reasoning=Reasoning(mode="budget", levels=("none", "on")),
+        reasoning=Reasoning(mode="budget", levels=("none", "on"), default_effort="on"),
     ),
 )
 

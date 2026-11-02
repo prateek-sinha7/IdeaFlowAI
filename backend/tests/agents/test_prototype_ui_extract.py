@@ -102,6 +102,7 @@ def test_navigation_is_read_from_the_per_screen_pages(tmp_path):
             "id": "dashboard",
             "title": "Dashboard",
             "screenshot": "build/ui/screens/pages/01/image-1.png",
+            "screenshots": ["build/ui/screens/pages/01/image-1.png"],
         }
     ]
     assert nav["edges"] == [{"from": "dashboard", "to": "my-pets", "label": "My Pets"}]

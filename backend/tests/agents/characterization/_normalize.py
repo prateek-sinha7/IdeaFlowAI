@@ -183,6 +183,14 @@ _VOLATILE_STRIP_KEYS = frozenset(
         # pipeline_complete usage in the current meaning (input excludes cache reads).
         # Metadata-only, NOT in _REQUIRED_DATA_KEYS — stripped like the cache keys.
         "usage_version",
+        # The two optional PRICING subsets on agent_complete (token_usage.py):
+        # ``long_context`` (calls past a model's long-context tier) and
+        # ``fallback_usage`` (calls a fallback model made after a throttle). The
+        # scripted model crosses no tier and never throttles, so neither is emitted
+        # today; stripped anyway so a golden never depends on a model's pricing
+        # tier or a transient throttle — mirroring the cache_* precedent (INV-3).
+        "long_context",
+        "fallback_usage",
         # ── Additive-but-parity-neutral image_count key (image-input Wave 1 / edw) ──
         # The engine stamps ``image_count`` on ``agent_input`` ONLY when image blocks
         # ride the dispatch (>0). No workflow opts in this wave, so it is NEVER emitted

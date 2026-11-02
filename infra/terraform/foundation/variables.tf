@@ -108,7 +108,7 @@ variable "log_retention_days" {
 variable "bedrock_model_id" {
   description = "Bedrock foundation-model ID VelocityAI invokes by default. Must be an `anthropic.`/`openai.` model ID, optionally geography-prefixed, to match the IAM Bedrock scope."
   type        = string
-  default     = "anthropic.claude-haiku-4-5-20251001-v1:0"
+  default     = "anthropic.claude-haiku-5-5"
 
   validation {
     condition     = can(regex("^((eu|us|apac|global)\\.)?(anthropic|openai)\\.", var.bedrock_model_id))
@@ -119,7 +119,7 @@ variable "bedrock_model_id" {
 variable "bedrock_inference_profile_id" {
   description = "Cross-region inference profile ID, used in IAM and as the active model_id when traffic must span regions."
   type        = string
-  default     = "eu.anthropic.claude-haiku-4-5-20251001-v1:0"
+  default     = "eu.anthropic.claude-haiku-5-5"
 }
 
 variable "bedrock_allowed_inference_profile_ids" {
@@ -146,6 +146,8 @@ variable "bedrock_allowed_inference_profile_ids" {
     "eu.anthropic.claude-haiku-4-5-20251001-v1:0",
     "eu.anthropic.claude-sonnet-4-5-20250929-v1:0",
     "eu.anthropic.claude-sonnet-4-6",
+    "eu.anthropic.claude-sonnet-5-5",
+    "eu.anthropic.claude-haiku-5-5",
     "eu.anthropic.claude-sonnet-4-20250514-v1:0",
     "eu.anthropic.claude-opus-4-5-20251101-v1:0",
     "eu.anthropic.claude-opus-4-6-v1",

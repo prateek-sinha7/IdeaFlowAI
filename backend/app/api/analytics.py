@@ -367,13 +367,23 @@ def _aggregate(runs: list[WorkflowRun]) -> AnalyticsSummary:
             a_in = a_norm["input_tokens"]
             a_out = a_norm["output_tokens"]
             a_total = a_norm["total_tokens"]
-            # Resolve cost against the agent's own model if present; fall back to
-            # the run-level model (key) so legacy runs without per-agent model_id
-            # still get a cost estimate.
-            a_model = ag.get("model_id") or r.model_id or ""
-            a_cost = usage_cost_usd(
-                a_model or None, a_norm, cache_ttl=settings.BEDROCK_PROMPT_CACHE_TTL
-            )
+            # Prefer the cost frozen when the run completed (run_commands
+            # _apply_terminal_output_columns), priced at the same moment as the run
+            # total — re-pricing at today's catalog rates would let a price edit
+            # rewrite history. Rows from before that existed are re-priced against
+            # the agent's own model, falling back to the run-level model.
+            stored_cost = ag.get("estimated_cost_usd")
+            if isinstance(stored_cost, (int, float)) and not isinstance(
+                stored_cost, bool
+            ):
+                a_cost = float(stored_cost)
+            else:
+                a_model = ag.get("model_id") or r.model_id or ""
+                a_cost = usage_cost_usd(
+                    a_model or None,
+                    a_norm,
+                    cache_ttl=settings.BEDROCK_PROMPT_CACHE_TTL,
+                )
 
             av = agents_acc[aid]
             av["count"] += 1

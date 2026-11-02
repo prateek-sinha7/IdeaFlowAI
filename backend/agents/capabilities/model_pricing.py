@@ -44,21 +44,27 @@ _WARNED_UNKNOWN: set[str] = set()
 
 
 def _cheap_pricing(catalog: ModelCatalog) -> Pricing:
-    """Return the catalog's cheap-tier ``Pricing`` (located by cost_class, not id)."""
-    for entry in catalog.list():
-        if entry.cost_class == "cheap":
-            return entry.pricing
+    """Return the price an UNKNOWN model is estimated at: the most expensive
+    cheap-tier rate (located by cost_class, never by id or catalog order).
+
+    Conservative on purpose. The first cheap entry is now Haiku 5.5 ($0.10/1M)
+    so the tier-descent fallback picks it; pricing an unrecognised model at that
+    rate would under-report it 10x. Taking the highest cheap input rate keeps the
+    estimate an upper bound for the cheap tier, whatever order the catalog is in.
+    """
+    cheap = [e.pricing for e in catalog.list() if e.cost_class == "cheap"]
+    if cheap:
+        return max(cheap, key=lambda p: p.input)
     # Defensive: no cheap tier declared — fall back to the first entry.
     return catalog.list()[0].pricing
 
 
-def _resolve_pricing(model_id: str) -> Pricing:
-    """Resolve a model's ``Pricing`` FROM the catalog, in three tiers.
+def _lookup_pricing(model_id: str) -> Pricing | None:
+    """The catalog ``Pricing`` for ``model_id`` (exact, then normalized), or ``None``.
 
     (a) EXACT: an entry whose id equals ``model_id``.
     (b) NORMALIZED: region/version-normalize BOTH the input id and each catalog id
         and match on the bare family form (so ``us.…-v1`` maps to the ``eu.…`` seed).
-    (c) DEFAULT: the catalog's cheap tier (warn-once for an unknown id).
     """
     catalog = ModelCatalog()
 
@@ -71,7 +77,18 @@ def _resolve_pricing(model_id: str) -> Pricing:
         for entry in catalog.list():
             if normalize_model_id(entry.id) == normalized:
                 return entry.pricing
+    return None
 
+
+def _resolve_pricing(model_id: str) -> Pricing:
+    """Resolve a model's ``Pricing`` FROM the catalog: ``_lookup_pricing``, then
+    (c) DEFAULT: the conservative cheap-tier rate (warn-once for an unknown id).
+    """
+    found = _lookup_pricing(model_id)
+    if found is not None:
+        return found
+
+    catalog = ModelCatalog()
     if model_id not in _WARNED_UNKNOWN:
         _WARNED_UNKNOWN.add(model_id)
         logger.warning(
@@ -92,6 +109,23 @@ def _regional_premium(model_id: str) -> float:
     return 1.0
 
 
+def long_context_threshold(model_id: str | None) -> int | None:
+    """Prompt size (tokens) above which ``model_id`` bills at long-context rates.
+
+    ``None`` when the model has flat pricing OR is not in the catalog: an
+    unrecognised id is priced by a guess (``_cheap_pricing``), and classifying
+    its calls against some other model's tier would compound that guess.
+    A request whose prompt (uncached input + cache read + cache write) EXCEEDS
+    the threshold is billed entirely at the long-context tier.
+    """
+    if not model_id:
+        return None
+    p = _lookup_pricing(model_id)
+    if p is None or p.long_context is None:
+        return None
+    return p.long_context_threshold
+
+
 def estimate_cost_usd(
     model_id: str | None,
     input_tokens: int,
@@ -100,15 +134,20 @@ def estimate_cost_usd(
     cache_write_tokens: int = 0,
     *,
     cache_ttl: str = "5m",
+    long_context: bool = False,
 ) -> float:
     """Estimate run cost in USD for ``model_id`` at the given token counts.
 
     Prices per the model's catalog-derived ``Pricing`` (``_resolve_pricing``) scaled
     by its regional premium (``_regional_premium``). ``cache_ttl`` selects the 1h vs
-    5m cache-write tier. A ``None`` / unknown model id prices as the cheap (Haiku)
-    tier at 1.0x. Never raises.
+    5m cache-write tier. ``long_context=True`` prices the counts at the model's
+    long-context tier (counts that came from requests over its threshold); a
+    model with flat pricing ignores it. A ``None`` / unknown model id prices as
+    the cheap (Haiku) tier at 1.0x. Never raises.
     """
     p = _resolve_pricing(model_id or "")
+    if long_context and p.long_context is not None:
+        p = p.long_context
     mult = _regional_premium(model_id or "")
     write_rate = p.cache_write_1h if cache_ttl == "1h" else p.cache_write_5m
     usd = (

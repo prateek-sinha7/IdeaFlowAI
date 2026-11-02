@@ -49,6 +49,8 @@ Construction (per plan §4 / Phase 1):
 from __future__ import annotations
 
 import asyncio
+import base64
+import io
 import logging
 import random
 import posixpath
@@ -332,25 +334,37 @@ _DUPLICATE_IMAGE_PLACEHOLDER = (
 )
 
 # The provider refuses the WHOLE request when any single image block is over its
-# per-image ceiling (Anthropic/Bedrock: 5 MB, 5,242,880 bytes). Run f755b22b's
-# backlog reader read a 5,473,764-byte screen screenshot and the step failed with
+# per-image ceiling. Bedrock's limit is 5 MB per image measured as base64
+# (5,242,880 chars, about 3.93 MB decoded). Run f755b22b's backlog reader read a
+# 4,105,323-byte screen PNG, 5,473,764 chars as base64, and the step failed with
 # a ValidationException on the very next model call — evicting by recency cannot
 # help, because the image was unseen this turn and so was never a candidate.
-# Measured on the base64 string length, the stricter of the two readings of the
-# limit (base64 is 4/3 of the decoded size), with headroom below 5 MiB.
+# The threshold is the base64 string length, with headroom under 5,242,880.
 _MAX_IMAGE_BLOCK_BASE64_CHARS = 5_000_000
 _OVERSIZED_IMAGE_PLACEHOLDER = (
     "[{path} — this image is over the model's 5 MB per-image limit, so it could "
     "not be shown. Do NOT read it again — work from the text that accompanies it.]"
 )
 
+# A side over 8000 px also fails the whole request, whatever the byte size (a
+# 1440x10000 PNG is ~64 KB). Only the head of the base64 is decoded to read the
+# size: 262,144 chars (192 KiB) covers PNG/GIF/WebP headers and JPEG APP
+# segments up to the SOF marker.
+_MAX_IMAGE_SIDE_PX = 8000
+_IMAGE_HEADER_PROBE_B64_CHARS = 262_144
+_OVERSIZED_SIDE_PLACEHOLDER = (
+    "[{path} — this image is wider or taller than the model's 8000 px per-side "
+    "limit, so it could not be shown. Do NOT read it again — work from the text "
+    "that accompanies it.]"
+)
 
-def _largest_media_payload(message: Any) -> int:
-    """Length of the biggest base64 payload among a ToolMessage's media blocks."""
+
+def _media_payloads(message: Any) -> list[str]:
+    """The base64 payloads of a ToolMessage's media blocks (text blocks skipped)."""
     content = getattr(message, "content", None)
     if not isinstance(content, list):
-        return 0
-    largest = 0
+        return []
+    payloads: list[str] = []
     for block in content:
         if not isinstance(block, dict) or block.get("type") == "text":
             continue
@@ -361,8 +375,39 @@ def _largest_media_payload(message: Any) -> int:
             or (source.get("data") if isinstance(source, dict) else None)
         )
         if isinstance(data, str):
-            largest = max(largest, len(data))
-    return largest
+            payloads.append(data)
+    return payloads
+
+
+def _largest_media_payload(message: Any) -> int:
+    """Length of the biggest base64 payload among a ToolMessage's media blocks."""
+    return max((len(p) for p in _media_payloads(message)), default=0)
+
+
+def _image_side(payload: str) -> int:
+    """Longest side in px of a base64 image, read from its header only.
+
+    0 when the header cannot be read, so a malformed block passes through; over
+    the limit when Pillow refuses it as a decompression bomb (~179 MP), because
+    any image that big has a side over 8000 px.
+    """
+    try:
+        from PIL import Image
+    except ImportError:
+        return 0
+    try:
+        head = base64.b64decode(payload[:_IMAGE_HEADER_PROBE_B64_CHARS])
+        with Image.open(io.BytesIO(head)) as im:
+            return max(im.size)
+    except Image.DecompressionBombError:
+        return _MAX_IMAGE_SIDE_PX + 1
+    except Exception:  # noqa: BLE001 — a malformed block must never break a dispatch
+        return 0
+
+
+def _largest_media_side(message: Any) -> int:
+    """Longest side in px among a ToolMessage's media blocks (0 if none readable)."""
+    return max((_image_side(p) for p in _media_payloads(message)), default=0)
 
 
 def _media_blocks_in(message: Any) -> int:
@@ -417,12 +462,15 @@ class _ImagePayloadGuardMiddleware(AgentMiddleware[Any, Any, Any]):
             if n == 0:
                 continue
             path = (msg.additional_kwargs or {}).get("read_file_path") or "binary file"
-            # An image over the per-image ceiling fails the request outright, seen
-            # or unseen, so it is replaced before any budget or dedupe decision and
-            # never spends budget.
+            # An image over the per-image byte or pixel ceiling fails the request
+            # outright, seen or unseen, so it is replaced before any budget or
+            # dedupe decision and never spends budget.
             payload = _largest_media_payload(msg)
             if payload > _MAX_IMAGE_BLOCK_BASE64_CHARS:
                 rewrite[i] = _OVERSIZED_IMAGE_PLACEHOLDER.format(path=path)
+                continue
+            if _largest_media_side(msg) > _MAX_IMAGE_SIDE_PX:
+                rewrite[i] = _OVERSIZED_SIDE_PLACEHOLDER.format(path=path)
                 continue
             # A newer read of the SAME path already carries this image — drop the
             # older copy regardless of budget, and don't spend budget on it.
@@ -1294,7 +1342,12 @@ class DeepAgentRunner:
                         # The ONE usage record (agents/capabilities/token_usage.py):
                         # input = uncached + cache write, cache reads kept apart and
                         # never inside input or total.
-                        yield {"type": "usage", **usage_from_metadata(meta)}
+                        # model_id classifies the call for tiered (long-context)
+                        # pricing; a flat-priced model's record is unchanged.
+                        yield {
+                            "type": "usage",
+                            **usage_from_metadata(meta, self.model_id),
+                        }
                     # No-delta fallback: if this turn surfaced NO
                     # ``on_chat_model_stream`` text (a documented Bedrock case),
                     # the end event still carries the full assistant message.

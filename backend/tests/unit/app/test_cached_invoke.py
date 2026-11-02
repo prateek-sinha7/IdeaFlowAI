@@ -155,12 +155,41 @@ async def test_bedrock_call_places_cache_control_on_stable_prefix():
     assert text == "ok"
     # Token counting: the one usage record (agents/capabilities/token_usage.py) —
     # input is uncached + cache write, so Bedrock's 100 minus the 80 cache reads.
+    # The model that made the call rides along, so the run cost prices it on that
+    # model rather than the run's.
     assert usage == {
         "input_tokens": 20,
         "output_tokens": 20,
         "cache_read_tokens": 80,
         "cache_write_tokens": 5,
+        "model_id": "anthropic.claude-3-haiku-20240307-v1:0",
     }
+
+
+@pytest.mark.asyncio
+async def test_cached_invoke_reports_long_context_when_prompt_crosses_model_tier():
+    # Arrange: Haiku 5.5 bills a prompt over 100K tokens at its long-context tier.
+    model = _make_recording_bedrock(
+        usage_metadata={
+            "input_tokens": 150_000,
+            "output_tokens": 10,
+            "total_tokens": 150_010,
+            "input_token_details": {"cache_read": 140_000, "cache_creation": 0},
+        }
+    )
+    object.__setattr__(model, "model_id", "eu.anthropic.claude-haiku-5-5")
+    sunk: list[dict] = []
+    # Act
+    _text, usage = await cached_invoke("brief", model=model, usage_sink=sunk.append)
+    # Assert: the whole call is the long-context subset, and the sink sees it too.
+    assert usage["model_id"] == "eu.anthropic.claude-haiku-5-5"
+    assert usage["long_context"] == {
+        "input_tokens": 10_000,
+        "output_tokens": 10,
+        "cache_read_tokens": 140_000,
+        "cache_write_tokens": 0,
+    }
+    assert sunk == [usage]
 
 
 @pytest.mark.asyncio

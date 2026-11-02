@@ -243,17 +243,26 @@ def reasoning_fields(
 
         effort    -> {"reasoning": {"effort": <level>}}        GPT-5.6
         adaptive  -> {"thinking": {"type": "adaptive"}}        Claude Sonnet 5
+                     + {"output_config": {"effort": <level>}}  when the model
+                       offers real levels (Claude 5.5 family)
         budget    -> {"thinking": {"type": "enabled", ...}}    Claude <= 4.6
         none      -> {}                                        Claude Haiku 3.5
 
-    Three rules that are bugs if broken:
+    Rules that are bugs if broken:
 
-    1. ``effort is None`` reproduces today's request EXACTLY (INV-3). Unset is
-       not the same as the level ``"none"``: every Claude step currently runs
-       with thinking ON at full budget, so conflating them would silently change
-       every existing workflow.
+    1. ``effort is None`` runs at the model's catalog ``default_effort``, so
+       every reasoning model has thinking attached by default. For budget-mode
+       models and Sonnet 5 that default is ``"on"``, which reproduces the
+       pre-spec-020 request EXACTLY (INV-3); a model whose default is a real
+       level sends it explicitly. Unset is still not the level ``"none"``.
     2. ``effort == "none"`` means the user explicitly turned reasoning off.
-    3. An id absent from the catalog falls back to ``budget`` — today's
+    3. ``"on"`` on a model with real levels (a step saved before the 5.5
+       family offered levels) means "the model's default", not an error.
+    4. ``disable_thinking`` (and the global ``THINKING_BUDGET_TOKENS <= 0``
+       switch) never picks up a default level — a one-shot classifier call
+       stays as small as it was — but an EXPLICIT level is kept, capped at
+       ``high`` when thinking is off (Bedrock rejects xhigh/max there).
+    5. An id absent from the catalog falls back to ``budget`` — today's
        behaviour. ``none`` would be tidier and would silently stop sending
        ``thinking`` for any uncatalogued model: a parity break wearing a
        cleanup's clothes.
@@ -274,12 +283,18 @@ def reasoning_fields(
                 "its reasoning shape explicit.",
                 model_id,
             )
-        mode, levels = "budget", ("none", "on")
+        mode, levels, default_effort, display = "budget", ("none", "on"), "on", None
     else:
         mode, levels = entry.reasoning.mode, entry.reasoning.levels
+        default_effort = entry.reasoning.default_effort
+        display = entry.reasoning.display
 
     if mode == "none":
         return {}
+
+    # Rule 3: the pre-5.5 Claude switch value means "this model's default".
+    if effort == "on" and mode in ("adaptive", "budget") and "on" not in levels:
+        effort = None
 
     if effort is not None and effort not in levels:
         logger.warning(
@@ -291,14 +306,63 @@ def reasoning_fields(
         )
         effort = None
 
+    explicit = effort is not None
+    # Rules 1 + 4: unset runs at the catalog default, unless thinking is being
+    # forced off — for this one-shot call, or globally by the operator switch
+    # (THINKING_BUDGET_TOKENS <= 0), which must keep meaning "send nothing extra".
+    if effort is None and not disable_thinking and settings.THINKING_BUDGET_TOKENS > 0:
+        effort = default_effort
+
     if mode == "effort":
-        # No global default here: an unset effort sends nothing and lets the
-        # model apply its own (medium, for the GPT-5.6 family).
         return {"reasoning": {"effort": effort}} if effort else {}
 
     # --- Claude: adaptive / budget -----------------------------------------
     if effort == "none":
         return {"thinking": {"type": "disabled"}}
+
+    fields = _claude_thinking_fields(
+        mode,
+        max_tokens,
+        disable_thinking=disable_thinking,
+        include_budget_on_adaptive=include_budget_on_adaptive,
+    )
+    thinking = fields.get("thinking") or {}
+    if mode != "adaptive":
+        return fields
+    if display and thinking.get("type") == "adaptive":
+        # Without it Bedrock returns an EMPTY thinking text (AWS adaptive-thinking
+        # guide, "display"), so the Thinking tab would show nothing.
+        fields = {**fields, "thinking": {**thinking, "display": display}}
+    # A real level (low..max) rides in a SEPARATE ``output_config`` object — the
+    # AWS adaptive-thinking guide is explicit that effort inside ``thinking`` is a
+    # ValidationException. "on" (and a model without real levels) sends none, so
+    # those requests stay byte-identical.
+    if effort in (None, "on"):
+        return fields
+    if thinking.get("type") == "disabled":
+        if not explicit:
+            return fields
+        if effort in ("xhigh", "max"):
+            # Bedrock caps effort at "high" when thinking is disabled and returns
+            # 400 for xhigh/max — keep the closest level it accepts.
+            logger.warning(
+                "reasoning_fields: effort=%r with thinking disabled on %s — "
+                "capping at 'high' (the provider rejects higher levels).",
+                effort,
+                model_id,
+            )
+            effort = "high"
+    return {**fields, "output_config": {"effort": effort}}
+
+
+def _claude_thinking_fields(
+    mode: str,
+    max_tokens: int,
+    *,
+    disable_thinking: bool,
+    include_budget_on_adaptive: bool,
+) -> dict:
+    """The Claude ``thinking`` block for an unset / ``"on"`` / level effort."""
 
     # effort "on" or unset: the existing global predicate still decides, so an
     # unset step is byte-identical to today.
@@ -433,7 +497,7 @@ def build_model(
     if settings.ANTHROPIC_API_KEY:
         from langchain_anthropic import ChatAnthropic
 
-        model_id = model or settings.ANTHROPIC_MODEL_ID or "claude-haiku-4-5-20251001"
+        model_id = model or settings.ANTHROPIC_MODEL_ID or "claude-haiku-5-5"
         if cap_from_model:
             max_tokens = max_output_tokens(model_id) or max_tokens
         logger.debug(
@@ -455,6 +519,10 @@ def build_model(
         )
         if "thinking" in anthropic_reasoning:
             anthropic_kwargs["thinking"] = anthropic_reasoning["thinking"]
+        # ChatAnthropic exposes effort as its own field (it builds output_config).
+        _effort_level = (anthropic_reasoning.get("output_config") or {}).get("effort")
+        if _effort_level:
+            anthropic_kwargs["effort"] = _effort_level
         if thinking_is_on(anthropic_reasoning):
             anthropic_kwargs["temperature"] = 1  # required when thinking is on
         return ChatAnthropic(**anthropic_kwargs)

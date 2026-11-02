@@ -22,12 +22,17 @@ Design constraints honoured (mirrors run_files.py):
     → 413.  Every file is read + validated first; a single rejection writes nothing.
   * **Traversal** — every write resolves through ``RunSandbox.path_for`` under
     the ``.figma/`` prefix.
+  * **Model limits** — a PNG/JPEG frame over the model's per-image limits (a side
+    over 2000 px or over 3.5 MB) keeps its original and gains
+    ``frame-N-part-K.png`` tiles, top to bottom, listed under the entry's
+    ``parts`` with a ``parts_note`` (same tiling as HTML screenshots).
   * **SC-001 intact** — no ``if pipeline_type ==`` added to engine.py.
   * **Additive** — no new table, no migration.
 """
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from typing import Optional
@@ -40,6 +45,7 @@ from app.agents.sandbox import (
     _safe_segment,
     family_lock,
 )
+from app.agents.tools.html_extract import _tile_screenshot
 from app.api.run_engine import _get_db
 from app.api.run_files import (
     _dedupe_segment,
@@ -88,6 +94,37 @@ _UNSUPPORTED_TYPE_MSG = (
 def _ext_of(filename: str) -> str:
     """Return the lowercased extension of ``filename``, or empty string."""
     return filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+
+
+def _frame_parts(data: bytes) -> tuple[list[bytes], str] | None:
+    """Split a frame over the model's per-image limits, like HTML screenshots.
+
+    Returns ``(tiles, parts_note)``, or ``None`` when the frame already fits or
+    cannot be decoded (it is then stored and read exactly as uploaded).
+    """
+    tiles, shown_px, total_px = _tile_screenshot(data)
+    if tiles == [data]:
+        return None
+    note = f"{len(tiles)} part(s), top to bottom; together they are this one frame."
+    if shown_px < total_px:
+        note += f" The parts show the top {shown_px} of {total_px} px."
+    return tiles, note
+
+
+def _write_frame_parts(
+    sandbox: RunSandbox, safe_name: str, split: tuple[list[bytes], str] | None
+) -> dict[str, object]:
+    """Write a split frame's tiles under ``.figma/``; return its manifest fields."""
+    if split is None:
+        return {}
+    tiles, note = split
+    stem = safe_name.rsplit(".", 1)[0]
+    names: list[str] = []
+    for k, tile in enumerate(tiles, start=1):
+        part = f"{stem}-part-{k}.png"
+        _write_bytes(sandbox, f"{_FIGMA_PREFIX}{part}", tile)
+        names.append(part)
+    return {"parts": names, "parts_note": note}
 
 
 @router.post("/{run_id}/figma-frames")
@@ -188,6 +225,13 @@ async def upload_figma_frames(
     sandbox = RunSandbox(current_user.id, chain_root_id, runs_root=settings.RUNS_ROOT)
     sandbox.ensure()
 
+    # Tiling is CPU work: run it off the event loop, before taking any lock.
+    splits: list[tuple[list[bytes], str] | None] = []
+    for _, data, ext, _, _ in validated:
+        splits.append(
+            None if ext == "pdf" else await asyncio.to_thread(_frame_parts, data)
+        )
+
     manifest_rel = f"{_FIGMA_PREFIX}manifest.json"
 
     # ── Acquire family lock (family → manifest ordering per run_files.py) ─────
@@ -219,13 +263,15 @@ async def upload_figma_frames(
                 )
                 used_names.add(safe)
                 _write_bytes(sandbox, f"{_FIGMA_PREFIX}{safe}", data)
-                manifest[safe] = {
+                entry: dict[str, object] = {
                     "name": safe,
                     "mime": mime,
                     "type": "pdf" if ext == "pdf" else "image",
                     "description": description,
                     "has_text": False,
                 }
+                entry.update(_write_frame_parts(sandbox, safe, splits[i]))
+                manifest[safe] = entry
                 results.append({"name": safe, "bytes": len(data)})
 
             # Write manifest as a JSON array (same shape run_files.py writes).

@@ -117,25 +117,34 @@ def _extract_text(content: Any) -> str:
     return ""
 
 
-def _usage_from_response(resp: Any) -> Usage:
+def _usage_from_response(resp: Any, model_id: str | None = None) -> Usage:
     """Extract ``{input,output,cache_read,cache_write}_tokens`` off a response.
 
     The one usage record (agents/capabilities/token_usage.py): input is uncached
     input + cache write, cache reads kept apart. Degrade-safe: a missing / ``None``
     ``usage_metadata`` yields all-zeros and never raises.
-    """
-    from agents.capabilities.token_usage import usage_from_metadata  # noqa: PLC0415
 
-    u = usage_from_metadata(getattr(resp, "usage_metadata", None))
-    return {
-        k: u[k]
-        for k in (
-            "input_tokens",
-            "output_tokens",
-            "cache_read_tokens",
-            "cache_write_tokens",
-        )
+    With a known ``model_id`` the usage also carries it — so the run cost prices
+    this call on the model that made it, not the run's model — and the call's
+    ``long_context`` subset when its prompt crossed that model's pricing tier.
+    """
+    from agents.capabilities.token_usage import (  # noqa: PLC0415
+        LONG_CONTEXT_KEY,
+        usage_from_metadata,
+    )
+
+    u = usage_from_metadata(getattr(resp, "usage_metadata", None), model_id)
+    usage: Usage = {
+        "input_tokens": u["input_tokens"],
+        "output_tokens": u["output_tokens"],
+        "cache_read_tokens": u["cache_read_tokens"],
+        "cache_write_tokens": u["cache_write_tokens"],
     }
+    if "long_context" in u:
+        usage[LONG_CONTEXT_KEY] = u["long_context"]
+    if model_id:
+        usage["model_id"] = model_id
+    return usage
 
 
 async def cached_invoke(
@@ -178,7 +187,9 @@ async def cached_invoke(
 
     Returns:
         ``(text, usage)`` — the response text and the :data:`Usage` dict
-        ``{input_tokens, output_tokens, cache_read_tokens, cache_write_tokens}``.
+        ``{input_tokens, output_tokens, cache_read_tokens, cache_write_tokens}``,
+        plus ``model_id`` when the model is identifiable and ``long_context``
+        when the call crossed that model's long-context pricing tier.
     """
     # ── Resolve the model. A plain instance is used verbatim (scripted fake / a
     #    caller's own tuned model); a ``str`` / ``None`` goes through the ONE sanctioned
@@ -207,7 +218,10 @@ async def cached_invoke(
     resp = await llm.ainvoke(msg_list, **invoke_kwargs)
 
     text = _extract_text(getattr(resp, "content", resp))
-    usage = _usage_from_response(resp)
+    from app.agents.model_factory import model_identifier  # noqa: PLC0415
+
+    model_id = model_identifier(llm)
+    usage = _usage_from_response(resp, None if model_id == "unknown" else model_id)
 
     if usage_sink is not None:
         try:

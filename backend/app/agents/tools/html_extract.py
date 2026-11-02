@@ -34,6 +34,7 @@ import hashlib
 import html.parser
 import io
 import json
+import math
 import os
 import re
 import shutil
@@ -176,17 +177,26 @@ _HANDLERS_SCRIPT = r"""
 """
 
 _VIEWPORT = {"width": 1280, "height": 900}
+# Bump when the folder layout changes; a folder written by an older format is rebuilt.
+_FORMAT_VERSION = 2
 _GOTO_TIMEOUT_MS = 30000
 _SCREENSHOT_TIMEOUT_MS = 5000
 
 # A screen's screenshot is later read_file'd by a Reader and sent to the model as
-# one base64 image block. The provider refuses the whole request when one block is
-# over 5 MB (base64 is 4/3 of the PNG), or when a side is over 8000 px. An element
-# screenshot is as tall as the element, so a long screen easily passes both: run
-# f755b22b's reader failed on a 5,473,764-byte screen PNG. A screenshot over either
-# cap is scaled down, aspect kept, until it fits; one under both is left untouched.
+# base64 image blocks. Bedrock refuses the whole request when one image is over
+# 5 MB measured as base64 (5,242,880 chars, about 3.93 MB of PNG) or has a side
+# over 8000 px; a request with more than 20 images gets a stricter per-side limit
+# (2000 px is the safe figure), and the model downsizes anything past its native
+# long edge (1,568 px; 2,576 px on Claude 4.7+). An element screenshot is as tall
+# as the element: run f755b22b's reader failed on a 4,105,323-byte screen PNG
+# (5,473,764 chars as base64), 1008x35,113 px. Shrinking that to fit gave a
+# 188x6,553 strip nobody could read, so a screenshot over any cap is cut into
+# full-width tiles instead. 3.5 MB keeps each tile's base64 (~4.67 M chars) under
+# the runner guard's 5,000,000. A screenshot under every cap is left untouched.
 _MAX_SCREENSHOT_BYTES = 3_500_000
-_MAX_SCREENSHOT_SIDE = 7_900
+_MAX_TILE_SIDE = 2_000
+_TILE_OVERLAP = 40
+_MAX_TILES = 20
 _FIT_ATTEMPTS = 6
 
 # fenced-block cap per Script <n> page (spec §6.1) — a script bigger than this
@@ -220,9 +230,11 @@ def materialise_html(
     """Materialise one HTML/HTM upload into ``doc_dir`` (``.extract/html/<slug>/``).
 
     Folder-is-the-state: an existing ``manifest.json`` whose ``source_sha256``
-    matches these bytes means nothing is rebuilt. A mismatch (or no manifest at
-    all) discards the folder and rebuilds it from a temp dir, renamed into place
-    in one atomic step — never a partially-written folder on disk.
+    matches these bytes AND whose ``format_version`` equals ``_FORMAT_VERSION``
+    means nothing is rebuilt. A mismatch (or no manifest at all, or a folder
+    written by an older format) discards the folder and rebuilds it from a temp
+    dir, renamed into place in one atomic step — never a partially-written folder
+    on disk.
 
     Returns a dict with ``rebuilt`` (bool), ``rendered_by`` ("chromium" |
     "static"), ``static_reason`` (str | None) and the full ``manifest`` dict —
@@ -231,7 +243,11 @@ def materialise_html(
     source_sha256 = hashlib.sha256(source_bytes).hexdigest()
 
     existing = _read_json(doc_dir / "manifest.json")
-    if existing is not None and existing.get("source_sha256") == source_sha256:
+    if (
+        existing is not None
+        and existing.get("source_sha256") == source_sha256
+        and existing.get("format_version") == _FORMAT_VERSION
+    ):
         return {
             "rebuilt": False,
             "rendered_by": existing.get("rendered_by", "chromium"),
@@ -345,6 +361,7 @@ def materialise_html(
         "source": filename,
         "source_sha256": source_sha256,
         "source_format": "html",
+        "format_version": _FORMAT_VERSION,
         "converted_by": None,
         "slug": slug,
         "page_count": page_count,
@@ -500,8 +517,7 @@ def _gather_browser(source_path: Path) -> tuple[list[dict], list[dict], list[dic
 def _screenshot_screen(page: Any, selector: str) -> bytes | None:
     """The screen element's screenshot, or a viewport screenshot if it has no box.
 
-    Either is passed through ``_fit_screenshot`` so it stays under the model's
-    per-image limits.
+    Full size; ``_write_screen_page`` tiles it.
     """
     try:
         shot = page.locator(selector).screenshot(timeout=_SCREENSHOT_TIMEOUT_MS)
@@ -510,18 +526,22 @@ def _screenshot_screen(page: Any, selector: str) -> bytes | None:
             shot = page.screenshot()
         except Exception:  # noqa: BLE001
             return None
-    return _fit_screenshot(shot)
+    return shot
 
 
-def _fit_screenshot(png: bytes) -> bytes:
-    """Scale a PNG down until it is under both screenshot caps.
+def _tile_screenshot(png: bytes) -> tuple[list[bytes], int, int]:
+    """Cut a PNG into tiles that each fit the model's per-image limits.
 
-    Returns ``png`` unchanged when it already fits, or when Pillow cannot decode
-    it; the runner's image-payload guard is the backstop for anything that still
-    gets through.
+    Returns ``(tiles, shown_px, total_px)``. A screenshot already within every
+    limit comes back as one tile, byte-for-byte unchanged. A larger one is cut
+    into equal full-width slices at most ``_MAX_TILE_SIDE`` px tall, consecutive
+    slices overlapping by at least ``_TILE_OVERLAP`` px, at most ``_MAX_TILES``
+    of them; rows past the last tile are left out (``shown_px < total_px``),
+    never shrunk. Bytes Pillow cannot decode come back as one unchanged tile
+    with ``(0, 0)``; the runner's image-payload guard is the backstop.
     """
     if not png:
-        return png
+        return [png], 0, 0
     try:
         from PIL import Image
 
@@ -529,31 +549,63 @@ def _fit_screenshot(png: bytes) -> bytes:
             width, height = im.size
             if (
                 len(png) <= _MAX_SCREENSHOT_BYTES
-                and max(width, height) <= _MAX_SCREENSHOT_SIDE
+                and max(width, height) <= _MAX_TILE_SIDE
             ):
-                return png
+                return [png], height, height
             source = im.convert("RGBA") if im.mode not in ("RGB", "RGBA") else im.copy()
     except Exception:  # noqa: BLE001 — undecodable: keep the original bytes
-        return png
+        return [png], 0, 0
 
-    out = png
-    size = len(png)
-    scale = min(1.0, _MAX_SCREENSHOT_SIDE / max(width, height))
-    for _ in range(_FIT_ATTEMPTS):
-        if size > _MAX_SCREENSHOT_BYTES:
-            # PNG size tracks pixel count, so scale each side by the square root
-            # of the overshoot, with a margin so one pass usually suffices.
-            scale *= (_MAX_SCREENSHOT_BYTES / size) ** 0.5 * 0.9
-        new_size = (max(1, int(width * scale)), max(1, int(height * scale)))
-        buf = io.BytesIO()
-        source.resize(new_size, Image.Resampling.LANCZOS).save(
-            buf, format="PNG", optimize=True
+    if height <= _MAX_TILE_SIDE:
+        count, tile_h = 1, height
+    else:
+        count = min(
+            _MAX_TILES,
+            math.ceil((height - _TILE_OVERLAP) / (_MAX_TILE_SIDE - _TILE_OVERLAP)),
         )
-        out = buf.getvalue()
-        size = len(out)
-        if size <= _MAX_SCREENSHOT_BYTES:
-            break
+        tile_h = (
+            _MAX_TILE_SIDE
+            if count == _MAX_TILES
+            else math.ceil((height + (count - 1) * _TILE_OVERLAP) / count)
+        )
+    step = tile_h - _TILE_OVERLAP
+    shown_px = min(height, step * (count - 1) + tile_h)
+    tops = [k * step for k in range(count)]
+    if shown_px == height:
+        # Pin the last slice to the bottom edge; its overlap only grows.
+        tops[-1] = height - tile_h
+    tiles = [_encode_tile(source.crop((0, top, width, top + tile_h))) for top in tops]
     source.close()
+    return tiles, shown_px, height
+
+
+def _encode_tile(tile: Any) -> bytes:
+    """Encode one Pillow tile as PNG, scaled down (aspect kept) only as needed.
+
+    Scaled when wider or taller than ``_MAX_TILE_SIDE``, then again while the PNG
+    is over ``_MAX_SCREENSHOT_BYTES``; each byte factor comes from that attempt's
+    own encoded size.
+    """
+    from PIL import Image
+
+    width, height = tile.size
+    scale = min(1.0, _MAX_TILE_SIDE / max(width, height))
+    out = b""
+    for _ in range(_FIT_ATTEMPTS):
+        new_size = (max(1, int(width * scale)), max(1, int(height * scale)))
+        frame = (
+            tile
+            if new_size == (width, height)
+            else tile.resize(new_size, Image.Resampling.LANCZOS)
+        )
+        buf = io.BytesIO()
+        frame.save(buf, format="PNG", optimize=True)
+        out = buf.getvalue()
+        if len(out) <= _MAX_SCREENSHOT_BYTES:
+            break
+        # PNG size tracks pixel count, so scale each side by the square root of
+        # the overshoot, with a margin so one more pass usually suffices.
+        scale *= (_MAX_SCREENSHOT_BYTES / len(out)) ** 0.5 * 0.9
     return out
 
 
@@ -1243,14 +1295,22 @@ def _action_target(attrs: dict) -> str:
     )
 
 
-def _render_screen_md(rec: dict, has_screenshot: bool) -> str:
-    lines: list[str] = []
-    if has_screenshot:
-        lines.append("@[[image-1.png]]")
+def _render_screen_md(rec: dict, shots: int, shown_px: int, total_px: int) -> str:
+    lines: list[str] = [f"@[[image-{k}.png]]" for k in range(1, shots + 1)]
     lines.append(f"# Screen: {rec['title']}")
     lines.append(
         f"id: {rec['id']} · kind: {rec['kind']} · selector: {rec['selector']} · shown by: {rec['show']}"
     )
+    if shots > 1:
+        lines.append(
+            f"Screenshot: {shots} parts, top to bottom, one per image line above. "
+            "Together they are this one screen."
+        )
+    if shown_px < total_px:
+        lines.append(
+            f"The screenshot shows the top {shown_px} of {total_px} px; "
+            "the rest of this screen is only in the sections below."
+        )
     lines.append("")
 
     lines.append("## Fields")
@@ -1306,13 +1366,17 @@ def _render_screen_md(rec: dict, has_screenshot: bool) -> str:
 
 
 def _write_screen_page(page_dir: Path, rec: dict) -> dict:
-    has_shot = rec.get("screenshot") is not None
-    md = _render_screen_md(rec, has_shot)
+    shot = rec.get("screenshot")
+    tiles, shown_px, total_px = (
+        _tile_screenshot(shot) if shot is not None else ([], 0, 0)
+    )
+    md = _render_screen_md(rec, len(tiles), shown_px, total_px)
     (page_dir / "text.md").write_text(md, encoding="utf-8")
     images: list[str] = []
-    if has_shot:
-        (page_dir / "image-1.png").write_bytes(rec["screenshot"])
-        images = ["image-1.png"]
+    for k, tile in enumerate(tiles, start=1):
+        name = f"image-{k}.png"
+        (page_dir / name).write_bytes(tile)
+        images.append(name)
     return {"images": images, "chars": len(md)}
 
 

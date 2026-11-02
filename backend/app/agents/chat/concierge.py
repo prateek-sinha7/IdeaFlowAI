@@ -64,6 +64,7 @@ from langchain_core.tools import tool
 # read surface. NEITHER reaches the execution kernel (import-linter LEGAL).
 from agents.authz import ScopedStore
 from agents.capabilities.registry import register
+from agents.capabilities.token_usage import LONG_CONTEXT_KEY, add_long_context
 
 # The SANCTIONED runner adapter — the ONLY way the Concierge reaches a model (INV-13).
 # We never build a deepagents graph here; the adapter owns that single allow-listed site.
@@ -670,6 +671,11 @@ class ConciergeCapability:
                     "cache_write_tokens",
                 ):
                     usage_total[key] += int(event.get(key, 0) or 0)
+                # The runner classifies each turn for tiered pricing; keep the
+                # long-context part so the chat cost record prices it at that tier.
+                long_ctx = add_long_context(usage_total.get(LONG_CONTEXT_KEY), event)
+                if long_ctx is not None:
+                    usage_total[LONG_CONTEXT_KEY] = long_ctx
                 continue
             if etype != "chunk":
                 continue

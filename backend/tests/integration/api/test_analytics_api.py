@@ -627,3 +627,28 @@ def test_pipeline_types_owner_isolation(env):
     agent_rows = {r["agent_id"]: r for r in body.get("agents", [])}
     assert agent_rows["agent-x"]["pipeline_types"] == ["prototype"]
     assert "ppt" not in agent_rows["agent-x"]["pipeline_types"]
+
+
+# ────────────────────────────────────────────────────────────────────────────
+# Frozen per-agent cost — a row persisted with ``estimated_cost_usd`` (priced when
+# the run completed) is NOT re-priced at today's catalog rates, so a price edit
+# cannot rewrite history; a legacy row without one is still re-priced.
+# ────────────────────────────────────────────────────────────────────────────
+
+
+def test_agent_rollup_uses_stored_cost_when_agent_row_has_one(env):
+    # Arrange: the same token counts — one row carries its frozen cost, one does not.
+    a = _seed_user(env)
+    frozen = {**_agent("frozen-agent", "Frozen", 2_000_000), "estimated_cost_usd": 0.42}
+    legacy = {**_agent("legacy-agent", "Legacy", 2_000_000), "model_id": "claude-haiku"}
+    _seed_run_with_agents(env, a.id, pipeline_type="prototype", agents=[frozen, legacy])
+    env["state"]["user"] = a
+
+    # Act
+    body = _get(env, range="all").json()
+
+    # Assert
+    rows = {r["agent_id"]: r for r in body.get("agents", [])}
+    assert rows["frozen-agent"]["cost"] == pytest.approx(0.42)
+    assert rows["legacy-agent"]["cost"] != pytest.approx(0.42)
+    assert rows["legacy-agent"]["cost"] > 0

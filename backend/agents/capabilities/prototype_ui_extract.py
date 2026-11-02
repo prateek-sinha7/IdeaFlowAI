@@ -23,8 +23,11 @@ Writes ``build/ui/``:
                     type scale, radii, shadows and the brand the PDF is themed with
   components.json   one record per component kind found on the opening screen, with
                     its computed style and a screenshot ``components/<kind>.png``
-  navigation.json   every screen (title, screenshot) and every ``goes to`` edge
-  screens/          ``html_extract``'s per-screen materialisation (text.md + image-1.png)
+  navigation.json   every screen (title, screenshots) and every ``goes to`` edge;
+                    ``screenshots`` lists image-1.png … image-N.png top to bottom
+                    (a tall screen is several), ``screenshot`` is image-1.png
+  screens/          ``html_extract``'s per-screen materialisation (text.md +
+                    image-1.png … image-N.png)
 """
 
 from __future__ import annotations
@@ -252,6 +255,7 @@ def build_tokens(probe: dict) -> dict:
 _SCREEN_TITLE = re.compile(r"^# Screen: (.+)$", re.M)
 _SCREEN_ID = re.compile(r"^id: ([^\s·]+)", re.M)
 _GOTO = re.compile(r"^\| (.+?) \| .*?data-goto=([\w-]+).*\|\s*$", re.M)
+_SCREEN_IMAGE = re.compile(r"image-(\d+)\.png")
 
 
 def build_navigation(screens_dir: Path) -> dict:
@@ -261,14 +265,23 @@ def build_navigation(screens_dir: Path) -> dict:
         title, sid = _SCREEN_TITLE.search(text), _SCREEN_ID.search(text)
         if not (title and sid):
             continue
-        image = page.parent / "image-1.png"
+        # A screen too tall for one picture has image-1.png … image-N.png, top to bottom.
+        shots = sorted(
+            (
+                int(m.group(1))
+                for p in page.parent.glob("image-*.png")
+                if (m := _SCREEN_IMAGE.fullmatch(p.name))
+            )
+        )
+        paths = [
+            f"{UI_DIR}/screens/pages/{page.parent.name}/image-{k}.png" for k in shots
+        ]
         screens.append(
             {
                 "id": sid.group(1),
                 "title": title.group(1).strip(),
-                "screenshot": f"{UI_DIR}/screens/pages/{page.parent.name}/image-1.png"
-                if image.exists()
-                else None,
+                "screenshot": paths[0] if shots and shots[0] == 1 else None,
+                "screenshots": paths,
             }
         )
         seen = set()

@@ -356,11 +356,7 @@ class SmartPlanner:
         if settings.ANTHROPIC_API_KEY:
             from langchain_anthropic import ChatAnthropic
 
-            model = (
-                self.model_id
-                or settings.ANTHROPIC_MODEL_ID
-                or "claude-haiku-4-5-20251001"
-            )
+            model = self.model_id or settings.ANTHROPIC_MODEL_ID or "claude-haiku-5-5"
             return ChatAnthropic(
                 model=model,
                 api_key=settings.ANTHROPIC_API_KEY,

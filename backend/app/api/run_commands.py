@@ -55,6 +55,8 @@ from pydantic import BaseModel
 from agents.artifact_store.store import get_artifact_store
 from agents.workflows.plan import CompiledWorkflow
 from agents.capabilities.token_usage import (
+    FALLBACK_USAGE_KEY,
+    LONG_CONTEXT_KEY,
     USAGE_VERSION,
     normalize_usage,
     usage_cost_full_usd,
@@ -2328,6 +2330,16 @@ async def post_message(
                             chat_usage.get("model_id")
                             or settings.BEDROCK_INFERENCE_PROFILE_ID
                         )
+                        _chat_counts: dict = {
+                            "input_tokens": _in,
+                            "output_tokens": _out,
+                            "cache_read_tokens": _cr,
+                            "cache_write_tokens": _cw,
+                        }
+                        # Turns billed at the model's long-context tier, if any.
+                        _chat_long = chat_usage.get(LONG_CONTEXT_KEY)
+                        if isinstance(_chat_long, dict):
+                            _chat_counts[LONG_CONTEXT_KEY] = _chat_long
                         await store.append_event_next_seq(
                             run_id,
                             event_id=f"chat-usage:{body.message_id}",
@@ -2341,17 +2353,17 @@ async def post_message(
                                 "total_tokens": _in + _out,
                                 "cache_read_tokens": _cr,
                                 "cache_write_tokens": _cw,
+                                **(
+                                    {LONG_CONTEXT_KEY: _chat_long}
+                                    if isinstance(_chat_long, dict)
+                                    else {}
+                                ),
                                 "usage_version": USAGE_VERSION,
                                 # The four counts, each at its own rate
                                 # (agents/capabilities/token_usage.py).
                                 "estimated_cost_usd": usage_cost_usd(
                                     _model,
-                                    {
-                                        "input_tokens": _in,
-                                        "output_tokens": _out,
-                                        "cache_read_tokens": _cr,
-                                        "cache_write_tokens": _cw,
-                                    },
+                                    _chat_counts,
                                     cache_ttl=settings.BEDROCK_PROMPT_CACHE_TTL,
                                 ),
                             },
@@ -4267,6 +4279,11 @@ def _apply_terminal_output_columns(
                 "cache_write_tokens",
             ):
                 row[key] = data.get(key, 0)
+            # Pricing subsets (agents/capabilities/token_usage.py) — present only
+            # for calls billed at a long-context tier / made by a fallback model.
+            for subset_key in (LONG_CONTEXT_KEY, FALLBACK_USAGE_KEY):
+                if isinstance(data.get(subset_key), dict):
+                    row[subset_key] = data[subset_key]
             if data.get("usage_version") is not None:
                 row["usage_version"] = data.get("usage_version")
             # ISS-165: the engine already emits the resolved per-agent model on this
@@ -4290,6 +4307,18 @@ def _apply_terminal_output_columns(
         wr.deliverable_mimetype = deliverable_mimetype
     if deliverable_filename is not None:
         wr.deliverable_filename = deliverable_filename
+    # Freeze each completed agent's cost at the rates in force NOW, beside the run
+    # total priced at the same moment. Analytics prefers this stored figure, so a
+    # later catalog price edit cannot re-price history and make the per-agent
+    # costs stop adding up to the run cost.
+    _agent_fallback_model = model_id or settings.BEDROCK_INFERENCE_PROFILE_ID
+    for row in agent_outputs_collector:
+        if "input_tokens" in row and "estimated_cost_usd" not in row:
+            row["estimated_cost_usd"] = usage_cost_usd(
+                row.get("model_id") or _agent_fallback_model,
+                normalize_usage(row),
+                cache_ttl=settings.BEDROCK_PROMPT_CACHE_TTL,
+            )
     if agent_outputs_collector:
         wr.agent_outputs = json.dumps(agent_outputs_collector)
     wr.model_id = model_id

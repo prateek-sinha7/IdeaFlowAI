@@ -174,3 +174,70 @@ def test_apply_terminal_output_columns_reprices_only_missing_cost_when_partial_c
         usage["estimated_cost_usd"],
         usage["estimated_cost_full_usd"],
     ) == expected
+
+
+# ---------------------------------------------------------------------------
+# Pricing subsets + frozen per-agent cost
+# ---------------------------------------------------------------------------
+_HAIKU_55 = "eu.anthropic.claude-haiku-5-5"
+_SONNET_55 = "eu.anthropic.claude-sonnet-5-5"
+
+
+def test_apply_terminal_output_columns_copies_pricing_subsets_when_agent_complete_has_them() -> (
+    None
+):
+    # Arrange: a long-context call on the primary plus tokens a fallback made.
+    long_ctx = {
+        "input_tokens": 150_000,
+        "output_tokens": 10,
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0,
+    }
+    fallback = {_HAIKU_55: {**long_ctx, "long_context": long_ctx}}
+    events = [
+        ("agent_start", {"agent_id": "a"}),
+        (
+            "agent_complete",
+            {
+                "agent_id": "a",
+                **_usage(150_000, 10, 0, 0, model=_SONNET_55),
+                "long_context": long_ctx,
+                "fallback_usage": fallback,
+            },
+        ),
+    ]
+    wr = _wr()
+    # Act
+    _apply_terminal_output_columns(wr, events, model_id=None, duration_seconds=None)
+    # Assert
+    row = json.loads(wr.agent_outputs)[0]
+    assert row["long_context"] == long_ctx
+    assert row["fallback_usage"] == fallback
+
+
+def test_apply_terminal_output_columns_freezes_agent_cost_when_agent_completes() -> (
+    None
+):
+    # Arrange
+    from agents.capabilities.token_usage import normalize_usage, usage_cost_usd
+    from app.core.config import settings
+
+    events = [
+        ("agent_start", {"agent_id": "a"}),
+        ("agent_complete", {"agent_id": "a", **_usage(1000, 100, 0, 0, _SONNET_55)}),
+        ("agent_start", {"agent_id": "b"}),
+        ("agent_error", {"agent_id": "b", "error": "boom"}),
+    ]
+    wr = _wr()
+    # Act
+    _apply_terminal_output_columns(wr, events, model_id=None, duration_seconds=None)
+    # Assert: the completed row carries its cost at today's rates; an error row
+    # (no usage) carries none.
+    rows = {r["agent_id"]: r for r in json.loads(wr.agent_outputs)}
+    expected = usage_cost_usd(
+        _SONNET_55,
+        normalize_usage(rows["a"]),
+        cache_ttl=settings.BEDROCK_PROMPT_CACHE_TTL,
+    )
+    assert rows["a"]["estimated_cost_usd"] == expected > 0
+    assert "estimated_cost_usd" not in rows["b"]

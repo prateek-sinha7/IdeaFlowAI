@@ -869,7 +869,7 @@ steps:
        `## Spacing, radii and elevation` — tables of the `--spacing-*`, radius and `--shadow-*` variables, plus the radii and shadows the page actually uses.
        `## Components` — for each kind in components.json: `### <Kind in words>`, then its screenshot as `![<Kind>](<its "screenshot" path>)` when the path is not null, then a table `| Property | Value |` of its style.
        `## Layout` — the shell the prototype uses (header, navigation, content area and their sizes) from the `--shell-*` variables and the header and navigation components.
-       `## Screens` — for each screen in navigation.json: `### <title>` (`<id>`), its screenshot as `![<title>](<screenshot>)`, then one line naming the solution screen it is (`SCR-...`) from screens.json.
+       `## Screens` — for each screen in navigation.json: `### <title>` (`<id>`), then one line `![<title>](<path>)` for each path in its "screenshots" list, in order (a tall screen is several pictures, top to bottom), then one line naming the solution screen it is (`SCR-...`) from screens.json.
 
     Phase 3 - UX
 

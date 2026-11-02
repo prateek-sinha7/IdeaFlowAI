@@ -35,6 +35,7 @@ _EXPECTED_IDS = {
     "us.anthropic.claude-sonnet-5",
     "eu.anthropic.claude-sonnet-5",
     "eu.anthropic.claude-sonnet-5-5",
+    "eu.anthropic.claude-haiku-5-5",
     "eu.anthropic.claude-sonnet-4-20250514-v1:0",
     "eu.anthropic.claude-opus-4-5-20251101-v1:0",
     "eu.anthropic.claude-opus-4-6-v1",
@@ -69,7 +70,7 @@ def test_catalog_lists_five_fully_fielded_entries() -> None:
     entries = ModelCatalog().list()
     # 11 = 9 Claude (incl. the us. Haiku 4.5 + us. Sonnet 5 geo twins) + 2 GPT-5.6.
     # Haiku 3.5 was removed 2026-09-22 — AWS serves it in no form in eu-north-1.
-    assert len(entries) == 12
+    assert len(entries) == 13
     for entry in entries:
         assert isinstance(entry, ModelEntry)
         for field in _FIELDS:
@@ -98,7 +99,7 @@ def test_catalog_lists_five_fully_fielded_entries() -> None:
 def test_ids_get_and_is_allowed() -> None:
     catalog = ModelCatalog()
     assert set(catalog.ids()) == _EXPECTED_IDS
-    assert len(catalog.ids()) == 12  # no duplicates
+    assert len(catalog.ids()) == 13  # no duplicates
 
     for model_id in _EXPECTED_IDS:
         assert catalog.is_allowed(model_id) is True
@@ -211,6 +212,7 @@ def test_selectable_models_is_alphabetical() -> None:
     assert labels == sorted(labels), labels
     assert labels == [
         "Claude Haiku 4.5",
+        "Claude Haiku 5.5",
         "Claude Opus 4.5",
         "Claude Opus 4.6",
         "Claude Sonnet 4",
@@ -282,3 +284,39 @@ def test_single_source_grep() -> None:
                     break
 
     assert hits == {"model_catalog.py"}, f"model-id literals leaked into: {hits}"
+
+
+# --- Default effort: every reasoning model has thinking attached ------------
+
+
+def test_catalog_declares_default_effort_when_model_reasons() -> None:
+    for entry in ModelCatalog().list():
+        r = entry.reasoning
+        if r.mode == "none":
+            assert r.default_effort is None, entry.id
+            continue
+        # A default that thinks, drawn from the model's own levels — never "off".
+        assert r.default_effort is not None, f"{entry.id} has no default effort"
+        assert r.default_effort != "none", f"{entry.id} defaults thinking off"
+        assert r.default_effort in r.levels, f"{entry.id}: {r.default_effort!r}"
+        # No default at max: the most expensive level is an explicit choice.
+        # (Haiku 5.5 defaults to xhigh by decision — it is the cheapest model.)
+        assert r.default_effort != "max", entry.id
+
+
+def test_catalog_defaults_haiku_5_5_to_xhigh_and_sonnet_5_5_to_high() -> None:
+    by_id = {e.id: e for e in ModelCatalog().list()}
+    assert by_id["eu.anthropic.claude-haiku-5-5"].reasoning.default_effort == "xhigh"
+    assert by_id["eu.anthropic.claude-sonnet-5-5"].reasoning.default_effort == "high"
+
+
+def test_catalog_requests_summarized_thinking_when_5_5_model() -> None:
+    by_id = {e.id: e for e in ModelCatalog().list()}
+    for model_id in ("eu.anthropic.claude-haiku-5-5", "eu.anthropic.claude-sonnet-5-5"):
+        assert by_id[model_id].reasoning.display == "summarized"
+
+
+def test_catalog_lists_haiku_5_5_first_when_cheap_tier() -> None:
+    # The tier-descent fallback takes the FIRST cheap entry.
+    cheap = [e.id for e in ModelCatalog().list() if e.cost_class == "cheap"]
+    assert cheap[0] == "eu.anthropic.claude-haiku-5-5"

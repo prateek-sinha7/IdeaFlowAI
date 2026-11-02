@@ -32,6 +32,8 @@ from agents.workflows.plan import ModelPolicy
 
 # ── Catalog ids (the single source — see model_catalog.py) ────────────────────────
 HAIKU = "eu.anthropic.claude-haiku-4-5-20251001-v1:0"
+# The FIRST cheap catalog entry — the tier-descent fallback target.
+HAIKU_55 = "eu.anthropic.claude-haiku-5-5"
 SONNET_45 = "eu.anthropic.claude-sonnet-4-5-20250929-v1:0"
 SONNET_46 = "eu.anthropic.claude-sonnet-4-6"
 OPUS_45 = "eu.anthropic.claude-opus-4-5-20251101-v1:0"
@@ -156,15 +158,17 @@ def test_max_tokens_is_doc_only():
 def test_default_chains():
     """Empty ModelPolicy.fallback derives the tier-descent chain by cost_class."""
     r = _resolver(session_model_id=HAIKU)
-    # Opus → [Sonnet, Haiku] (premium descends to standard then cheap).
+    # Opus → [Sonnet, Haiku 5.5] (premium descends to standard then cheap; the
+    # cheap pick is the FIRST cheap catalog entry, Haiku 5.5).
     opus_chain = r.chain_for(OPUS_45)
-    assert opus_chain == [SONNET_45, HAIKU] or opus_chain == [SONNET_46, HAIKU]
-    assert opus_chain[-1] == HAIKU and len(opus_chain) == 2
-    # Sonnet → [Haiku].
-    assert r.chain_for(SONNET_45) == [HAIKU]
-    assert r.chain_for(SONNET_46) == [HAIKU]
-    # Haiku → [] (nothing cheaper).
+    assert opus_chain == [SONNET_45, HAIKU_55] or opus_chain == [SONNET_46, HAIKU_55]
+    assert opus_chain[-1] == HAIKU_55 and len(opus_chain) == 2
+    # Sonnet → [Haiku 5.5].
+    assert r.chain_for(SONNET_45) == [HAIKU_55]
+    assert r.chain_for(SONNET_46) == [HAIKU_55]
+    # Any Haiku → [] (nothing cheaper).
     assert r.chain_for(HAIKU) == []
+    assert r.chain_for(HAIKU_55) == []
 
 
 def test_default_chain_entries_are_catalog_valid():

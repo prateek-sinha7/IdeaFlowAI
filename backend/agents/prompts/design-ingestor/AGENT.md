@@ -100,6 +100,9 @@ Steps:
 1. read_file `.figma/manifest.json` (already done in Step 1)
 2. Collect every entry where `"type": "image"`. Note `name` and `description`.
 3. For each frame in order: read_file `.figma/<name>` (vision).
+   If the entry has `parts`, read_file each `.figma/<part>` in order instead of
+   `.figma/<name>`, one per call. `parts_note` says how they fit: together they
+   are this one screen. Record ONE set of observations for the frame.
    After EACH read, record:
    - Screen name (from description or inferred)
    - Layout: `sidebar-nav` | `topbar-nav` | `centered` | `split` | `dashboard`
@@ -288,6 +291,8 @@ Replace every `<placeholder>` with real values from your vision observations.
 ]
 ```
 One object per frame. For PDF branches, `source` = `.extract/pdf/.../image-K.png`.
+When the manifest entry has `parts`, set `source` to `.figma/<first part>` and add
+`"parts": [".figma/<part>", ...]` and `"parts_note"` copied from the manifest.
 
 **Step 2** — write_file `context/design/template/example.html`
 

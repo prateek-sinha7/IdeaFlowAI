@@ -63,11 +63,11 @@ variable "log_retention_days" {
 # --- Bedrock ----------------------------------------------------------------
 variable "bedrock_model_id" {
   type    = string
-  default = "anthropic.claude-haiku-4-5-20251001-v1:0"
+  default = "anthropic.claude-haiku-5-5"
 }
 variable "bedrock_inference_profile_id" {
   type    = string
-  default = "eu.anthropic.claude-haiku-4-5-20251001-v1:0"
+  default = "eu.anthropic.claude-haiku-5-5"
 }
 variable "use_inference_profile_for_app" {
   type    = bool
