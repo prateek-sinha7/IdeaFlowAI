@@ -63,6 +63,10 @@ router = APIRouter(prefix="/api/runs", tags=["runs"])
 _MAX_FRAME_BYTES = 4 * 1024 * 1024  # 4 MB per PNG/JPG frame
 _MAX_PDF_BYTES = 20 * 1024 * 1024  # 20 MB for multi-page Figma PDF export
 _MAX_FRAME_COUNT = 20
+# Aggregate cap for the whole multipart request: 20 images × 4 MB + headroom.
+# The nginx location block for this route is set to 85m to match.
+# run_files.py has an equivalent _MAX_AGGREGATE_BYTES for the /files route.
+_MAX_AGGREGATE_BYTES = 85 * 1024 * 1024  # 85 MB total
 _ALLOWED_FRAME_EXTS: frozenset[str] = frozenset({"png", "jpg", "jpeg", "pdf"})
 _ALLOWED_FRAME_MIMES: frozenset[str] = frozenset(
     {
@@ -118,6 +122,10 @@ async def upload_figma_frames(
             detail=f"Too many files ({len(files)}). Maximum: {_MAX_FRAME_COUNT}",
         )
 
+    # ── Running aggregate — checked incrementally in the validation loop ──────
+    # Reset per request; updated as each file is read.
+    _aggregate_bytes = 0
+
     # ── Parse optional per-file descriptions ─────────────────────────────────
     # metadata_json is a JSON array: [{"index": 0, "description": "..."}, ...]
     descriptions: list[str] = [""] * len(files)
@@ -155,6 +163,15 @@ async def upload_figma_frames(
                 status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
                 detail=(
                     f"File too large: {name!r} " f"(max {cap // (1024 * 1024)} MB)"
+                ),
+            )
+        _aggregate_bytes += len(data)
+        if _aggregate_bytes > _MAX_AGGREGATE_BYTES:
+            raise HTTPException(
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                detail=(
+                    f"Total upload size exceeds the "
+                    f"{_MAX_AGGREGATE_BYTES // (1024 * 1024)} MB limit."
                 ),
             )
         validated.append((name, data, ext, mime, descriptions[i]))

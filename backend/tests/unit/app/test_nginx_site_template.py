@@ -72,6 +72,7 @@ def test_limit_conn_zone_declared_for_the_stream():
 
 _SSE_PATTERN = r"^/api/runs/[^/]+/events/stream/?$"
 _LIVE_RUN_FILES_PATTERN = r"^/api/runs/[^/]+/files/?$"
+_FIGMA_FRAMES_PATTERN = r"^/api/runs/[^/]+/figma-frames/?$"
 
 
 def test_sse_location_exists_and_is_the_only_regex_location():
@@ -91,16 +92,22 @@ def test_sse_location_exists_and_is_the_only_regex_location():
     # (the Phase-8 "keep prose off the bare tokens" lesson).
     directives = re.findall(r"^\s*location\s+(\S+)", site, re.M)
     regex_patterns = set(re.findall(r"^\s*location\s+~\s+(\S+)\s*\{", site, re.M))
-    assert regex_patterns == {_SSE_PATTERN, _LIVE_RUN_FILES_PATTERN}, (
+    assert regex_patterns == {_SSE_PATTERN, _LIVE_RUN_FILES_PATTERN, _FIGMA_FRAMES_PATTERN}, (
         "an unexpected regex location would compete for the SSE URI by "
         f"definition order: {sorted(regex_patterns)}"
     )
     sse_uri = "/api/runs/abc/events/stream"
     files_uri = "/api/runs/abc/files"
+    figma_uri = "/api/runs/abc/figma-frames"
     assert re.match(_SSE_PATTERN, sse_uri)
     assert not re.match(_LIVE_RUN_FILES_PATTERN, sse_uri)
+    assert not re.match(_FIGMA_FRAMES_PATTERN, sse_uri)
     assert re.match(_LIVE_RUN_FILES_PATTERN, files_uri)
     assert not re.match(_SSE_PATTERN, files_uri)
+    assert not re.match(_FIGMA_FRAMES_PATTERN, files_uri)
+    assert re.match(_FIGMA_FRAMES_PATTERN, figma_uri)
+    assert not re.match(_SSE_PATTERN, figma_uri)
+    assert not re.match(_LIVE_RUN_FILES_PATTERN, figma_uri)
     assert (
         "^~" not in directives
     ), "a caret-tilde prefix location would suppress regex matching entirely"
@@ -202,7 +209,8 @@ def test_share_link_location_proxies_to_the_backend():
 _STAGE_HEADER = r"location\s+=\s+/api/runs/uploads/stage"
 _EXTRACT_HEADER = r"location\s+=\s+/api/files/extract-text"
 _LIVE_RUN_FILES_HEADER = r"location\s+~\s+\^/api/runs/\[\^/\]\+/files/\?\$"
-_UPLOAD_HEADERS = (_STAGE_HEADER, _EXTRACT_HEADER, _LIVE_RUN_FILES_HEADER)
+_FIGMA_FRAMES_HEADER = r"location\s+~\s+\^/api/runs/\[\^/\]\+/figma-frames/\?\$"
+_UPLOAD_HEADERS = (_STAGE_HEADER, _EXTRACT_HEADER, _LIVE_RUN_FILES_HEADER, _FIGMA_FRAMES_HEADER)
 
 _SIZE_UNITS = {"": 1, "k": 1024, "m": 1024 * 1024, "g": 1024 * 1024 * 1024}
 
@@ -299,3 +307,17 @@ def test_site_template_server_default_stays_one_mebibyte_when_rendered():
     assert server_scope == ["1m"], server_scope
     api_block = _location_block(site, r"location /api/")
     assert not any(d.startswith("client_max_body_size") for d in _directives(api_block))
+
+
+def test_site_template_figma_frames_cap_covers_backend_aggregate_when_rendered():
+    """nginx figma-frames cap must be >= the backend's own aggregate limit.
+
+    The server-wide 1m default 413'd every Figma PNG >1 MiB before reaching
+    FastAPI. This test pins the figma-frames location cap so the same class of
+    bug cannot silently reappear: if _MAX_AGGREGATE_BYTES grows, the nginx cap
+    must grow with it or this test fails loudly.
+    """
+    from app.api.run_figma_frames import _MAX_AGGREGATE_BYTES
+
+    block = _location_block(_render_site(), _FIGMA_FRAMES_HEADER)
+    assert _body_cap_bytes(block) >= _MAX_AGGREGATE_BYTES
