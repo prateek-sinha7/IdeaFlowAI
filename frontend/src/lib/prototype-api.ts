@@ -114,12 +114,17 @@ export async function uploadFigmaFrames(
   frames: FigmaFrame[],
 ): Promise<{ run_id: string; files: { name: string; bytes: number }[] }> {
   const formData = new FormData();
-  frames.forEach((f, i) => {
+  frames.forEach((f) => {
     formData.append("files", f.file, f.file.name);
-    if (f.description) {
-      formData.append(`metadata_${i}`, JSON.stringify({ index: i, description: f.description }));
-    }
   });
+  // Backend expects a single `metadata_json` field: a JSON array of
+  // {index, description} objects. Only include entries that have a description.
+  const metaItems = frames
+    .map((f, i) => (f.description ? { index: i, description: f.description } : null))
+    .filter((item): item is { index: number; description: string } => item !== null);
+  if (metaItems.length > 0) {
+    formData.append("metadata_json", JSON.stringify(metaItems));
+  }
   const res = await fetch(`${BASE_URL}/api/runs/${encodeURIComponent(runId)}/figma-frames`, {
     method: "POST",
     headers: { Authorization: `Bearer ${token}` },

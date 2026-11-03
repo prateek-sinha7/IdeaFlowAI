@@ -475,3 +475,159 @@ def test_manifest_shape_triggers_fi_planner_image_branch(env):
         entry["has_text"] is False
     ), f"Expected has_text=False, got {entry['has_text']!r}"
     assert entry["mime"] == "image/png"
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# 13. Image normalisation: grayscale PNG is converted to RGB before storage
+#     (fix for Bedrock ValidationException "Could not process image")
+# ════════════════════════════════════════════════════════════════════════════
+
+
+def test_grayscale_png_normalised_to_rgb_on_upload(env):
+    """Grayscale PNGs are normalised to RGB at upload time.
+
+    AWS Bedrock ConverseStream rejects non-RGB images with
+    ValidationException("Could not process image"). The endpoint normalises
+    every uploaded PNG/JPEG to RGB via _normalize_image_to_rgb before writing
+    to the sandbox, so the stored bytes are always RGB-compatible.
+    """
+    from PIL import Image
+    import io as _io
+
+    # Build a genuine 4×4 grayscale PNG via Pillow.
+    buf = _io.BytesIO()
+    Image.new("L", (4, 4), color=128).save(buf, format="PNG")
+    grayscale_png = buf.getvalue()
+
+    # Verify the test image is actually grayscale (mode L) before uploading.
+    assert (
+        Image.open(_io.BytesIO(grayscale_png)).mode == "L"
+    ), "Test fixture must be grayscale; got a different mode"
+
+    user = _seed_user(env, "u")
+    run_id = _owned_run(env, user)
+    env["state"]["user"] = user
+
+    resp = _post_frames(
+        env, run_id, [("files", ("screen.png", grayscale_png, "image/png"))]
+    )
+    assert resp.status_code == 200, resp.text
+    stored_name = resp.json()["files"][0]["name"]
+
+    # Retrieve stored bytes and confirm they are now RGB.
+    sb = _sandbox(env, user.id, run_id)
+    stored_bytes = sb.path_for(f".figma/{stored_name}").read_bytes()
+    stored_mode = Image.open(_io.BytesIO(stored_bytes)).mode
+    assert stored_mode == "RGB", (
+        f"Stored image mode should be RGB after normalisation, got {stored_mode!r}. "
+        f"Bedrock rejects non-RGB images with ValidationException('Could not process image')."
+    )
+
+
+def test_rgb_png_passes_through_normalisation_unchanged_mode(env):
+    """RGB PNGs are returned byte-compatible — normalisation is a no-op for RGB."""
+    from PIL import Image
+    import io as _io
+
+    buf = _io.BytesIO()
+    Image.new("RGB", (4, 4), color=(10, 20, 30)).save(buf, format="PNG")
+    rgb_png = buf.getvalue()
+
+    user = _seed_user(env, "u")
+    run_id = _owned_run(env, user)
+    env["state"]["user"] = user
+
+    resp = _post_frames(env, run_id, [("files", ("screen.png", rgb_png, "image/png"))])
+    assert resp.status_code == 200, resp.text
+    stored_name = resp.json()["files"][0]["name"]
+
+    sb = _sandbox(env, user.id, run_id)
+    stored_bytes = sb.path_for(f".figma/{stored_name}").read_bytes()
+    stored_mode = Image.open(_io.BytesIO(stored_bytes)).mode
+    assert stored_mode == "RGB", f"RGB image should stay RGB, got {stored_mode!r}"
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# 14. Aggregate size cap (_MAX_AGGREGATE_BYTES = 85 MB)
+# ════════════════════════════════════════════════════════════════════════════
+
+
+def test_aggregate_size_cap_rejects_413(env, monkeypatch):
+    """Multiple files whose combined size exceeds _MAX_AGGREGATE_BYTES → 413.
+
+    Uses monkeypatch to lower the cap so the test doesn't need to allocate
+    85 MB of memory. The invariant tested is: once the running total crosses
+    the cap, the endpoint rejects the whole batch with 413.
+    """
+    import app.api.run_figma_frames as ff
+
+    # Lower cap to 10 bytes so two tiny files trigger the aggregate check.
+    monkeypatch.setattr(ff, "_MAX_AGGREGATE_BYTES", 10)
+
+    user = _seed_user(env, "u")
+    run_id = _owned_run(env, user)
+    env["state"]["user"] = user
+
+    # Two valid PNGs — each > 5 bytes, together > 10 → aggregate cap fires.
+    files = [
+        ("files", ("s1.png", _TINY_PNG, "image/png")),
+        ("files", ("s2.png", _TINY_PNG, "image/png")),
+    ]
+    resp = _post_frames(env, run_id, files)
+    assert (
+        resp.status_code == 413
+    ), f"Expected 413 from aggregate cap, got {resp.status_code}: {resp.text}"
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# 15. metadata_json field stores description in manifest entry
+# ════════════════════════════════════════════════════════════════════════════
+
+
+def test_metadata_json_description_stored_in_manifest(env):
+    """metadata_json (single JSON array field) persists descriptions to manifest.
+
+    The frontend sends descriptions as a single `metadata_json` field containing
+    a JSON array [{index, description}, ...]. The previous bug sent separate
+    `metadata_0`, `metadata_1` fields which the backend never read.
+    """
+    user = _seed_user(env, "u")
+    run_id = _owned_run(env, user)
+    env["state"]["user"] = user
+
+    import json as _json
+
+    meta = _json.dumps([{"index": 0, "description": "Login screen overview"}])
+    resp = env["client"].post(
+        f"/api/runs/{run_id}/figma-frames",
+        files=[("files", ("login.png", _TINY_PNG, "image/png"))],
+        data={"metadata_json": meta},
+    )
+    assert resp.status_code == 200, resp.text
+    stored_name = resp.json()["files"][0]["name"]
+
+    sb = _sandbox(env, user.id, run_id)
+    manifest = _json.loads(
+        sb.path_for(".figma/manifest.json").read_text(encoding="utf-8")
+    )
+    entry = next((e for e in manifest if e["name"] == stored_name), None)
+    assert entry is not None
+    assert entry["description"] == "Login screen overview", (
+        f"Description not stored in manifest. Got: {entry.get('description')!r}. "
+        f"Verify metadata_json is the field name sent by the frontend "
+        f"(not metadata_0/metadata_1)."
+    )
+
+
+def test_metadata_json_malformed_is_ignored_gracefully(env):
+    """Malformed metadata_json does not fail the upload — description stays empty."""
+    user = _seed_user(env, "u")
+    run_id = _owned_run(env, user)
+    env["state"]["user"] = user
+
+    resp = env["client"].post(
+        f"/api/runs/{run_id}/figma-frames",
+        files=[("files", ("s.png", _TINY_PNG, "image/png"))],
+        data={"metadata_json": "not-valid-json{{{"},
+    )
+    assert resp.status_code == 200, "Malformed metadata_json must not fail the upload"

@@ -33,6 +33,7 @@ Design constraints honoured (mirrors run_files.py):
 from __future__ import annotations
 
 import asyncio
+import io
 import json
 import logging
 from typing import Optional
@@ -69,6 +70,10 @@ router = APIRouter(prefix="/api/runs", tags=["runs"])
 _MAX_FRAME_BYTES = 4 * 1024 * 1024  # 4 MB per PNG/JPG frame
 _MAX_PDF_BYTES = 20 * 1024 * 1024  # 20 MB for multi-page Figma PDF export
 _MAX_FRAME_COUNT = 20
+# Aggregate cap for the whole multipart request: 20 images × 4 MB + headroom.
+# The nginx location block for this route is set to 85m to match.
+# run_files.py has an equivalent _MAX_AGGREGATE_BYTES for the /files route.
+_MAX_AGGREGATE_BYTES = 85 * 1024 * 1024  # 85 MB total
 _ALLOWED_FRAME_EXTS: frozenset[str] = frozenset({"png", "jpg", "jpeg", "pdf"})
 _ALLOWED_FRAME_MIMES: frozenset[str] = frozenset(
     {
@@ -89,6 +94,51 @@ _UNSUPPORTED_TYPE_MSG = (
     "PNG/JPEG (individual frames) or PDF (File → Export → Export frames to PDF). "
     "Accepted: .png / .jpg / .jpeg / .pdf"
 )
+
+
+def _normalize_image_to_rgb(data: bytes, name: str) -> bytes:
+    """Convert a PNG/JPEG to RGB so Bedrock's vision API can process it.
+
+    Bedrock's ConverseStream rejects images that are not in RGB or RGBA mode
+    (e.g. grayscale, indexed-color, CMYK) with the error "Could not process
+    image". Figma can export frames in grayscale mode, which compresses
+    dramatically smaller than RGB at the same pixel dimensions.
+
+    Normalizes every uploaded frame to RGB before it is stored in the sandbox
+    so downstream vision calls always succeed regardless of export settings.
+
+    Returns the original bytes unchanged if the image is already RGB/RGBA or
+    if Pillow cannot open it (letting the Bedrock call surface the error).
+    """
+    try:
+        from PIL import Image  # pillow is a declared dependency; safe to import
+
+        img = Image.open(io.BytesIO(data))
+        original_mode = img.mode
+        if original_mode in ("RGB", "RGBA"):
+            return data  # Already Bedrock-compatible; no work needed.
+        img = img.convert("RGB")
+        buf = io.BytesIO()
+        img.save(buf, format="PNG", optimize=False)
+        converted = buf.getvalue()
+        logger.info(
+            "figma_frames: normalized %r from mode=%r to RGB (%d → %d bytes)",
+            name,
+            original_mode,
+            len(data),
+            len(converted),
+        )
+        return converted
+    except Exception as exc:  # noqa: BLE001
+        # If Pillow can't open the file, return as-is.  The image may still
+        # work (rare valid PNG variants Pillow can't parse) or will fail at
+        # the Bedrock call with a clearer error than a 500 here.
+        logger.warning(
+            "figma_frames: could not normalize %r to RGB (%s) — uploading as-is",
+            name,
+            exc,
+        )
+        return data
 
 
 def _ext_of(filename: str) -> str:
@@ -155,6 +205,10 @@ async def upload_figma_frames(
             detail=f"Too many files ({len(files)}). Maximum: {_MAX_FRAME_COUNT}",
         )
 
+    # ── Running aggregate — checked incrementally in the validation loop ──────
+    # Reset per request; updated as each file is read.
+    _aggregate_bytes = 0
+
     # ── Parse optional per-file descriptions ─────────────────────────────────
     # metadata_json is a JSON array: [{"index": 0, "description": "..."}, ...]
     descriptions: list[str] = [""] * len(files)
@@ -194,6 +248,20 @@ async def upload_figma_frames(
                     f"File too large: {name!r} " f"(max {cap // (1024 * 1024)} MB)"
                 ),
             )
+        _aggregate_bytes += len(data)
+        if _aggregate_bytes > _MAX_AGGREGATE_BYTES:
+            raise HTTPException(
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                detail=(
+                    f"Total upload size exceeds the "
+                    f"{_MAX_AGGREGATE_BYTES // (1024 * 1024)} MB limit."
+                ),
+            )
+        # Normalize PNG/JPEG to RGB so Bedrock can process them.
+        # Grayscale/indexed/CMYK images cause ConverseStream to return
+        # ValidationException("Could not process image") — convert them now.
+        if ext in ("png", "jpg", "jpeg"):
+            data = _normalize_image_to_rgb(data, name)
         validated.append((name, data, ext, mime, descriptions[i]))
 
     # ── Layer 1: owner-scoped ORM filter (cross-owner / missing → 404, never 403)

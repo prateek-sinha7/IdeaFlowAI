@@ -253,3 +253,76 @@ Use dark navy backgrounds with indigo accents.
         assert (
             f"## {section_num}." in content
         ), f"9-section design-system.md must contain '## {section_num}.'"
+
+
+# ── FIGMA-FANOUT contract tests (spawn_subagents fan-out) ────────────────────
+# These pin the AGENT.md sections required by the context-overflow fix.
+# The fix replaces sequential read_file PNG loops with a single spawn_subagents
+# call so each Frame Observer sub-agent only ever holds one image in its context.
+
+
+@pytest.mark.integration
+def test_agent_md_mentions_spawn_subagents() -> None:
+    """AGENT.md must instruct the agent to use spawn_subagents for frame fan-out.
+
+    The sequential PNG read loop was the root cause of the Bedrock 400
+    ('The model rejected this request') at ~10 frames. spawn_subagents
+    replaces it so each sub-agent processes exactly one image.
+    """
+    content = _INGESTOR_MD.read_text(encoding="utf-8")
+    assert "spawn_subagents" in content, (
+        "AGENT.md must reference spawn_subagents — FIGMA-FANOUT fix replaces "
+        "sequential read_file PNG loops with a fan-out call"
+    )
+
+
+@pytest.mark.integration
+def test_agent_md_has_frame_observer_mode_preamble() -> None:
+    """AGENT.md must contain a Frame Observer Mode section.
+
+    Sub-agents spawned with agent='self' inherit the full AGENT.md as their
+    system prompt. The Frame Observer Mode preamble intercepts them via the
+    presence of a CURRENT TASK block before they reach PATH A or PATH B.
+    """
+    content = _INGESTOR_MD.read_text(encoding="utf-8")
+    assert "Frame Observer Mode" in content, (
+        "AGENT.md must have a 'Frame Observer Mode' preamble so sub-agents "
+        "spawned via spawn_subagents know to read one frame and stop"
+    )
+
+
+@pytest.mark.integration
+def test_agent_md_frame_observer_handles_png_and_pdf_tasks() -> None:
+    """Frame Observer preamble must cover both PNG frame and PDF page task types.
+
+    Branch A1 spawns PNG frame tasks; Branch A2 spawns PDF page tasks.
+    Both task types must be handled by the same Frame Observer preamble so
+    sub-agents can dispatch correctly without reading the rest of the prompt.
+    """
+    content = _INGESTOR_MD.read_text(encoding="utf-8")
+    assert (
+        "PNG task" in content
+    ), "Frame Observer preamble must contain 'PNG task' section (Branch A1)"
+    assert (
+        "PDF page task" in content
+    ), "Frame Observer preamble must contain 'PDF page task' section (Branch A2)"
+
+
+@pytest.mark.integration
+def test_agent_md_frontmatter_declares_spawn_subagents_tool() -> None:
+    """AGENT.md frontmatter must list 'spawn_subagents' in its tools array.
+
+    Without this, AgentSpec.tools stays [] and the capability registry never
+    binds the spawn_subagents callable into the agent's tool context. The model
+    cannot call a tool it cannot see — even if the workflow YAML grants the
+    engine-side permission ceiling (spawn_subagents: true), the tool must also
+    be declared in the AGENT.md spec.tools list for it to be callable.
+    """
+    import frontmatter as fm
+
+    post = fm.loads(_INGESTOR_MD.read_text(encoding="utf-8"))
+    tools = post.metadata.get("tools", [])
+    assert "spawn_subagents" in tools, (
+        'AGENT.md frontmatter must declare tools: ["spawn_subagents"] so the '
+        "capability registry binds the tool into the agent's callable context"
+    )

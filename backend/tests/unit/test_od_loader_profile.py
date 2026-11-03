@@ -101,3 +101,100 @@ def test_a_page_run_seeds_the_files_its_template_names():
 def test_the_design_systems_css_tokens_travel_with_it():
     _, od = _resolve("prototype_v2")  # linear-app ships tokens.css + components.html
     assert set(od["ds_files"]) == {"tokens.css", "components.html"}
+
+
+# ---------------------------------------------------------------------------
+# CompilerError / ManifestValidationError handling
+# ---------------------------------------------------------------------------
+# resolve_launch_od_context calls compile_for_run to peek context_providers.
+# If the workflow.yaml was partially deployed (e.g. has a new 'condition' step
+# key the compiler doesn't yet recognise), compile_for_run raises CompilerError.
+# Before the fix this propagated as an unhandled exception → HTTP 500.
+# The broadened except clause now returns (base, None) for these errors.
+# ---------------------------------------------------------------------------
+
+
+def test_resolve_launch_od_context_returns_none_od_context_when_compiler_error():
+    """CompilerError from compile_for_run must not escape — returns (base, None)."""
+    from agents.workflows.compiler import CompilerError
+    from unittest.mock import patch
+
+    with patch(
+        "agents.execution_engine.engine.compile_for_run",
+        side_effect=CompilerError("unknown step key: condition"),
+    ):
+        base, od = resolve_launch_od_context(
+            "prototype_v2", "web-prototype", _DS, fatal=True
+        )
+
+    assert base == "prototype_v2"
+    assert od is None
+
+
+def test_resolve_launch_od_context_returns_none_od_context_when_manifest_validation_error():
+    """ManifestValidationError from compile_for_run must not escape — returns (base, None)."""
+    from agents.workflows.manifest import ManifestValidationError
+    from unittest.mock import patch
+
+    with patch(
+        "agents.execution_engine.engine.compile_for_run",
+        side_effect=ManifestValidationError("unknown top-level key"),
+    ):
+        base, od = resolve_launch_od_context(
+            "prototype_v2", "web-prototype", _DS, fatal=True
+        )
+
+    assert base == "prototype_v2"
+    assert od is None
+
+
+# ---------------------------------------------------------------------------
+# prototype_v2 in _WEB_PIPELINES
+# ---------------------------------------------------------------------------
+# prototype_v2 was previously absent from _WEB_PIPELINES, causing it to fall
+# into the else branch that called od_loader.get_template(template_id) to read
+# the template's mode field. If the template had mode='deck' (e.g. a mis-picked
+# template), prototype_v2 would have been handed the deck (ppt) loader instead
+# of the page (prototype) loader. Adding it to _WEB_PIPELINES fixes this.
+# ---------------------------------------------------------------------------
+
+
+def test_prototype_v2_uses_page_loader_even_when_template_has_deck_mode():
+    """prototype_v2 is now in _WEB_PIPELINES, so its loader is always 'prototype'.
+    A deck-mode template must not cause it to be handed the ppt loader."""
+    from unittest.mock import patch
+
+    from app.services import od_loader
+
+    deck_template = {
+        "id": "fake-deck",
+        "mode": "deck",
+        "name": "Fake Deck Template",
+        "body": "## Workflow\nDeck instructions.",
+        "craft_required": [],
+    }
+    fake_ds = {"id": _DS, "name": "Linear", "body": ":root{}"}
+
+    with (
+        patch.object(od_loader, "get_template", return_value=deck_template),
+        patch.object(od_loader, "get_design_system", return_value=fake_ds),
+        patch.object(od_loader, "get_craft_rules", return_value={}),
+        patch.object(od_loader, "get_template_files", return_value={}),
+        patch.object(od_loader, "get_design_system_files", return_value={}),
+    ):
+        base, od = resolve_launch_od_context(
+            "prototype_v2",
+            "fake-deck",
+            _DS,
+            fatal=True,
+            context_providers=["opendesign"],
+        )
+
+    assert base == "prototype_v2"
+    # Page (prototype) loader sets is_design_system_required=None.
+    # Deck (ppt) loader sets it to a boolean. A non-None value means the wrong
+    # loader was used.
+    assert od is not None
+    assert (
+        od["is_design_system_required"] is None
+    ), "prototype_v2 was handed the deck loader — it should always use the page loader"

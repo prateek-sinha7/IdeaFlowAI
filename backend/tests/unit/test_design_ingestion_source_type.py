@@ -241,3 +241,79 @@ def test_load_figma_ingest_context_no_od_loader_call():
             load_figma_ingest_context(frame_count=2)
     mock_tmpl.assert_not_called()
     mock_ds.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# NUL-byte sanitisation (PostgreSQL fix)
+# ---------------------------------------------------------------------------
+# HTML exports from design tools (Figma "Save as HTML", headless Chromium)
+# and PDFs with binary streams produce \x00 bytes. PostgreSQL / psycopg2
+# raises ValueError: A string literal cannot contain NUL (0x00) characters.
+# The three tests below pin the sanitisation added in od_context.py.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+def test_strip_nul_removes_nul_bytes_when_present():
+    """_strip_nul strips every \\x00 from a string that contains them."""
+    from agents.execution_engine.od_context import _strip_nul
+
+    result = _strip_nul("<html>\x00<body>\x00text</body></html>")
+
+    assert "\x00" not in result
+    assert result == "<html><body>text</body></html>"
+
+
+@pytest.mark.unit
+def test_strip_nul_is_noop_when_no_nul_bytes_present():
+    """_strip_nul returns the original string unchanged when there are no \\x00 bytes."""
+    from agents.execution_engine.od_context import _strip_nul
+
+    clean = "<!DOCTYPE html><html><body>hi</body></html>"
+
+    assert _strip_nul(clean) == clean
+
+
+@pytest.mark.unit
+def test_synthesize_custom_template_strips_nul_from_body_when_html_has_nul_bytes():
+    """_synthesize_custom_template embeds the HTML into template['body'].
+    NUL bytes in the HTML must not appear in the returned body string."""
+    from agents.execution_engine.od_context import _synthesize_custom_template
+
+    html_with_nul = "<html>\x00<body>content</body></html>"
+
+    result = _synthesize_custom_template("custom-123", html_with_nul)
+
+    assert "\x00" not in result["body"]
+    # The HTML content is preserved (minus the NUL byte)
+    assert "<html><body>content</body></html>" in result["body"]
+
+
+@pytest.mark.unit
+def test_load_prototype_context_strips_nul_from_raw_upload_html_when_custom_template_has_nul():
+    """load_prototype_context seeds raw-upload.html into template_files.
+    NUL bytes in custom_template_body must not appear in that entry — otherwise
+    PostgreSQL rejects the od_context_json INSERT with ValueError."""
+    from unittest.mock import patch
+
+    import agents.execution_engine.od_context as oc
+
+    html_with_nul = "<!doctype html><html>\x00<body>test page</body></html>"
+    fake_ds = {"id": "ds", "name": "Design System", "body": ":root{--bg:#fff;}"}
+
+    with (
+        patch.object(oc.od_loader, "get_template", return_value=None),
+        patch.object(oc.od_loader, "get_design_system", return_value=fake_ds),
+        patch.object(oc.od_loader, "get_craft_rules", return_value={}),
+        patch.object(oc.od_loader, "get_template_files", return_value={}),
+        patch.object(oc.od_loader, "get_design_system_files", return_value={}),
+    ):
+        result = oc.load_prototype_context(
+            "custom-123", "ds", custom_template_body=html_with_nul
+        )
+
+    raw_upload = result["template_files"]["raw-upload.html"]
+    assert "\x00" not in raw_upload
+    assert "<html><body>test page</body></html>" in raw_upload
+    # template_body (the synthesized SKILL.md wrapper) is also clean
+    assert "\x00" not in result["template_body"]

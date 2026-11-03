@@ -102,9 +102,19 @@ def resolve_launch_od_context(
     # ``None`` ⇒ the file peek, i.e. byte-identical behaviour for every built-in
     # pipeline (INV-3). Still eligibility-by-DECLARED-SIGNAL — no name branch.
     if context_providers is None:
+        from agents.workflows.compiler import CompilerError
+        from agents.workflows.manifest import ManifestValidationError
+
         try:
             compiled = compile_for_run(pipeline_type)
-        except FileNotFoundError:
+        except (FileNotFoundError, CompilerError, ManifestValidationError):
+            # FileNotFoundError: no manifest for this id — let the caller's
+            # SUPPORTED_PIPELINE_TYPES gate reject it.
+            # CompilerError / ManifestValidationError: the workflow.yaml failed to
+            # compile (e.g. an unknown step key such as `condition` present in the
+            # yaml but not yet in _ALLOWED_STEP_KEYS on a partial deploy). Return
+            # no od_context so the caller rejects cleanly with a 400/422 rather
+            # than propagating an uncaught exception as a 500.
             return base_pipeline_type, None
         context_providers = list(compiled.context_providers or [])
 
@@ -211,7 +221,7 @@ def resolve_launch_od_context(
     # fallen to `base_profile = "pdf_to_prototype"`, which is not "prototype", and
     # landed on the DECK loader. Naming the families is the only form that survives
     # a new workflow being added on either side.
-    _WEB_PIPELINES = {"prototype", "prototype_feature_revision"}
+    _WEB_PIPELINES = {"prototype", "prototype_feature_revision", "prototype_v2"}
     _DECK_PIPELINES = {"ppt", "ppt_revision", "ppt_v2"}
     if base_pipeline_type in _WEB_PIPELINES:
         base_profile = "prototype"

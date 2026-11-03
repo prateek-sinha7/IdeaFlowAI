@@ -37,6 +37,23 @@ _TEMPLATES_DIR = od_loader._TEMPLATES_DIR
 EXAMPLE_MAX_CHARS = 120_000
 
 
+def _strip_nul(text: str) -> str:
+    """Remove NUL (0x00) characters from a string.
+
+    PostgreSQL / psycopg2 raises ``ValueError: A string literal cannot contain
+    NUL (0x00) characters.`` when any bound parameter contains a NUL byte.
+    HTML files exported from design tools (Figma "Save as HTML", headless
+    Chromium, etc.) often contain embedded binary content — fonts, raw image
+    bytes — that carry NUL bytes. Strip them so the INSERT never reaches the
+    driver with disallowed bytes.
+
+    The replacement is the empty string (not a placeholder): a NUL byte in HTML
+    is invisible and semantically meaningless; removing it does not change the
+    rendered output.
+    """
+    return text.replace("\x00", "")
+
+
 def _synthesize_custom_template(
     template_id: str, custom_template_body: str
 ) -> dict[str, Any]:
@@ -58,7 +75,7 @@ def _synthesize_custom_template(
     Capped at ``EXAMPLE_MAX_CHARS`` — the same single-authoritative cap this
     module already uses for example.html (INV-12 single-truncation: one cap).
     """
-    body = custom_template_body.strip()
+    body = _strip_nul(custom_template_body.strip())
     if len(body) > EXAMPLE_MAX_CHARS:
         body = body[:EXAMPLE_MAX_CHARS] + "\n...[truncated]"
     return {
@@ -194,7 +211,7 @@ def load_prototype_context(
     # .context/design/template/raw-upload.html (Design Ingestor PATH B).
     _catalog_files = od_loader.get_template_files(template_id)
     if custom_template_body and "raw-upload.html" not in _catalog_files:
-        _html = custom_template_body.strip()
+        _html = _strip_nul(custom_template_body.strip())
         if len(_html) > EXAMPLE_MAX_CHARS:
             _html = _html[:EXAMPLE_MAX_CHARS] + "\n...[truncated]"
         _template_files: dict[str, str] = {**_catalog_files, "raw-upload.html": _html}

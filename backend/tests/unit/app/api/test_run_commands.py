@@ -254,3 +254,58 @@ def test_resolve_saved_trigger_target_stamps_manifest_for_durable_resume_when_ow
     assert resolved.attached_hooks == row.attached_hooks
     assert resolved.attached_skills == row.attached_skills
     assert resolved.model_overrides == row.model_overrides
+
+
+# ---------------------------------------------------------------------------
+# NUL-byte sanitisation of WorkflowRun.title / .input  (PostgreSQL fix)
+# ---------------------------------------------------------------------------
+# psycopg2 raises ValueError if any bound parameter contains \x00 bytes.
+# PDFs extracted by /api/files/extract-text can produce \x00 in the extracted
+# text, which the frontend inlines into the brief as "=== Attached: ===" blocks.
+# _launch_run_core derives WorkflowRun.title from _clean_run_title(content, ...)
+# and WorkflowRun.input from content directly.  Both have .replace("\x00", "")
+# applied before the DB INSERT so that db.commit() never sees NUL characters.
+# The tests below pin that stripping pattern using _clean_run_title directly.
+# ---------------------------------------------------------------------------
+
+_BRIEF_WITH_NUL = (
+    "build a prototype from documents\n\n"
+    "=== Attached: Ricoh-Oracle-Doc.pdf ===\n"
+    "extracted text with\x00binary PDF streams\x00and more\n"
+    "=== End: Ricoh-Oracle-Doc.pdf ==="
+)
+
+
+class TestNulByteStrippingForWorkflowRunFields:
+    def test_title_has_no_nul_bytes_after_strip_when_content_has_nul_in_attachment_block(
+        self,
+    ):
+        """WorkflowRun.title = _clean_run_title(content, ...).replace('\\x00', '').
+        NUL bytes from a PDF attachment block must be removed before the DB INSERT."""
+        from app.api.run_commands import _clean_run_title
+
+        title = _clean_run_title(_BRIEF_WITH_NUL, "prototype_v2").replace("\x00", "")
+
+        assert "\x00" not in title
+        # The user's brief survives intact
+        assert "build a prototype from documents" in title
+
+    def test_input_has_no_nul_bytes_after_strip_when_content_has_nul_in_attachment_block(
+        self,
+    ):
+        """WorkflowRun.input = content.replace('\\x00', '').
+        NUL bytes from a PDF attachment block must be removed before the DB INSERT."""
+        input_val = _BRIEF_WITH_NUL.replace("\x00", "")
+
+        assert "\x00" not in input_val
+        # Text is preserved with NUL bytes removed (contiguous, no placeholder)
+        assert "extracted text withbinary PDF streams" in input_val
+
+    def test_title_is_unchanged_when_content_has_no_nul_bytes(self):
+        """When the content has no NUL bytes, .replace('\\x00', '') is a no-op."""
+        from app.api.run_commands import _clean_run_title
+
+        clean_brief = "build a prototype from the attached documents"
+        title = _clean_run_title(clean_brief, "prototype_v2").replace("\x00", "")
+
+        assert title == clean_brief

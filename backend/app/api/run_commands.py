@@ -3178,10 +3178,15 @@ async def _launch_run_core(
         workflow_run = WorkflowRun(
             id=pipeline_run_id,
             user_id=user.id,
-            title=_clean_run_title(content, pipeline_type),
+            # Strip NUL bytes (0x00) from both title and input before writing to
+            # PostgreSQL. psycopg2 raises ValueError for any string with \x00.
+            # NUL bytes appear when the message brief contains extracted PDF text
+            # (some PDFs have binary streams that produce \x00 in the extraction)
+            # or raw binary content from design tool exports.
+            title=_clean_run_title(content, pipeline_type).replace("\x00", ""),
             type=pipeline_type,
             status="running",
-            input=content or f"Run {pipeline_type} pipeline",
+            input=(content or f"Run {pipeline_type} pipeline").replace("\x00", ""),
             agent_count=agent_count,
             session_id=user.id,
             parent_run_id=parent_run_id,

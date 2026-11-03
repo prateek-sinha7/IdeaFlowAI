@@ -350,6 +350,23 @@ server {
         proxy_read_timeout 300s;
         proxy_send_timeout 120s;
     }
+    # Figma frame upload (POST /api/runs/{id}/figma-frames).
+    # Backend caps: 4 MB/image × 20 frames = 80 MB max; 20 MB for a PDF export.
+    # 85m covers the image-only worst case with headroom for multipart framing.
+    # Without this block the server-wide 1m default 413'd every upload >1 MiB
+    # before the request reached FastAPI (same class of bug as ISS-xxx/files).
+    location ~ ^/api/runs/[^/]+/figma-frames/?$ {
+        client_max_body_size 85m;
+        client_body_timeout 120s;
+        limit_req zone=velocityai_api burst=20 nodelay;
+        limit_req_status 429;
+        proxy_pass         http://velocityai_backend;
+        include            /etc/nginx/snippets/velocityai-proxy-headers.conf;
+        proxy_buffering    off;
+        proxy_request_buffering off;
+        proxy_read_timeout 300s;
+        proxy_send_timeout 120s;
+    }
     location /api/ {
         limit_req zone=velocityai_api burst=20 nodelay;
         limit_req_status 429;
