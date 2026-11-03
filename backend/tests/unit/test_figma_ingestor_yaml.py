@@ -106,3 +106,21 @@ def test_design_ingestor_still_has_read_write_tools() -> None:
         assert (
             tools.get("write_files") is True
         ), f"write_files must be true in {yaml_path.name}"
+
+
+@pytest.mark.unit
+def test_design_ingestor_has_spawn_subagents_grant_in_v2() -> None:
+    """design-ingestor step in prototype_v2 must declare spawn_subagents: true.
+
+    Without this grant the engine silently ignores any spawn_subagents call the
+    agent emits (T-11-01-01), falling back to sequential PNG reads that accumulate
+    all images in one context and trigger a Bedrock 400 at ~10 frames (FIGMA-FANOUT).
+    """
+    data = _load_yaml(_PROTO_V2_YAML)
+    step = _find_step(data, "design-ingestor")
+    assert step is not None, "design-ingestor step not found in prototype_v2"
+    tools = step.get("tools", {})
+    assert tools.get("spawn_subagents") is True, (
+        "design-ingestor in prototype_v2 must have spawn_subagents: true "
+        "so Frame Observer sub-agents can be fanned out (FIGMA-FANOUT fix)"
+    )

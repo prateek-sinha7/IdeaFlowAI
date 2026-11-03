@@ -92,7 +92,11 @@ def test_sse_location_exists_and_is_the_only_regex_location():
     # (the Phase-8 "keep prose off the bare tokens" lesson).
     directives = re.findall(r"^\s*location\s+(\S+)", site, re.M)
     regex_patterns = set(re.findall(r"^\s*location\s+~\s+(\S+)\s*\{", site, re.M))
-    assert regex_patterns == {_SSE_PATTERN, _LIVE_RUN_FILES_PATTERN, _FIGMA_FRAMES_PATTERN}, (
+    assert regex_patterns == {
+        _SSE_PATTERN,
+        _LIVE_RUN_FILES_PATTERN,
+        _FIGMA_FRAMES_PATTERN,
+    }, (
         "an unexpected regex location would compete for the SSE URI by "
         f"definition order: {sorted(regex_patterns)}"
     )
@@ -210,7 +214,12 @@ _STAGE_HEADER = r"location\s+=\s+/api/runs/uploads/stage"
 _EXTRACT_HEADER = r"location\s+=\s+/api/files/extract-text"
 _LIVE_RUN_FILES_HEADER = r"location\s+~\s+\^/api/runs/\[\^/\]\+/files/\?\$"
 _FIGMA_FRAMES_HEADER = r"location\s+~\s+\^/api/runs/\[\^/\]\+/figma-frames/\?\$"
-_UPLOAD_HEADERS = (_STAGE_HEADER, _EXTRACT_HEADER, _LIVE_RUN_FILES_HEADER, _FIGMA_FRAMES_HEADER)
+_UPLOAD_HEADERS = (
+    _STAGE_HEADER,
+    _EXTRACT_HEADER,
+    _LIVE_RUN_FILES_HEADER,
+    _FIGMA_FRAMES_HEADER,
+)
 
 _SIZE_UNITS = {"": 1, "k": 1024, "m": 1024 * 1024, "g": 1024 * 1024 * 1024}
 

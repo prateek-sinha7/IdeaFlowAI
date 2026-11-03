@@ -28,6 +28,7 @@ Design constraints honoured (mirrors run_files.py):
 
 from __future__ import annotations
 
+import io
 import json
 import logging
 from typing import Optional
@@ -87,6 +88,51 @@ _UNSUPPORTED_TYPE_MSG = (
     "PNG/JPEG (individual frames) or PDF (File → Export → Export frames to PDF). "
     "Accepted: .png / .jpg / .jpeg / .pdf"
 )
+
+
+def _normalize_image_to_rgb(data: bytes, name: str) -> bytes:
+    """Convert a PNG/JPEG to RGB so Bedrock's vision API can process it.
+
+    Bedrock's ConverseStream rejects images that are not in RGB or RGBA mode
+    (e.g. grayscale, indexed-color, CMYK) with the error "Could not process
+    image". Figma can export frames in grayscale mode, which compresses
+    dramatically smaller than RGB at the same pixel dimensions.
+
+    Normalizes every uploaded frame to RGB before it is stored in the sandbox
+    so downstream vision calls always succeed regardless of export settings.
+
+    Returns the original bytes unchanged if the image is already RGB/RGBA or
+    if Pillow cannot open it (letting the Bedrock call surface the error).
+    """
+    try:
+        from PIL import Image  # pillow is a declared dependency; safe to import
+
+        img = Image.open(io.BytesIO(data))
+        original_mode = img.mode
+        if original_mode in ("RGB", "RGBA"):
+            return data  # Already Bedrock-compatible; no work needed.
+        img = img.convert("RGB")
+        buf = io.BytesIO()
+        img.save(buf, format="PNG", optimize=False)
+        converted = buf.getvalue()
+        logger.info(
+            "figma_frames: normalized %r from mode=%r to RGB (%d → %d bytes)",
+            name,
+            original_mode,
+            len(data),
+            len(converted),
+        )
+        return converted
+    except Exception as exc:  # noqa: BLE001
+        # If Pillow can't open the file, return as-is.  The image may still
+        # work (rare valid PNG variants Pillow can't parse) or will fail at
+        # the Bedrock call with a clearer error than a 500 here.
+        logger.warning(
+            "figma_frames: could not normalize %r to RGB (%s) — uploading as-is",
+            name,
+            exc,
+        )
+        return data
 
 
 def _ext_of(filename: str) -> str:
@@ -174,6 +220,11 @@ async def upload_figma_frames(
                     f"{_MAX_AGGREGATE_BYTES // (1024 * 1024)} MB limit."
                 ),
             )
+        # Normalize PNG/JPEG to RGB so Bedrock can process them.
+        # Grayscale/indexed/CMYK images cause ConverseStream to return
+        # ValidationException("Could not process image") — convert them now.
+        if ext in ("png", "jpg", "jpeg"):
+            data = _normalize_image_to_rgb(data, name)
         validated.append((name, data, ext, mime, descriptions[i]))
 
     # ── Layer 1: owner-scoped ORM filter (cross-owner / missing → 404, never 403)

@@ -47,6 +47,12 @@ steps:
     read_files: true
     write_files: true
     exec: false
+    # FIGMA-FANOUT: grant spawn_subagents so the agent can fan out one Frame
+    # Observer sub-agent per PNG/PDF-page instead of reading all images
+    # sequentially in one context. Without this the engine silently ignores
+    # any spawn_subagents call the agent emits (T-11-01-01), falling back to
+    # the sequential path that overflows the context window at ~10 frames.
+    spawn_subagents: true
     tool_sets:
     - file_extract
   gates: []
