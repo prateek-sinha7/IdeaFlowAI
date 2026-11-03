@@ -326,6 +326,44 @@ def _sanitize_agent_error(raw: str) -> str:
     return _GENERIC_AGENT_ERROR_MESSAGE
 
 
+# Machine-readable codes that parallel _AGENT_ERROR_CATEGORIES (same index order).
+# These are our own vocabulary — never provider text — so they are safe to include
+# on the client-facing ``agent_error`` SSE event.  Developers can filter server
+# logs by ``code=<X>`` without having to read raw Bedrock exception text.
+# ``"UNKNOWN"`` means no category matched: the raw string is in the WARNING log
+# (``raw=…`` field) and the developer can search by ``agent_id`` + ``run_id``.
+_AGENT_ERROR_CODE_LABELS: tuple[str, ...] = (
+    "PAYLOAD_TOO_LARGE",  # too large / too long / exceeds / maximum context / payload
+    "RATE_LIMITED",  # throttl / rate limit / too many requests
+    "API_KEY_INVALID",  # api key invalid / invalid api key / api key is invalid
+    "CREDENTIAL_ERROR",  # credential / unauthoriz / access denied / expiredtoken / …
+    "SERVICE_UNAVAILABLE",  # serviceunavailable / internalserverexception / overloaded / …
+    "TIMEOUT",  # timeout / timed out / read timeout
+    "RECURSION_LIMIT",  # recursion limit / graphrecursionerror / recursion_limit
+)
+
+
+def _classify_agent_error(raw: str) -> str:
+    """Return a machine-readable category code for a runner error.
+
+    Walks the same ``_AGENT_ERROR_CATEGORIES`` needles as
+    ``_sanitize_agent_error`` but returns a short identifier instead of a
+    user-facing sentence.  The returned string is always one of the
+    ``_AGENT_ERROR_CODE_LABELS`` values or ``"UNKNOWN"`` — never provider
+    text — so it is safe to put on the ``agent_error`` SSE event for
+    developer diagnostics without breaching WR-02.
+
+    ``"UNKNOWN"`` signals that no known needle matched.  The operator can
+    find the raw exception text in the WARNING log line that carries
+    ``raw=…`` alongside ``code=UNKNOWN``.
+    """
+    lowered = (raw or "").lower()
+    for i, (needles, _) in enumerate(_AGENT_ERROR_CATEGORIES):
+        if any(n in lowered for n in needles):
+            return _AGENT_ERROR_CODE_LABELS[i]
+    return "UNKNOWN"
+
+
 # ---------------------------------------------------------------------------
 # [STABILIZATION A1/A18] Validation-retry-with-feedback — feedback text builder
 # ---------------------------------------------------------------------------
@@ -10571,6 +10609,9 @@ class ExecutionEngine:
                                     agent_error_message = _sanitize_agent_error(
                                         agent_error_raw
                                     )
+                                    agent_error_code = _classify_agent_error(
+                                        agent_error_raw
+                                    )
                                     break
                         # ISS-004 (19-03): flush any residual held tail through the
                         # chunk-straddle sanitizer at stream end. An unterminated tool-XML
@@ -10730,21 +10771,24 @@ class ExecutionEngine:
                     # only the sanitized, leak-free message on the agent_error event.
                     logger.warning(
                         "Agent %s: runner surfaced an error event — marking failed (no "
-                        "completion). raw=%s | client=%s",
+                        "completion). raw=%s | client=%s | code=%s",
                         spec.id,
                         agent_error_raw,
                         agent_error_message,
+                        agent_error_code,
                     )
                     _log_event(
                         "agent_error",
                         pipeline_run_id,
                         agent_id=spec.id,
                         error=agent_error_message,
+                        code=agent_error_code,
                     )
                     RunLog(getattr(sandbox, "run_log_path", None)).write(
                         "agent_error",
                         agent_id=spec.id,
                         error=agent_error_message,
+                        code=agent_error_code,
                     )
                     # ISS-028: record the (agent_id, task_number) failure pair. This arm
                     # RETURNS without a results.append, so the pair stays UNRECOVERED — a
@@ -10759,6 +10803,7 @@ class ExecutionEngine:
                         "data": {
                             "agent_id": spec.id,
                             "error": agent_error_message or "Agent run failed",
+                            "code": agent_error_code,
                             "recoverable": True,
                         },
                     }

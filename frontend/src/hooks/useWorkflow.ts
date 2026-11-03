@@ -1234,6 +1234,7 @@ export function handlePipelineMessage(
     case "agent_error": {
       const agentId = msg.agent_id as string;
       const error = (msg.error as string) || "Unknown error";
+      const errorCode = (msg.code as string) || undefined;
 
       // A wave worker shares the PARENT's agent_id, so an unguarded error here
       // would fail the whole step. A task_id means this is a child: fail that
@@ -1259,6 +1260,7 @@ export function handlePipelineMessage(
           ...settleWaveWorkers(updated[agentIdx]),
           status: "error",
           error,
+          errorCode,
           thinking: "",
         };
 

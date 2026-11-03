@@ -915,6 +915,12 @@ export interface AgentRunState {
   thinking: string;
   duration: number | null;
   error: string | null;
+  /** Machine-readable category code from the ``agent_error`` SSE event.
+   *  Always our own vocabulary — never raw provider text — so safe to surface
+   *  to developers.  ``"UNKNOWN"`` means no category matched; check the server
+   *  WARNING log for ``raw=…`` using ``agent_id`` + ``run_id``.
+   *  Absent on historical runs that pre-date this field. */
+  errorCode?: string;
   index: number;
   /** Cache split of inputTokens (a wave step: its members' sums), off agent_complete. */
   cacheReadTokens?: number;

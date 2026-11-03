@@ -1581,6 +1581,14 @@ export function AgentDetailPanel({
                   <div className="mt-3 rounded-[10px] bg-status-failed-fill border border-status-failed-border px-3.5 py-3">
                     <p className="m-0 mb-1 text-[11px] font-semibold text-status-failed-strong font-[Manrope]">What went wrong</p>
                     <p className="m-0 text-[12px] leading-[1.55] text-[#6E4A46]">{agent.error}</p>
+                    {agent.errorCode && (
+                      <p
+                        className="m-0 mt-2 font-mono text-[10px] text-[#9E6A6A] opacity-60 select-all cursor-text"
+                        title="Developer diagnostic — copy and search server logs"
+                      >
+                        code: {agent.errorCode} · step: {agent.id}
+                      </p>
+                    )}
                   </div>
                 )}
               </div>
