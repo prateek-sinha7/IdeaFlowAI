@@ -24,6 +24,7 @@ Chromium builds out of the headings, which page each contents entry landed on.
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import datetime as _dt
 import html
@@ -726,9 +727,14 @@ def _merge(cover: bytes, body: bytes, product: str) -> bytes:
     return out.getvalue()
 
 
-async def render_pdf(sandbox: Any) -> bytes:
-    """Cover + contents + chapters, printed by headless Chromium (the same Playwright
-    the render check uses). Raises when no browser can launch; the caller degrades."""
+async def _render_pdf_impl(sandbox: Any) -> bytes:
+    """Core PDF rendering — must run inside a loop that supports subprocess spawning.
+
+    On Linux/macOS this is the caller's event loop.  On Windows it is the fresh
+    ProactorEventLoop that ``render_pdf`` creates via ``asyncio.run()`` in a
+    thread executor — SelectorEventLoop raises NotImplementedError from
+    asyncio.create_subprocess_exec, which Playwright uses to launch Chromium.
+    """
     from playwright.async_api import async_playwright
 
     product, _ = _stats(sandbox)
@@ -745,6 +751,34 @@ async def render_pdf(sandbox: Any) -> bytes:
         finally:
             await browser.close()
     return _merge(cover, body, product)
+
+
+async def render_pdf(sandbox: Any) -> bytes:
+    """Cover + contents + chapters, printed by headless Chromium.
+
+    On Windows, Playwright spawns Chromium via asyncio.create_subprocess_exec,
+    which raises NotImplementedError when the running loop is SelectorEventLoop
+    (e.g. under uvicorn with a custom loop policy).  We work around this by
+    running the render in a ThreadPoolExecutor: asyncio.run() inside the thread
+    always creates a fresh ProactorEventLoop on Windows (Python ≥ 3.8), which
+    does support subprocess spawning.  On non-Windows systems the render runs
+    directly on the caller's loop with no overhead.
+
+    Raises when no browser can launch; export_backlog() catches it.
+    """
+    import sys
+
+    if sys.platform == "win32":
+        import concurrent.futures
+
+        loop = asyncio.get_running_loop()
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            # asyncio.run() creates a ProactorEventLoop on Windows, bypassing
+            # the SelectorEventLoop NotImplementedError for subprocess spawning.
+            return await loop.run_in_executor(
+                pool, lambda: asyncio.run(_render_pdf_impl(sandbox))
+            )
+    return await _render_pdf_impl(sandbox)
 
 
 def build_zip(sandbox: Any, pdf: bytes | None) -> bytes:

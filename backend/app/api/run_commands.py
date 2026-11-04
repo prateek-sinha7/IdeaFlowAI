@@ -968,7 +968,44 @@ async def _reconcile_terminal_status(run_id: str) -> None:
                 for e in events
             )
             if degraded_current:
-                new_status = "degraded"
+                # ISS-872 / FIX-648 parity — same false-positive cross-check the
+                # launch and revision drivers apply: a degraded pipeline_complete
+                # in the durable log can name agents that also emitted agent_complete
+                # in the same attempt (visit_count mismatch). Read agents_failed from
+                # the degraded completion; compare against agent_complete events whose
+                # seq is at or after the last reattempt boundary.
+                _degraded_complete = next(
+                    (
+                        e
+                        for e in current_attempt_completes
+                        if isinstance(e.payload_json, dict)
+                        and e.payload_json.get("status") == "degraded"
+                    ),
+                    None,
+                )
+                _degraded_agents_failed: list = (
+                    _degraded_complete.payload_json.get("agents_failed") or []
+                    if _degraded_complete
+                    and isinstance(_degraded_complete.payload_json, dict)
+                    else []
+                )
+                _current_attempt_agent_complete_ids = {
+                    e.payload_json.get("agent_id")
+                    for e in events
+                    if e.type == "agent_complete"
+                    and e.seq >= last_reattempt_seq
+                    and isinstance(e.payload_json, dict)
+                }
+                _truly_failed = [
+                    a
+                    for a in _degraded_agents_failed
+                    if a not in _current_attempt_agent_complete_ids
+                ]
+                if _degraded_agents_failed and not _truly_failed:
+                    # Every "failed" agent also completed — false positive.
+                    new_status = "completed"
+                else:
+                    new_status = "degraded"
             elif current_attempt_completes and not failed_current:
                 new_status = "completed"
             else:
@@ -6064,6 +6101,7 @@ async def _drive_revision_to_queue(
     pipeline_complete_seen = False
     pipeline_failed_seen = False
     degraded_seen = False
+    degraded_failed_agents: list | None = None
     pipeline_cancelled_seen = False
     # Why a failed/degraded revision ended, saved on the run like the launch driver does
     # (first agent_error, else the pipeline's own error) — run 48b0811e failed with none.
@@ -6080,6 +6118,7 @@ async def _drive_revision_to_queue(
     async def _queue_send(event: dict) -> None:
         nonlocal pipeline_complete_seen, pipeline_failed_seen, degraded_seen
         nonlocal pipeline_cancelled_seen, first_agent_error_msg, pipeline_error_msg
+        nonlocal degraded_failed_agents
         etype = event.get("type")
         data = event.get("data") or {}
         raw_events.append((etype or "", data))
@@ -6089,6 +6128,7 @@ async def _drive_revision_to_queue(
             pipeline_complete_seen = True
             if data.get("status") == "degraded":
                 degraded_seen = True
+                degraded_failed_agents = list(data.get("agents_failed") or [])
                 pipeline_error_msg = pipeline_error_msg or data.get("degraded_reason")
         elif etype == "pipeline_failed":
             pipeline_failed_seen = True
@@ -6146,21 +6186,58 @@ async def _drive_revision_to_queue(
             live_ectx_register=register_live_ectx,
             live_ectx_unregister=unregister_live_ectx,
         )
-        _final_status = (
-            "cancelled"
-            if pipeline_cancelled_seen
-            else "degraded"
-            if degraded_seen
-            else "completed"
-            if (pipeline_complete_seen and not pipeline_failed_seen)
-            else "failed"
-        )
-        _persist_terminal_status(
-            _final_status,
-            error=(first_agent_error_msg or pipeline_error_msg)
-            if _final_status in ("failed", "degraded")
-            else None,
-        )
+        if pipeline_cancelled_seen:
+            _final_status = "cancelled"
+            _terminal_error = None
+        elif degraded_failed_agents is not None:
+            # ISS-872 / FIX-648 parity — R-09 safety net for revision runs:
+            # a pipeline_complete can carry status="degraded" with an
+            # agents_failed list even when every named agent ALSO emitted
+            # agent_complete in the same live stream (e.g. a visit_count
+            # mismatch in the ISS-028/R-08 invocation-triple check, or a
+            # recoverable agent_error that the WR-05 path recovered from but
+            # whose failed_invocations entry used a different visit_count than
+            # the completion). In that case the degraded verdict is a false
+            # positive: all agents produced output, so the run should be
+            # "completed", not "degraded".
+            #
+            # Verify before writing: collect every agent_id that successfully
+            # emitted agent_complete in raw_events and subtract from the
+            # "failed" list. If nothing remains, the run is a clean completion.
+            # If any agent is genuinely unrecovered (no agent_complete), keep
+            # "degraded" with only the truly-failed agents in the error message.
+            # A degraded verdict with NO failed agents (a suppressed R-07 loop
+            # abort) is never a false positive: it stays degraded.
+            _agent_complete_ids = {
+                data.get("agent_id")
+                for utype, data in raw_events
+                if utype == "agent_complete"
+            }
+            _truly_failed = [
+                a for a in degraded_failed_agents if a not in _agent_complete_ids
+            ]
+            if degraded_failed_agents and not _truly_failed:
+                # Every "failed" agent also completed — false positive.
+                _final_status = "completed"
+                _terminal_error = None
+            else:
+                _final_status = "degraded"
+                _terminal_error = (
+                    first_agent_error_msg
+                    or pipeline_error_msg
+                    or (
+                        "degraded: agent(s) failed: " + ", ".join(_truly_failed)
+                        if _truly_failed
+                        else "degraded (no reason was recorded)"
+                    )
+                )
+        elif pipeline_complete_seen and not pipeline_failed_seen:
+            _final_status = "completed"
+            _terminal_error = None
+        else:
+            _final_status = "failed"
+            _terminal_error = first_agent_error_msg or pipeline_error_msg
+        _persist_terminal_status(_final_status, error=_terminal_error)
     except ValueError as exc:
         await event_queue.put(
             {

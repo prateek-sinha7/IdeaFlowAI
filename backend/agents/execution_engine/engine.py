@@ -243,15 +243,41 @@ class StepRaised(Exception):
 
 _AGENT_ERROR_CATEGORIES: tuple[tuple[tuple[str, ...], str], ...] = (
     (
-        ("too large", "too long", "exceeds", "maximum context", "payload"),
+        # Space-based: Bedrock/human messages like "Request is too large"
+        # Underscore-based: Anthropic body type "request_too_large"
+        # "exceeds": Anthropic 413 human message "Request exceeds the maximum..."
+        (
+            "too large",
+            "too long",
+            "exceeds",
+            "maximum context",
+            "payload",
+            "request_too_large",
+        ),
         "The request was too large for the model — the agent's context grew past the limit.",
     ),
-    (("throttl", "rate limit", "too many requests"), _THROTTLED_AGENT_ERROR),
+    # "rate limit" (space) matches Anthropic's human message "Rate limit exceeded".
+    # "rate_limit" (underscore) matches the body type string "rate_limit_error" directly,
+    # so the category fires even if the human message wording changes.
+    (
+        ("throttl", "rate limit", "rate_limit", "too many requests"),
+        _THROTTLED_AGENT_ERROR,
+    ),
     # QA-KB-121: above the credential row, whose "accessdenied" also matches a
     # rejected key (first match wins). Matched on the message, not the code:
     # botocore reports it as AccessDeniedException, AccessDenied or a bare 403.
+    # Anthropic SDK: AuthenticationError (401) formats as
+    # "Error code: 401 - {...'type': 'authentication_error', 'message': 'invalid x-api-key'...}"
+    # The body contains "authentication_error" and "invalid x-api-key" — match both
+    # so the key-rotation message is shown rather than the generic cloud-session copy.
     (
-        ("api key invalid", "invalid api key", "api key is invalid"),
+        (
+            "api key invalid",
+            "invalid api key",
+            "api key is invalid",
+            "authentication_error",  # Anthropic SDK: body type for 401
+            "invalid x-api-key",  # Anthropic SDK: exact message for bad key
+        ),
         _INVALID_KEY_AGENT_ERROR,
     ),
     # Widened after run 54da544c: an expired STS session says "The security token
@@ -273,6 +299,17 @@ _AGENT_ERROR_CATEGORIES: tuple[tuple[tuple[str, ...], str], ...] = (
             "not authorized",
             "forbidden",
             "signature",
+            # Anthropic SDK: PermissionDeniedError (403) body type + message text.
+            "permission_error",
+            "does not have permission",
+            # Anthropic SDK: billing_error (402) — billing/payment block is a
+            # credential-class failure (no access until resolved).
+            "billing_error",
+            # botocore.exceptions.UnauthorizedSSOTokenError — the exception *message*
+            # does not contain "unauthoriz" (that's only in the class name), but the
+            # text always says "SSO session" and "aws sso login".
+            "sso session",
+            "aws sso",
         ),
         _CREDENTIAL_AGENT_ERROR,
     ),
@@ -287,6 +324,12 @@ _AGENT_ERROR_CATEGORIES: tuple[tuple[tuple[str, ...], str], ...] = (
             "modelnotready",
             "overloaded",
             "bad gateway",
+            # Anthropic SDK: InternalServerError (500) body type is "api_error";
+            # the human message is generic, but the type string is always present.
+            "api_error",
+            # Anthropic SDK: APIConnectionError — raised for TCP-level failures
+            # (network drop, ECONNRESET, etc.) before any HTTP response.
+            "connection error",
         ),
         _UNAVAILABLE_AGENT_ERROR,
     ),
@@ -8206,13 +8249,24 @@ class ExecutionEngine:
             (r.get("agent_id"), r.get("task_number", "") or "", r.get("visit_count", 0))
             for r in results
         }
+        # ISS-872: build a per-(agent_id, task_number) max visit_count from completions
+        # so a failed triple (agent_id, task_number, visit_N) is treated as recovered
+        # when the agent completed the SAME (agent_id, task_number) at visit_count >= visit_N.
+        # The old exact-triple membership check left a visit_1 failure in
+        # _unrecovered_agents when the retry completed at visit_2, producing a false-positive
+        # "degraded" verdict despite a valid agent_complete.
+        _completed_max_visit: dict[tuple, int] = {}
+        for _aid, _task, _vc in _completed_pairs:
+            _key = (_aid, _task)
+            if _vc > _completed_max_visit.get(_key, -1):
+                _completed_max_visit[_key] = _vc
         _completed_agent_ids = {r.get("agent_id") for r in results}
         _unrecovered_agents = {
             agent_id
             for (agent_id, task_number, visit_count) in getattr(
                 ectx, "failed_invocations", set()
             )
-            if (agent_id, task_number, visit_count) not in _completed_pairs
+            if _completed_max_visit.get((agent_id, task_number), -1) < visit_count
         }
         # Floor (no regression): an errored agent with zero completions anywhere.
         _unrecovered_agents |= _failed_agent_ids - _completed_agent_ids
