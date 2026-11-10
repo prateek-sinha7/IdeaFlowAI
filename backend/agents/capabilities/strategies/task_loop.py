@@ -286,6 +286,11 @@ class TaskLoopStrategy:
             _task_keys, _completed_ordered
         )
 
+        _task_plan = [
+            {"number": i, "title": str(getattr(t, "title", "") or "").strip()}
+            for i, t in enumerate(tasks, start=1)
+            if str(getattr(t, "title", "") or "").strip()
+        ]
         for task_num in range(1, total_tasks + 1):
             if cancel_event is not None and cancel_event.is_set():
                 logger.info("task_loop: cancelled at task %d", task_num)
@@ -335,17 +340,20 @@ class TaskLoopStrategy:
                             "task_loop: compaction failed (%s) — continuing", exc
                         )
 
-            # Emit loop progress so the frontend knows which task is running.
-            yield {
-                "type": "task_loop_progress",
-                "data": {
-                    "agent_id": agent_id,
-                    "pipeline_run_id": run_id,
-                    "task_number": task_num,
-                    "total_tasks": total_tasks,
-                    "timestamp": _now(),
-                },
+            # Emit loop progress so the frontend knows which task is running. The
+            # task plan (number + title) rides along so the UI can name every task
+            # whatever the plan format (it used to regex `## Task N:` headings out of
+            # the planner's text, which a JSON task plan does not have).
+            _progress: dict = {
+                "agent_id": agent_id,
+                "pipeline_run_id": run_id,
+                "task_number": task_num,
+                "total_tasks": total_tasks,
+                "timestamp": _now(),
             }
+            if _task_plan:
+                _progress["task_plan"] = _task_plan
+            yield {"type": "task_loop_progress", "data": _progress}
 
             # Run the per-task sub-agent through the handle, re-yielding its events.
             # WR-01: pass the task-2+ skeleton via the dedicated param (not nested in
@@ -401,6 +409,12 @@ class TaskLoopStrategy:
             # snapshots gate it); a non-prototype task_loop workflow fixes ITS file.
             if cancel_event is not None and cancel_event.is_set():
                 break
+            # Validation cadence (``fix.full_every``): the full render/click validation
+            # + fix loop + registered validators run every Nth task and on the last;
+            # in between only the quick contract check runs (findings logged, no fix).
+            if not self._is_full_validation_task(step, task_num, total_tasks):
+                self._quick_static_check(runner, filename, task_num, total_tasks)
+                continue
             fix_policy = self._fix_policy(runner, step, filename)
             if fix_policy is not None:
                 await runner.run_validation_fix_loop(
@@ -456,6 +470,38 @@ class TaskLoopStrategy:
     # ------------------------------------------------------------------
     # D-06 — generic FixPolicy + registered-validator run (additive, event-free)
     # ------------------------------------------------------------------
+
+    @staticmethod
+    def _is_full_validation_task(step, task_num: int, total_tasks: int) -> bool:
+        """True when this task gets the full validation (``step.fix.full_every``).
+
+        Default 1 (or no ``fix`` block) = every task, today's behaviour. With N > 1:
+        tasks N, 2N, ... and always the last task.
+        """
+        every = getattr(getattr(step, "fix", None), "full_every", 1)
+        if not isinstance(every, int) or every <= 1:
+            return True
+        return task_num % every == 0 or task_num >= total_tasks
+
+    @staticmethod
+    def _quick_static_check(
+        runner, filename: str, task_num: int, total_tasks: int
+    ) -> None:
+        """Contract static check without the Chrome audit; advisory, never aborts."""
+        if not hasattr(runner, "static_check"):
+            return
+        try:
+            result = runner.static_check(runner.sandbox.path_for(filename), audit=False)
+            issues = list(getattr(result, "issues", None) or [])
+            logger.info(
+                "task_loop: quick check task %d/%d — %d issue(s)%s",
+                task_num,
+                total_tasks,
+                len(issues),
+                f": {'; '.join(map(str, issues[:5]))}" if issues else "",
+            )
+        except Exception as exc:  # noqa: BLE001 — advisory; never abort the build
+            logger.warning("task_loop: quick check failed (%s)", exc)
 
     def _fix_policy(self, runner, step, filename: str):
         """Build the generic ``FixPolicy`` for this step via the handle (D-06).

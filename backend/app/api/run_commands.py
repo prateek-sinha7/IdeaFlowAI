@@ -690,14 +690,14 @@ async def resume_run_endpoint(
         # "diverted" (014-conditional-gates R-13/R-14) is likewise excluded: a diverted
         # run stopped by DESIGN — it handed off to a second, independent WorkflowRun —
         # not by failure, so there is nothing to retry; v1 has no wait/resume for it.
-        _RESUMABLE_STATUSES = frozenset(TERMINAL_RUN_STATUSES) - {
-            "completed",
-            "diverted",
-        }
+        # "paused" (P27 E6) is a non-terminal park, resumable by the person (Resume button).
+        _RESUMABLE_STATUSES = (
+            frozenset(TERMINAL_RUN_STATUSES) - {"completed", "diverted"}
+        ) | {"paused"}
         if wr.status not in _RESUMABLE_STATUSES:
             raise _reject(
                 "run_not_resumable",
-                f"Run is {wr.status!r}; only failed, degraded, or cancelled runs are resumable",
+                f"Run is {wr.status!r}; only failed, degraded, cancelled, or paused runs are resumable",
                 http_status=status.HTTP_409_CONFLICT,
             )
 
@@ -758,6 +758,8 @@ async def resume_run_endpoint(
         _CANCEL_EVENTS[run_id] = asyncio.Event()
 
         # (5) Flip failed/cancelled/degraded→running (existing status vocabulary; INV-12) + commit.
+        if wr.status == "paused":
+            wr.error = None  # the pause text is stale once the person resumes
         wr.status = "running"
         db.commit()
 
@@ -784,6 +786,148 @@ async def resume_run_endpoint(
 
     # (8) Return the standard command envelope.
     return {"run_id": run_id}
+
+
+def _auto_resume_gate_failure(wr: WorkflowRun, owner: User | None) -> str | None:
+    """The gates ``POST /resume`` applies after ownership, run for the run's owner.
+
+    There is no live token here, so the tier is the one stored on the user (the login
+    projection) rather than ``cognito:groups``. Returns a short reason when a gate
+    fails, else None. Host capacity is not applied: it is transient, and a busy
+    moment must not strand the run."""
+    if owner is None:
+        return "owner account not found"
+    from app.core.entitlements import group_for_tier
+
+    principal = Principal(
+        provider="cognito",
+        sub=getattr(owner, "cognito_sub", "") or owner.id,
+        jti=None,
+        iat=None,
+        groups=[group_for_tier(getattr(owner, "tier", None) or "basic")],
+    )
+    tier = effective_tier(owner, principal)
+    try:
+        _require_tier_entitlement(owner, principal, wr.type)
+    except HTTPException as exc:
+        detail = exc.detail if isinstance(exc.detail, dict) else {}
+        return str(detail.get("error") or "tier not entitled")[:160]
+    trigger_error = _trigger_entitlement_error(tier, wr.manifest_json)
+    if trigger_error is not None:
+        return str(trigger_error[1])[:160]
+    if (
+        isinstance(wr.manifest_json, dict)
+        and wr.manifest_json.get("_trust") == "db"
+        and _saved_row_trust(tier) != "db"
+    ):
+        return "the run was launched with privileges the plan no longer includes"
+    for model in (getattr(owner, "preferred_model", None), wr.model_id):
+        if model and not can_use_model(tier, model)[0]:
+            return f"model {model} is not allowed on the plan"
+    return None
+
+
+async def auto_resume_paused_run(run_id: str) -> bool:
+    """Resume a ``paused`` run without a caller (the credential probe's path).
+
+    Applies the entitlement gates ``POST /resume`` applies (for the run's owner); a
+    failing gate leaves the run paused with the reason rewritten as
+    ``paused:poison: auto-resume blocked: <reason>`` so a person sees it. Otherwise the
+    same steps as the endpoint: refuse a live run, register queue + cancel event, flip
+    ``paused -> running``, clear the pause text, hand off to ``_drive_user_resume``.
+    Returns True when a drive was spawned."""
+    db = _get_db()
+    try:
+        wr = db.query(WorkflowRun).filter(WorkflowRun.id == run_id).first()
+        if wr is None or wr.status != "paused":
+            return False
+        if _is_run_live(run_id):
+            return False
+        owner = db.query(User).filter(User.id == wr.user_id).first()
+        blocked = _auto_resume_gate_failure(wr, owner)
+        if blocked is not None:
+            from agents.execution_engine.state_machine import format_pause_reason
+
+            wr.error = format_pause_reason("poison", f"auto-resume blocked: {blocked}")
+            db.commit()
+            logger.warning("auto-resume blocked run=%s: %s", run_id, blocked)
+            return False
+        _get_or_create_queue(run_id)
+        _CANCEL_EVENTS[run_id] = asyncio.Event()
+        wr.status = "running"
+        wr.error = None
+        db.commit()
+        from agents.execution_engine.state_machine import get_state_machine
+
+        get_state_machine().forget_run(run_id)
+        db.refresh(owner)  # keep the loaded attributes after the session closes
+    finally:
+        db.close()
+    _PIPELINE_TASKS[run_id] = asyncio.create_task(
+        _drive_user_resume(run_id, user=owner)
+    )
+    return True
+
+
+_CREDENTIAL_PROBES: dict[str, asyncio.Task] = {}
+
+
+async def _probe_model_once(model_id: str | None = None) -> None:
+    """The cheapest real model call: one output token. Raises when access is still broken.
+
+    ``model_id`` is the model the run actually uses; None builds the default."""
+    from app.agents.model_factory import build_model
+
+    model = build_model(model_id, max_tokens=1)
+    await model.ainvoke("ping")
+
+
+async def _credential_probe_loop(run_id: str, interval_seconds: float) -> None:
+    from agents.execution_engine.state_machine import parse_pause_kind
+
+    try:
+        while True:
+            await asyncio.sleep(interval_seconds)
+            db = _get_db()
+            try:
+                wr = db.query(WorkflowRun).filter(WorkflowRun.id == run_id).first()
+                still_waiting = (
+                    wr is not None
+                    and wr.status == "paused"
+                    and parse_pause_kind(wr.error) == "credentials"
+                )
+                # The model the run uses: its recorded model, else the owner's
+                # preference, else the default (None).
+                model_id = None
+                if still_waiting:
+                    owner = db.query(User).filter(User.id == wr.user_id).first()
+                    model_id = wr.model_id or getattr(owner, "preferred_model", None)
+            finally:
+                db.close()
+            if not still_waiting:
+                return
+            try:
+                await _probe_model_once(model_id)
+            except Exception as exc:  # noqa: BLE001 — still broken, keep probing
+                logger.info("credential probe run=%s still failing: %s", run_id, exc)
+                continue
+            if await auto_resume_paused_run(run_id):
+                logger.info("credential probe run=%s succeeded — run resumed", run_id)
+            return
+    finally:
+        _CREDENTIAL_PROBES.pop(run_id, None)
+
+
+def start_credential_probe(run_id: str, interval_seconds: int) -> None:
+    """Start (once per run) the background probe for a run paused on credentials.
+
+    Wired onto the engine as ``_paused_probe_start`` by ``app/main.py``."""
+    existing = _CREDENTIAL_PROBES.get(run_id)
+    if existing is not None and not existing.done():
+        return
+    _CREDENTIAL_PROBES[run_id] = asyncio.create_task(
+        _credential_probe_loop(run_id, interval_seconds)
+    )
 
 
 async def _drive_user_resume(run_id: str, *, user: User) -> None:
@@ -876,6 +1020,37 @@ async def _reconcile_terminal_status(run_id: str) -> None:
         workspace_id = await engine._recover_workspace_id(owner_id, run_id)
         store = ScopedStore(owner_id=owner_id, workspace_id=workspace_id)
         events = await store.read_events(run_id, after_seq=0)
+        # P27 E6: the latest attempt ended in a self-healing pause (a run_paused row after
+        # the last attempt boundary with no terminal row after it) → stay paused.
+        _boundary = max(
+            (e.seq for e in events if e.type in ("run_resuming", "pipeline_start")),
+            default=0,
+        )
+        _pause_rows = [
+            e for e in events if e.type == "run_paused" and e.seq > _boundary
+        ]
+        if _pause_rows:
+            _last_pause = max(_pause_rows, key=lambda e: e.seq)
+            if not any(
+                e.type in ("pipeline_complete", "pipeline_failed", "pipeline_cancelled")
+                and e.seq > _last_pause.seq
+                for e in events
+            ):
+                _pp = (
+                    _last_pause.payload_json
+                    if isinstance(_last_pause.payload_json, dict)
+                    else {}
+                )
+                from agents.execution_engine.state_machine import format_pause_reason
+
+                _persist_resume_status(
+                    run_id,
+                    "paused",
+                    error=format_pause_reason(
+                        str(_pp.get("kind") or "poison"), str(_pp.get("reason") or "")
+                    ),
+                )
+                return
         cancelled = any(e.type == "pipeline_cancelled" for e in events)
         completes = [e for e in events if e.type == "pipeline_complete"]
         # Source of the degraded error TEXT below only; the verdict is
@@ -1112,7 +1287,8 @@ def _persist_resume_status(
             swr.status = new_status
             if error is not _UNSET_ERROR:
                 swr.error = error
-            swr.completed_at = datetime.now(timezone.utc)
+            if new_status != "paused":
+                swr.completed_at = datetime.now(timezone.utc)
             sdb.commit()
     finally:
         sdb.close()
@@ -4786,6 +4962,10 @@ async def _drive_launch_to_queue(
     # the ``"diverted"`` the engine's state_machine.transition already persisted with
     # ``"failed"`` (AC-05).
     pipeline_diverted_seen = False
+    # P27 E6: a ``run_paused`` event ends the stream with the run parked, not finished.
+    pipeline_paused_seen = False
+    paused_kind = "poison"
+    paused_reason = ""
     monotonic_start = time.monotonic()
 
     try:
@@ -4865,6 +5045,10 @@ async def _drive_launch_to_queue(
                 pipeline_cancelled_seen = True
             elif utype == "pipeline_diverted":
                 pipeline_diverted_seen = True
+            elif utype == "run_paused":
+                pipeline_paused_seen = True
+                paused_kind = update["data"].get("kind") or "poison"
+                paused_reason = update["data"].get("reason") or ""
             elif utype == "error":
                 pipeline_error_seen = True
                 if pipeline_error_msg is None:
@@ -4880,7 +5064,26 @@ async def _drive_launch_to_queue(
                         update["data"].get("error") or "Pipeline failed"
                     )
 
-        if workflow_run_id:
+        if workflow_run_id and pipeline_paused_seen and not pipeline_cancelled_seen:
+            # The engine already persisted status + reason; restate them (idempotent) and
+            # skip the terminal output columns: the run is not finished.
+            from agents.execution_engine.state_machine import format_pause_reason
+
+            db = _get_db()
+            try:
+                wr = (
+                    db.query(WorkflowRun)
+                    .filter(WorkflowRun.id == workflow_run_id)
+                    .first()
+                )
+                if wr:
+                    wr.status = "paused"
+                    wr.error = format_pause_reason(paused_kind, paused_reason)
+                    wr.completed_at = None
+                    db.commit()
+            finally:
+                db.close()
+        elif workflow_run_id:
             db = _get_db()
             try:
                 wr = (

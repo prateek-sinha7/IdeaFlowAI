@@ -187,6 +187,34 @@ export function AgentThinkingTab({
     return () => { cancelled = true; };
   }, [runId]);
 
+  // ── Build-task titles from tasks.json — a fallback for a build loop whose plan
+  // carries no `## Task N:` headings (a JSON task plan) and whose progress events
+  // carry no task_plan (an engine from before that field). Reads the run's own
+  // tasks.json once; any failure leaves the "Task N" labels as they were.
+  const needsTaskTitles =
+    !!runId &&
+    (pipelineState?.protoTotalTasks ?? 0) > 0 &&
+    !(pipelineState?.protoPlannedTasks?.length);
+  const [fileTaskTitles, setFileTaskTitles] = useState<Array<{ number: number; title: string }>>([]);
+  useEffect(() => {
+    if (!needsTaskTitles || !runId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const { getRunSandboxFile, getToken } = await import("@/lib/api");
+        const raw = JSON.parse(await getRunSandboxFile(getToken() || "", runId, "tasks.json"));
+        const list: unknown[] = Array.isArray(raw) ? raw : Array.isArray(raw?.tasks) ? raw.tasks : [];
+        const titles = list
+          .map((t, i) => ({ number: i + 1, title: String((t as { title?: unknown })?.title ?? "").trim() }))
+          .filter((t) => t.title);
+        if (!cancelled) setFileTaskTitles(titles);
+      } catch {
+        /* no tasks.json or not JSON — keep the "Task N" labels */
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [needsTaskTitles, runId]);
+
   // ── Divert-link fetch (R-20 adjacent) — same source/target relationship
   // RevisionFamilyView's DivertBadge already renders as a Run-History
   // breadcrumb; surfaced here as a spine row so it shows up wherever the
@@ -417,7 +445,14 @@ export function AgentThinkingTab({
             taskIndex={selectedTaskIndex!}
             agentName={selectedAgent.name}
             status={taskStatusFor(selectedTaskIndex!)}
-            task={pipelineState?.protoCompletedTasks?.find(t => t.number === selectedTaskIndex! + 1)}
+            task={
+              pipelineState?.protoCompletedTasks?.find(t => t.number === selectedTaskIndex! + 1) ??
+              (() => {
+                const p = (pipelineState?.protoPlannedTasks?.length ? pipelineState.protoPlannedTasks : fileTaskTitles)
+                  .find(t => t.number === selectedTaskIndex! + 1);
+                return p ? { number: p.number, title: p.title, summary: "" } : undefined;
+              })()
+            }
             onBack={() => {
               setSelectedTaskIndex(null);
               if (typeof window !== "undefined") window.history.back();
@@ -446,7 +481,7 @@ export function AgentThinkingTab({
               // in titles for tasks not yet complete, so they show their real name
               // instead of "Task N" placeholder.
               tasks: (() => {
-                const planned = pipelineState?.protoPlannedTasks ?? [];
+                const planned = pipelineState?.protoPlannedTasks?.length ? pipelineState.protoPlannedTasks : fileTaskTitles;
                 const completed = pipelineState?.protoCompletedTasks ?? [];
                 if (planned.length === 0) return completed;
                 if (completed.length === 0) return planned.map(p => ({ ...p, summary: "" }));

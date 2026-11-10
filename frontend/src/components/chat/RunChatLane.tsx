@@ -82,6 +82,7 @@ import { Card } from "../ui/Card";
 // Task 11.5 (sandbox-git-versioning-v2, Req 20): engine-fact notice banner.
 import { RunEngineNotice } from "@/components/RunEngineNotice";
 import { Badge } from "../ui/Badge";
+import { parsePausedRunError } from "@/lib/pausedRun";
 import { buildAgentNameById, resolveAgentNames } from "@/lib/parseFailedAgents";
 import { useSpeechRecognition } from "@/hooks/useSpeechRecognition";
 
@@ -94,8 +95,16 @@ export type RunLaneState =
   | "building"
   | "clarify"
   | "gate"
+  | "paused"
   | "complete"
   | "terminal";
+
+/** Kind-specific line under the "Paused — <reason>" banner (backend `paused:<kind>:`). */
+const PAUSED_KIND_COPY: Record<string, string> = {
+  credentials: "Model credentials stopped working. The run resumes by itself when they work again.",
+  poison: "A step failed the same way 3 times. Fix the cause, then resume.",
+  budget: "The run reached its time budget. Resume to continue.",
+};
 
 /** The active gate the lane surfaces (mirrors the Steps ReviewGatePanel props). */
 export interface GateContext {
@@ -1800,6 +1809,45 @@ export function RunChatLane({
             }
           />
         );
+
+      case "paused": {
+        const paused = pipelineState?.paused ?? parsePausedRunError(runError);
+        const pausedCopy = paused ? PAUSED_KIND_COPY[paused.kind] : undefined;
+        return (
+          <div data-testid="chat-terminal-paused" className="space-y-2.5">
+            <Card className="px-3.5 py-3">
+              <div className="flex items-center gap-2">
+                <Badge status="paused" label="Paused" />
+                <p data-testid="chat-paused-reason" className="text-[12px] font-semibold text-ink-900">
+                  {paused ? `Paused — ${paused.reason}` : "Paused"}
+                </p>
+              </div>
+              {pausedCopy && (
+                <p data-testid="chat-paused-kind" className="mt-1 text-[11px] text-ink-500">
+                  {pausedCopy}
+                </p>
+              )}
+            </Card>
+            {relaunchError && (
+              <div className="flex items-center gap-1.5 rounded-[8px] border border-status-amber-border bg-status-amber-fill px-[10px] py-[8px]">
+                <AlertTriangle className="h-[13px] w-[13px] flex-none text-status-amber" strokeWidth={1.8} />
+                <span className="font-serif text-[11.5px] leading-[1.4] text-status-amber-strong">
+                  {relaunchError}
+                </span>
+              </div>
+            )}
+            <Button
+              type="button"
+              variant="secondary"
+              data-testid="chat-relaunch"
+              onClick={() => onRelaunch?.()}
+              className="w-full justify-center"
+            >
+              Resume
+            </Button>
+          </div>
+        );
+      }
 
       case "terminal": {
         // FIX-226: while the resume is in flight (between "Run Again" click and

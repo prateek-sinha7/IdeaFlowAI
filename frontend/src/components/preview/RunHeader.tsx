@@ -254,6 +254,14 @@ function StatusBadge({
     </>
   );
 
+  if (runState === "paused") {
+    return (
+      <span className="inline-flex items-center gap-[7px] rounded-[10px] border border-status-amber-border bg-status-amber-fill px-3 py-2 font-sans text-[11.5px] font-semibold leading-none text-status-amber-strong">
+        <Pause aria-hidden className="h-[13px] w-[13px]" fill="currentColor" strokeWidth={0} />
+        Paused
+      </span>
+    );
+  }
   if (runState === "gate") {
     return brand(
       <Pause aria-hidden className="h-[13px] w-[13px]" fill="currentColor" strokeWidth={0} />,

@@ -397,7 +397,7 @@ export interface Story {
 // WORKFLOW / PIPELINE TYPES
 // ============================================================
 
-export type WorkflowType = "user_stories" | "user_stories_revision" | "ppt" | "ppt_v2" | "ppt_revision" | "prototype" | "prototype_v2" | "prototype_revision" | "prototype_large_revision" | "prototype_feature_revision" | "prototype_v2_revision" | "prototype_v2_feature_revision" | "prototype_from_template" | "prototype_from_template_revision" | "app_builder" | "app_builder_revision" | "custom" | "custom_revision" | "backlog" | "backlog_revision" | "migration" | "mulesoft_to_springboot" | "dotnet_to_azure";
+export type WorkflowType = "user_stories" | "user_stories_revision" | "ppt" | "ppt_v2" | "ppt_revision" | "prototype" | "prototype_v2" | "prototype_revision" | "prototype_large_revision" | "prototype_feature_revision" | "prototype_v2_revision" | "prototype_v2_feature_revision" | "prototype_from_template" | "prototype_from_template_revision" | "goal_v2" | "app_builder" | "app_builder_revision" | "custom" | "custom_revision" | "backlog" | "backlog_revision" | "migration" | "mulesoft_to_springboot" | "dotnet_to_azure";
 
 // Phase 16 (WR-01): ISS-016 newly persists "degraded" for a partially-failed
 // run (websocket.py), and the revision drainer can persist "revising". The raw
@@ -407,7 +407,7 @@ export type WorkflowType = "user_stories" | "user_stories_revision" | "ppt" | "p
 // `trigger: workflow` route outcome fires — the run stops its own dispatch loop
 // and hands off to a newly-minted WorkflowRun (parent_run_id). R-20 renders it
 // as a distinct "Diverted to X" card treatment, never as "Completed".
-export type WorkflowStatus = "running" | "completed" | "failed" | "cancelled" | "degraded" | "revising" | "planning" | "generating" | "waiting_for_user" | "clarifying" | "analyzing" | "diverted";
+export type WorkflowStatus = "running" | "completed" | "failed" | "cancelled" | "degraded" | "revising" | "planning" | "generating" | "waiting_for_user" | "clarifying" | "analyzing" | "diverted" | "paused";
 
 /** A reopened run the server reports as finished (terminal status), as the run
  *  screen learned it from the run record. Live-only side effects (the running
@@ -1255,6 +1255,9 @@ export interface PipelineRunState {
   // outcome ends this run's dispatch loop and hands off to a new run. The
   // live run-view's terminal treatment reads this instead of "Completed".
   divertedTo?: { runId: string; workflowId: string };
+  // Set by the `run_paused` reducer case: the run is parked (non-terminal) with a
+  // backend-given kind (credentials | poison | budget) and reason. Cleared on pipeline_start.
+  paused?: { kind: string; reason: string };
   // KAN-73 — live audit trail from hook_run WS events
   hookRuns?: HookRunEntry[];
   // Workstream C1 (POR §6.2/§6.5) — answered clarify rounds retained per run so

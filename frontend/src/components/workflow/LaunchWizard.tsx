@@ -95,7 +95,7 @@ const STAGE_FAILED_PLACEHOLDER =
 /** The Web/Deck stepper toggle value ↔ the deliverable mode. `ppt_v2` is a deck
  *  deliverable, so it sits under "deck" alongside `ppt`. `prototype_from_template`
  *  is a web deliverable. */
-const STEPPER_MODE: Record<LaunchMode, "web" | "deck"> = { prototype: "web", prototype_v2: "web", ppt: "deck", ppt_v2: "deck", prototype_from_template: "web" };
+const STEPPER_MODE: Record<LaunchMode, "web" | "deck"> = { prototype: "web", prototype_v2: "web", ppt: "deck", ppt_v2: "deck", prototype_from_template: "web", goal_v2: "web" };
 /** The sessionStorage key a caller stages this mode's draft under. The chain pickup
  *  and the draft restore both read it, so they cannot disagree (ISS-347). */
 const draftKeyFor = (m: LaunchMode) => (STEPPER_MODE[m] === "web" ? "prototype.draft" : "ppt.draft");
@@ -155,6 +155,18 @@ const MODE_CONFIG: Record<LaunchMode, ModeConfig> = {
   // Same web wizard as `prototype` — same template step, same design systems —
   // because it declares the same `opendesign` context provider and `design_mode`.
   // Only the pipeline it launches and the copy differ (the ppt/ppt_v2 precedent).
+  goal_v2: {
+    agentPipeline: "goal_v2",
+    savePipeline: "goal_v2",
+    title: "Configure your deliverable",
+    chainingTitle: "Pick a template & design system",
+    eyebrow: "Deliver from documents (Goal)",
+    chainingEyebrow: "Chained deliverable",
+    placeholder:
+      "e.g. Read every attached document and deliver a working prototype where each requirement is tested.",
+    briefLabel: "Describe what you're building",
+    saveTitle: "Save goal workflow",
+  },
   prototype_v2: {
     agentPipeline: "prototype_v2",
     savePipeline: "prototype_v2",

@@ -158,6 +158,9 @@ class WorkflowManifest:
     # Default ``{}`` keeps every existing manifest byte-identical (INV-3).
     capabilities: dict = field(default_factory=dict)
 
+    # ── Resilience (P27 E6) — pure DATA; ``None`` = block absent (parity) ──
+    resilience: dict | None = None
+
     # ── Forward / inert (D-06) ────────────────────────────────────────────
     model: dict | None = None
     limits: dict | None = None
@@ -200,8 +203,19 @@ _ALLOWED_TOP_KEYS: frozenset[str] = frozenset(
         "chat",
         # ── Capabilities (Spec 012 / R-07, R-08) — pure DATA, never control flow (INV-5) ──
         "capabilities",
+        # ── Self-healing (P27 E6) — pure DATA, never control flow (INV-5) ──
+        "resilience",
     }
 )
+
+#: ``resilience:`` keys and their defaults (seconds, except max_same_error).
+RESILIENCE_DEFAULTS: dict[str, int] = {
+    "retry_window_seconds": 900,
+    "stall_seconds": 600,
+    "max_same_error": 3,
+    "pause_after_seconds": 14400,
+    "credential_probe_seconds": 300,
+}
 
 # The five fields that MUST be present (MAN-01).
 _REQUIRED_KEYS: tuple[str, ...] = ("id", "steps", "deliverable", "planner", "clarify")
@@ -341,6 +355,9 @@ def build_manifest_from_dict(data: object, source_label: str) -> WorkflowManifes
                 f"({capabilities['internet']!r})"
             )
 
+    # ── Resilience block (P27 E6) — strict keys, positive ints, defaults filled ──
+    resilience = _parse_resilience(data, file_str)
+
     # ── Forward / inert fields (D-06) — type-checked, not consumed ─────────
     model = _optional_dict(data, "model", file_str, default_factory=lambda: None)
     limits = _optional_dict(data, "limits", file_str, default_factory=lambda: None)
@@ -368,9 +385,37 @@ def build_manifest_from_dict(data: object, source_label: str) -> WorkflowManifes
         chained_from=chained_from,
         chat=chat,
         capabilities=capabilities,
+        resilience=resilience,
         model=model,
         limits=limits,
     )
+
+
+def _parse_resilience(data: dict, file_str: str) -> dict | None:
+    raw = data.get("resilience")
+    if raw is None:
+        return None
+    if not isinstance(raw, dict):
+        raise ManifestValidationError(
+            f"{file_str}: field 'resilience' must be a mapping, got {type(raw).__name__!r}"
+        )
+    extra = set(raw) - set(RESILIENCE_DEFAULTS)
+    if extra:
+        raise ManifestValidationError(
+            f"{file_str}: field 'resilience' contains unknown key(s) {sorted(extra)} — "
+            f"only {sorted(RESILIENCE_DEFAULTS)} are allowed"
+        )
+    out = dict(RESILIENCE_DEFAULTS)
+    for key, value in raw.items():
+        if value is None:
+            continue
+        if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
+            raise ManifestValidationError(
+                f"{file_str}: field 'resilience.{key}' must be a positive integer, "
+                f"got {value!r}"
+            )
+        out[key] = value
+    return out
 
 
 def _require_str(data: dict, key: str, file_str: str) -> str:

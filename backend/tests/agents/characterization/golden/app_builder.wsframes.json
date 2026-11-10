@@ -149,7 +149,7 @@
     "chunk": null,
     "data": {
       "agent_id": "app-api-design",
-      "context_message": "",
+      "context_message": "=== STEP START ===\nRun your step now, as your instructions describe. Nothing is pasted into this message on purpose.\n- The user's original request is in .context/user-prompt.md.\n- Earlier steps' outputs are in .agents/ and in the files your instructions name.\nRead what your instructions tell you to read, then do the work and deliver your output. Do not ask what to do and do not wait for more input.\n=== END STEP START ===",
       "tool_calls": []
     },
     "section": "app_builder",
@@ -218,7 +218,7 @@
     "chunk": null,
     "data": {
       "agent_id": "app-code-compliance",
-      "context_message": "",
+      "context_message": "=== STEP START ===\nRun your step now, as your instructions describe. Nothing is pasted into this message on purpose.\n- The user's original request is in .context/user-prompt.md.\n- Earlier steps' outputs are in .agents/ and in the files your instructions name.\nRead what your instructions tell you to read, then do the work and deliver your output. Do not ask what to do and do not wait for more input.\n=== END STEP START ===",
       "tool_calls": []
     },
     "section": "app_builder",
@@ -313,7 +313,7 @@
     "chunk": null,
     "data": {
       "agent_id": "app-code-generator",
-      "context_message": "",
+      "context_message": "=== STEP START ===\nRun your step now, as your instructions describe. Nothing is pasted into this message on purpose.\n- The user's original request is in .context/user-prompt.md.\n- Earlier steps' outputs are in .agents/ and in the files your instructions name.\nRead what your instructions tell you to read, then do the work and deliver your output. Do not ask what to do and do not wait for more input.\n=== END STEP START ===",
       "tool_calls": []
     },
     "section": "app_builder",
@@ -402,7 +402,7 @@
     "chunk": null,
     "data": {
       "agent_id": "app-database-design",
-      "context_message": "",
+      "context_message": "=== STEP START ===\nRun your step now, as your instructions describe. Nothing is pasted into this message on purpose.\n- The user's original request is in .context/user-prompt.md.\n- Earlier steps' outputs are in .agents/ and in the files your instructions name.\nRead what your instructions tell you to read, then do the work and deliver your output. Do not ask what to do and do not wait for more input.\n=== END STEP START ===",
       "tool_calls": []
     },
     "section": "app_builder",
@@ -471,7 +471,7 @@
     "chunk": null,
     "data": {
       "agent_id": "app-devops",
-      "context_message": "",
+      "context_message": "=== STEP START ===\nRun your step now, as your instructions describe. Nothing is pasted into this message on purpose.\n- The user's original request is in .context/user-prompt.md.\n- Earlier steps' outputs are in .agents/ and in the files your instructions name.\nRead what your instructions tell you to read, then do the work and deliver your output. Do not ask what to do and do not wait for more input.\n=== END STEP START ===",
       "tool_calls": []
     },
     "section": "app_builder",
@@ -540,7 +540,7 @@
     "chunk": null,
     "data": {
       "agent_id": "app-feature-implementation",
-      "context_message": "",
+      "context_message": "=== STEP START ===\nRun your step now, as your instructions describe. Nothing is pasted into this message on purpose.\n- The user's original request is in .context/user-prompt.md.\n- Earlier steps' outputs are in .agents/ and in the files your instructions name.\nRead what your instructions tell you to read, then do the work and deliver your output. Do not ask what to do and do not wait for more input.\n=== END STEP START ===",
       "tool_calls": []
     },
     "section": "app_builder",
@@ -609,7 +609,7 @@
     "chunk": null,
     "data": {
       "agent_id": "app-infra-generator",
-      "context_message": "",
+      "context_message": "=== STEP START ===\nRun your step now, as your instructions describe. Nothing is pasted into this message on purpose.\n- The user's original request is in .context/user-prompt.md.\n- Earlier steps' outputs are in .agents/ and in the files your instructions name.\nRead what your instructions tell you to read, then do the work and deliver your output. Do not ask what to do and do not wait for more input.\n=== END STEP START ===",
       "tool_calls": []
     },
     "section": "app_builder",
@@ -678,7 +678,7 @@
     "chunk": null,
     "data": {
       "agent_id": "app-sdlc-governance",
-      "context_message": "",
+      "context_message": "=== STEP START ===\nRun your step now, as your instructions describe. Nothing is pasted into this message on purpose.\n- The user's original request is in .context/user-prompt.md.\n- Earlier steps' outputs are in .agents/ and in the files your instructions name.\nRead what your instructions tell you to read, then do the work and deliver your output. Do not ask what to do and do not wait for more input.\n=== END STEP START ===",
       "tool_calls": []
     },
     "section": "app_builder",
@@ -747,7 +747,7 @@
     "chunk": null,
     "data": {
       "agent_id": "app-security-architecture",
-      "context_message": "",
+      "context_message": "=== STEP START ===\nRun your step now, as your instructions describe. Nothing is pasted into this message on purpose.\n- The user's original request is in .context/user-prompt.md.\n- Earlier steps' outputs are in .agents/ and in the files your instructions name.\nRead what your instructions tell you to read, then do the work and deliver your output. Do not ask what to do and do not wait for more input.\n=== END STEP START ===",
       "tool_calls": []
     },
     "section": "app_builder",
@@ -816,7 +816,7 @@
     "chunk": null,
     "data": {
       "agent_id": "app-system-design",
-      "context_message": "",
+      "context_message": "=== STEP START ===\nRun your step now, as your instructions describe. Nothing is pasted into this message on purpose.\n- The user's original request is in .context/user-prompt.md.\n- Earlier steps' outputs are in .agents/ and in the files your instructions name.\nRead what your instructions tell you to read, then do the work and deliver your output. Do not ask what to do and do not wait for more input.\n=== END STEP START ===",
       "tool_calls": []
     },
     "section": "app_builder",
@@ -885,7 +885,7 @@
     "chunk": null,
     "data": {
       "agent_id": "app-test-compliance",
-      "context_message": "",
+      "context_message": "=== STEP START ===\nRun your step now, as your instructions describe. Nothing is pasted into this message on purpose.\n- The user's original request is in .context/user-prompt.md.\n- Earlier steps' outputs are in .agents/ and in the files your instructions name.\nRead what your instructions tell you to read, then do the work and deliver your output. Do not ask what to do and do not wait for more input.\n=== END STEP START ===",
       "tool_calls": []
     },
     "section": "app_builder",
@@ -954,7 +954,7 @@
     "chunk": null,
     "data": {
       "agent_id": "app-test-implementation",
-      "context_message": "",
+      "context_message": "=== STEP START ===\nRun your step now, as your instructions describe. Nothing is pasted into this message on purpose.\n- The user's original request is in .context/user-prompt.md.\n- Earlier steps' outputs are in .agents/ and in the files your instructions name.\nRead what your instructions tell you to read, then do the work and deliver your output. Do not ask what to do and do not wait for more input.\n=== END STEP START ===",
       "tool_calls": []
     },
     "section": "app_builder",
@@ -1023,7 +1023,7 @@
     "chunk": null,
     "data": {
       "agent_id": "app-user-stories",
-      "context_message": "",
+      "context_message": "=== STEP START ===\nRun your step now, as your instructions describe. Nothing is pasted into this message on purpose.\n- The user's original request is in .context/user-prompt.md.\n- Earlier steps' outputs are in .agents/ and in the files your instructions name.\nRead what your instructions tell you to read, then do the work and deliver your output. Do not ask what to do and do not wait for more input.\n=== END STEP START ===",
       "tool_calls": []
     },
     "section": "app_builder",
@@ -1092,7 +1092,7 @@
     "chunk": null,
     "data": {
       "agent_id": "app-ux-design",
-      "context_message": "",
+      "context_message": "=== STEP START ===\nRun your step now, as your instructions describe. Nothing is pasted into this message on purpose.\n- The user's original request is in .context/user-prompt.md.\n- Earlier steps' outputs are in .agents/ and in the files your instructions name.\nRead what your instructions tell you to read, then do the work and deliver your output. Do not ask what to do and do not wait for more input.\n=== END STEP START ===",
       "tool_calls": []
     },
     "section": "app_builder",

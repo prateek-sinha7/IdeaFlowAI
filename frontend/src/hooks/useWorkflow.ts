@@ -847,6 +847,7 @@ export function handlePipelineMessage(
           cancelled: undefined,
           failed: undefined,
           degraded: undefined,
+          paused: undefined,
           // Gap fix: clear a stale `error` frame's message so a resumed/re-announced
           // run does not keep showing the previous attempt's failure reason.
           pipelineError: undefined,
@@ -1501,6 +1502,28 @@ export function handlePipelineMessage(
       return true;
     }
 
+    case "run_paused": {
+      // The backend parked the run (non-terminal): credentials / poison / budget.
+      // Not a teardown — the stream stays open and a resume re-announces the run,
+      // so only isRunning and the paused marker change here.
+      const pausedKind = msg.kind as string;
+      const pausedReason = msg.reason as string;
+      setPipelineState((prev) => {
+        const updated: AgentRunState[] = prev.agents.map((a) =>
+          a.status === "thinking" || a.status === "running"
+            ? { ...a, status: "idle", thinking: "" }
+            : a
+        );
+        return {
+          ...prev,
+          agents: updated,
+          isRunning: false,
+          paused: { kind: pausedKind, reason: pausedReason },
+        };
+      });
+      return true;
+    }
+
     case "pipeline_reconnected": {
       // Phase 12 / 12-08 (RESUME-04 FE half, UAT Gap 2b) — previously this
       // event was silently dropped, so after a backend restart mid-run the
@@ -1530,9 +1553,9 @@ export function handlePipelineMessage(
       // ordinary live reconnect (those fields are already unset).
       if (live !== false) {
         setPipelineState((prev) =>
-          (prev.isRunning && !prev.cancelled && !prev.failed && !prev.degraded && !prev.pipelineError)
+          (prev.isRunning && !prev.cancelled && !prev.failed && !prev.degraded && !prev.paused && !prev.pipelineError)
             ? prev
-            : { ...prev, isRunning: true, cancelled: undefined, failed: undefined, degraded: undefined, pipelineError: undefined, failedAgents: undefined, degradedFailedAgents: undefined }
+            : { ...prev, isRunning: true, cancelled: undefined, failed: undefined, degraded: undefined, paused: undefined, pipelineError: undefined, failedAgents: undefined, degradedFailedAgents: undefined }
         );
         return true;
       }
@@ -1837,6 +1860,14 @@ export function handlePipelineMessage(
         // uses `## Task N: Title` headings — extract each title cheaply with a regex.
         // INV-1: keyed on generic `## Task N:` pattern, never an agent-id literal.
         let plannedTasks = prev.protoPlannedTasks;
+        // The engine now sends the task plan itself (number + title) — use it first:
+        // it works for every plan format, a JSON task plan included.
+        const taskPlan = Array.isArray(msg.task_plan)
+          ? (msg.task_plan as Array<{ number?: unknown; title?: unknown }>)
+              .map((t) => ({ number: Number(t.number) || 0, title: String(t.title ?? "").trim() }))
+              .filter((t) => t.number > 0 && t.title)
+          : [];
+        if (taskPlan.length > 0 && !plannedTasks?.length) plannedTasks = taskPlan;
         if (taskNumber === 1 && !plannedTasks && totalTasksFromLoop > 0) {
           const allTitles: Array<{ number: number; title: string }> = [];
           // Find the planner agent output — the one that contains `## Task 1:`

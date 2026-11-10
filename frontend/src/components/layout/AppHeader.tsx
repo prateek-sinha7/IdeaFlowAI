@@ -39,6 +39,7 @@ const RUN_STATUS_TONE: Record<string, { label: string; dotClass: string }> = {
   planning:         { label: "Planning",        dotClass: "bg-status-amber animate-pulse" },
   generating:       { label: "Generating",      dotClass: "bg-brand animate-pulse" },
   waiting_for_user: { label: "Waiting for you", dotClass: "bg-status-amber" },
+  paused:           { label: "Paused",          dotClass: "bg-status-amber" },
   clarifying:       { label: "Clarifying",      dotClass: "bg-status-amber animate-pulse" },
   gate:             { label: "Awaiting review", dotClass: "bg-status-amber" },
 };
@@ -46,7 +47,7 @@ const RUN_STATUS_TONE: Record<string, { label: string; dotClass: string }> = {
 // Statuses that mean "the run is still in flight and needs your attention or
 // is actively building". Used to filter recentRuns for the badge.
 const LIVE_STATUSES = new Set([
-  "running", "revising", "planning", "generating", "waiting_for_user", "clarifying", "analyzing",
+  "running", "revising", "planning", "generating", "waiting_for_user", "paused", "clarifying", "analyzing",
 ]);
 
 interface AppHeaderProps {

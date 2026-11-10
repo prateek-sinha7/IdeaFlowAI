@@ -1,0 +1,282 @@
+# goal_v2 — "Deliver from documents (Goal)" (P27)
+#
+# Documents in, a working tested deliverable out, every requirement traced:
+#   - the client's own requirement ids in a ledger, reviewed by a person;
+#   - tests are executable: the run_acceptance tool runs them in Chrome against prototype.html and writes
+#     .goal/trace.json itself (runner-stamped, page hash, pass counter); no agent writes the trace;
+#   - an integrate step runs every use case end to end once and fixes pieces that do not fit;
+#   - the look comes from the design system and template chosen at launch (OpenDesign context).
+#
+#   ingest -> ledger [human] -> acceptance -> spec -> build (task loop) -> integrate -> fix -> verify [conditional]
+#                                                                                       ^              |
+#                                                                                       +- retry, max 3+
+#   verify ok (or loop exhausted) -> report
+id: goal_v2
+version: 1
+user_launchable: true
+is_beta: false
+name: Goal v2
+display_name: "Deliver from documents (Goal) · tested and traced"
+short_name: Goal
+icon: Target
+description: Reads every file you give it, builds a requirement ledger with your own IDs, builds a working tool or
+  prototype in the chosen design system, checks the pieces fit, and proves each requirement with tests that run.
+launch_surface: wizard
+design_mode: web
+planner: skip
+clarify:
+  mode: skip
+  defaults: []
+deliverable:
+  strategy: single_file
+  name: prototype.html
+context_providers:
+- opendesign
+seed_files:
+  from_run: [".goal/spec-screens.md", "design.md", ".goal/tasks-reply.md"]
+limits:
+  wall_clock_seconds: 14400
+resilience:
+  retry_window_seconds: 900
+  stall_seconds: 600
+  max_same_error: 3
+  pause_after_seconds: 14400
+  credential_probe_seconds: 300
+steps:
+- agent: custom-agent
+  instance_id: ingest
+  name: Ingest
+  model: {model: eu.anthropic.claude-sonnet-4-6}
+  skills_inline: [goal-v2-ingest]
+  prompt: |
+    You are the Ingest step. Follow "Goal v2 — Ingest" exactly: a fast inventory, not a reading.
+    The user's request describes the FINAL product; a later Build step makes it. You do not build anything:
+    never write HTML, scripts or app files.
+    Write .goal/inventory.json and .goal/missing.json. Reply with one line: files, roles, missing.
+  brief_role: reference
+  write_paths: [".goal/inventory.json", ".goal/missing.json", "ingest-*.md"]
+  tools:
+    read_files: true
+    write_files: true
+    exec: false
+    tool_sets: [file_extract]
+  gates: []
+
+- agent: custom-agent
+  instance_id: ledger
+  name: Requirement ledger
+  depends_on: ["custom-agent:ingest"]
+  model: {model: eu.anthropic.claude-sonnet-4-6}
+  skills_inline: [goal-v2-ledger]
+  prompt: |
+    You are the Ledger step. Read .goal/inventory.json and .goal/missing.json, then follow "Goal v2 — Requirement
+    Ledger": write .goal/ledger.json (every requirement with the client's own ids, every acceptance bullet as its
+    own UC<n>-A<k> row, verbatim text, source page, acceptance, testable) and .goal/intent.json.
+    `ledger_check` mode `harvest` must be clean before you finish.
+    The user's request describes the FINAL product; a later Build step makes it. You do not build anything:
+    never write HTML, scripts or app files.
+    Your reply is the review the person approves (no working notes before it): what will be built and the
+    profile; rows per use case; missing files and what they block; each decision with your recommendation.
+  write_paths: [".goal/ledger.json", ".goal/intent.json", "ledger-*.md"]
+  tools:
+    read_files: true
+    write_files: true
+    exec: false
+    tool_sets: [file_extract, ledger, ask_user]
+  gates: [human]
+
+- agent: custom-agent
+  instance_id: acceptance
+  name: Acceptance tests
+  depends_on: ["custom-agent:ledger"]
+  model: {model: eu.anthropic.claude-sonnet-4-6}
+  skills_inline: [goal-v2-acceptance]
+  prompt: |
+    You are the Acceptance step. No code exists yet. Read .goal/ledger.json, .goal/intent.json and the approved
+    review in .agents/02-custom-agent_ledger.md — the reviewer's decisions there are binding. Follow "Goal v2 —
+    Executable Acceptance Tests": one .goal/acceptance/<id>.json per testable row in the exact v2 format, values
+    taken from the uploaded files, derived fixtures under .goal/fixtures/ when no sample covers a case.
+    `ledger_check` mode `acceptance_schema` must be clean before you finish.
+    Reply with one line: tests written, rows not testable, fixtures derived.
+    The user's request describes the FINAL product; a later Build step makes it. You do not build anything:
+    never write HTML, scripts or app files.
+  write_paths: [".goal/acceptance/*.json", ".goal/fixtures/*", ".goal/ledger.json", "acceptance-*.md"]
+  tools:
+    read_files: true
+    write_files: true
+    exec: false
+    tool_sets: [ledger]
+  gates: []
+
+- agent: custom-agent
+  instance_id: spec
+  name: Spec and plan
+  depends_on: ["custom-agent:acceptance"]
+  model: {model: eu.anthropic.claude-sonnet-4-6}
+  skills_inline: [goal-v2-spec-plan, velocity-ui-ux, velocity-design, velocity-design-system]
+  injects: [design_system, template]
+  prompt: |
+    You are the Spec and plan step. Follow "Goal v2 — Spec and Plan": write spec.md (with the `## Screens` table
+    and the mandatory Architecture section) and tasks.json (10–12 tasks), traced to every ledger id and acceptance
+    file; the reviewer's decisions in .agents/02-custom-agent_ledger.md are binding. `ledger_check` mode
+    `coverage` must be clean.
+    Your REPLY is exactly the `## Screens` table (heading and rows) followed by one line: tasks, ids covered.
+    The user's request describes the FINAL product; a later Build step makes it. You do not build anything:
+    never write HTML, scripts or app files.
+  write_paths: ["spec.md", "tasks.json", ".goal/spec-screens.md", ".goal/tasks-reply.md", "spec-*.md"]
+  tools:
+    read_files: true
+    write_files: true
+    exec: false
+    tool_sets: [ledger]
+  gates: []
+
+- agent: custom-agent
+  instance_id: build
+  name: Build
+  depends_on: ["custom-agent:spec"]
+  model: {model: eu.anthropic.claude-sonnet-4-6}
+  skills_inline: [velocity-ui-ux, velocity-design, velocity-design-system, goal-v2-acceptance]
+  injects: [design_system, template]
+  skills_select:
+    file: .goal/intent.json
+    field: profile
+    map:
+      web_tool: [goal-v2-app-logic]
+  prompt: |
+    You are a Builder. Your CURRENT TASK is one entry of tasks.json. The deliverable is ONE file, prototype.html;
+    never create another page file (no copies, no "-v2" or "-new" files, no redirects) — the tests only ever load
+    prototype.html. On the first task create prototype.html from the template seed and the active design system.
+    On later tasks do NOT read the whole page: call `page_outline` first and read only the regions you need, and
+    change it with edit_file. When a change is too large for edit_file (removing or replacing a big block),
+    rewrite prototype.html whole with write_file, keeping everything that already works.
+    Follow "UI and UX craft", the design skills, for a web tool "Goal v2 — Working App Logic", and the
+    Architecture section of spec.md (use the shared state and the shared XML writer — never emit your own XML
+    document or declaration).
+    Add every data-test name your task's acceptance files target. Then `run_acceptance("<your task's ids>")` and
+    fix until they pass. Never write .goal/trace.json. Then call report_task_complete.
+  write_paths: ["prototype.html", "build-*.md"]
+  tools:
+    read_files: true
+    write_files: true
+    exec: false
+    tool_sets: [playwright, prototype_emit_only, ledger, acceptance]
+  strategy: task_loop
+  task_source:
+    kind: parsed
+    parser: json_tasks
+    target: tasks.json
+    source_step: custom-agent:spec
+    spec_step: custom-agent:spec
+  # Full render + click validation every 4th task and on the last one; the quick static check runs every task.
+  fix: {max_attempts: 2, full_every: 4}
+  validators:
+  - html_static
+  - html_render
+  require_render: true
+  compaction: html_skeleton
+  gates: []
+
+- agent: custom-agent
+  instance_id: integrate
+  name: Integration check
+  depends_on: ["custom-agent:build"]
+  model: {model: eu.anthropic.claude-sonnet-4-6}
+  skills_inline: [goal-v2-integrate, goal-v2-acceptance, velocity-design]
+  skills_select:
+    file: .goal/intent.json
+    field: profile
+    map:
+      web_tool: [goal-v2-app-logic]
+  prompt: |
+    You are the Integration check. Follow "Goal v2 — Integration Check": page_outline, the architecture check
+    against spec.md, run_acceptance("all"), one end-to-end pass per use case with the real sample files, then fix
+    integration faults with edit_file and run_acceptance("all") again. Never write .goal/trace.json.
+    Work only in prototype.html; never create another page file.
+  write_paths: ["prototype.html", "integrate-*.md"]
+  tools:
+    read_files: true
+    write_files: true
+    exec: false
+    tool_sets: [playwright, ledger, acceptance]
+  gates: []
+
+- agent: custom-agent
+  instance_id: fix
+  name: Fix
+  depends_on: ["custom-agent:integrate"]
+  model: {model: eu.anthropic.claude-sonnet-4-6}
+  skills_inline: [goal-v2-fix, goal-v2-acceptance, velocity-design, velocity-ui-ux]
+  skills_select:
+    file: .goal/intent.json
+    field: profile
+    map:
+      web_tool: [goal-v2-app-logic]
+  prompt: |
+    You are the Fix step. Follow "Goal v2 — Fix": work only on results with status fail or error in
+    .goal/trace.json; if there is none, reply exactly "nothing to fix". Use page_outline, fix with edit_file,
+    re-run with run_acceptance. Never write .goal/trace.json or the acceptance files. Fix the cause inside
+    prototype.html; never create another page file and never redirect or navigate the page elsewhere.
+  write_paths: ["prototype.html", ".goal/fix-notes.md", "fix-*.md"]
+  tools:
+    read_files: true
+    write_files: true
+    exec: false
+    tool_sets: [playwright, ledger, acceptance]
+  gates: []
+
+- agent: custom-agent
+  instance_id: verify
+  name: Verify
+  depends_on: ["custom-agent:fix"]
+  produces: ["route_decision"]
+  model: {model: eu.anthropic.claude-sonnet-4-6}
+  skills_inline: [goal-v2-verify, goal-v2-acceptance, velocity-ui-ux]
+  prompt: |
+    You are the Verify step. Follow "Goal v2 — Verify": run_acceptance("all") every time, ledger_check
+    trace_fresh clean, one look at the page as a person. Never edit prototype.html, the tests or the trace.
+    Look at the page only through run_acceptance and page_outline; never open the app's own web address
+    (localhost:3000 needs a login and is not the page).
+    Your final reply is exactly one line, no markdown:
+    {"decision": "ok"} when no result is fail or error, otherwise {"decision": "retry"}.
+  tools:
+    read_files: true
+    write_files: false
+    exec: false
+    tool_sets: [playwright, ledger, acceptance]
+  gates:
+  - conditional
+  route:
+    outcomes:
+      ok: {trigger: step, target: report}
+      retry:
+        trigger: step
+        target: fix
+        feedback: >-
+          Verify found failing requirements. Read .goal/trace.json (written by run_acceptance) and fix every
+          result with status fail or error, then hand back to verify.
+    loop_max_iterations: 3
+
+- agent: custom-agent
+  instance_id: report
+  name: Report
+  depends_on: ["custom-agent:verify"]
+  model: {model: eu.anthropic.claude-sonnet-4-6}
+  skills_inline: [goal-v2-verify]
+  prompt: |
+    You are the Report step. Build .goal/report.md from .goal/trace.json (written by run_acceptance) and the
+    ledger — never from your own judgement:
+    1. What was built, the profile, the template and design system used.
+    2. Totals copied from the trace: requirements, pass, fail, error, not testable, coverage %; the trace's pass
+       number and page hash.
+    3. The trace matrix: id | requirement (short) | spec section | task | test | result | evidence.
+    4. Every id that is not pass, named, with the trace's failing step and observation.
+    5. Missing inputs (.goal/missing.json) and the reviewer's decisions.
+    `ledger_check` mode `report` must be clean. Reply with the totals line.
+  write_paths: [".goal/report.md", "report-*.md"]
+  tools:
+    read_files: true
+    write_files: true
+    exec: false
+    tool_sets: [ledger]
+  gates: []

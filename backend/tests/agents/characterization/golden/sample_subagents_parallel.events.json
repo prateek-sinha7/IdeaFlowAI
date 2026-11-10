@@ -215,7 +215,7 @@
   {
     "data": {
       "agent_id": "custom-agent:ball",
-      "context_message": "",
+      "context_message": "=== STEP START ===\nRun your step now, as your instructions describe. Nothing is pasted into this message on purpose.\n- The user's original request is in .context/user-prompt.md.\n- Earlier steps' outputs are in .agents/ and in the files your instructions name.\nRead what your instructions tell you to read, then do the work and deliver your output. Do not ask what to do and do not wait for more input.\n=== END STEP START ===",
       "task_author_id": null,
       "task_id": null,
       "tool_calls": [],
@@ -296,7 +296,7 @@
   {
     "data": {
       "agent_id": "custom-agent:cat",
-      "context_message": "",
+      "context_message": "=== STEP START ===\nRun your step now, as your instructions describe. Nothing is pasted into this message on purpose.\n- The user's original request is in .context/user-prompt.md.\n- Earlier steps' outputs are in .agents/ and in the files your instructions name.\nRead what your instructions tell you to read, then do the work and deliver your output. Do not ask what to do and do not wait for more input.\n=== END STEP START ===",
       "task_author_id": null,
       "task_id": null,
       "tool_calls": [],
@@ -365,7 +365,7 @@
   {
     "data": {
       "agent_id": "custom-agent:page",
-      "context_message": "",
+      "context_message": "=== STEP START ===\nRun your step now, as your instructions describe. Nothing is pasted into this message on purpose.\n- The user's original request is in .context/user-prompt.md.\n- Earlier steps' outputs are in .agents/ and in the files your instructions name.\nRead what your instructions tell you to read, then do the work and deliver your output. Do not ask what to do and do not wait for more input.\n=== END STEP START ===",
       "tool_calls": []
     },
     "type": "agent_input"

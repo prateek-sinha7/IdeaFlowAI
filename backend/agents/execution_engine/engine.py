@@ -109,7 +109,12 @@ from agents.execution_engine.clarify_engine import ClarifyEngine as _ClarifyEngi
 from agents.execution_engine.context import ExecutionContext  # noqa: E402
 from agents.execution_engine.resolver import WorkflowResolver  # noqa: E402
 from agents.execution_engine.run_log import RunLog, RunTrace  # noqa: E402
-from agents.execution_engine.state_machine import TERMINAL_STATES, get_state_machine  # noqa: E402
+from agents.execution_engine.state_machine import (  # noqa: E402
+    TERMINAL_STATES,
+    format_pause_reason,
+    get_state_machine,
+    parse_pause_kind,
+)
 from agents.capabilities.model_catalog import ModelCatalog  # noqa: E402
 from agents.capabilities.token_usage import (  # noqa: E402
     FALLBACK_USAGE_KEY,
@@ -229,6 +234,9 @@ _CREDENTIAL_AGENT_ERRORS: frozenset[str] = frozenset(
 )
 
 
+RESILIENCE_PROBE_DEFAULT_SECONDS = 300
+
+
 class StepRaised(Exception):
     """A step's strategy raised an exception the engine has no dedicated handler for.
 
@@ -239,6 +247,45 @@ class StepRaised(Exception):
         super().__init__(message)
         self.step_id = step_id
         self.message = message
+
+
+async def _stall_guarded(stream, stall_seconds: float):
+    """Re-yield ``stream``'s events; raise ``StepStalled`` when none arrives for ``stall_seconds``.
+
+    P27 E6 level 3. The pending ``__anext__`` is cancelled and the source generator closed,
+    so the agent stream really stops before the step is retried on a fresh thread."""
+    from agents.model_policy import StepStalled
+
+    it = stream.__aiter__()
+    try:
+        while True:
+            nxt = asyncio.ensure_future(it.__anext__())
+            try:
+                done, _ = await asyncio.wait({nxt}, timeout=stall_seconds)
+            except BaseException:
+                nxt.cancel()
+                raise
+            if not done:
+                nxt.cancel()
+                try:
+                    await nxt
+                except BaseException:  # noqa: BLE001 — the cancelled read, nothing to keep
+                    pass
+                raise StepStalled(
+                    f"no event from the agent stream for {stall_seconds:g}s"
+                )
+            try:
+                event = nxt.result()
+            except StopAsyncIteration:
+                return
+            yield event
+    finally:
+        aclose = getattr(it, "aclose", None)
+        if aclose is not None:
+            try:
+                await aclose()
+            except BaseException:  # noqa: BLE001 — closing a dead stream must not mask the cause
+                pass
 
 
 _AGENT_ERROR_CATEGORIES: tuple[tuple[tuple[str, ...], str], ...] = (
@@ -310,6 +357,10 @@ _AGENT_ERROR_CATEGORIES: tuple[tuple[tuple[str, ...], str], ...] = (
             # text always says "SSO session" and "aws sso login".
             "sso session",
             "aws sso",
+            # botocore SSO refresh failure (run a46ce12b): "Error when retrieving token
+            # from sso: Token has expired and refresh failed" — matched none of the above.
+            "token from sso",
+            "token has expired",
         ),
         _CREDENTIAL_AGENT_ERROR,
     ),
@@ -3519,6 +3570,7 @@ NON_TERMINAL_RUN_STATUSES: tuple[str, ...] = (
     "planning",
     "clarifying",
     "waiting_for_user",
+    "paused",  # P27 E6: resilience pause (credentials / poison step / budget)
     "generating",
     "analyzing",
     "revising",
@@ -4016,6 +4068,17 @@ def _make_exec_recorder(runner):
     return _recorder
 
 
+_STEP_START_BLOCK = (
+    "=== STEP START ===\n"
+    "Run your step now, as your instructions describe. Nothing is pasted into this message on purpose.\n"
+    "- The user's original request is in .context/user-prompt.md.\n"
+    "- Earlier steps' outputs are in .agents/ and in the files your instructions name.\n"
+    "Read what your instructions tell you to read, then do the work and deliver your output. "
+    "Do not ask what to do and do not wait for more input.\n"
+    "=== END STEP START ==="
+)
+
+
 class ExecutionEngine:
     """Universal Execution Engine — single entry point for all workflows."""
 
@@ -4044,6 +4107,10 @@ class ExecutionEngine:
         self._resume_register_queue: Callable[[str], asyncio.Queue] | None = None
         self._resume_register_task: Callable[[str, asyncio.Task], None] | None = None
         self._resume_cleanup: Callable[[str], None] | None = None
+        # P27 E6: app-injected starter for the credential probe of a run paused on
+        # credentials — ``(run_id, interval_seconds) -> None``. The kernel never imports
+        # app.api, so app/main.py wires it. None ⇒ no auto-resume (a person resumes).
+        self._paused_probe_start: Callable[[str, int], None] | None = None
         # ── RESUME-10: the live-layer callbacks a RESUMED run must thread, injected
         # app-side (app/main.py restore-scan site) from the SAME callables the REST/SSE
         # launch path threads into execute() (run_commands.py). resume_run bypasses the
@@ -4080,6 +4147,68 @@ class ExecutionEngine:
         # threads it into KernelServices and thence into every cooperative boundary.
         #   _resume_cancel_event(run_id) -> asyncio.Event | None
         self._resume_cancel_event: "ResumeCancelEvent | None" = None
+
+    async def _pause_run(
+        self,
+        ectx: "ExecutionContext",
+        pipeline_run_id: str,
+        kind: str,
+        reason: str,
+    ) -> dict:
+        """Park the run as ``paused`` (P27 E6 level 5) and return the ``run_paused`` event.
+
+        Non-terminal: no finalizer, no ``completed_at``. The reason is stored in
+        ``WorkflowRun.error`` as ``paused:<kind>: <reason>`` (no migration). A credentials
+        pause also starts the app-injected probe that auto-resumes the run."""
+        self._state_machine.transition(pipeline_run_id, "paused")
+        stored = format_pause_reason(kind, reason)
+        try:
+            from app.models.database import SessionLocal
+            from app.models.workflow import WorkflowRun
+
+            _db = SessionLocal()
+            try:
+                _wr = (
+                    _db.query(WorkflowRun)
+                    .filter(WorkflowRun.id == pipeline_run_id)
+                    .first()
+                )
+                if _wr is not None:
+                    _wr.error = stored
+                    _wr.completed_at = None
+                    _db.commit()
+            finally:
+                _db.close()
+        except Exception as _exc:  # noqa: BLE001 — in-memory state is still right for this process
+            logger.warning(
+                "pause reason not persisted run=%s: %s", pipeline_run_id, _exc
+            )
+        await self._persist_budget_snapshot_if_active(ectx, force=(kind == "budget"))
+        if kind == "credentials":
+            self._start_credential_probe(pipeline_run_id, ectx.resilience)
+        return {
+            "type": "run_paused",
+            "data": {
+                "run_id": pipeline_run_id,
+                "pipeline_run_id": pipeline_run_id,
+                "reason": reason,
+                "kind": kind,
+                "timestamp": _now(),
+            },
+        }
+
+    def _start_credential_probe(self, run_id: str, resilience: dict | None) -> None:
+        starter = self._paused_probe_start
+        if starter is None:
+            return
+        interval = int(
+            (resilience or {}).get("credential_probe_seconds")
+            or RESILIENCE_PROBE_DEFAULT_SECONDS
+        )
+        try:
+            starter(run_id, interval)
+        except Exception as exc:  # noqa: BLE001 — a probe that cannot start leaves a manual Resume
+            logger.warning("credential probe not started run=%s: %s", run_id, exc)
 
     async def _persist_budget_snapshot_if_active(
         self, ectx: ExecutionContext, *, force: bool = False
@@ -5978,6 +6107,8 @@ class ExecutionEngine:
         # {} when the manifest declares none → AgentContext.capabilities stays {} →
         # no internet tools bound (byte-identical for every existing manifest).
         ectx.compiled_capabilities = dict(compiled.capabilities or {})
+        # P27 E6: self-healing knobs (None ⇒ dormant, byte-identical).
+        ectx.resilience = getattr(compiled, "resilience", None) or None
 
         from agents.execution_engine.kernel_services import KernelServices
 
@@ -6429,6 +6560,21 @@ class ExecutionEngine:
                     }
                     return
 
+                # P27 E6: wall clock reached → pause (a person decides), never fail.
+                _res_cfg = getattr(ectx, "resilience", None)
+                if (
+                    _res_cfg
+                    and (time.time() - total_start) >= _res_cfg["pause_after_seconds"]
+                ):
+                    yield await self._pause_run(
+                        ectx,
+                        pipeline_run_id,
+                        "budget",
+                        f"Run time reached {_res_cfg['pause_after_seconds']}s "
+                        f"before step '{spec.id}'.",
+                    )
+                    return
+
                 # Resolve the per-step strategy capability by manifest name (D-02).
                 # Fall back to single_shot when a step is absent from the compiled
                 # plan (defensive — a populated plan is asserted above for every run).
@@ -6694,6 +6840,7 @@ class ExecutionEngine:
                 _terminated = False
                 _credential_failed_id: str | None = None
                 _credential_error: str | None = None
+                _poison_error: str | None = None
                 async for event in self._guarded_step(
                     step, ectx, strategy, spec.id, pipeline_run_id
                 ):
@@ -6709,6 +6856,10 @@ class ExecutionEngine:
                         ):
                             _credential_failed_id = _failed_id or spec.id
                             _credential_error = event["data"]["error"]
+                        elif _poison_error is None:
+                            _poison_error = (
+                                event.get("data", {}).get("error") or "Agent run failed"
+                            )
                     # ── ISS-091: a TERMINAL event arriving through the stream ends
                     # the RUN, not just the step. The inline review gate's reject
                     # handler (_run_agent :4458) cancels the run and returns — but a
@@ -6734,6 +6885,22 @@ class ExecutionEngine:
                     # build-scratch reset) still runs on its normal path. The event
                     # is already emitted by the producer — do NOT emit a second one.
                     await self._persist_budget_snapshot_if_active(ectx)
+                    return
+                if _credential_failed_id and getattr(ectx, "resilience", None):
+                    yield await self._pause_run(
+                        ectx,
+                        pipeline_run_id,
+                        "credentials",
+                        f"{_credential_error} (step '{_credential_failed_id}')",
+                    )
+                    return
+                if _poison_error is not None and getattr(ectx, "resilience", None):
+                    yield await self._pause_run(
+                        ectx,
+                        pipeline_run_id,
+                        "poison",
+                        f"Step '{spec.id}' failed: {_poison_error}",
+                    )
                     return
                 if _credential_failed_id:
                     # Every later step would call the same provider with the same dead
@@ -6933,6 +7100,26 @@ class ExecutionEngine:
                     # honor a ``route`` outcome below.
                     if _ge is not None:
                         yield _ge
+                    # Approve-with-edits at a declared post-step human gate: the
+                    # edit becomes THIS step's output for everything downstream
+                    # (typed artifact, results, sandbox transcript). Previously
+                    # only the pre-step loop consumed it, and ``human`` is
+                    # post-step since ADR-0013, so the edit was silently dropped.
+                    _post_edited = (
+                        _gdetail.get("edited_content")
+                        if isinstance(_gdetail, dict)
+                        else None
+                    )
+                    if _post_edited:
+                        await self._apply_declared_gate_edit(
+                            _post_edited,
+                            results,
+                            ordered_agents,
+                            ectx,
+                            target_spec=spec,
+                            index=cursor,
+                            sandbox=sandbox,
+                        )
                     # ── ISS-170: a conditional gate with nowhere to route ─────
                     # ``ConditionalGate`` returns GATE_BLOCK when the decision
                     # matches no ``route.outcomes`` entry AND the manifest
@@ -7687,6 +7874,13 @@ class ExecutionEngine:
             # ran), surface the completed workers' 11-03 fragment artifacts in a partial
             # structured summary, and emit a visible budget abort event reporting the
             # breached dimension. Pending workers never spawned (reserve-before-spawn).
+            if getattr(ectx, "resilience", None) and (
+                self._state_machine.get_state(pipeline_run_id) not in TERMINAL_STATES
+            ):
+                yield await self._pause_run(
+                    ectx, pipeline_run_id, "budget", str(_budget_exc)
+                )
+                return
             self._state_machine.transition(pipeline_run_id, "failed")
             await self._persist_budget_snapshot_if_active(ectx, force=True)
             # Task 5.9: set pending event; finally block emits after
@@ -7776,6 +7970,16 @@ class ExecutionEngine:
             # A step's strategy raised (run 48b0811e: blr-write's task list did not
             # parse). Its agent_error is already out; ONE pipeline_failed names the step
             # and the message, so every driver records the reason. No further steps.
+            if getattr(ectx, "resilience", None) and (
+                self._state_machine.get_state(pipeline_run_id) not in TERMINAL_STATES
+            ):
+                yield await self._pause_run(
+                    ectx,
+                    pipeline_run_id,
+                    "poison",
+                    f"Step '{_raised.step_id}' failed: {_raised.message}",
+                )
+                return
             self._state_machine.transition(pipeline_run_id, "failed")
             await self._persist_budget_snapshot_if_active(ectx, force=True)
             _pending_terminal_event = {
@@ -7827,6 +8031,7 @@ class ExecutionEngine:
             # when still "generating" (Step 5 runs AFTER this finally), otherwise
             # the real terminal state (cancel/fail/budget/GeneratorExit paths set it
             # before entering the finally).
+            _paused_exit = self._state_machine.get_state(pipeline_run_id) == "paused"
             try:
                 _sm_state_fin = self._state_machine.get_state(pipeline_run_id)
                 _candidate_status_fin = (
@@ -7844,17 +8049,20 @@ class ExecutionEngine:
                     getattr(ectx, "final_status", None) or "completed"
                 )
             # Stamp ectx.final_status for downstream reads (e.g. disk_metrics).
-            if not getattr(ectx, "final_status", None):
+            if not getattr(ectx, "final_status", None) and not _paused_exit:
                 try:
                     ectx.final_status = _candidate_status_fin  # type: ignore[attr-defined]
                 except Exception:  # noqa: BLE001
                     pass
             try:
-                _fin_record = await finalize_terminal_run(
-                    pipeline_run_id,
-                    ectx,
-                    candidate_status=_candidate_status_fin,
-                )
+                # P27 E6: a paused run is not terminal — no finalizer (no tag, no
+                # snapshot); the resume finalizes it when it really ends.
+                if not _paused_exit:
+                    _fin_record = await finalize_terminal_run(
+                        pipeline_run_id,
+                        ectx,
+                        candidate_status=_candidate_status_fin,
+                    )
             except Exception as _fin_exc:  # noqa: BLE001 — must never mask run outcome
                 logger.error(
                     "finalize_terminal_run raised unexpectedly run=%s (%s)",
@@ -9578,6 +9786,17 @@ class ExecutionEngine:
                                 )
                             if results:
                                 results[-1] = {**results[-1], "output": edited}
+                            if edited:
+                                write_agent_output(
+                                    sandbox,
+                                    index=index,
+                                    agent_id=spec.id,
+                                    name=spec.name,
+                                    output=edited,
+                                    task_number=getattr(ectx, "build_task_number", "")
+                                    or "",
+                                    visit_count=ectx.step_visit_counts.get(spec.id, 0),
+                                )
                         elif gate_event.get("type") == "_gate_redo":
                             # RESUME-17 gate re-entry: identical to the live consumer, via
                             # the ONE shared helper (INV-12).
@@ -10016,6 +10235,18 @@ class ExecutionEngine:
                         getattr(getattr(ectx, "current_step", None), "skills", None)
                         or []
                     ),
+                    step_skills_inline=list(
+                        getattr(
+                            getattr(ectx, "current_step", None), "skills_inline", None
+                        )
+                        or []
+                    ),
+                    step_skills_select=getattr(
+                        getattr(ectx, "current_step", None), "skills_select", None
+                    ),
+                    step_write_paths=getattr(
+                        getattr(ectx, "current_step", None), "write_paths", None
+                    ),
                     # skills_prune_scope (ADR-0006 Consequences): the union of the
                     # concurrently-dispatched cohort's skill ids, so a sibling running
                     # under the same asyncio.gather against the shared sandbox does not
@@ -10044,6 +10275,8 @@ class ExecutionEngine:
                     capabilities=dict(
                         getattr(ectx, "compiled_capabilities", None) or {}
                     ),
+                    # P27 E6: self-healing knobs for the runner's retry window.
+                    resilience=getattr(ectx, "resilience", None),
                     # step_tools / workflow_name: CARRIED, never decided. The
                     # engine makes no permission decision — the compiled Step's
                     # effective ToolPermissions were resolved by
@@ -10359,7 +10592,7 @@ class ExecutionEngine:
                 # RE-STREAMS from scratch (we reset output_chunks + token accumulators below),
                 # so the final deliverable reflects the successful attempt — the only
                 # observable artifact downstream consumes.
-                from agents.model_policy import _is_transient_throttle
+                from agents.model_policy import StepStalled, _is_transient_throttle
 
                 _resolver = ectx.model_resolver
                 # Arm the active chain for the resolved primary id (06-03 set_chain): the
@@ -10417,7 +10650,13 @@ class ExecutionEngine:
                             # when input_blocks empty (dormant) ⇒ byte-identical. Re-sent on
                             # each model-fallback retry inside this while-True (intended).
                             _dispatch = _dispatch_payload(context_message, input_blocks)
-                            async for event in agent.astream_events(_dispatch):
+                            _agent_stream = agent.astream_events(_dispatch)
+                            _stall_s = (getattr(ectx, "resilience", None) or {}).get(
+                                "stall_seconds"
+                            )
+                            if _stall_s:
+                                _agent_stream = _stall_guarded(_agent_stream, _stall_s)
+                            async for event in _agent_stream:
                                 if cancel_event and cancel_event.is_set():
                                     raise asyncio.CancelledError()
                                 etype = event["type"]
@@ -10691,7 +10930,9 @@ class ExecutionEngine:
                         # (the runner already swallows non-throttle errors into an ``error``
                         # event, so reaching here for a non-throttle means a genuine fault —
                         # do NOT mask it behind a fallback).
-                        if not _is_transient_throttle(_exc):
+                        if not _is_transient_throttle(_exc) or isinstance(
+                            _exc, StepStalled
+                        ):
                             raise
                         # Roll back any task_progress records appended this (failed) attempt so
                         # a retry's re-stream does not double-count the prototype checklist.
@@ -11305,6 +11546,17 @@ class ExecutionEngine:
                             # Also update the last result
                             if results:
                                 results[-1] = {**results[-1], "output": edited}
+                            if edited:
+                                write_agent_output(
+                                    sandbox,
+                                    index=index,
+                                    agent_id=spec.id,
+                                    name=spec.name,
+                                    output=edited,
+                                    task_number=getattr(ectx, "build_task_number", "")
+                                    or "",
+                                    visit_count=ectx.step_visit_counts.get(spec.id, 0),
+                                )
                         elif gate_event.get("type") == "_gate_redo":
                             # REDO-GATE: re-run THIS agent in place (decision #1/2).
                             # Set the LOOP LOCALS the next iteration consumes (F3) —
@@ -11415,6 +11667,13 @@ class ExecutionEngine:
                             current,
                         )
                         return  # Stop the agent loop cleanly
+                if getattr(ectx, "resilience", None):
+                    from agents.model_policy import _is_transient_throttle as _is_tt
+
+                    if _is_tt(exc):
+                        # P27 E6: hand a transient fault (or a stalled stream) to the
+                        # per-step retry layer instead of recording a placeholder result.
+                        raise
                 logger.exception("Agent %s failed", spec.id)
                 _log_event(
                     "agent_error", pipeline_run_id, agent_id=spec.id, error=str(exc)
@@ -12175,8 +12434,17 @@ class ExecutionEngine:
         results: list[dict],
         ordered_agents: list,
         ectx: ExecutionContext,
+        *,
+        target_spec=None,
+        index: int | None = None,
+        sandbox=None,
     ) -> None:
         """Apply an approve-with-edits payload from a DECLARED gate (WR-04).
+
+        ``target_spec`` (post-step gate) names the step whose OWN output was
+        reviewed; without it the previous step is the target (pre-step gate). With
+        ``index`` + ``sandbox`` the step's ``.agents/NN-<agent>.md`` transcript is
+        rewritten too, so file readers see the edit and not the pre-edit text.
 
         A declared pre-step human gate reviews the PREVIOUS step's output, so
         the user's edit re-writes that step's typed artifact as a NEW ref
@@ -12185,14 +12453,18 @@ class ExecutionEngine:
         inline ``_gate_edited`` handler in ``_run_agent`` byte-for-byte. With no
         completed upstream step there is nothing to apply — logged, not silent.
         """
-        if not results:
-            logger.warning(
-                "declared-gate edit received before any step completed — "
-                "no upstream artifact to apply it to; edit dropped (WR-04)"
-            )
-            return
-        prev_id = results[-1].get("agent_id")
-        prev_spec = next((s for s in ordered_agents if s.id == prev_id), None)
+        if target_spec is not None:
+            prev_spec = target_spec
+            prev_id = target_spec.id
+        else:
+            if not results:
+                logger.warning(
+                    "declared-gate edit received before any step completed — "
+                    "no upstream artifact to apply it to; edit dropped (WR-04)"
+                )
+                return
+            prev_id = results[-1].get("agent_id")
+            prev_spec = next((s for s in ordered_agents if s.id == prev_id), None)
         if prev_spec is None:
             logger.warning(
                 "declared-gate edit: no spec found for upstream agent %r — "
@@ -12219,10 +12491,29 @@ class ExecutionEngine:
             ),
             derived_from=_prior_ref,
         )
-        results[-1] = {**results[-1], "output": edited}
+        _ri = next(
+            (
+                i
+                for i in range(len(results) - 1, -1, -1)
+                if results[i].get("agent_id") == prev_id
+            ),
+            len(results) - 1 if (results and target_spec is None) else None,
+        )
+        if _ri is not None:
+            results[_ri] = {**results[_ri], "output": edited}
         # Keep the running review payload consistent with the applied edit
         # (the WR-02 per-step refresh would otherwise lag one gate behind).
         ectx.last_streamed = edited
+        if target_spec is not None and sandbox is not None and index is not None:
+            write_agent_output(
+                sandbox,
+                index=index,
+                agent_id=prev_spec.id,
+                name=prev_spec.name,
+                output=edited,
+                task_number=getattr(ectx, "build_task_number", "") or "",
+                visit_count=ectx.step_visit_counts.get(prev_spec.id, 0),
+            )
 
     # ------------------------------------------------------------------
     # KAN-101: Spec revision sub-pipeline helper
@@ -12894,17 +13185,19 @@ class ExecutionEngine:
             yield {"type": "_gate_rejected"}
             return
 
+        # An edit is only real when it is non-empty and differs from what was shown.
+        _really_edited = bool(edited_content) and edited_content != output
         yield {
             "type": "review_gate_approved",
             "data": {
                 "pipeline_run_id": pipeline_run_id,
                 "agent_id": agent_id,
-                "edited": edited_content is not None,
+                "edited": _really_edited,
                 "timestamp": _now(),
             },
         }
 
-        if edited_content is not None:
+        if _really_edited:
             yield {"type": "_gate_edited", "edited_content": edited_content}
 
     # ------------------------------------------------------------------
@@ -13090,6 +13383,17 @@ class ExecutionEngine:
                             # else: compilable but no derivable open gate OR not
                             # resumable-in-flight (the KAN-88 no-events row) → leave
                             # wr.status waiting_for_user, spawn nothing (harmless park).
+                    elif wr.status == "paused":
+                        # ── P27 E6: a paused run stays paused (parked, like a run waiting
+                        # for a person). Only a credentials pause has a driver of its own:
+                        # restart its probe so the run still resumes once access is back.
+                        if parse_pause_kind(wr.error) == "credentials":
+                            try:
+                                _paused_res = compile_for_run(wr.type).resilience
+                            except Exception:  # noqa: BLE001 — default interval
+                                _paused_res = None
+                            self._start_credential_probe(pipeline_run_id, _paused_res)
+                        restored += 1
                     elif await self._is_resumable_in_flight(wr):
                         # ── branch (b): resumable in-flight → auto-resume in-process ─
                         # Stamp the additive ``run_resuming`` marker FIRST (the
@@ -14691,6 +14995,15 @@ class ExecutionEngine:
         """
         # Strict gate: activate ONLY when ``step.retry and step.retry.max_attempts > 0``.
         retry = getattr(step, "retry", None)
+        _res = getattr(ectx, "resilience", None)
+        if _res and not (retry and getattr(retry, "max_attempts", 0) > 0):
+            # P27 E6: self-healing switches the per-step retry on for steps that
+            # declare none — transient faults only, 30 s apart.
+            from agents.workflows.plan import RetryPolicy as _RetryPolicy
+
+            retry = _RetryPolicy(
+                max_attempts=int(_res["max_same_error"]), backoff_seconds=30.0
+            )
         if not (retry and getattr(retry, "max_attempts", 0) > 0):
             # Dormant: byte/event-identical legacy dispatch.
             async for event in strategy.run(step, ectx):
@@ -14703,7 +15016,23 @@ class ExecutionEngine:
         input_hash = self._compute_step_input_hash(step, ectx)
 
         # (a) Reuse path — a prior matching completion → skip the agent entirely.
-        reused_ref = await self._find_reused_completion(ectx, step_id, input_hash)
+        # A conditional-route loop revisit (the same step dispatched again within
+        # this run attempt, e.g. ``fix`` AND the gate ``verify`` after it) must
+        # always execute: its upstream hash is unchanged, so the content-hash
+        # lookup would otherwise serve the pass-1 completion and the loop would
+        # never run. Only the FIRST dispatch per attempt may reuse (resume case).
+        _seen = getattr(ectx, "_reuse_dispatch_seen", None)
+        if _seen is None:
+            _seen = set()
+            ectx._reuse_dispatch_seen = _seen  # type: ignore[attr-defined]
+        _seen_key = (step_id, getattr(ectx, "current_task_block", None) or "")
+        _is_revisit = _seen_key in _seen
+        _seen.add(_seen_key)
+        reused_ref = (
+            None
+            if _is_revisit
+            else await self._find_reused_completion(ectx, step_id, input_hash)
+        )
         if reused_ref is not None:
             yield {
                 "type": "step_reused",
@@ -16942,7 +17271,23 @@ class ExecutionEngine:
         _pending_fb_store = ectx.pending_route_feedback
         _spec_id = getattr(spec, "id", None)
         _has_retry_feedback = bool(_pending_fb_store.get(_spec_id))
-        if is_first_agent or _has_retry_feedback:
+        _brief_is_reference = (
+            getattr(getattr(ectx, "current_step", None), "brief_role", None)
+            == "reference"
+        )
+        if (is_first_agent or _has_retry_feedback) and _brief_is_reference:
+            # P27 ``brief_role: reference``: the brief describes the FINAL product, which a
+            # later step builds. Framed as background so the step does its own job
+            # (observed: an inventory step read "Build the simulator" and built it).
+            parts = [
+                "=== USER REQUEST (background only — NOT your task) ===\n"
+                "This is what the person wants as the final product. A later step builds it.\n"
+                "Your task is ONLY what your step instructions say; do not build or write the "
+                "product.\n\n"
+                f"{effective_message}\n=== END USER REQUEST ===\n\n"
+                "Now do your step, exactly as your instructions describe."
+            ]
+        elif is_first_agent or _has_retry_feedback:
             parts = [
                 f"=== ORIGINAL USER REQUEST ===\n{effective_message}\n=== END REQUEST ==="
             ]
@@ -17306,7 +17651,10 @@ class ExecutionEngine:
             # reads the template/design-system ids from `.context/selections.json`
             # itself.
 
-        return "\n".join(parts)
+        message = "\n".join(parts)
+        if not message.strip():
+            return _STEP_START_BLOCK
+        return message
 
     async def _compose_input_blocks(self, spec, ectx) -> list:
         """Compose the per-agent multimodal input content-blocks (image-input Wave 1).

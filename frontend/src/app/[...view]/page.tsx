@@ -34,6 +34,7 @@ import type { ChatMode } from "@/components/chat/ChatInput";
 // history-reopen detail view so the two surfaces parse the persisted run `error`
 // identically. See lib/parseFailedAgents.ts for the marker contract.
 import { parseFailedAgentIds, buildAgentNameById } from "@/lib/parseFailedAgents";
+import { parsePausedRunError } from "@/lib/pausedRun";
 // KAN-116 (title markers in submittedBrief): use the SAME single-source parser
 // DashboardLayout already uses for notification titles (INV-12 — no dual impl).
 import { parseRunInput } from "@/lib/runInput";
@@ -361,7 +362,7 @@ function wizardModeFor(parsed: ParsedView): LaunchMode | undefined {
     // panel and silently drops the template/design-system step the run needs.
     // `ppt_v2` is the live case; `ppt`/`prototype` have their own screens above.
     case "create-workflow":
-      return parsed.pipelineType === "ppt_v2" || parsed.pipelineType === "prototype_v2" || parsed.pipelineType === "prototype_from_template"
+      return parsed.pipelineType === "ppt_v2" || parsed.pipelineType === "prototype_v2" || parsed.pipelineType === "prototype_from_template" || parsed.pipelineType === "goal_v2"
         ? (parsed.pipelineType as LaunchMode)
         : undefined;
     default:
@@ -1781,7 +1782,8 @@ export default function DashboardPage() {
               || pipelineType === "prototype_large_revision"
               || pipelineType === "prototype_feature_revision"
               || pipelineType === "prototype_v2_revision"
-              || pipelineType === "prototype_v2_feature_revision") {
+              || pipelineType === "prototype_v2_feature_revision"
+              || pipelineType === "goal_v2") {
               setPrototypeContent(finalOutput);
             } else {
               // ISS-021 (18-03) + CR-01 (18 review fix): any pipeline_type matching
@@ -3227,7 +3229,8 @@ export default function DashboardPage() {
             || fullRun.type === "prototype_large_revision"
             || fullRun.type === "prototype_feature_revision"
             || fullRun.type === "prototype_v2_revision"
-            || fullRun.type === "prototype_v2_feature_revision") {
+            || fullRun.type === "prototype_v2_feature_revision"
+            || fullRun.type === "goal_v2") {
             setPrototypeContent(fullRun.output);
           } else {
             // ISS-021 (18-03) / UXFIX-02 (22-03) — generic reopen fallback.
@@ -3267,7 +3270,8 @@ export default function DashboardPage() {
           fullRun.status === "failed" ||
             fullRun.status === "cancelled" ||
             fullRun.status === "degraded" ||
-            fullRun.status === "diverted"
+            fullRun.status === "diverted" ||
+            fullRun.status === "paused"
             ? fullRun.status
             : undefined,
         );
@@ -3588,6 +3592,21 @@ export default function DashboardPage() {
                 // the gate branch's `&& isPipelineRunning`, and dropping it would
                 // erase the historical gate card from the reopened transcript.
                 runStore.update(fullRun.id, { questionnaireData: null });
+              }
+              // A paused run is non-terminal: it keeps its stream state and gets the
+              // paused marker from the persisted "paused:<kind>: <reason>" error, applied
+              // to both containers like the terminal reconcile above.
+              if (fullRun.status === "paused") {
+                const pausedInfo = parsePausedRunError(fullRun.error) ?? {
+                  kind: "",
+                  reason: fullRun.error || "The run is paused.",
+                };
+                handlePipelineMsg({ type: "run_paused", kind: pausedInfo.kind, reason: pausedInfo.reason });
+                runStore.updatePipelineState(fullRun.id, (prev) => ({
+                  ...prev,
+                  isRunning: false,
+                  paused: pausedInfo,
+                }));
               }
               // seedTranscript resets the hook's seen-set + seq cursor so the
               // re-fetch-after-send (DEF-44-12-2) pulls only newer events.
@@ -4271,6 +4290,7 @@ export default function DashboardPage() {
           prototype:    { mode: "prototype",    draftKey: "prototype.draft" },
           prototype_v2: { mode: "prototype_v2", draftKey: "prototype.draft" },
           prototype_from_template: { mode: "prototype_from_template", draftKey: "prototype.draft" },
+          goal_v2: { mode: "goal_v2", draftKey: "prototype.draft" },
           ppt:          { mode: "ppt",          draftKey: "ppt.draft" },
           ppt_v2:       { mode: "ppt_v2",       draftKey: "ppt.draft" },
         };

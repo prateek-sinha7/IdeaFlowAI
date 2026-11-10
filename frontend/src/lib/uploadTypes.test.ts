@@ -17,7 +17,7 @@ describe("upload types", () => {
   it("offers every document type the backend accepts", () => {
     // Mirrors backend run_files._ALLOWED_EXTS.
     expect([...DOCUMENT_EXTS].sort()).toEqual(
-      ["csv", "docx", "htm", "html", "json", "md", "pdf", "pptx", "txt", "xlsx"].sort(),
+      ["csv", "docx", "htm", "html", "json", "md", "pdf", "pptx", "txt", "xlsx", "xml", "yaml", "yml"].sort(),
     );
   });
 

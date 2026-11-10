@@ -84,19 +84,30 @@ export function ActivityTrail({
   // Fit-to-width: start with everything, and while the row overflows, drop one
   // pill and let the fold absorb it. A resize resets and the loop runs again.
   const [budget, setBudget] = useState<number>(maxPillsProp ?? Number.MAX_SAFE_INTEGER);
+  // Each shrink is a synchronous re-render; React aborts after ~50 nested updates
+  // (error #185). A long trail (a lead with ~190 tool calls) used to shrink one pill
+  // per pass and hit that limit. Shrink in proportion to the overflow instead, and
+  // cap the passes per measurement.
+  const passes = useRef(0);
   useLayoutEffect(() => {
     if (maxPillsProp !== undefined || wraps) return;
     const el = ref.current;
     if (!el) return;
-    if (el.scrollWidth > el.clientWidth + 1 && budget > 3) {
-      setBudget(Math.min(budget, runs.length) - 1);
+    if (el.scrollWidth > el.clientWidth + 1 && budget > 3 && passes.current < 12) {
+      passes.current += 1;
+      const cur = Math.min(budget, runs.length);
+      const scaled = Math.floor((cur * el.clientWidth) / el.scrollWidth);
+      setBudget(Math.max(3, Math.min(cur - 1, scaled)));
     }
   });
   useLayoutEffect(() => {
     if (maxPillsProp !== undefined || typeof ResizeObserver === "undefined") return;
     const el = ref.current;
     if (!el) return;
-    const ro = new ResizeObserver(() => setBudget(Number.MAX_SAFE_INTEGER));
+    const ro = new ResizeObserver(() => {
+      passes.current = 0;
+      setBudget(Number.MAX_SAFE_INTEGER);
+    });
     ro.observe(el);
     return () => ro.disconnect();
   }, [maxPillsProp]);

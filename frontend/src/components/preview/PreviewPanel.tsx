@@ -1349,9 +1349,13 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
   const hasActiveGate = !!laneGate && isStillRunning;
   const hasOpenClarify = !!(clarifyQuestions && clarifyQuestions.length > 0) && isStillRunning;
   const headerFailed = terminalFailure && !isCancelledTerminal;
+  // A paused run keeps its SSE stream open, so isStillRunning can stay true; the
+  // paused marker (live) or the reopened status (history) wins over building.
+  const headerPaused = !!pipelineState?.paused || reopenedRunStatus === "paused";
   const headerRunState: RunLaneState =
     hasActiveGate ? "gate" :
     hasOpenClarify ? "clarify" :
+    headerPaused ? "paused" :
     isStillRunning ? "building" :
     headerFailed ? "terminal" :
     hasContent ? "complete" :

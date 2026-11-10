@@ -50,11 +50,13 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import fnmatch
 import io
 import logging
 import random
 import posixpath
 import re
+import time
 from typing import TYPE_CHECKING, Any, AsyncGenerator, Awaitable, Callable
 
 from deepagents import create_deep_agent
@@ -108,9 +110,12 @@ _MAX_MODEL_CALL_ATTEMPTS: int = 3
 _RETRY_BASE_SECONDS: float = 2.0
 _RETRY_FACTOR: int = 2
 _RETRY_CAP_SECONDS: float = 30.0
+# P27 E6 (resilience): the retry-window variant backs off 2 s -> 60 s.
+_RESILIENT_RETRY_CAP_SECONDS: float = 60.0
+_RETRY_HEARTBEAT_SECONDS: float = 30.0
 
 
-def _retry_delay_seconds(attempt: int) -> float:
+def _retry_delay_seconds(attempt: int, cap: float | None = None) -> float:
     """Full-jitter exponential backoff delay (seconds) for retry number ``attempt`` (0-indexed).
 
     ``actual sleep = random.uniform(0, min(cap, base * factor**attempt))`` — the
@@ -118,7 +123,10 @@ def _retry_delay_seconds(attempt: int) -> float:
     ceiling, but uniformly random within it (not a fixed exponential delay), so
     many workers retrying the same transient fault don't all wake up at once.
     """
-    ceiling = min(_RETRY_CAP_SECONDS, _RETRY_BASE_SECONDS * (_RETRY_FACTOR**attempt))
+    ceiling = min(
+        _RETRY_CAP_SECONDS if cap is None else cap,
+        _RETRY_BASE_SECONDS * (_RETRY_FACTOR**attempt),
+    )
     return random.uniform(0, ceiling)
 
 
@@ -720,6 +728,19 @@ class _ReservedPathGuardMiddleware(AgentMiddleware[Any, Any, Any]):
     # Tools that read from the sandbox (and therefore subject to the read guard).
     _READ_TOOLS: frozenset[str] = frozenset({"read_file", "ls", "glob", "grep"})
 
+    def __init__(self, write_paths: list[str] | None = None) -> None:
+        super().__init__()
+        # P27 ``write_paths``: None = no allow-list (the reserved-path rules only).
+        self._write_paths: list[str] | None = list(write_paths) if write_paths else None
+
+    def _is_write_allowed(self, path: str) -> bool:
+        """True when *path* matches one ``write_paths`` pattern (fnmatch, ``*`` spans ``/``)."""
+        norm = self._normalise(path)
+        return any(
+            fnmatch.fnmatchcase(norm, self._normalise(pattern))
+            for pattern in self._write_paths or ()
+        )
+
     def _extract_path(self, call: dict) -> str | None:
         """Pull the first path-like argument from a tool call dict.
 
@@ -794,6 +815,23 @@ class _ReservedPathGuardMiddleware(AgentMiddleware[Any, Any, Any]):
             return None
 
         if name in self._WRITE_TOOLS:
+            if self._write_paths is not None and not self._is_write_allowed(path):
+                logger.warning(
+                    "write_paths WRITE DENIED: tool=%r path=%r allowed=%r",
+                    name,
+                    path,
+                    self._write_paths,
+                )
+                return ToolMessage(
+                    content=(
+                        f"Tool '{name}' may not write '{path}' in this step. This step may "
+                        f"only write: {', '.join(self._write_paths)}. Building the product "
+                        f"is a later step's job; do not create other files."
+                    ),
+                    name=name,
+                    tool_call_id=call.get("id") or "",
+                    status="error",
+                )
             if self._is_reserved(path):
                 logger.warning(
                     "reserved-path WRITE DENIED: tool=%r path=%r (RESERVED_PATHS)",
@@ -918,8 +956,17 @@ class DeepAgentRunner:
         # staging. Empty/None ⇒ nothing extra denied (every direct-construction
         # test path is unaffected).
         denied_tools: frozenset[str] | None = None,
+        # P27 E6: the workflow's ``resilience:`` block. None (every workflow without
+        # one) keeps the fixed 3-attempt retry; set, a transient fault is retried
+        # for ``retry_window_seconds``.
+        resilience: dict | None = None,
+        # P27 ``write_paths``: when set, write tools may only touch sandbox paths that
+        # match one of these fnmatch patterns. None (every step without the key) = today.
+        write_paths: list[str] | None = None,
     ) -> None:
         self.system_prompt = system_prompt
+        self.resilience = resilience
+        self.write_paths = list(write_paths) if write_paths else None
         self.tools = list(tools or [])
 
         # ── Resolve the chat model ────────────────────────────────────────
@@ -1035,7 +1082,9 @@ class DeepAgentRunner:
         self.tools = [
             t for t in self.tools if not isinstance(t, _ReservedPathGuardSentinel)
         ]
-        _attach_path_guard: bool = _guard_requested or (run_sandbox is not None)
+        _attach_path_guard: bool = (
+            _guard_requested or (run_sandbox is not None) or bool(self.write_paths)
+        )
 
         # ── Assemble the graph ────────────────────────────────────────────
         # subagents=None + the tool-filter middleware together guarantee the
@@ -1054,7 +1103,9 @@ class DeepAgentRunner:
             _TruncatedWriteGuardMiddleware(),
         ]
         if _attach_path_guard:
-            _middleware.append(_ReservedPathGuardMiddleware())
+            _middleware.append(
+                _ReservedPathGuardMiddleware(write_paths=self.write_paths)
+            )
             logger.debug(
                 "reserved_path_guard ACTIVE for agent %s",
                 (thread_id or "?").split(":")[-1],
@@ -1180,6 +1231,8 @@ class DeepAgentRunner:
 
         attempt = 0
         yielded_any = False
+        window = (self.resilience or {}).get("retry_window_seconds")
+        first_failure_at: float | None = None
         while True:
             attempt += 1
             try:
@@ -1196,9 +1249,23 @@ class DeepAgentRunner:
                 # classified transient throttle ever escapes it (everything else is
                 # swallowed internally into an {"type":"error"} yield), so reaching
                 # here always means a transient fault worth retrying if it's safe to.
-                if yielded_any or attempt >= _MAX_MODEL_CALL_ATTEMPTS:
+                if yielded_any:
                     raise
-                delay = _retry_delay_seconds(attempt - 1)
+                if window:
+                    now = time.monotonic()
+                    if first_failure_at is None:
+                        first_failure_at = now
+                    if now - first_failure_at >= window:
+                        raise
+                    delay = _retry_delay_seconds(
+                        attempt - 1, cap=_RESILIENT_RETRY_CAP_SECONDS
+                    )
+                    # Never sleep past the window: the last try lands at its edge.
+                    delay = min(delay, max(0.0, first_failure_at + window - now))
+                elif attempt >= _MAX_MODEL_CALL_ATTEMPTS:
+                    raise
+                else:
+                    delay = _retry_delay_seconds(attempt - 1)
                 logger.warning(
                     "DeepAgentRunner.astream_events: transient throttle on attempt "
                     "%d/%d (model=%s) — retrying same model in %.2fs: %s",
@@ -1208,7 +1275,19 @@ class DeepAgentRunner:
                     delay,
                     exc,
                 )
-                await asyncio.sleep(delay)
+                if not window:
+                    await asyncio.sleep(delay)
+                    continue
+                # Retry window: sleep in slices and emit a heartbeat per slice, so the
+                # engine's stall watchdog sees activity during a long backoff. The
+                # engine ignores event types it does not know; this one is never counted
+                # as output for the "nothing yielded yet" safety above.
+                remaining = delay
+                while remaining > 0:
+                    nap = min(remaining, _RETRY_HEARTBEAT_SECONDS)
+                    await asyncio.sleep(nap)
+                    remaining -= nap
+                    yield {"type": "retry_wait", "attempt": attempt}
 
     async def _astream_events_once(
         self, user_message: "str | list"

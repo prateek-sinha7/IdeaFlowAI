@@ -211,6 +211,8 @@ _EXPECTED_CLARIFY_DEFAULTS: dict[str, list[str]] = {
     "backlog": [],
     "backlog_revision": [],
     "prototype_v2": [],
+    "goal_v1": [],
+    "goal_v2": [],
     "prototype_v2_revision": [],
     "prototype_v2_feature_revision": [],
     # clarify.mode: skip — spec 023 (prototype_from_template). The base pipeline
@@ -492,6 +494,9 @@ _PLANNER_SKIP_IDS = _RUN_REVISION_DISPATCHED | {
     # tests/agents/test_manifest_parity.py::_PLANNER_SKIP_IDS.
     "prototype_from_template",
     "prototype_from_template_revision",
+    # P27 goal_v2: plans for itself (ledger + spec steps and a human review replace
+    # the deep-planner and clarify).
+    "goal_v2",
 }
 
 

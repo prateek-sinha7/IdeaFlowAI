@@ -78,3 +78,14 @@ describe("Badge — degraded status (Req 20 distinctness)", () => {
     expect(container.textContent).toBe("Degraded");
   });
 });
+
+describe("Badge — paused status (status map)", () => {
+  it("renders label 'Paused' on the amber waiting tone, not 'Review' or 'Done'", () => {
+    const { container } = render(<Badge status="paused" />);
+    expect(screen.getByText("Paused")).toBeInTheDocument();
+    expect(screen.queryByText("Review")).not.toBeInTheDocument();
+    const badge = container.firstElementChild as HTMLElement;
+    expect(badge.className).toContain("text-status-amber");
+    expect(badge.className).not.toContain("text-status-done");
+  });
+});

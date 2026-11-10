@@ -509,6 +509,13 @@ _TRANSIENT_SUBSTRINGS: tuple[str, ...] = (
 )
 
 
+class StepStalled(Exception):
+    """A step's agent stream produced no event for ``resilience.stall_seconds``.
+
+    Raised by the engine's stall watchdog; classified transient so the per-step retry
+    layer re-runs the step on a fresh thread (P27 E6, level 3)."""
+
+
 def _is_transient_throttle(exc: BaseException, model_id: str | None = None) -> bool:
     """Return ``True`` iff ``exc`` is a transient throttle / overload worth a model switch.
 
@@ -540,6 +547,8 @@ def _is_transient_throttle(exc: BaseException, model_id: str | None = None) -> b
          models (a generic ``ValueError``, ``ModelConfigurationError``, or a
          permanent code already ruled out above).
     """
+    if isinstance(exc, StepStalled):
+        return True
     # botocore-shaped ClientError / EventStreamError response dict — both carry
     # ``{"Error": {"Code": ..., "Message": ...}}``; only ClientError also carries
     # ``ResponseMetadata``.

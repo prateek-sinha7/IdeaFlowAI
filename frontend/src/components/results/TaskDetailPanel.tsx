@@ -77,7 +77,13 @@ export function TaskDetailPanel({
             <p className="m-0 text-[13px] leading-[1.6] text-[#4A4680] whitespace-pre-wrap">{summary}</p>
           </div>
         ) : (
-          <p className="m-0 text-[12px] text-ink-300">No further detail recorded for this task.</p>
+          <p className="m-0 text-[12px] text-ink-300">
+            {status === "running"
+              ? "In progress — the summary appears when this task finishes."
+              : status === "pending"
+                ? "Not started yet."
+                : "No further detail recorded for this task."}
+          </p>
         )}
       </div>
     </div>

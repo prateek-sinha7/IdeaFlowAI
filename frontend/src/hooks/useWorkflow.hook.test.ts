@@ -725,6 +725,19 @@ describe("handlePipelineMessage via useWorkflow.handleMessage", () => {
     expect(state()).toMatchObject({ protoCompletedTaskCount: 2, protoTotalTasks: 2, protoCurrentTask: 3, protoTaskAgentId: "a2" });
   });
 
+  it("task_loop_progress takes task titles from the engine's task_plan (JSON plans)", () => {
+    const { emit, state } = setup();
+    emit({ type: "pipeline_start", agents: ROSTER });
+    emit({
+      type: "task_loop_progress", task_number: 2, total_tasks: 2,
+      task_plan: [{ number: 1, title: "Shell and tabs" }, { number: 2, title: "UC1 offer picker" }, { number: 3, title: "" }],
+    });
+    expect(state().protoPlannedTasks).toEqual([
+      { number: 1, title: "Shell and tabs" },
+      { number: 2, title: "UC1 offer picker" },
+    ]);
+  });
+
   it("task_loop_progress leaves planned tasks unset when no planner output matches", () => {
     const { emit, state } = setup();
     emit({ type: "pipeline_start", agents: ROSTER });

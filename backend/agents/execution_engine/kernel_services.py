@@ -337,7 +337,7 @@ class KernelServices:
         self._user_message = value
 
     # ── Validators ────────────────────────────────────────────────────────────
-    def static_check(self, html_path):
+    def static_check(self, html_path, *, audit: bool = True):
         return _static_check(html_path)
 
     async def render_check(self, html_path):

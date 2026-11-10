@@ -33,6 +33,7 @@ def test_the_non_terminal_status_set_has_exactly_one_definition():
         "planning",
         "clarifying",
         "waiting_for_user",
+        "paused",
         "generating",
         "analyzing",
         "revising",

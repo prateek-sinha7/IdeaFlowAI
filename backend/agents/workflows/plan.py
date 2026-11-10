@@ -205,6 +205,11 @@ class FixPolicy:
 
     mode: str = "off"  # off | internal | gated
     max_attempts: int = 0
+    # task_loop cadence: run the FULL validation (render + Chrome click audit + fix
+    # loop + registered validators) only after every Nth task and always after the
+    # last; the other tasks get the quick contract check (validate.py) only.
+    # 1 = every task (today's behaviour); also the value for any non-task_loop step.
+    full_every: int = 1
 
 
 @dataclass
@@ -574,6 +579,16 @@ class Step:
     display_name: str = ""  # user-editable label; never affects instance_id
     prompt: str = ""  # per-instance purpose text; custom-agent steps only
     skills: list[str] = field(default_factory=list)  # per-step skill ids (R-01)
+    # P27 E4: skill BODIES injected into the prompt (``skills`` only stages/advertises).
+    skills_inline: list[str] = field(default_factory=list)
+    # {file, field, map}: pick extra inline skill ids from a sandbox JSON file at dispatch.
+    skills_select: dict | None = None
+    # P27: opt-in write allow-list (fnmatch patterns, sandbox-relative). None = no limit
+    # beyond the reserved-path guard (every step that does not declare it).
+    write_paths: list[str] | None = None
+    # P27: "reference" = the user brief reaches this step framed as background (it
+    # describes the final product), not as the step's task. None/"task" = today.
+    brief_role: str | None = None
 
     # ── Wave-scheduling surface (step-level concurrency) ──────────────────
     # COMPILER-DERIVED, never authored: absent from `_ALLOWED_STEP_KEYS`, so INV-5
@@ -700,6 +715,10 @@ class CompiledWorkflow:
     allowed_workers: list[str] = field(default_factory=list)
 
     capabilities: dict = field(default_factory=dict)  # {"internet": bool} (R-07)
+
+    # P27 E6 self-healing. ``None`` (no ``resilience:`` block) keeps every engine
+    # path byte-identical; a dict carries the five resolved integer knobs.
+    resilience: dict | None = None
 
     # chat: the workflow's optional chat/concierge DATA block (Plan 33-05 / INV-5).
     # Carried verbatim from ``WorkflowManifest.chat`` by the compiler — the run

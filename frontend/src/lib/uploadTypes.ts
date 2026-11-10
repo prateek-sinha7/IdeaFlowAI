@@ -25,10 +25,13 @@ export const DOCUMENT_EXTS = [
   "json",
   "html",
   "htm",
+  "xml",
+  "yaml",
+  "yml",
 ] as const;
 
 /** Read client-side with FileReader; the rest are staged/extracted server-side. */
-export const TEXT_EXTS = ["txt", "md", "json", "csv"] as const;
+export const TEXT_EXTS = ["txt", "md", "json", "csv", "xml", "yaml", "yml"] as const;
 
 export const IMAGE_MIMES = ["image/png", "image/jpeg", "image/webp", "image/gif"] as const;
 

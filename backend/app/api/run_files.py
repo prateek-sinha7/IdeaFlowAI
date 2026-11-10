@@ -129,7 +129,21 @@ def _resolve_chain_root_or_404(run_id: str, user_id: str) -> str:
 # Document-only allow-list (T-30-04): the ext set that may land in the sandbox.
 # Images are payload-transient (30-03) → rejected here.
 _ALLOWED_EXTS: frozenset[str] = frozenset(
-    {"pdf", "docx", "xlsx", "pptx", "txt", "md", "csv", "json", "html", "htm"}
+    {
+        "pdf",
+        "docx",
+        "xlsx",
+        "pptx",
+        "txt",
+        "md",
+        "csv",
+        "json",
+        "html",
+        "htm",
+        "xml",
+        "yaml",
+        "yml",
+    }
 )
 # The subset that carries an extractable-text sidecar (the sticky-context source).
 # `xlsx` is deliberately absent (spec 019, FR-037): no openpyxl is vendored, so a

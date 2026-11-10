@@ -43,7 +43,8 @@ describe("CreationHub", () => {
     expect(
       screen.getByRole("heading", { level: 1, name: "What would you like to build today?" }),
     ).toBeInTheDocument();
-    expect(screen.getAllByRole("button")).toHaveLength(6);
+    // 7 = the six workflows + goal_v2 ("Deliver from documents (Goal)").
+    expect(screen.getAllByRole("button")).toHaveLength(7);
   });
 
   it("defaults to the basic tier when userTier is omitted", () => {

@@ -106,7 +106,7 @@
   {
     "data": {
       "agent_id": "ppt-composer",
-      "context_message": "",
+      "context_message": "=== STEP START ===\nRun your step now, as your instructions describe. Nothing is pasted into this message on purpose.\n- The user's original request is in .context/user-prompt.md.\n- Earlier steps' outputs are in .agents/ and in the files your instructions name.\nRead what your instructions tell you to read, then do the work and deliver your output. Do not ask what to do and do not wait for more input.\n=== END STEP START ===",
       "tool_calls": []
     },
     "type": "agent_input"
@@ -156,7 +156,7 @@
   {
     "data": {
       "agent_id": "ppt-validator",
-      "context_message": "",
+      "context_message": "=== STEP START ===\nRun your step now, as your instructions describe. Nothing is pasted into this message on purpose.\n- The user's original request is in .context/user-prompt.md.\n- Earlier steps' outputs are in .agents/ and in the files your instructions name.\nRead what your instructions tell you to read, then do the work and deliver your output. Do not ask what to do and do not wait for more input.\n=== END STEP START ===",
       "tool_calls": []
     },
     "type": "agent_input"

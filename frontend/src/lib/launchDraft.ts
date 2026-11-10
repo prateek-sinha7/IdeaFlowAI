@@ -39,7 +39,7 @@ import { EMPTY_ANSWERS } from "@/components/workflow/prototype/DiscoveryForm";
  * `prototype_from_template` is the requirement-PDF-driven template adaptation
  * workflow. It shares the prototype draft key (template + DS wizard steps are
  * identical) and is distinguished by the appended `pipelineType` field. */
-export type LaunchMode = "prototype" | "prototype_v2" | "ppt" | "ppt_v2" | "prototype_from_template";
+export type LaunchMode = "prototype" | "prototype_v2" | "ppt" | "ppt_v2" | "prototype_from_template" | "goal_v2";
 
 /** An out-of-band image ride-along (D3): SEPARATE from brief-inlined file text. */
 export interface LaunchImage {
@@ -102,6 +102,7 @@ const MODE_KEYS: Record<LaunchMode, { draftKey: string; pendingKey: string }> = 
   prototype_v2: { draftKey: "prototype.draft", pendingKey: "prototype.pending" },
   // requirement-PDF-driven template adaptation — same web wizard, same draft slot.
   prototype_from_template: { draftKey: "prototype.draft", pendingKey: "prototype.pending" },
+  goal_v2: { draftKey: "prototype.draft", pendingKey: "prototype.pending" },
 };
 
 /**

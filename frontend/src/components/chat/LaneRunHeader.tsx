@@ -103,6 +103,8 @@ function laneStatus(
       return { label: "Clarifying", tone: "running", variant: "pill" };
     case "gate":
       return { label: "Awaiting approval", tone: "running", variant: "pill" };
+    case "paused":
+      return { label: "Paused", tone: "amber", variant: "token" };
     case "complete":
       // A14 — a review-loop cap absorbed with a resolved deliverable stays a
       // clean "completed" run server-side (never degraded), but the cap

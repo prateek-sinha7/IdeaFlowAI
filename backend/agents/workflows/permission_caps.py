@@ -104,6 +104,8 @@ PERMISSION_CAP_INDEX: dict[str, ToolPermissions] = {
             "pptx",
             "playwright",
             "file_extract",
+            "ledger",
+            "acceptance",
             "spawn_subagents",
             "ask_user",
         ],
@@ -122,7 +124,7 @@ PERMISSION_CAP_INDEX: dict[str, ToolPermissions] = {
         spawn_subagents=False,
         network=False,
         git=False,
-        tool_sets=["file_extract", "playwright"],
+        tool_sets=["file_extract", "ledger", "acceptance", "playwright"],
     ),
     # Saved (db-trust) manifests — ADR-0054. The untrusted cap plus exactly what
     # a Composer copy of a built-in needs: ``spawn_subagents`` (fan-out request
@@ -137,7 +139,14 @@ PERMISSION_CAP_INDEX: dict[str, ToolPermissions] = {
         spawn_subagents=True,
         network=False,
         git=False,
-        tool_sets=["file_extract", "playwright", "prototype_emit_only", "ask_user"],
+        tool_sets=[
+            "file_extract",
+            "ledger",
+            "acceptance",
+            "playwright",
+            "prototype_emit_only",
+            "ask_user",
+        ],
     ),
 }
 

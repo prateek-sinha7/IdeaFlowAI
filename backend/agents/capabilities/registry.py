@@ -141,6 +141,8 @@ _KNOWN: set[tuple[str, str]] = {
     ("tool", "pptx"),  # spec 017 (user_allowed=False — writes a
     # binary into the sandbox via a node subprocess)
     ("tool", "file_extract"),  # spec 019
+    ("tool", "ledger"),  # P27 E5 — read-only requirement-ledger check
+    ("tool", "acceptance"),  # P27 goal_v2 W1 — acceptance runner + page outline
     ("compaction", "html_skeleton"),
     ("post_step", "revision_validation"),
     ("post_step", "api_prefix_audit"),  # 19-02 / ISS-005 — event-free infra audit
@@ -370,6 +372,8 @@ def discover() -> None:
         "agents.capabilities.deliverables.ppt",
         "agents.capabilities.deliverables.repo_diff",  # 09-04 / REPO-04
         "agents.capabilities.tools.file_extract",  # spec 019
+        "agents.capabilities.tools.ledger",  # P27 E5
+        "agents.capabilities.tools.acceptance",  # P27 goal_v2 W1
         "agents.capabilities.publish_step",  # A10 — mechanical: publish capability
         "agents.capabilities.assemble_step",  # prototype v3 — mechanical: assemble_prototype
         "agents.capabilities.backlog_assemble",  # spec 021 — mechanical: assemble_backlog

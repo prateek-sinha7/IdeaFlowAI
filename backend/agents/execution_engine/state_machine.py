@@ -12,6 +12,8 @@ State mapping:
   - planning        : Deep_Planner_Agent begins
   - clarifying      : ClarifyEngine opens its gate
   - waiting_for_user: paused for user input
+  - paused          : self-healing pause (credentials / poison step / budget);
+                      the reason lives in WorkflowRun.error as "paused:<kind>: <text>"
   - analyzing       : Analyze_Agent (Validation_Gate) runs
   - generating      : domain agents begin
   - revising        : revision run in progress
@@ -32,6 +34,9 @@ VALID_STATES: frozenset[str] = frozenset(
     {
         "clarifying",
         "waiting_for_user",
+        # P27 E6: non-terminal "needs a person / a credential"; only runs whose
+        # workflow declares ``resilience:`` ever enter it.
+        "paused",
         "planning",
         "analyzing",
         "generating",
@@ -163,3 +168,18 @@ def get_state_machine() -> StateMachine:
     if _MACHINE is None:
         _MACHINE = StateMachine()
     return _MACHINE
+
+
+PAUSE_PREFIX = "paused:"
+
+
+def format_pause_reason(kind: str, reason: str) -> str:
+    """Encode a pause as the ``WorkflowRun.error`` text: ``paused:<kind>: <reason>``."""
+    return f"{PAUSE_PREFIX}{kind}: {reason}"
+
+
+def parse_pause_kind(error: str | None) -> str | None:
+    """The ``kind`` of a ``format_pause_reason`` string, else ``None``."""
+    if not error or not error.startswith(PAUSE_PREFIX):
+        return None
+    return error[len(PAUSE_PREFIX) :].split(":", 1)[0].strip() or None

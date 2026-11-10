@@ -70,7 +70,7 @@
   {
     "data": {
       "agent_id": "prototype-analyze",
-      "context_message": "",
+      "context_message": "=== STEP START ===\nRun your step now, as your instructions describe. Nothing is pasted into this message on purpose.\n- The user's original request is in .context/user-prompt.md.\n- Earlier steps' outputs are in .agents/ and in the files your instructions name.\nRead what your instructions tell you to read, then do the work and deliver your output. Do not ask what to do and do not wait for more input.\n=== END STEP START ===",
       "tool_calls": []
     },
     "type": "agent_input"
@@ -329,6 +329,16 @@
     "data": {
       "agent_id": "prototype-build",
       "task_number": 1,
+      "task_plan": [
+        {
+          "number": 1,
+          "title": "Build the HTML shell"
+        },
+        {
+          "number": 2,
+          "title": "Fill the dashboard page"
+        }
+      ],
       "total_tasks": 2
     },
     "type": "task_loop_progress"
@@ -337,6 +347,16 @@
     "data": {
       "agent_id": "prototype-build",
       "task_number": 2,
+      "task_plan": [
+        {
+          "number": 1,
+          "title": "Build the HTML shell"
+        },
+        {
+          "number": 2,
+          "title": "Fill the dashboard page"
+        }
+      ],
       "total_tasks": 2
     },
     "type": "task_loop_progress"
@@ -361,7 +381,7 @@
   {
     "data": {
       "agent_id": "prototype-plan",
-      "context_message": "",
+      "context_message": "=== STEP START ===\nRun your step now, as your instructions describe. Nothing is pasted into this message on purpose.\n- The user's original request is in .context/user-prompt.md.\n- Earlier steps' outputs are in .agents/ and in the files your instructions name.\nRead what your instructions tell you to read, then do the work and deliver your output. Do not ask what to do and do not wait for more input.\n=== END STEP START ===",
       "tool_calls": []
     },
     "type": "agent_input"
@@ -424,7 +444,7 @@
   {
     "data": {
       "agent_id": "prototype-specify",
-      "context_message": "",
+      "context_message": "=== STEP START ===\nRun your step now, as your instructions describe. Nothing is pasted into this message on purpose.\n- The user's original request is in .context/user-prompt.md.\n- Earlier steps' outputs are in .agents/ and in the files your instructions name.\nRead what your instructions tell you to read, then do the work and deliver your output. Do not ask what to do and do not wait for more input.\n=== END STEP START ===",
       "tool_calls": []
     },
     "type": "agent_input"
@@ -474,7 +494,7 @@
   {
     "data": {
       "agent_id": "prototype-validate",
-      "context_message": "",
+      "context_message": "=== STEP START ===\nRun your step now, as your instructions describe. Nothing is pasted into this message on purpose.\n- The user's original request is in .context/user-prompt.md.\n- Earlier steps' outputs are in .agents/ and in the files your instructions name.\nRead what your instructions tell you to read, then do the work and deliver your output. Do not ask what to do and do not wait for more input.\n=== END STEP START ===",
       "tool_calls": []
     },
     "type": "agent_input"

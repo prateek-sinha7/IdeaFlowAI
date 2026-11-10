@@ -20,6 +20,7 @@ const LIVE_STATUS_LABEL: Record<string, string> = {
   generating:       "Building",
   analyzing:        "Analyzing",
   waiting_for_user: "Waiting for you",
+  paused:           "Paused",
   clarifying:       "Clarifying",
   gate:             "Awaiting review",
 };

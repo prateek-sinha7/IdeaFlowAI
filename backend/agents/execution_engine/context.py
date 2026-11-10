@@ -513,6 +513,10 @@ class ExecutionContext:
     # byte-parity holds. Transient per-run scratch (INV-2 — never on the singleton).
     trigger_depth: int = 0
 
+    # P27 E6: the compiled workflow's ``resilience:`` block (resolved ints), or None.
+    # None ⇒ every self-healing path is dormant (byte-identical behaviour).
+    resilience: dict | None = None
+
     # ── Task 4.4 (sandbox-git-versioning, Req 12): pre_commit block tracking ─────
     # last_commit_blocked: set to True when a ``pre_commit`` hook returns ``block``
     # at the step-boundary commit site in engine._execute_impl.  The terminal-path

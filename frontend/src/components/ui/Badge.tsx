@@ -16,6 +16,7 @@ export type BadgeStatus =
   | "cancelled"
   | "gate"
   | "queued"
+  | "paused"
   // Task 11.5 (sandbox-git-versioning-v2, Req 20): "degraded" is SEMANTICALLY
   // DISTINCT from "done" — it uses the amber ramp with its own label so AT and
   // sighted users both receive a different signal. Never a colour variant of success.
@@ -37,6 +38,8 @@ const STATUS_CLASS: Record<BadgeStatus, string> = {
     "text-status-amber bg-[var(--status-amber-fill)] border-[var(--status-amber-border)]",
   queued:
     "text-status-queued bg-[var(--status-queued-fill)] border-[var(--status-queued-border)]",
+  paused:
+    "text-status-amber bg-[var(--status-amber-fill)] border-[var(--status-amber-border)]",
   // degraded: amber ramp (not green/done). Normalised label is "Degraded" so
   // the chip never reads "Done" or "Completed" — Req 20 distinctness requirement.
   degraded:
@@ -50,7 +53,8 @@ function normalizeStatus(status: string): BadgeStatus {
   if (s === "running") return "running";
   if (s === "failed" || s === "error") return "failed";
   if (s === "cancelled" || s === "canceled") return "cancelled";
-  if (s === "gate" || s === "review" || s === "paused") return "gate";
+  if (s === "gate" || s === "review") return "gate";
+  if (s === "paused") return "paused";
   if (s === "queued" || s === "pending") return "queued";
   // Task 11.5: "degraded" normalizes to its own key, not "queued".
   if (s === "degraded") return "degraded";
@@ -76,6 +80,7 @@ export function Badge({ status, label, className = "" }: BadgeProps) {
     cancelled: "Cancelled",
     gate: "Review",
     queued: "Queued",
+    paused: "Paused",
     degraded: "Degraded",
   };
   return (

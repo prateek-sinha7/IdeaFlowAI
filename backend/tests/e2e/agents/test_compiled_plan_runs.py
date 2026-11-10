@@ -109,8 +109,11 @@ def test_dispatchable_count_is_13() -> None:
 
     Went 31 -> 30 when the ``pdf_to_prototype`` manifest was removed, together
     with its dedicated test, in aa8673cc (GitLab dev sync #12).
+
+    Went 36 -> 37 when ``goal_v2`` was added (feat/goal-v2-dev), a new
+    manifest-backed workflow with fully-loadable steps.
     """
-    assert len(_DISPATCHABLE) == 36
+    assert len(_DISPATCHABLE) == 37
     assert "chat" not in _DISPATCHABLE
     assert "reverse_engineer" not in _DISPATCHABLE
     # The three agentless fixtures must stay out — they cannot be dispatched.
@@ -119,8 +122,8 @@ def test_dispatchable_count_is_13() -> None:
             f"{broken} references agents with no AGENT.md and cannot run; "
             "if it now has them, that is a real change — update this list"
         )
-    # Parametrized coverage = 36 dispatchable.
-    assert len(_PARAMS) == 36
+    # Parametrized coverage = 37 dispatchable.
+    assert len(_PARAMS) == 37
 
 
 @pytest.mark.asyncio

@@ -153,6 +153,8 @@ export function statusDotClass(status: WorkflowStatus): string {
     // one the "vN" version pill already uses) rather than a new color.
     case "diverted":
       return base + "bg-brand";
+    case "paused":
+      return base + "bg-status-amber";
     case "running":
     case "revising":
     default:
@@ -357,7 +359,7 @@ export function bucketAndSortFamilies(
  *  terminal by construction and must carry a pill. */
 type InFlightStatus =
   | "running" | "revising" | "planning" | "generating"
-  | "waiting_for_user" | "clarifying" | "analyzing";
+  | "waiting_for_user" | "paused" | "clarifying" | "analyzing";
 
 type TerminalStatus = Exclude<WorkflowStatus, InFlightStatus>;
 

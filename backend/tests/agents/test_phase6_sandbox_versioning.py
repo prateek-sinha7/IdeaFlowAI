@@ -52,9 +52,12 @@ class TestPromptPolicyRegistration:
         discover()
         registry = CapabilityRegistry()
         policy = registry.resolve("prompt", "body_only")
+        # P27 E4: ``inline_skills`` precedes the body in every order; only steps that
+        # declare skills_inline fill it, so body_only prompts are otherwise unchanged.
         assert getattr(policy, "order", None) == (
+            "inline_skills",
             "prompt_body",
-        ), "body_only policy order must be exactly ('prompt_body',)"
+        ), "body_only policy order must be exactly ('inline_skills', 'prompt_body')"
 
     def test_governance_order_includes_constitution_and_hooks(self) -> None:
         """Requirement 29 AC2: governance order includes guardrails, hooks, constitution, body."""

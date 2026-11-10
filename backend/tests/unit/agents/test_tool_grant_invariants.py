@@ -403,3 +403,23 @@ def test_granted_packs_reach_the_factory_tool_resolution() -> None:
     tools, _ = _resolve_runner_tools(_Spec(), _Ctx(), sandbox=_Sandbox())
     names = {getattr(t, "name", None) or getattr(t, "__name__", "") for t in tools}
     assert {"extract_text", "file_info", "file_find", "file_page_image"} <= names
+
+
+def test_ledger_pack_binds_ledger_check_in_factory_tool_resolution() -> None:
+    from agents.factory import _resolve_runner_tools
+    from agents.workflows.plan import ToolPermissions
+
+    class _Spec:
+        tools: list = []
+
+    class _Ctx:
+        capabilities: dict = {}
+        prewarmed_mcp_tools = None
+        step_tools = ToolPermissions(tool_sets=["ledger"])
+
+    class _Sandbox:
+        root = "/tmp/nowhere"
+
+    tools, _ = _resolve_runner_tools(_Spec(), _Ctx(), sandbox=_Sandbox())
+    names = {getattr(t, "name", None) or getattr(t, "__name__", "") for t in tools}
+    assert "ledger_check" in names

@@ -285,3 +285,61 @@ describe("RunChatLane — terminal states", () => {
     expect(/"prototype"|od_ppt|app_builder|user_stories/.test(src)).toBe(false);
   });
 });
+
+describe("RunChatLane — paused state", () => {
+  const KIND_COPY: Array<[string, string]> = [
+    ["credentials", "Model credentials stopped working. The run resumes by itself when they work again."],
+    ["poison", "A step failed the same way 3 times. Fix the cause, then resume."],
+    ["budget", "The run reached its time budget. Resume to continue."],
+  ];
+
+  it.each(KIND_COPY)("live paused marker (%s): shows 'Paused — <reason>', the kind line and a Resume button", (kind, copy) => {
+    const onRelaunch = vi.fn();
+    renderWithProviders(
+      <RunChatLane
+        {...baseProps({
+          runState: "paused",
+          pipelineState: pipeline({ paused: { kind, reason: "Provider 401" } }),
+          onRelaunch,
+        })}
+      />,
+    );
+    expect(screen.getByTestId("chat-terminal-paused")).toBeInTheDocument();
+    expect(screen.getByTestId("chat-paused-reason")).toHaveTextContent("Paused — Provider 401");
+    expect(screen.getByTestId("chat-paused-kind")).toHaveTextContent(copy);
+    expect(screen.queryByTestId("chat-terminal-failed")).toBeNull();
+    const resume = screen.getByTestId("chat-relaunch");
+    expect(resume).toHaveTextContent(/Resume/);
+    fireEvent.click(resume);
+    expect(onRelaunch).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(KIND_COPY)("persisted paused error (%s): parses paused:<kind>: <reason> from runError", (kind, copy) => {
+    renderWithProviders(
+      <RunChatLane
+        {...baseProps({
+          runState: "paused",
+          pipelineState: pipeline(),
+          runError: `paused:${kind}: Step 4 timed out`,
+        })}
+      />,
+    );
+    expect(screen.getByTestId("chat-paused-reason")).toHaveTextContent("Paused — Step 4 timed out");
+    expect(screen.getByTestId("chat-paused-kind")).toHaveTextContent(copy);
+    expect(screen.getByTestId("chat-relaunch")).toHaveTextContent(/Resume/);
+  });
+
+  it("a paused run is not rendered as a failed or cancelled terminal", () => {
+    renderWithProviders(
+      <RunChatLane
+        {...baseProps({
+          runState: "paused",
+          pipelineState: pipeline({ paused: { kind: "budget", reason: "Time budget exhausted" } }),
+        })}
+      />,
+    );
+    expect(screen.queryByTestId("chat-terminal-failed")).toBeNull();
+    expect(screen.queryByTestId("chat-terminal-cancelled")).toBeNull();
+    expect(screen.queryByText(/What went wrong/i)).toBeNull();
+  });
+});

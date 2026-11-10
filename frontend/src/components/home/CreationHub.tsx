@@ -17,6 +17,7 @@ const WORKFLOWS: { id: string; type: WorkflowType; label: string; subtitle: stri
   { id: "user_stories", type: "user_stories", label: "Generate product requirements", subtitle: "Epics, user stories, and Gherkin acceptance criteria — ready for Jira.",                  badge: null },
   { id: "ppt",          type: "ppt",          label: "Pitch an idea",                  subtitle: "Executive-grade deck with charts, data, and a clear narrative.",                       badge: null },
   { id: "prototype",    type: "prototype",    label: "Build an interactive prototype", subtitle: "Navigable, high-fidelity HTML prototype from a brief or story set.",                   badge: null },
+  { id: "goal_v2",      type: "goal_v2",      label: "Deliver from documents (Goal)", subtitle: "Reads every attached file, traces each requirement, tests it in a real browser and delivers a working prototype.",                   badge: null },
   { id: "app_builder",  type: "app_builder",  label: "Build an end-to-end application", subtitle: "Full-stack code, tests, and infrastructure from a single requirement.",              badge: null },
   { id: "migration",    type: "migration",    label: "Platform workflows",             subtitle: "Modernise a legacy estate — Mulesoft to AWS or .NET to Azure.",                        badge: "NEW" },
   { id: "custom",       type: "custom",       label: "Compose a custom workflow",      subtitle: "Assemble specialist agents for tasks outside the standard pipelines.",                badge: null },

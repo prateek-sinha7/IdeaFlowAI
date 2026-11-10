@@ -176,6 +176,10 @@ async def lifespan(app: FastAPI):
         engine_instance._resume_register_queue = _ws_bridge._register_resume_queue
         engine_instance._resume_register_task = _ws_bridge._register_resume_task
         engine_instance._resume_cleanup = _ws_bridge._cleanup_pipeline
+        # P27 E6: a run paused on credentials gets a background probe that resumes it.
+        from app.api.run_commands import start_credential_probe
+
+        engine_instance._paused_probe_start = start_credential_probe
         # ── ISS-084: arm the cooperative STOP signal for every resume-family drive.
         # The engine spawns those drivers itself (restore_non_terminal_runs), so unlike a
         # launch there is no caller to hand it a cancel_event — without this line

@@ -43,6 +43,7 @@ const TYPE_CONFIG: Record<WorkflowType, { icon: typeof FileText; color: string; 
   ppt_revision: { icon: Presentation, color: "text-amber-400", label: "Presentation (revision)" },
   prototype: { icon: Layout, color: "text-emerald-400", label: "Prototype" },
   prototype_v2: { icon: Layout, color: "text-emerald-400", label: "Prototype v2" },
+  goal_v2: { icon: Layout, color: "text-emerald-400", label: "Goal" },
   prototype_revision: { icon: Layout, color: "text-emerald-400", label: "Prototype (revision)" },
   prototype_large_revision: { icon: Layout, color: "text-emerald-400", label: "Prototype (large revision)" },
   prototype_feature_revision: { icon: Layout, color: "text-emerald-400", label: "Prototype (feature revision)" },
@@ -74,6 +75,7 @@ const STATUS_ICON: Record<WorkflowStatus, typeof Loader2> = {
   planning: Loader2,
   generating: Loader2,
   waiting_for_user: Loader2,
+  paused: Loader2,
   clarifying: Loader2,
   analyzing: Loader2,
   // R-14 (014-conditional-gates): a terminal hand-off, not a failure — GitBranch
@@ -92,6 +94,7 @@ const STATUS_COLOR: Record<WorkflowStatus, string> = {
   planning: "text-amber-400",
   generating: "text-blue-400",
   waiting_for_user: "text-amber-400",
+  paused: "text-amber-400",
   clarifying: "text-amber-400",
   analyzing: "text-blue-400",
   diverted: "text-indigo-400",

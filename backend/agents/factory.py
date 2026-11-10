@@ -12,6 +12,7 @@ AgentContext carries all runtime context needed to compose the system prompt:
 
 from __future__ import annotations
 
+import json as _json
 import logging
 import re as _re
 from dataclasses import dataclass, field
@@ -102,6 +103,14 @@ class AgentContext:
     # ctx.attached_skills unchanged, so the golden snapshots stay byte-identical
     # (R-16).
     step_skills: list = field(default_factory=list)
+    # skills_inline / skills_select (P27 E4): the compiled Step's inline-skill ids and
+    # the data-driven selector. Unlike ``step_skills`` (staged + advertised only) these
+    # skill BODIES are injected verbatim into the system prompt. Empty/None for every
+    # step that declares neither key → the prompt is byte-identical.
+    step_skills_inline: list = field(default_factory=list)
+    step_skills_select: dict | None = None
+    # P27 ``write_paths``: the step's write allow-list; None = unrestricted (today).
+    step_write_paths: list | None = None
     # skills_prune_scope (ADR-0006 Consequences): the union of every
     # CONCURRENTLY-dispatched step's skill ids, threaded off ectx by the engine.
     # Handed to stage_skills as the KEEP set so a sibling running under the same
@@ -124,6 +133,9 @@ class AgentContext:
     # Defaulted to ``{}`` so every invocation that doesn't thread it through
     # yet stays inert (no internet tools bound).
     capabilities: dict = field(default_factory=dict)
+    # resilience (P27 E6): the compiled workflow's ``resilience:`` block, or None.
+    # Read only by DeepAgentRunner for its transient-retry window.
+    resilience: dict | None = None
     # step_tools: the compiled ``Step.tools`` — the EFFECTIVE ToolPermissions for
     # this step, i.e. what the manifest asked for after the cap in
     # ``agents/workflows/permission_caps.py`` narrowed it. Threaded off
@@ -180,6 +192,37 @@ def _resolve_step_skills(ids: list[str]) -> list[dict]:
         assert entry is not None, f"unresolvable step skill id: {skill_id}"
         resolved.append({"id": entry.id, "name": entry.name, "content": entry.content})
     return resolved
+
+
+def _select_inline_skill_ids(ctx: AgentContext, sandbox: object) -> list[str]:
+    """``skills_inline`` ids plus any ids ``skills_select`` picks from a sandbox JSON file.
+
+    Every failure (missing file, bad JSON, missing field, unknown value) falls back to
+    ``skills_inline`` alone. Order: skills_inline first, then the selected ids, deduped.
+    """
+    ids = list(getattr(ctx, "step_skills_inline", None) or [])
+    select = getattr(ctx, "step_skills_select", None)
+    if select:
+        try:
+            target = sandbox.path_for(select["file"])  # type: ignore[attr-defined]
+            data = _json.loads(target.read_text(encoding="utf-8"))
+            value = data[select["field"]]
+            extra = (
+                (select.get("map") or {}).get(value) if isinstance(value, str) else None
+            )
+            ids.extend(extra or [])
+        except Exception:  # noqa: BLE001 — best-effort, never raises
+            logger.debug("skills_select: falling back to skills_inline", exc_info=True)
+    return list(dict.fromkeys(ids))
+
+
+def _build_inline_skill_blocks(ctx: AgentContext, sandbox: object) -> list[str]:
+    """Prompt blocks (``## SKILL: <id>`` + body) for the step's inline skills."""
+    ids = _select_inline_skill_ids(ctx, sandbox)
+    if not ids:
+        return []
+    resolved = _resolve_sandbox_injections(_resolve_step_skills(ids), sandbox) or []
+    return [f"## SKILL: {r['id']}\n\n{r['content']}" for r in resolved]
 
 
 _INJECT_FROM_RE = _re.compile(r"\{\{INJECT_FROM:([^}]+)\}\}")
@@ -470,6 +513,7 @@ def create_runner(
         ctx,
         no_tools=no_tools,
         has_write_access=has_write_access,
+        inline_skill_blocks=_build_inline_skill_blocks(ctx, sandbox),
     )
 
     # ``max_tokens`` is intentionally NOT passed: the runner's ``build_model``
@@ -489,6 +533,8 @@ def create_runner(
             tools=custom_tools,
             model=ctx.model,
             effort=ctx.effort,
+            resilience=ctx.resilience,
+            write_paths=getattr(ctx, "step_write_paths", None),
             run_sandbox=sandbox,
             checkpointer=checkpointer,
             # Checkpoint thread is per agent-invocation (caller-controlled): the
@@ -561,6 +607,7 @@ def _compose_system_prompt(
     *,
     no_tools: bool = False,
     has_write_access: bool = True,
+    inline_skill_blocks: list[str] | None = None,
 ) -> str:
     """Compose the system prompt via the registered ``PromptAssemblyPolicy`` (08-05 / F1/F3).
 
@@ -678,6 +725,14 @@ def _compose_system_prompt(
         blocks["skills"] = (
             "=== SKILLS ===\n\n" + "\n\n".join(rendered_skills) + "=== END SKILLS ==="
         )
+
+    # 2b. Inline skills (P27 E4 ``skills_inline`` / ``skills_select``): bodies injected
+    # verbatim in the skills slot, after any disk-skill block. Absent → untouched.
+    # Own slot, present in every policy order (body_only included), placed just before
+    # the prompt body — the skills slot is dropped by body_only, which every
+    # custom-agent step uses, so the bodies never reached composed-workflow agents.
+    if inline_skill_blocks:
+        blocks["inline_skills"] = list(inline_skill_blocks)
 
     # 3. Hooks — via the ``behavioral`` hook_provider (the legacy prompt-only hook
     # survives as a non-executable sub-type; the ## Active Behavioral Hooks block render).
@@ -1216,6 +1271,9 @@ _FILE_EXTRACT_TOOL_KEYS = frozenset(
     }
 )
 
+_LEDGER_TOOL_KEYS = frozenset({"ledger_check"})
+_ACCEPTANCE_TOOL_KEYS = frozenset({"run_acceptance", "page_outline"})
+
 
 def _resolve_custom_tool_keys(
     keys: list[str],
@@ -1358,6 +1416,36 @@ def _resolve_custom_tool_keys(
 
             file_extract_tools.bind_sandbox(sandbox)
             concrete = getattr(file_extract_tools, key)
+            if concrete not in resolved:
+                resolved.append(concrete)
+        elif key in _LEDGER_TOOL_KEYS:
+            # P27 E5 — bound only when the step declares tools: [ledger]
+            # (user_allowed=True at the registry). Read-only, sandbox-confined.
+            if sandbox is None:
+                logger.warning(
+                    "ledger tool key %r requested with no run sandbox — skipping "
+                    "(the tool would have no run artefacts to check)",
+                    key,
+                )
+                continue
+            from app.agents.tools import ledger_tools
+
+            ledger_tools.bind_sandbox(sandbox)
+            concrete = getattr(ledger_tools, key)
+            if concrete not in resolved:
+                resolved.append(concrete)
+        elif key in _ACCEPTANCE_TOOL_KEYS:
+            # P27 goal_v2 W1 — bound only when the step declares tools: [acceptance].
+            if sandbox is None:
+                logger.warning(
+                    "acceptance tool key %r requested with no run sandbox — skipping",
+                    key,
+                )
+                continue
+            from app.agents.tools import acceptance_tools
+
+            acceptance_tools.bind_sandbox(sandbox)
+            concrete = getattr(acceptance_tools, key)
             if concrete not in resolved:
                 resolved.append(concrete)
         else:

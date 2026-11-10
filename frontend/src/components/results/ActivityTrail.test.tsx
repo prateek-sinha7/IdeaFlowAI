@@ -76,4 +76,23 @@ describe("ActivityTrail", () => {
     const { container } = render(<ActivityTrail runs={[]} />);
     expect(container).toBeEmptyDOMElement();
   });
+
+  it("a settled step with a very long trail folds without hitting React's update-depth limit", () => {
+    // A goal_v5 lead produced ~190 runs; fitting one pill per pass threw React #185.
+    const long: ActivityRun[] = Array.from({ length: 200 }, (_, i) => ({
+      kind: i % 2 ? "read" : "write",
+      count: 1,
+    }));
+    const sw = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "scrollWidth");
+    const cw = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "clientWidth");
+    Object.defineProperty(HTMLElement.prototype, "scrollWidth", { configurable: true, get: () => 5000 });
+    Object.defineProperty(HTMLElement.prototype, "clientWidth", { configurable: true, get: () => 400 });
+    try {
+      expect(() => render(<ActivityTrail runs={long} status="done" />)).not.toThrow();
+      expect(screen.getAllByTestId("activity-box").length).toBeLessThan(200);
+    } finally {
+      if (sw) Object.defineProperty(HTMLElement.prototype, "scrollWidth", sw);
+      if (cw) Object.defineProperty(HTMLElement.prototype, "clientWidth", cw);
+    }
+  });
 });

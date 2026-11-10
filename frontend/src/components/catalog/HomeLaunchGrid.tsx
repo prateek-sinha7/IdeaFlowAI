@@ -98,6 +98,7 @@ const STATUS_TONE: Record<string, { label: string; dot: string; text: string }> 
   completed: { label: "Done",      dot: "bg-status-done",    text: "text-status-done"    },
   running:   { label: "Running",   dot: "bg-status-running", text: "text-status-running" },
   revising:  { label: "Revising",  dot: "bg-status-running", text: "text-status-running" },
+  paused:    { label: "Paused",    dot: "bg-status-amber",   text: "text-status-amber"   },
   failed:    { label: "Failed",    dot: "bg-status-failed",  text: "text-status-failed"  },
   degraded:  { label: "Degraded",  dot: "bg-status-failed",  text: "text-status-failed"  },
   cancelled: { label: "Cancelled", dot: "bg-ink-300",        text: "text-ink-400"        },
