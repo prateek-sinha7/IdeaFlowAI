@@ -25,7 +25,7 @@ import { RunHeader } from "./RunHeader";
 import type { RunLaneState } from "@/components/chat/RunChatLane";
 // Phase 32 (plan 07) — shared run-screen underline-tab primitive (SC-1, D-15).
 import { Tabs } from "@/components/ui/Tabs";
-import type { WorkflowType, WorkflowStatus, GenericDeliverable, RunFamily, WorkflowRun, AgentThinkingEntry, AgentRunState, PipelineRunState } from "@/types/index";
+import type { WorkflowType, WorkflowStatus, GenericDeliverable, RunFamily, WorkflowRun, AgentThinkingEntry, AgentRunState, PipelineRunState, WaveWorkerEntry } from "@/types/index";
 import type { TabDeepLinkTarget } from "@/hooks/useTabDeepLink";
 import { SandboxPdfPreview } from "@/components/preview/SandboxPdfPreview";
 import { AGENT_HTML_SANDBOX, frameableAgentHtml, openAgentHtmlInNewTab } from "@/lib/agentHtml";
@@ -586,6 +586,9 @@ type PersistedAgentRow = AgentThinkingEntry & Partial<{
   thinking_text: string;
   tool_calls: AgentRunState["toolCalls"];
   context_sources: AgentRunState["contextSources"];
+  // Wave worker fields — present when task_id is set (worker rows)
+  task_id: string;
+  task_author_id: string;
 }>;
 
 type VersionView = {
@@ -637,30 +640,87 @@ async function loadRunClarifications(token: string, runId: string) {
 
 function versionViewFrom(run: WorkflowRun): VersionView {
   const lastRowPerAgent = new Map<string, PersistedAgentRow>();
+  // ISS-wave-name: wave_scheduler's parent agent_start emitted name=step_id (raw ID)
+  // instead of the display name because it read step.name (no such field on compiled
+  // Step) rather than step.display_name. Worker rows, dispatched through _run_agent,
+  // carry the correct AgentSpec name/role/icon and appear BEFORE the parent row in
+  // agent_outputs stream order. Capture the first row whose name differs from the raw
+  // agent_id as the display-identity source; fall back to the last row for everything
+  // else (duration, tokens, output). Without this, every wave step in a pinned revision
+  // view shows "custom-agent:fi-readers" instead of "Readers" with an empty description.
+  const bestDisplayPerAgent = new Map<string, { name: string; role: string; icon: string }>();
+  // Collect wave worker rows (those with task_id) per parent agent so waveWorkers can
+  // be populated in the VersionView agents — without this the detail panel is blank for
+  // wave steps viewed through a pinned revision.
+  const workerRowsPerAgent = new Map<string, PersistedAgentRow[]>();
   for (const row of (run.agentOutputs ?? []) as PersistedAgentRow[]) {
-    if (row?.agent_id) lastRowPerAgent.set(row.agent_id, row);
+    if (!row?.agent_id) continue;
+    if (row.task_id) {
+      // Wave worker row (has task_id) — nest under parent; do NOT overwrite the parent
+      // slot in lastRowPerAgent (the parent row, appended last, carries total duration).
+      const workers = workerRowsPerAgent.get(row.agent_id) ?? [];
+      workers.push(row);
+      workerRowsPerAgent.set(row.agent_id, workers);
+    } else {
+      // Parent row (no task_id) — use as the representative row for duration/output.
+      lastRowPerAgent.set(row.agent_id, row);
+    }
+    if (!bestDisplayPerAgent.has(row.agent_id) && row.name && row.name !== row.agent_id) {
+      bestDisplayPerAgent.set(row.agent_id, {
+        name: row.name,
+        role: row.role ?? "",
+        icon: row.icon ?? "",
+      });
+    }
   }
-  const agents: AgentRunState[] = [...lastRowPerAgent.values()].map((row, index) => ({
-    id: row.agent_id,
-    name: row.name ?? row.agent_id,
-    role: row.role ?? "",
-    icon: row.icon ?? "",
-    // A persisted row IS a completed agent output. A run-level failure comes from
-    // the server's own status below — never a per-agent client guess (ISS-017).
-    status: "done",
-    output: row.output ?? "",
-    thinking: row.thinking ?? "",
-    duration: row.duration ?? null,
-    error: null,
-    index,
-    inputTokens: row.input_tokens,
-    outputTokens: row.output_tokens,
-    totalTokens: row.total_tokens,
-    inputPrompt: row.input_prompt,
-    thinkingText: row.thinking_text,
-    toolCalls: row.tool_calls,
-    contextSources: row.context_sources,
-  }));
+  // Defensive: an agent whose parent row never appeared (incomplete run data) still
+  // needs a representative row so it appears in the agents list.
+  for (const [agentId, workers] of workerRowsPerAgent) {
+    if (!lastRowPerAgent.has(agentId) && workers.length > 0) {
+      lastRowPerAgent.set(agentId, workers[0]);
+    }
+  }
+  const agents: AgentRunState[] = [...lastRowPerAgent.values()].map((row, index) => {
+    const display = bestDisplayPerAgent.get(row.agent_id);
+    const workerRows = workerRowsPerAgent.get(row.agent_id);
+    const waveWorkers: WaveWorkerEntry[] | undefined = workerRows?.map((w, wi) => ({
+      taskId: w.task_id!,
+      taskAuthorId: w.task_author_id ?? undefined,
+      status: "done" as const,
+      workerIndex: wi,
+      output: w.output ?? undefined,
+      thinking: w.thinking_text ?? undefined,
+      inputPrompt: w.input_prompt ?? undefined,
+      contextSources: w.context_sources ?? undefined,
+      toolCalls: w.tool_calls ?? undefined,
+      inputTokens: w.input_tokens ?? undefined,
+      outputTokens: w.output_tokens ?? undefined,
+      totalTokens: w.total_tokens ?? undefined,
+      durationMs: w.duration != null ? Math.round(w.duration * 1000) : undefined,
+    }));
+    return {
+      id: row.agent_id,
+      name: display?.name ?? row.name ?? row.agent_id,
+      role: display?.role ?? row.role ?? "",
+      icon: display?.icon ?? row.icon ?? "",
+      // A persisted row IS a completed agent output. A run-level failure comes from
+      // the server's own status below — never a per-agent client guess (ISS-017).
+      status: "done" as const,
+      output: row.output ?? "",
+      thinking: row.thinking ?? "",
+      duration: row.duration ?? null,
+      error: null,
+      index,
+      inputTokens: row.input_tokens,
+      outputTokens: row.output_tokens,
+      totalTokens: row.total_tokens,
+      inputPrompt: row.input_prompt,
+      thinkingText: row.thinking_text,
+      toolCalls: row.tool_calls,
+      contextSources: row.context_sources,
+      waveWorkers: waveWorkers?.length ? waveWorkers : undefined,
+    };
+  });
   const usage = run.tokenUsage;
   // QA-PS-057 — mirrors page.tsx's own submittedBrief derivation exactly
   // (handleSwitchToLiveRun :2728-2730, handleSelectWorkflowRun :2941-2942) so the
@@ -1013,6 +1073,7 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
   // through the one chokepoint above so the button pins exactly what its own
   // label promises instead of falling back to the family root.
   const handleBackToLatest = useCallback(() => {
+    setSandboxSelectedRef(null);
     if (latestId) void handleSelectVersion(latestId);
   }, [latestId, handleSelectVersion]);
 
@@ -1826,8 +1887,10 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
       />
 
       {/* B3 (POR §5 D5) — read-only amber banner: shown as a slim strip directly
-          under the header while an older version is on screen. */}
-      {isViewingOlder && (
+          under the header while an older version is on screen. Suppressed when
+          sandboxSelectedRef is set — RefVersionPreview renders its own banner
+          in that case, so we must not render a second one. */}
+      {isViewingOlder && !sandboxSelectedRef && (
         <div className="px-[30px] pt-3">
           <ReadOnlyVersionBanner versionNumber={activeIdx + 1} onBackToLatest={handleBackToLatest} />
         </div>
@@ -1911,7 +1974,7 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
                   )}
                   filename={deliverableFile ? deliverableFile.split("/").pop() : undefined}
                   agentOutputs={effAgentOutputs}
-                  onBackToLatest={() => setSandboxSelectedRef(null)}
+                  onBackToLatest={handleBackToLatest}
                 />
               ) : showFailureAffordance || showDivertedAffordance ? (
                 // Phase 42-03 (§D / Group D): the FAILED run's amber

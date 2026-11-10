@@ -223,7 +223,7 @@ describe("Pin survives a tracked revision completing (QA-PS-055 / ISS-744, ISS-7
     expect(screen.queryByRole("status")).toBeNull();
   });
 
-  it("ISS-745 (INFERRED, unconfirmed) — pinning v1, then a tracked revision from an UNRELATED family completing must not redirect/drop the pin", { fails: true }, async () => {
+  it("ISS-745 — pinning v1, then a tracked revision from an UNRELATED family completing must not redirect/drop the pin", async () => {
     // Not reproduced live (ISS-745 was filed from a code-read inference, not a
     // browser observation) — this asserts the SAME PreviewPanel.tsx:883 effect
     // fires identically when liveRunId is replaced by a run id from a

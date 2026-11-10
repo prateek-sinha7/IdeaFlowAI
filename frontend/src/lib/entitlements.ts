@@ -33,6 +33,8 @@ export const TIER_PIPELINES: Record<Tier, Set<string>> = {
     // pipeline's agents. Entitled on the backend wherever `prototype` is —
     // the UI hid them, so the backend allowed a launch the catalog never offered.
     "prototype_large_revision", "prototype_feature_revision",
+    // requirement-PDF-driven template adaptation — same tier as prototype_v2.
+    "prototype_from_template", "prototype_from_template_revision",
     // file-manifest workflow: full-application user stories from a prototype (spec 021)
     "backlog", "backlog_revision",
   ]),
@@ -48,6 +50,8 @@ export const TIER_PIPELINES: Record<Tier, Set<string>> = {
     // pipeline's agents. Entitled on the backend wherever `prototype` is —
     // the UI hid them, so the backend allowed a launch the catalog never offered.
     "prototype_large_revision", "prototype_feature_revision",
+    // requirement-PDF-driven template adaptation — same tier as prototype_v2.
+    "prototype_from_template", "prototype_from_template_revision",
     "app_builder", "app_builder_revision",
     // file-manifest workflow: full-application user stories from a prototype (spec 021)
     "backlog", "backlog_revision",
@@ -64,6 +68,8 @@ export const TIER_PIPELINES: Record<Tier, Set<string>> = {
     // pipeline's agents. Entitled on the backend wherever `prototype` is —
     // the UI hid them, so the backend allowed a launch the catalog never offered.
     "prototype_large_revision", "prototype_feature_revision",
+    // requirement-PDF-driven template adaptation — same tier as prototype_v2.
+    "prototype_from_template", "prototype_from_template_revision",
     "app_builder", "app_builder_revision",
     "custom", "custom_revision",
     // `migration` is a UI meta-grouping, not a launchable pipeline: the card

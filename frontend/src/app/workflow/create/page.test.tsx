@@ -49,7 +49,7 @@ describe("CreatePage", () => {
     expect(replaceMock).not.toHaveBeenCalled();
   });
 
-  it.each(["prototype", "ppt", "ppt_v2"])("passes mode=%s through to the wizard without redirecting", (mode) => {
+  it.each(["prototype", "prototype_v2", "prototype_from_template", "ppt", "ppt_v2"])("passes mode=%s through to the wizard without redirecting", (mode) => {
     searchState.mode = mode;
     render(<CreatePage />);
 
@@ -60,7 +60,6 @@ describe("CreatePage", () => {
   it.each([
     ["an unknown value", "banana"],
     ["an empty string", ""],
-    ["a legacy v2 prototype value the route does not accept", "prototype_v2"],
     ["a differently-cased known value", "PPT"],
     ["a script-injection attempt", "<script>alert(1)</script>"],
   ])("renders nothing and canonicalizes the URL when mode is %s", async (_label, mode) => {

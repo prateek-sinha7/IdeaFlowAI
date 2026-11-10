@@ -877,6 +877,56 @@ def delete_run(
             detail="Workflow run not found",
         )
 
+    # ── Clean up orphaned git tag before removing the DB row ──────────────────
+    # A completed run stores its vN tag in the shared family sandbox. Deleting
+    # the DB row without removing the tag leaves an orphan: the next revision
+    # from the same parent computes the same ordinal (deleted run is gone from
+    # the family BFS), calls create_tag("vN"), hits the orphan, and publishes
+    # degraded. Fix: delete the tag from the sandbox git repo first, best-effort
+    # so that a missing or expired sandbox never blocks the DB deletion.
+    _git_tag = getattr(workflow_run, "git_tag", None)
+    if _git_tag:
+        try:
+            # Walk parent_run_id upward to find the family root — all revisions
+            # share one sandbox directory keyed on the root's id.
+            _root_id = workflow_id
+            _walk_row: WorkflowRun = workflow_run
+            _seen_ids: set[str] = set()
+            while _walk_row.parent_run_id and _walk_row.parent_run_id not in _seen_ids:
+                _seen_ids.add(_root_id)
+                _parent_row = (
+                    db.query(WorkflowRun)
+                    .filter(WorkflowRun.id == _walk_row.parent_run_id)
+                    .first()
+                )
+                if _parent_row is None:
+                    break
+                _root_id = _parent_row.id
+                _walk_row = _parent_row
+
+            _sandbox = RunSandbox(current_user.id, _root_id, current_run_id=workflow_id)
+            if not run_dir_expired(_sandbox.root):
+                _sandbox.delete_tag(_git_tag)
+                logger.info(
+                    "delete_run: removed orphan git tag run=%s tag=%s",
+                    workflow_id,
+                    _git_tag,
+                )
+            else:
+                logger.debug(
+                    "delete_run: sandbox expired, skipping tag cleanup run=%s tag=%s",
+                    workflow_id,
+                    _git_tag,
+                )
+        except Exception as _tag_exc:  # noqa: BLE001 — best-effort; DB deletion must not fail
+            logger.warning(
+                "delete_run: git tag cleanup FAILED run=%s tag=%s (%s) — "
+                "proceeding; orphan tag may cause a future collision",
+                workflow_id,
+                _git_tag,
+                _tag_exc,
+            )
+
     # ── Delete child rows in dependency order before removing the parent ──────
     # All 9 audit tables FK into workflow_runs.id with no ON DELETE CASCADE.
     # Column names differ per table — confirmed from each model file.

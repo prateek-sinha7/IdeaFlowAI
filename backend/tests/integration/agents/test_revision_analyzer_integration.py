@@ -176,7 +176,7 @@ def tier_classifier(monkeypatch):
 
     holder = {"tier": _FAKE_TIER}
 
-    async def _fake_classify(instruction, parent_run_id, model_id=None):
+    async def _fake_classify(instruction, parent_run_id, model_id=None, images=None):
         return holder["tier"]
 
     monkeypatch.setattr(rc, "_classify_revision_tier", _fake_classify)

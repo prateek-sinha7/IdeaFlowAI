@@ -127,7 +127,7 @@ async function pick(tag: string) {
   await userEvent.click(screen.getByRole("option", { name: tag }));
 }
 
-const banner = () => screen.queryByText(/Viewing v\d+ \(read-only\)/)?.textContent ?? "";
+const banner = () => screen.queryByRole("status")?.textContent ?? "";
 
 describe("ISS-758 — out-of-order version picks", () => {
   it("ISS-758: an older pick whose response lands last must not overwrite the newer pick", async () => {

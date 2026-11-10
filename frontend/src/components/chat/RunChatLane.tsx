@@ -947,16 +947,37 @@ function RunAttachmentChips({ attachments }: { attachments: ChatAttachment[] }) 
 // `max-h-[132px]` scroll safety stay in lockstep.
 const COMPOSER_MAX_HEIGHT_PX = 132;
 
+/** Convert a raw Bedrock model ID to a short human-readable label.
+ *  eu.anthropic.claude-sonnet-5-5 → Claude Sonnet 5.5
+ *  eu.anthropic.claude-haiku-4-5-20251001-v1:0 → Claude Haiku 4.5
+ */
+function modelLabel(modelId: string): string {
+  if (!modelId) return "";
+  let s = modelId
+    .replace(/^(eu|us|global|ap|ca|sa)\./i, "")
+    .replace(/^(anthropic|openai|amazon|meta|mistral)\./i, "")
+    .replace(/-\d{8}-v\d+[:.]\d+$/, "")
+    .replace(/:\d+$/, "");
+  s = s.replace(/(\d+)-(\d+)/g, "$1.$2");
+  s = s.replace(/-/g, " ");
+  s = s.replace(/\b\w/g, (c) => c.toUpperCase());
+  s = s.replace(/\bGpt\b/g, "GPT");
+  return s.trim();
+}
+
 /** Free-text composer: the mock's white rounded input bar (attach · voice ·
  *  send) + the plan-06 attachment tray as compact chips above (Phase 39). */
 function FreeTextComposer({
   placeholder,
   onSend,
   hint,
+  conciergeModelId,
 }: {
   placeholder: string;
   onSend: (text: string, attachments: ChatAttachment[], fileContents?: import("@/hooks/useChatAttachments").FileContentEntry[]) => void;
   hint?: string;
+  /** When set, renders the model name below the input bar (concierge-chat only). */
+  conciergeModelId?: string;
 }) {
   const [value, setValue] = useState("");
   // Remounting ChatAttachments (via key) clears its internal intake after a send.
@@ -969,6 +990,9 @@ function FreeTextComposer({
   // Mirror pendingRef length as state so the send button re-renders when attachments change.
   const [attachmentCount, setAttachmentCount] = useState(0);
   const attachOpenRef = useRef<(() => void) | null>(null);
+  // Exposes ChatAttachments' addFiles so the textarea onPaste can route
+  // clipboard image/file items into the intake without opening the picker.
+  const addFilesRef = useRef<((files: File[] | FileList) => Promise<void>) | null>(null);
   // c72 — the textarea element, driven imperatively for the auto-grow (no value
   // effect, so the send-reset stays deterministic + jsdom-testable).
   const taRef = useRef<HTMLTextAreaElement>(null);
@@ -1030,6 +1054,7 @@ function FreeTextComposer({
         key={attachKey}
         compact
         openRef={attachOpenRef}
+        addFilesRef={addFilesRef}
         onChange={(a) => {
           pendingRef.current = a;
           setAttachmentCount(a.length);
@@ -1053,6 +1078,24 @@ function FreeTextComposer({
             if (e.key === "Enter" && !e.shiftKey) {
               e.preventDefault();
               handleSend();
+            }
+          }}
+          onPaste={(e) => {
+            // Route clipboard images/files into the attachment intake.
+            // Plain text pastes (no file items) fall through to the default
+            // textarea behaviour — the user's typed text is unaffected.
+            const items = e.clipboardData?.items;
+            if (!items || !addFilesRef.current) return;
+            const files: File[] = [];
+            for (const item of Array.from(items)) {
+              if (item.kind === "file") {
+                const f = item.getAsFile();
+                if (f) files.push(f);
+              }
+            }
+            if (files.length > 0) {
+              e.preventDefault(); // don't paste binary noise into the textarea
+              void addFilesRef.current(files);
             }
           }}
           rows={1}
@@ -1113,6 +1156,13 @@ function FreeTextComposer({
           <ArrowRight className="h-4 w-4" strokeWidth={1.8} />
         </button>
       </div>
+      {/* Concierge model attribution — shown below the input bar when a
+          conciergeModelId is set (completed-run chat with the concierge). */}
+      {conciergeModelId && (
+        <p className="text-right text-[10px] text-ink-300 font-sans pr-1">
+          {modelLabel(conciergeModelId)}
+        </p>
+      )}
     </div>
   );
 }
@@ -1339,6 +1389,21 @@ export function RunChatLane({
       // Need at least one of text or files to send.
       if (!effectiveText && !hasFiles) return;
 
+      // Extract base64 image data from image-kind attachments so the backend
+      // can route them to the Concierge LLM and pipeline vision path (body.images
+      // → validated_turn_images → ctx.images). PendingAttachment carries `data`
+      // and `mimeType`; cast safely — a missing field produces a no-op entry that
+      // the backend's _validate_images ingress will reject cleanly. Absent images
+      // ⇒ empty array ⇒ NO `images` key written (dormant, INV-3).
+      const imagesToSend = attachments
+        .filter((a) => a.kind === "image")
+        .map((a) => ({
+          mime_type: (a as { mimeType?: string }).mimeType || "image/png",
+          data: (a as { data?: string }).data || "",
+        }))
+        .filter((img) => img.data.length > 0);
+      const imageOpts = imagesToSend.length > 0 ? { images: imagesToSend } : {};
+
       if (runState === "complete") {
         // Fast path: exact named-target chain (BUG-1 fix — no LLM round-trip needed).
         const chainId = matchChainTarget(effectiveText, suggestions);
@@ -1360,6 +1425,7 @@ export function RunChatLane({
           ...(echoMessageId ? { existingMessageId: echoMessageId } : {}),
           ...(chainHints ? { chain_hints: chainHints } : {}),
           ...(fileContents && fileContents.length > 0 ? { file_contents: fileContents } : {}),
+          ...imageOpts,
         });
         return;
       }
@@ -1373,6 +1439,7 @@ export function RunChatLane({
           concierge: true,
           ...(echoMessageId ? { existingMessageId: echoMessageId } : {}),
           ...(fileContents && fileContents.length > 0 ? { file_contents: fileContents } : {}),
+          ...imageOpts,
         });
         return;
       }
@@ -1386,6 +1453,7 @@ export function RunChatLane({
           concierge: true,
           ...(echoMessageId ? { existingMessageId: echoMessageId } : {}),
           ...(fileContents && fileContents.length > 0 ? { file_contents: fileContents } : {}),
+          ...imageOpts,
         });
         return;
       }
@@ -1720,6 +1788,16 @@ export function RunChatLane({
           <FreeTextComposer
             placeholder="Ask for a change or a follow-up…"
             onSend={handleFreeText}
+            conciergeModelId={
+              // Show the model name of the last concierge reply so the user knows
+              // which model is powering the chat. Derived from the transcript —
+              // absent until the first concierge reply lands (no extra fetch).
+              messages
+                .slice()
+                .reverse()
+                .find((m) => m.role === "assistant" && m.conciergeModelId)
+                ?.conciergeModelId
+            }
           />
         );
 

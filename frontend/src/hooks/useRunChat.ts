@@ -173,6 +173,14 @@ export interface SendMessageOptions {
    * and ectx.steering_notes. Absent/empty ⇒ NO `file_contents` key (dormant, INV-3).
    */
   file_contents?: { name: string; text: string; error?: string; truncated?: boolean }[];
+  /**
+   * Per-turn image attachments for vision (UPLD-02 residue, 30-03). Each entry is
+   * `{mime_type, data}` (base64, prefix-stripped). Folded onto the payload as
+   * `images` so the backend threads them to the Concierge LLM (concierge image
+   * revision feature) and to ectx.turn_images_once for in-run agents with
+   * `injects:[images]`. Absent/empty ⇒ NO `images` key (dormant, INV-3).
+   */
+  images?: { mime_type: string; data: string }[];
 }
 
 export interface UseRunChatReturn {
@@ -423,6 +431,11 @@ function upsertNarratorMessage(
     // one gate's approval from the next.
     agentName:
       typeof data.agent_name === "string" && data.agent_name ? data.agent_name : undefined,
+    // Model label for concierge replies — raw Bedrock inference profile string
+    // (e.g. eu.anthropic.claude-haiku-4-5-20251001-v1:0). Only present on
+    // concierge chat_reply turns; absent on narrator cards and user turns.
+    conciergeModelId:
+      typeof data.model_id === "string" && data.model_id ? data.model_id : undefined,
     runId: narratorRunId,
     threadId,
   };
@@ -702,6 +715,12 @@ export function useRunChat(config: UseRunChatConfig): UseRunChatReturn {
       // absent/empty ⇒ NO `file_contents` key (byte-identical dormant payload, INV-3).
       if (options?.file_contents && options.file_contents.length > 0) {
         payload.file_contents = options.file_contents;
+      }
+      // Per-turn vision images (UPLD-02 / 30-03): fold base64 image data ONLY when
+      // non-empty so the backend can route them to the Concierge LLM and pipeline
+      // agents. Absent/empty ⇒ NO `images` key (byte-identical dormant, INV-3).
+      if (options?.images && options.images.length > 0) {
+        payload.images = options.images;
       }
       if (legacyWsSend) {
         // Flag-OFF legacy WS up-channel (LOCK-B): same transcript. The concierge

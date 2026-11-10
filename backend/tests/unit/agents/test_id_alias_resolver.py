@@ -213,6 +213,12 @@ _EXPECTED_CLARIFY_DEFAULTS: dict[str, list[str]] = {
     "prototype_v2": [],
     "prototype_v2_revision": [],
     "prototype_v2_feature_revision": [],
+    # clarify.mode: skip — spec 023 (prototype_from_template). The base pipeline
+    # takes its requirements from an uploaded PDF (req-reader step). The revision
+    # pipeline takes its instruction from the revision panel. Both declare
+    # defaults: []. Sibling trap: keep in lockstep with test_manifest_parity.py.
+    "prototype_from_template": [],
+    "prototype_from_template_revision": [],
 }
 # The fallback for any id absent from the dict above (the *_revision manifests +
 # chat/reverse_engineer) — these were NOT touched by KAN-74 and still declare the
@@ -480,6 +486,12 @@ _PLANNER_SKIP_IDS = _RUN_REVISION_DISPATCHED | {
     "prototype_v2",
     "prototype_v2_revision",
     "prototype_v2_feature_revision",
+    # spec 023 (prototype_from_template): base carries its own req-reader step
+    # (same rationale as prototype_v2/backlog); revision panel supplies the
+    # instruction for the revision. Sibling trap: keep in lockstep with
+    # tests/agents/test_manifest_parity.py::_PLANNER_SKIP_IDS.
+    "prototype_from_template",
+    "prototype_from_template_revision",
 }
 
 

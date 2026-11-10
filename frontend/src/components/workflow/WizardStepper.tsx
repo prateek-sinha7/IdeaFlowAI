@@ -49,6 +49,8 @@ export interface WizardStepperProps {
   onWebSelect: (id: string | null) => void;
   onWebSelectCustomTemplate?: (ct: CustomTemplate | null) => void;
   webSelectedCustomTemplateId?: string | null;
+  /** Forwarded to TemplateGallery — restricts the catalog to prototype-mode templates when "prototype". */
+  webFilterMode?: "prototype" | "all";
 
   // ── Deck template step — props forwarded verbatim to the reused PPTTemplateGallery ──
   deckTemplates: PPTTemplate[];
@@ -103,6 +105,7 @@ export function WizardStepper({
   onWebSelect,
   onWebSelectCustomTemplate,
   webSelectedCustomTemplateId,
+  webFilterMode = "all",
   deckTemplates,
   deckSelectedId,
   onDeckSelect,
@@ -180,6 +183,7 @@ export function WizardStepper({
                 selectedCustomTemplateId={webSelectedCustomTemplateId}
                 figmaFrames={figmaFrames}
                 onFigmaFramesChange={onFigmaFramesChange}
+                filterMode={webFilterMode}
               />
             ) : (
               <PPTTemplateGallery

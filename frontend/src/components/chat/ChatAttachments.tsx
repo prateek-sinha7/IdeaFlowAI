@@ -53,6 +53,12 @@ interface ChatAttachmentsProps {
    * trigger (the composer bar's paperclip in `compact` mode) can invoke it. */
   openRef?: MutableRefObject<(() => void) | null>;
   /**
+   * Populated with the `addFiles` function so an external trigger (the chat
+   * textarea's `onPaste`) can route clipboard image/file items into the
+   * attachment intake without the user opening the file picker.
+   */
+  addFilesRef?: MutableRefObject<((files: File[] | FileList) => Promise<void>) | null>;
+  /**
    * Notifies the parent when file extraction is in progress (true while any
    * binary file is being read server-side). Used to disable the send button
    * until extraction completes so the Concierge always gets the file text.
@@ -81,7 +87,7 @@ function PlaceholderChip({ att }: { att: ChatAttachment }) {
   );
 }
 
-export function ChatAttachments({ onChange, onFileContentsChange, reopenedAttachments, accept, compact, openRef, onExtractingChange }: ChatAttachmentsProps) {
+export function ChatAttachments({ onChange, onFileContentsChange, reopenedAttachments, accept, compact, openRef, addFilesRef, onExtractingChange }: ChatAttachmentsProps) {
   const { attachments, fileContents, isExtracting, extractingIds, addFiles, onPaste, onDrop, remove } = useChatAttachments();
   const [dragActive, setDragActive] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -109,6 +115,16 @@ export function ChatAttachments({ onChange, onFileContentsChange, reopenedAttach
       openRef.current = null;
     };
   }, [openRef]);
+
+  // Expose addFiles so an external handler (e.g. textarea onPaste) can route
+  // clipboard image/file items into the attachment intake imperatively.
+  useEffect(() => {
+    if (!addFilesRef) return;
+    addFilesRef.current = addFiles;
+    return () => {
+      addFilesRef.current = null;
+    };
+  }, [addFilesRef, addFiles]);
 
   // ── REOPENED mode: render the stored refs as placeholders, no live intake. ──
   if (reopenedAttachments && reopenedAttachments.length > 0) {

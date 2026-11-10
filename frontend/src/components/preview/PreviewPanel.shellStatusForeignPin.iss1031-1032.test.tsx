@@ -84,7 +84,9 @@ describe("ISS-1031 - the header describes the pinned version, not a failed shell
     await user.click(await screen.findByRole("button", { name: /v2/ }));
     await user.click(await screen.findByRole("option", { name: "v1" }));
     await waitFor(() => expect(mockGetWorkflow).toHaveBeenCalledWith("test-token", "root"));
-    await screen.findByText("Viewing v1 (read-only)");
+    const bannerStrip = await screen.findByRole("status");
+    expect(bannerStrip).toHaveTextContent(/Viewing v1/);
+    expect(bannerStrip).toHaveTextContent(/read-only/i);
     expectSettledHeader();
   });
   it("ISS-1031 CONTROL unpinned failed shell WITH content keeps Run failed, no Share or Download", () => {

@@ -34,8 +34,12 @@ import { EMPTY_ANSWERS } from "@/components/workflow/prototype/DiscoveryForm";
  * same staging effects, same wizard steps — and is distinguished ONLY by the
  * `pipelineType` field `buildLaunchDraft` appends below. Duplicating the key
  * pair would mean duplicating four staging/fire effects in `[...view]/page.tsx`
- * for a hand-off whose shape is identical. */
-export type LaunchMode = "prototype" | "prototype_v2" | "ppt" | "ppt_v2";
+ * for a hand-off whose shape is identical.
+ *
+ * `prototype_from_template` is the requirement-PDF-driven template adaptation
+ * workflow. It shares the prototype draft key (template + DS wizard steps are
+ * identical) and is distinguished by the appended `pipelineType` field. */
+export type LaunchMode = "prototype" | "prototype_v2" | "ppt" | "ppt_v2" | "prototype_from_template";
 
 /** An out-of-band image ride-along (D3): SEPARATE from brief-inlined file text. */
 export interface LaunchImage {
@@ -87,7 +91,8 @@ export interface LaunchDraft {
 }
 
 /** The per-mode storage-key pair. `ppt_v2` deliberately SHARES ppt's pair — see
- *  the LaunchMode note above; the draft's `pipelineType` field tells them apart. */
+ *  the LaunchMode note above; the draft's `pipelineType` field tells them apart.
+ *  `prototype_from_template` SHARES prototype's pair for the same reason. */
 const MODE_KEYS: Record<LaunchMode, { draftKey: string; pendingKey: string }> = {
   prototype: { draftKey: "prototype.draft", pendingKey: "prototype.pending" },
   ppt: { draftKey: "ppt.draft", pendingKey: "ppt.pending" },
@@ -95,6 +100,8 @@ const MODE_KEYS: Record<LaunchMode, { draftKey: string; pendingKey: string }> = 
   // `prototype_v2` SHARES prototype's pair for the same reason `ppt_v2` shares
   // ppt's: one web family, one draft slot; `pipelineType` tells them apart.
   prototype_v2: { draftKey: "prototype.draft", pendingKey: "prototype.pending" },
+  // requirement-PDF-driven template adaptation — same web wizard, same draft slot.
+  prototype_from_template: { draftKey: "prototype.draft", pendingKey: "prototype.pending" },
 };
 
 /**
@@ -136,12 +143,11 @@ export function buildLaunchDraft(mode: LaunchMode, inputs: LaunchDraftInputs): L
     // byte-identical to the retired flow and the parity gate keeps proving it.
     ...(stagedUploadIds && stagedUploadIds.length > 0 ? { stagedUploadIds } : {}),
     agentIds,
-    // Appended LAST and ONLY for a non-`ppt` deck launch, so the ppt and
-    // prototype drafts stay byte-identical to the retired flow and the
-    // launch-contract parity gate keeps proving it.
-    // Appended for every SECOND-deliverable family member (ppt_v2, prototype_v2)
-    // so the base `ppt`/`prototype` drafts stay byte-identical to the retired flow.
-    ...(mode === "ppt_v2" || mode === "prototype_v2" ? { pipelineType: mode } : {}),
+    // Appended for every SECOND-deliverable family member (ppt_v2, prototype_v2,
+    // prototype_from_template) so the base `ppt`/`prototype` drafts stay
+    // byte-identical to the retired flow and the launch-contract parity gate
+    // keeps proving it.
+    ...(mode === "ppt_v2" || mode === "prototype_v2" || mode === "prototype_from_template" ? { pipelineType: mode } : {}),
     // Design Ingestor source_type — appended last, optional, so pre-ingestor
     // drafts are byte-identical to the retired flow (INV-3 parity gate safe).
     ...(sourceType ? { sourceType } : {}),

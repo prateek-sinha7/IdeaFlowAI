@@ -26,6 +26,8 @@ TIER_PIPELINES: dict[str, set[str]] = {
         "prototype_v2",  # file-manifest copy of the DB-composed Prototype v2
         "prototype_v2_revision",  # spec 022
         "prototype_v2_feature_revision",  # spec 022
+        "prototype_from_template",  # requirement-PDF-driven template adaptation
+        "prototype_from_template_revision",  # revision of prototype_from_template runs
         "prototype_large_revision",  # tiered large-revision manifest
         "prototype_feature_revision",  # tiered feature-revision manifest
         "backlog",  # file-manifest workflow: full-application user stories from a prototype (spec 021)
@@ -42,6 +44,8 @@ TIER_PIPELINES: dict[str, set[str]] = {
         "prototype_v2",  # file-manifest copy of the DB-composed Prototype v2
         "prototype_v2_revision",  # spec 022
         "prototype_v2_feature_revision",  # spec 022
+        "prototype_from_template",  # requirement-PDF-driven template adaptation
+        "prototype_from_template_revision",  # revision of prototype_from_template runs
         "prototype_large_revision",  # tiered large-revision manifest
         "prototype_feature_revision",  # tiered feature-revision manifest
         "app_builder",
@@ -60,6 +64,8 @@ TIER_PIPELINES: dict[str, set[str]] = {
         "prototype_v2",  # file-manifest copy of the DB-composed Prototype v2
         "prototype_v2_revision",  # spec 022
         "prototype_v2_feature_revision",  # spec 022
+        "prototype_from_template",  # requirement-PDF-driven template adaptation
+        "prototype_from_template_revision",  # revision of prototype_from_template runs
         "prototype_large_revision",  # tiered large-revision manifest
         "prototype_feature_revision",  # tiered feature-revision manifest
         "app_builder",

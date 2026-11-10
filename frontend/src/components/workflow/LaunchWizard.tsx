@@ -63,7 +63,8 @@ import {
 } from "@/lib/launchDraft";
 import type { CustomDesignSystem } from "@/components/workflow/prototype/CustomDesignSystemModal";
 import type { CustomTemplate } from "@/components/workflow/prototype/CustomTemplateModal";
-import type { AgentDef } from "@/types/index";
+
+import type { AgentDef, WorkflowType } from "@/types/index";
 import { CUSTOM_AGENT_PREFIX } from "@/store/api/userWorkflows";
 import { buildWorkflowManifest, collectAgentIds, instantiateIfTemplate, overrideDescription } from "@/store/api/userWorkflows";
 import { DOCUMENT_AND_IMAGE_ACCEPT, isBinaryUpload, isTextUpload, withoutOne } from "@/lib/uploadTypes";
@@ -92,8 +93,9 @@ const STAGE_FAILED_PLACEHOLDER =
  */
 
 /** The Web/Deck stepper toggle value ↔ the deliverable mode. `ppt_v2` is a deck
- *  deliverable, so it sits under "deck" alongside `ppt`. */
-const STEPPER_MODE: Record<LaunchMode, "web" | "deck"> = { prototype: "web", prototype_v2: "web", ppt: "deck", ppt_v2: "deck" };
+ *  deliverable, so it sits under "deck" alongside `ppt`. `prototype_from_template`
+ *  is a web deliverable. */
+const STEPPER_MODE: Record<LaunchMode, "web" | "deck"> = { prototype: "web", prototype_v2: "web", ppt: "deck", ppt_v2: "deck", prototype_from_template: "web" };
 /** The sessionStorage key a caller stages this mode's draft under. The chain pickup
  *  and the draft restore both read it, so they cannot disagree (ISS-347). */
 const draftKeyFor = (m: LaunchMode) => (STEPPER_MODE[m] === "web" ? "prototype.draft" : "ppt.draft");
@@ -106,8 +108,12 @@ function modeFromStepper(m: "web" | "deck", deckMode: LaunchMode, webMode: Launc
 }
 
 interface ModeConfig {
-  /** AgentLibraryData `pipeline_type` for the default lineup. */
-  agentPipeline: LaunchMode;
+  /** AgentLibraryData `pipeline_type` for the default lineup.
+   *  Typed as `WorkflowType` (the canonical pipeline-id union) so the value
+   *  is directly assignable to `AgentsPopup.pipelineType: WorkflowType` without
+   *  a cast. Every `LaunchMode` value is a valid `WorkflowType`, so the literal
+   *  assignments in `MODE_CONFIG` below remain type-safe. */
+  agentPipeline: WorkflowType;
   /** `base_pipeline_type` sent to POST /api/user-workflows on Save — must be
    *  a live catalog id. `od_prototype`/`od_ppt` are retired aliases the
    *  backend no longer accepts (422 "Unsupported base_pipeline_type"). */
@@ -176,6 +182,21 @@ const MODE_CONFIG: Record<LaunchMode, ModeConfig> = {
       "e.g. A pitch deck for our Series A fundraise — $5M ask, B2B SaaS, 10 slides for investors.",
     briefLabel: "Describe your presentation",
     saveTitle: "Save presentation workflow",
+  },
+  // Requirement-PDF-driven template adaptation. Shares the web wizard steps
+  // (template + design system) but adds a mandatory PDF upload and replaces the
+  // freeform brief with "Additional context (optional)".
+  prototype_from_template: {
+    agentPipeline: "prototype_from_template",
+    savePipeline: "prototype_from_template",
+    title: "Prototype from template",
+    chainingTitle: "Pick a template & design system",
+    eyebrow: "New prototype from template",
+    chainingEyebrow: "Chained prototype",
+    placeholder:
+      "Attach your requirements PDF using the paperclip below, then optionally add any extra context here (brand name, data values, clarifications).",
+    briefLabel: "Requirements",
+    saveTitle: "Save prototype from template workflow",
   },
 };
 
@@ -247,8 +268,8 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
   const deckMode: LaunchMode = initialMode === "ppt_v2" ? "ppt_v2" : "ppt";
   // The web analogue of deckMode: which web deliverable the Web half of the toggle
   // means for THIS wizard. Without it, toggling deck -> web would silently downgrade
-  // a prototype_v2 launch to prototype — the same bug deckMode exists to prevent.
-  const webMode: LaunchMode = initialMode === "prototype_v2" ? "prototype_v2" : "prototype";
+  // a prototype_v2 / prototype_from_template launch to prototype.
+  const webMode: LaunchMode = initialMode === "prototype_v2" ? "prototype_v2" : initialMode === "prototype_from_template" ? "prototype_from_template" : "prototype";
   // Web-family test. Keyed on STEPPER_MODE data, never on a workflow name, so a new
   // web deliverable joins by adding one STEPPER_MODE row (SC-001 / INV-1).
   const isWeb = STEPPER_MODE[mode] === "web";
@@ -987,16 +1008,17 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
     });
   }, [stageDocument, settleStages]);
 
+  // `isRequirementsMode`: true for prototype_from_template where a PDF is the
+  // primary brief and template selection is mandatory (not optional).
+  const isRequirementsMode = mode === "prototype_from_template";
+
+  // For requirements mode, a successfully staged document (any, not just PDF — the
+  // file input below restricts to PDF) counts as a valid build input.
+  const hasStagedPDF = isRequirementsMode && stagedUploadsOf(stagedDocuments).length > 0;
+
   // ISS-155: validate what `handleLaunch` ACTUALLY consumes, not a proxy for it.
-  // The previous form was `isChaining || brief.trim()` — chaining WAIVED the brief
-  // on the assumption a chain context block would stand in for it, but nothing ever
-  // checked that the block exists. `DashboardLayout` swallows a failed
-  // `getChainContext` as non-fatal and (FIX-217) now clears `chain.context_block`
-  // up front, so "chaining with no context block" is reachable — and `handleLaunch`
-  // then falls through to `brief.trim()`, the empty string. Requiring the union of
-  // the two things `handleLaunch` reads keeps dev's UX goal (no brief needed when
-  // chaining WORKS) while closing the briefless launch.
-  const hasBuildInput = Boolean(brief.trim() || chainContextBlock?.trim());
+  // For requirements mode, a staged PDF counts as build input even without a brief.
+  const hasBuildInput = Boolean(brief.trim() || chainContextBlock?.trim() || hasStagedPDF);
 
   // ISS-1002: ONE predicate for the source-status gate and the checkbox that clears
   // it, so Continue is never blocked with no remedy on screen. A status with no
@@ -1006,13 +1028,17 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
   const canContinue = useMemo(() => {
     // SGV2 11.7: if the source run is non-success, the warning must be acknowledged.
     if (showSourceWarning && !warningAcknowledged) return false;
+    // prototype_from_template: template + DS + at least one staged PDF required.
+    if (isRequirementsMode) {
+      return Boolean(selectedTemplateId && selectedDsId && hasStagedPDF);
+    }
     if (isWeb) {
       // KAN-87: template optional; DS required (color tokens) — unless Figma frames supplied.
       return hasFigmaFrames ? Boolean(hasBuildInput) : Boolean(selectedDsId && hasBuildInput);
     }
     // ppt: template required; DS only when the template declares it.
     return Boolean(selectedTemplateId && hasBuildInput && (!dsRequired || selectedDsId));
-  }, [mode, selectedDsId, selectedTemplateId, dsRequired, hasBuildInput, hasFigmaFrames, showSourceWarning, warningAcknowledged]);
+  }, [mode, selectedDsId, selectedTemplateId, dsRequired, hasBuildInput, hasFigmaFrames, showSourceWarning, warningAcknowledged, isRequirementsMode, hasStagedPDF]);
 
   // ISS-321: the deliverable this wizard launches, gated on the same
   // `canRunPipeline` the dashboard catalog card uses (HomeLaunchGrid) and the
@@ -1403,7 +1429,7 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
                   ref={fileInputRef}
                   type="file"
                   multiple
-                  accept={DOCUMENT_AND_IMAGE_ACCEPT}
+                  accept={isRequirementsMode ? ".pdf" : DOCUMENT_AND_IMAGE_ACCEPT}
                   className="hidden"
                   onChange={(e) => { if (e.target.files) onFilesPicked(e.target.files); e.target.value = ""; }}
                 />
@@ -1468,10 +1494,12 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
           <WizardStepper
             mode={STEPPER_MODE[mode]}
             onModeChange={handleModeChange}
-            // ISS-189: a deck template that requires a design system gets the DS step,
-            // or the picker never mounts while Continue and the pill still demand one.
-            steps={isDeck ? (dsRequired ? ["template", "design-system"] : ["template"]) : (hasFigmaFrames ? ["template", "discovery"] : ["template", "design-system", "discovery"])}
+            // ISS-189: a deck template that requires a design system gets the DS step.
+            // requirements mode: template + DS only (PDF is the brief; no discovery).
+            steps={isDeck ? (dsRequired ? ["template", "design-system"] : ["template"]) : isRequirementsMode ? ["template", "design-system"] : (hasFigmaFrames ? ["template", "discovery"] : ["template", "design-system", "discovery"])}
+            // requirements mode: only show templates with od.mode === "prototype"
             webTemplates={webTemplates}
+            webFilterMode={isRequirementsMode ? "prototype" : "all"}
             webSelectedId={isWeb && !customTemplateBody ? selectedTemplateId : null}
             onWebSelect={handleSelectTemplate}
             onWebSelectCustomTemplate={handleSelectCustomTemplate}
@@ -1570,7 +1598,9 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
                   launch whose context block failed to load now blocks Continue, and
                   the old condition hid this pill for every chained launch — leaving
                   a disabled button with no stated reason. */}
-              {!hasBuildInput && <Pill label="Add a brief" />}
+              {!hasBuildInput && !isRequirementsMode && <Pill label="Add a brief" />}
+              {isRequirementsMode && !hasStagedPDF && <Pill label="Attach a requirements PDF" />}
+              {isRequirementsMode && !selectedTemplateId && <Pill label="Pick a template" />}
               {isDeck && !selectedTemplateId && <Pill label="Pick a template" />}
               {(isWeb || dsRequired) && !hasFigmaFrames && !selectedDsId && <Pill label="Pick a design system" />}
             </div>

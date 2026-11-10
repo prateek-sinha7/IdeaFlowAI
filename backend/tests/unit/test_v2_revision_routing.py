@@ -154,7 +154,7 @@ def wired(monkeypatch):
     tier the classifier returns and the mint kwargs captured."""
     state = {"tier": "small", "mint": None}
 
-    async def _classify(instruction, parent_run_id, model_id=None):
+    async def _classify(instruction, parent_run_id, model_id=None, images=None):
         return state["tier"]
 
     def _mint(db, **kwargs):

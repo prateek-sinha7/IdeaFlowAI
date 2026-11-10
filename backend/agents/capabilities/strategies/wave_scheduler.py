@@ -359,12 +359,33 @@ class WaveSchedulerStrategy:
         # by the engine's single emit boundary like every other event this strategy
         # yields. Same shape as engine.py's pair, minus the fields only the dispatch
         # loop knows (index/total/visit_count) — all optional on the wire.
+        # Resolve the AgentSpec so agent_start/agent_complete carry the same
+        # name/role/icon the engine emits in pipeline_start via _specs_from_plan.
+        # A wave step bypasses _run_agent entirely (runs_agent_inline = False), so
+        # it must look these up itself. Graceful degrade: offline harnesses and test
+        # mocks may not expose _spec_for, in which case name falls back to
+        # step.display_name (correct for the runner but missing role/icon).
+        _spec = None
+        try:
+            _spec = runner._spec_for(step)
+        except Exception:  # noqa: BLE001
+            pass
+        _display_name = (
+            (getattr(_spec, "name", None) or None)
+            or (getattr(step, "display_name", None) or None)
+            or step_id
+        )
+        _role = getattr(_spec, "role", None) or ""
+        _icon = getattr(_spec, "icon", None) or ""
+
         _t0 = time.monotonic()
         yield {
             "type": "agent_start",
             "data": {
                 "agent_id": step_id,
-                "name": getattr(step, "name", None) or step_id,
+                "name": _display_name,
+                "role": _role,
+                "icon": _icon,
             },
         }
 
@@ -645,7 +666,7 @@ class WaveSchedulerStrategy:
             "type": "agent_complete",
             "data": {
                 "agent_id": step_id,
-                "name": getattr(step, "name", None) or step_id,
+                "name": _display_name,
                 "duration": round(time.monotonic() - _t0, 2),
                 "output_length": 0,
                 "waves": len(waves),

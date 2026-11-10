@@ -588,7 +588,7 @@ export function InputPromptSection({ prompt, taskMessage, contextIsFileBased }: 
 export function OutputPreviewSection({ output }: { output: string }) {
   const [open, setOpen] = useState(false);
   const isHtml = /<!DOCTYPE|<html/i.test(output) || output.includes("<artifact>");
-  const preview = isHtml ? "[HTML artifact — click to expand]" : output.slice(0, 160) + (output.length > 160 ? "…" : "");
+  const preview = isHtml ? "[HTML artifact — click to expand]" : output.slice(0, 600) + (output.length > 600 ? "…" : "");
   return (
     <div className="mt-2.5 bg-brand-violet-tint border border-brand-border rounded-[11px] overflow-hidden">
       <button onClick={() => setOpen(v => !v)} aria-expanded={open} className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-left">
@@ -603,11 +603,13 @@ export function OutputPreviewSection({ output }: { output: string }) {
       {open ? (
         // The same renderer the live Output card uses, so what a step produced
         // reads identically while it streams and after it settles.
-        <div className="min-w-0 px-11 pb-3">
-          <JudgedContent value={output} maxHeight={500} />
+        // maxHeight=0 removes the scroll cap — the full output is visible and
+        // the panel's own scroll handles navigation on long content.
+        <div className="min-w-0 px-11 pb-5">
+          <JudgedContent value={output} maxHeight={0} />
         </div>
       ) : (
-        <p className="m-0 line-clamp-2 px-11 pb-3 font-[Heebo] text-[12px] leading-[1.6] text-ink-700">
+        <p className="m-0 line-clamp-6 px-11 pb-5 font-[Heebo] text-[13px] leading-[1.7] text-ink-700">
           {preview}
         </p>
       )}

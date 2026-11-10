@@ -120,6 +120,11 @@ export interface ChatMessage {
    * (SC-001). Absent on cards persisted before the narrator stamped it.
    */
   agentName?: string;
+  /** The model ID the Concierge used to produce this reply (e.g.
+   *  `eu.anthropic.claude-haiku-4-5-20251001-v1:0`). Present only on concierge
+   *  `chat_reply` turns. Payload is the raw Bedrock inference profile string;
+   *  the UI formats it into a short human-readable label. */
+  conciergeModelId?: string;
   /** Family anchoring (D-02): the run/thread this turn belongs to. A child
    *  (revision) run's turns carry a different `runId` but stitch into the SAME
    *  transcript array so the family transcript accumulates, never swaps. */
@@ -392,7 +397,7 @@ export interface Story {
 // WORKFLOW / PIPELINE TYPES
 // ============================================================
 
-export type WorkflowType = "user_stories" | "user_stories_revision" | "ppt" | "ppt_v2" | "ppt_revision" | "prototype" | "prototype_v2" | "prototype_revision" | "prototype_large_revision" | "prototype_feature_revision" | "prototype_v2_revision" | "prototype_v2_feature_revision" | "app_builder" | "app_builder_revision" | "custom" | "custom_revision" | "backlog" | "backlog_revision" | "migration" | "mulesoft_to_springboot" | "dotnet_to_azure";
+export type WorkflowType = "user_stories" | "user_stories_revision" | "ppt" | "ppt_v2" | "ppt_revision" | "prototype" | "prototype_v2" | "prototype_revision" | "prototype_large_revision" | "prototype_feature_revision" | "prototype_v2_revision" | "prototype_v2_feature_revision" | "prototype_from_template" | "prototype_from_template_revision" | "app_builder" | "app_builder_revision" | "custom" | "custom_revision" | "backlog" | "backlog_revision" | "migration" | "mulesoft_to_springboot" | "dotnet_to_azure";
 
 // Phase 16 (WR-01): ISS-016 newly persists "degraded" for a partially-failed
 // run (websocket.py), and the revision drainer can persist "revising". The raw

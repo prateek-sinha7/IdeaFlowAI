@@ -169,6 +169,13 @@ _PLANNER_SKIP_IDS = _RUN_REVISION_DISPATCHED | {
     # run_revision-dispatched; unioned in here like the self-planning cases above.
     "prototype_v2",
     "backlog",
+    # spec 023 (prototype_from_template): carries its own req-reader step that
+    # reads the uploaded PDF and extracts requirements — the engine deep-planner
+    # would be redundant (same rationale as prototype_v2/backlog above). The
+    # revision declares skip because the revision panel supplies the instruction
+    # directly (same rationale as prototype_v2_revision).
+    "prototype_from_template",
+    "prototype_from_template_revision",
 }
 
 # Hard-copied VERBATIM from each pipeline's `agents/workflows/<id>/workflow.yaml`
@@ -310,6 +317,12 @@ _ENGINE_PIPELINE_DEFAULTS: dict[str, list[str]] = {
     # step, so they declare defaults: [] rather than the custom fallback list.
     "prototype_v2": [],
     "backlog": [],
+    # clarify.mode: skip — spec 023 (prototype_from_template). The base pipeline
+    # takes its requirements from an uploaded PDF (req-reader step). The revision
+    # pipeline takes its instruction from the revision panel. Both declare
+    # defaults: [] for the same reasons as prototype_v2 / prototype_v2_revision.
+    "prototype_from_template": [],
+    "prototype_from_template_revision": [],
 }
 # The fallback for any id absent from the dict above — the *_revision manifests
 # (ppt_revision, prototype_revision, user_stories_revision, app_builder_revision),

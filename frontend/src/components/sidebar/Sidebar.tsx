@@ -48,6 +48,8 @@ const TYPE_CONFIG: Record<WorkflowType, { icon: typeof FileText; color: string; 
   prototype_feature_revision: { icon: Layout, color: "text-emerald-400", label: "Prototype (feature revision)" },
   prototype_v2_revision: { icon: Layout, color: "text-emerald-400", label: "Prototype v2 (revision)" },
   prototype_v2_feature_revision: { icon: Layout, color: "text-emerald-400", label: "Prototype v2 (feature revision)" },
+  prototype_from_template: { icon: Layout, color: "text-emerald-400", label: "Prototype from Template" },
+  prototype_from_template_revision: { icon: Layout, color: "text-emerald-400", label: "Prototype from Template (revision)" },
   app_builder: { icon: Layout, color: "text-orange-400", label: "App Builder" },
   app_builder_revision: { icon: Layout, color: "text-orange-400", label: "App Builder (revision)" },
   custom: { icon: Layout, color: "text-slate-400", label: "Custom" },

@@ -41,7 +41,7 @@ _MANIFEST_BACKED_IDS = sorted(
 
 
 def test_exactly_18_keys() -> None:
-    """The coverage set is every manifest-backed pipeline — currently 39.
+    """The coverage set is every manifest-backed pipeline — currently 41.
 
     (The test NAME is historical — the pin has moved several times and renaming
     the test would churn its id. The number below is the contract.)
@@ -80,7 +80,7 @@ def test_exactly_18_keys() -> None:
     ``workflow.yaml`` is in scope — "zero exemptions among pipelines that
     actually have a workflow.yaml" is the rule.
     """
-    assert len(_MANIFEST_BACKED_IDS) == 39, (
+    assert len(_MANIFEST_BACKED_IDS) == 41, (
         f"manifest-backed pipeline count changed to {len(_MANIFEST_BACKED_IDS)} "
         f"— a workflow.yaml was added or removed. Confirm it is intentional, then "
         f"update this pin: {_MANIFEST_BACKED_IDS}"

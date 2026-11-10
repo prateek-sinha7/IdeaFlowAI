@@ -236,6 +236,13 @@ AGENT_READABLE_RESERVED: frozenset[str] = frozenset(
         ".agents/",
         ".uploads/",
         ".extract/",
+        # Playwright browser artifacts: the Validator captures screenshots under
+        # ``.browser/{run_id}/.verify/`` and then reads them for visual
+        # verification.  Without this entry the read guard blocks every
+        # ``read_file .browser/...`` call with a reserved-path denial, so the
+        # Validator is forced to skip visual checks entirely.  Write guard is
+        # unchanged — writes to ``.browser/`` are still engine-only.
+        ".browser/",
     }
 )
 
@@ -997,6 +1004,30 @@ class RunSandbox:
             return fn()  # type: ignore[no-any-return]
         except Exception:  # noqa: BLE001 — best-effort, must never raise
             return []
+
+    def delete_tag(self, name: str) -> None:
+        """Delete a git tag named ``name`` from the sandbox.
+
+        Delegates to ``LocalWorkspace.delete_tag`` via ``getattr`` duck-typing —
+        same pattern as ``create_tag`` / ``list_tags``.  NOT added to the
+        Workspace Protocol.
+
+        Called by ``delete_run`` to clean up the orphaned vN tag when a
+        completed run is deleted from the database, so the same ordinal can
+        be reused by a subsequent revision without a tag collision.
+
+        Raises when ``has_git=False``, when the underlying workspace does not
+        support it, or when the git subprocess fails (e.g. tag does not exist).
+        Callers that need best-effort behaviour must catch exceptions themselves.
+        """
+        if not self.has_git:
+            raise RuntimeError(
+                f"delete_tag called on a non-git sandbox (has_git=False) for tag={name!r}"
+            )
+        fn = getattr(self._ws(), "delete_tag", None)
+        if fn is None:
+            raise AttributeError("delete_tag not available on the underlying workspace")
+        fn(name)
 
     def create_run_ref(self, run_id: str) -> "RefResult":
         """Create the internal run ref ``refs/ideaflow/runs/{run_id}`` on HEAD.

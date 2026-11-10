@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Iberia × Unisys ONE Order — shell frame</title>
+  <!--
+    PURPOSE: static template frame for the prototype_v2 assembler.
+    template_kit.py tries assets/template.html before example.html.
+    _find_frame() extracts:
+      - frame.before  → demo-bar + iberia masthead + mainnav wrapper with NAV_SLOT
+      - frame.after   → footer
+      - item_tag      → button
+      - item_classes  → nav-item   (from _ITEM_TOKENS)
+      - active_class  → active
+      - content_tag   → main       (tag "main" is in _CONTENT_TOKENS)
+      - column_class  → wrap       (from _COLUMN_TOKENS — each screen gets a .wrap div)
+
+    CSS is read from example.html (which is still in SOURCES), so this file
+    only needs the minimal inline style overrides that differ from the SPA context.
+  -->
+  <style>
+    /* In the SPA, the red header is styled via `body>#app>header`. Since this
+       frame has no #app wrapper, apply the red background directly. */
+    header { background: #d71920; color: #fff; }
+    .toplinks { color: #fff; }
+    .header-link { color: #fff; }
+  </style>
+</head>
+<body>
+
+<!-- ── Demo toolbar ─────────────────────────────────────────────────────────
+     ALWAYS appears as the very first element — frame.before places it at the
+     absolute top of every assembled screen. Builders must NOT include a
+     demo-bar inside their <section class="screen"> — this frame provides it.  -->
+<div class="demo-bar">
+  <span>
+    <span class="demo-dot">●</span>
+    <strong>IB-ORD-26002</strong> | Iberia × Unisys ONE Order prototype
+  </span>
+  <div class="demo-controls">
+    <button class="demo-switch active" type="button">Consumer</button>
+    <button class="demo-switch" type="button">Backend Demo</button>
+  </div>
+</div>
+
+<!-- ── Iberia masthead (red bar with wordmark logo + toplinks) ───────────── -->
+<header>
+  <div class="top">
+    <div class="brand">
+      <!--
+        Iberia SVG wordmark — extracted from example.html header() function.
+        Clip-path element removed (template_kit._neutralise strips id= attrs which
+        breaks clip-path url() references). The yellow bird silhouette direct path
+        and white iberia letterform path are preserved.
+      -->
+      <svg xmlns="http://www.w3.org/2000/svg" width="180" height="40" viewBox="0 0 180 40" aria-label="iberia">
+        <defs><style>.tpl-bird{fill:#fcd100}.tpl-white{fill:#fff}</style></defs>
+        <!-- Yellow bird silhouette -->
+        <path class="tpl-bird" d="M136.7,30.2c11.5-11.6,27.9-18,38.8-18.3l-3.7,9.7c-4.4,10.4-12.1,18-44.4,18l9.3-9.4Z"/>
+        <!-- White wing detail -->
+        <path class="tpl-white" d="M148,18.8l10.5-10.6c5-5,7-8.2,21.6-8.2l-2.4,6.3c-9.9,1.1-19.8,5.4-29.8,12.6"/>
+        <!-- Iberia wordmark letterforms (i b e r i a) -->
+        <path class="tpl-white" d="M59.1,23.7h-18.9c-.3-3.1-.5-6.9-.5-9.9s.2-6.8.5-9.9h18.8c-.1,1.3-.2,2.6-.3,3.8h-12.9c-.1,1.3-.2,3-.2,4.3h12v3.6h-12c0,1.5,0,2.9.1,4.4h13c0,1.2.1,2.6.2,3.8M87.7,23.7h-6.6c-.7-1.8-1.6-3.4-2.4-4.7-.8-1.2-1.5-2.2-2-2.8h-6.5c0,2.5.2,5.2.5,7.5h-5.9c-.3-3.1-.5-6.9-.5-9.9s.2-6.8.5-9.9h13.3c3.7,0,5.6.8,6.7,2,.9,1,1.5,2.4,1.5,3.9,0,2.5-1.5,4.8-4.3,5.7.8.8,1.7,1.8,2.5,3,1.5,2.1,2.3,3.6,3.3,5.2h-.1ZM78.7,12.8c1.1-.7,1.6-1.7,1.6-2.8s-.2-1.3-.6-1.7c-.6-.7-1.6-1-3.7-1h-5.6c-.1,1.9-.2,3.7-.2,5.4h8.5v.1ZM5.8,3.9H.7C.4,7.1.2,10.6.2,14s.2,6.8.5,9.7h5.1c.3-2.9.5-6.3.5-9.7s-.1-6.9-.5-10.1ZM122.6,13.1c1.9,3.7,3.6,7.6,4.7,10.6h-6.3c-.5-1.3-.9-2.4-1.4-3.7h-11c-.6,1.3-1,2.4-1.4,3.7h-6.3c1.1-3,2.9-7,4.8-10.6,1.9-3.7,3.8-7.1,5.3-9.2h6.2c1.5,2.1,3.4,5.5,5.3,9.2h.1ZM118.4,16.6c-1.4-3.1-2.7-5.7-4.1-8.3-1.5,2.6-2.7,5.2-4.1,8.3h8.2ZM25,23.7c4,0,6.7-.4,8.3-1.6,1.3-.9,1.9-2.6,1.9-4.3s-1.4-4-3.6-4.8c1.7-.8,2.6-2.5,2.6-4.1s-.5-2.7-1.4-3.5c-1.7-1.4-4.8-1.6-8.2-1.6h-11.3c-.3,3.1-.5,6.9-.5,9.9s.2,6.8.5,9.9h11.7v.1ZM18.9,7.5h5.4c2.1,0,2.9.2,3.5.8.4.4.5,1,.5,1.6s-.3,1.7-1.1,2.2h-8.6c0-1.5,0-3.1.2-4.6h.1ZM26.4,15.4c1.1,0,1.7.2,2.2.6.5.4.7,1,.7,1.6s-.2,1.3-.7,1.7c-.6.6-1.4.8-3,.8h-6.8c-.1-1.6-.2-3.2-.2-4.8h7.7l.1.1ZM97.3,3.9h-5.1c-.3,3.2-.5,6.7-.5,10.1s.2,6.8.5,9.7h5.1c.3-2.9.5-6.3.5-9.7s-.1-6.9-.5-10.1Z"/>
+      </svg>
+    </div>
+    <div class="toplinks">
+      <a class="header-link" href="#">Iberia Plus</a>
+      <a class="header-link" href="#">Manage booking</a>
+      <a class="header-link" href="#">Check-in</a>
+    </div>
+  </div>
+</header>
+
+<!-- ── White navigation bar ─────────────────────────────────────────────────
+     IMPORTANT: these two <button class="nav-item"> elements are the nav items
+     that template_kit._find_frame() detects (nav-item is in _ITEM_TOKENS).
+     The assembler replaces them with the actual run screens via NAV_SLOT.
+     At least 2 nav-item elements must appear here for _find_frame() to succeed.
+     The assembled nav will show sections/pages from build/screens.json.         -->
+<nav class="mainnav">
+  <button class="nav-item active" type="button">Consumer booking journey</button>
+  <button class="nav-item" type="button">Backend</button>
+  <span class="nav-demo">Independent concept demonstration</span>
+</nav>
+
+<!-- ── Content area ─────────────────────────────────────────────────────────
+     tag "main" matches _CONTENT_TOKENS directly.
+     The nested .wrap div is detected by _COLUMN_TOKENS — the assembler wraps
+     every screen section in <div class="wrap"> automatically, giving each screen
+     the iberia max-width and padding from example.html CSS.                     -->
+<main>
+  <div class="wrap">
+    <section class="screen"><!-- screen content goes here --></section>
+  </div>
+</main>
+
+<!-- ── Footer ───────────────────────────────────────────────────────────────
+     frame.after — appears below every screen's content automatically.
+     Builders must NOT include a <footer> in their <section class="screen">.     -->
+<footer class="footer">
+  <span>Logo source: Iberia.com · Images: Unsplash · Independent concept demonstration.</span>
+  <span class="small">Not affiliated with Iberia L.A.E. or Unisys Corporation.</span>
+</footer>
+
+</body>
+</html>

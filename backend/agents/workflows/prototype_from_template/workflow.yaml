@@ -1,0 +1,1007 @@
+# prototype_from_template — Requirement-driven template adaptation.
+#
+# Takes a requirements PDF (uploaded by the user), a selected template, and a
+# design system, then adapts the template's structure to the requirements and
+# delivers a fully interactive standalone prototype.html.
+#
+# Pipeline:
+#   req-reader     → reads PDF, writes build/requirements.json
+#   tmpl-analyzer  → maps template screens to requirement screens, writes build/screen-map.json
+#   pb-adapt       → adapts template with requirements content, writes prototype.html
+#   pb-verify      → opens prototype in browser, audits every control, repairs issues (5 rounds)
+#
+# SC-001: no workflow names or pipeline_type checks in engine.py.
+# The opendesign context provider injects the selected template and design
+# system at .context/design/ before any step runs.
+
+id: prototype_from_template
+version: 1
+user_launchable: true
+is_beta: false
+name: Prototype from Template
+display_name: "Prototype from Template"
+short_name: Proto Template
+icon: Layout
+description: >
+  Attach a requirements PDF, pick a template and design system, and receive a
+  fully interactive prototype that matches the template's visual structure with
+  your requirement content. Playwright validates every button and screen.
+launch_surface: wizard
+planner: skip
+clarify:
+  mode: skip
+  defaults: []
+deliverable:
+  strategy: single_file
+  name: prototype.html
+context_providers:
+  - opendesign
+design_mode: web
+limits:
+  max_subagents: 50
+  max_depth: 2
+  wall_clock_seconds: 10800
+
+steps:
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Step 1 — Requirements Reader
+# Reads every uploaded PDF and produces build/requirements.json.
+# ─────────────────────────────────────────────────────────────────────────────
+- strategy: single_shot
+  instance_id: req-reader
+  name: Requirements Reader
+  model:
+    model: eu.anthropic.claude-sonnet-5-5
+  agent: custom-agent
+  prompt: |
+    You are the Requirements Reader.
+
+    Your job is to extract every screen, field, action, flow, and business rule
+    from the uploaded requirements document(s) and write build/requirements.json.
+
+    IMPORTANT: The opendesign context provider has injected the selected template
+    and design system descriptions into your context window. You MUST IGNORE them
+    completely. Extract requirements PURELY from the uploaded PDF. Do not let the
+    template's screen structure, field names, or flows influence what you extract.
+    If the PDF describes 3 screens, extract 3 screens — even if the template has 10.
+
+    3 phases, in order.
+
+    HOW TO WRITE A PATH
+    Paths have no leading slash. `.uploads/manifest.json` not `/uploads/manifest.json`.
+    If a tool gives you a path starting with `/`, drop the slash.
+
+    Phase 1 — Check uploads
+
+    Steps
+    1. read_file `.uploads/manifest.json`.
+       If it is missing, empty, or an empty array, stop immediately and write:
+       NO_UPLOADS: .uploads/manifest.json is missing or empty. Re-attach the requirements PDF and launch again.
+       Do not continue to Phase 2.
+    2. The manifest is a JSON array; each entry has "name" and optionally "type".
+    3. Skip any entry whose "type" is "image" or whose name ends in .png, .jpg, .jpeg.
+    4. For each remaining entry, call extract_text with path `.uploads/<name>`.
+
+    Phase 2 — Read the extracted content
+
+    Rules
+    - extract_text returns a receipt. The actual content is in `document.md`.
+      Read it with: read_file `.extract/pdf/<slug>/document.md` where <slug>
+      is the filename without extension, lowercased, hyphened
+      (e.g. `Iberia_Scenerio.pdf` → `.extract/pdf/iberia-scenerio/document.md`).
+    - Work page-by-page through `document.md`. Every line starting with `@[[image-`
+      is an embedded image that may contain screen mockups, wireframes, flow
+      diagrams, or field layouts. You MUST read each one.
+    - For every `@[[image-K.png]]` placeholder you find on a page:
+        read_file `.extract/pdf/<slug>/pages/<N>/image-K.png`
+        (ONE image per read_file call, not two at once).
+        Note everything visible: field labels, control types, button text,
+        dropdown options, table columns, screen titles, navigation flows.
+        If a field label or option is readable, record it verbatim.
+    - Keep every fact from BOTH text AND images: field labels (verbatim), control
+      types, dropdown options (copy character-for-character — never rephrase option
+      codes), table column headers, button text, screen names, navigation flows,
+      business rules, validation rules, example data values.
+    - Option lists are copied exactly: `CUST-REQ; MTR-FAIL; COMPLIANCE` stays
+      as `CUST-REQ; MTR-FAIL; COMPLIANCE`. Never normalize, shorten or rephrase.
+    - A field listed in the document as Required stays Required.
+    - Screen names from the document are the canonical names — use them verbatim
+      as the basis for kebab-case ids.
+
+    Phase 3 — Write build/requirements.json
+
+    Rules
+    - One write_file call. The content is a JSON string on one logical block.
+    - Write ONLY to build/requirements.json. No other files.
+    - After writing, read_file it to confirm it parses.
+
+    Shape:
+    {
+      "screens": [
+        {
+          "id": "kebab-case-id-from-screen-name",
+          "name": "Screen Display Name",
+          "reached_by": "description of what navigates here",
+          "fields": [
+            {
+              "label": "Field Label (verbatim from document)",
+              "control": "text|dropdown|date|checkbox|radio|table|textarea|number",
+              "required": true,
+              "options": ["Option A", "OPTION-B", "Option C"],
+              "validation": "description of validation rule if any"
+            }
+          ],
+          "actions": [
+            {
+              "label": "Button or Link Label (verbatim)",
+              "outcome": "navigate|modal|state-change|validate|submit",
+              "navigates_to": "screen-id or null"
+            }
+          ],
+          "business_rules": ["rule text verbatim"],
+          "example_values": { "Field Label": "example value from document" }
+        }
+      ],
+      "flows": [
+        {
+          "name": "Flow Name",
+          "description": "what the user is doing",
+          "steps": ["screen-id-1", "screen-id-2", "screen-id-3"]
+        }
+      ],
+      "entities": [
+        {
+          "name": "Entity Name",
+          "attributes": ["attribute 1", "attribute 2"]
+        }
+      ],
+      "branding": {
+        "product_name": "product name from document or null",
+        "domain": "industry domain e.g. healthcare, finance, logistics"
+      },
+      "source_documents": ["filename1.pdf", "filename2.pdf"]
+    }
+
+    Steps
+    1. Build the JSON from your Phase 2 notes.
+    2. write_file `build/requirements.json` with the JSON as a single string.
+    3. read_file `build/requirements.json` and confirm it parses.
+    4. Reply with one line: documents read, screens found, total fields, total actions.
+
+    HOW TO DELIVER
+    Your work file is build/requirements.json. Then deliver the step file the engine
+    asks for with ONE line — your report. It never holds the work.
+  tools:
+    read_files: true
+    write_files: true
+    exec: false
+    tool_sets:
+      - file_extract
+  gates: []
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Step 2 — Template Analyzer
+# Reads the selected template and maps requirement screens to template screens.
+# ─────────────────────────────────────────────────────────────────────────────
+- strategy: single_shot
+  instance_id: tmpl-analyzer
+  name: Template Analyzer
+  depends_on:
+    - custom-agent:req-reader
+  model:
+    model: eu.anthropic.claude-sonnet-5-5
+  agent: custom-agent
+  prompt: |
+    You are the Template Analyzer.
+
+    The opendesign context provider has injected the selected template and design
+    system files into .context/design/. Your job is to read the template and the
+    requirements, map requirement screens to template screens, and write an
+    adaptation plan.
+
+    4 phases, in order.
+
+    HOW TO WRITE A PATH
+    Paths have no leading slash. If a tool gives you a path starting with `/`, drop it.
+
+    HOW TO READ A LARGE FILE
+    Never read_file a large file whole. Use grep to find a line number, then
+    read_file with offset (a few lines above) and limit (60-120 lines) to read the
+    relevant section. For reading a whole file in sequence, use offset + limit pages
+    until a page comes back shorter than your limit.
+
+    Phase 1 — Read context and requirements
+
+    Steps
+    1. read_file `.context/design/template/SKILL.md` to its end. Page if needed.
+       Note: template id, every screen pattern described, every hard rule,
+       the `od.design_system.requires` and `od.design_system.recommended` values.
+       Also note: are the "Hard rules" in SKILL.md written for a section-fragment
+       builder (prototype_v2 pattern) or for a full-file template? If they mention
+       "each builder writes ONE `<section class="screen">`", those builder-specific
+       rules apply to CONTENT REPLACEMENT only — the shell is taken from example.html.
+    2. If `.context/design/template/assets/template.html` exists, read_file it.
+       Note what shell chrome it provides (demo-bar, masthead, nav, footer). This chrome
+       is already embedded in example.html and must be PRESERVED, not recreated.
+    3. read_file `.context/design/template/example.html`. Page through it fully.
+       For each `<section class="screen" id="...">` element, record:
+       - The screen id
+       - The heading text (first h1/h2/h3 inside the section)
+       - The main field types visible (inputs, selects, tables, buttons)
+       - The `data-goto` and `data-action` attribute values on buttons in this section
+       - Whether the section contains a stepper repeated across multiple screens
+    4. read_file `.context/selections.json` — note template_id and ds_id.
+    5. read_file `build/requirements.json` — note every requirement screen.
+    6. If `.context/design/design-system.md` exists, read_file it — note the primary
+       color, typography scale, key component CSS classes, and any named token values
+       (e.g. --red, --ink, --surface). These tokens must flow through to screen-map.json
+       so spec-writer and pb-adapt can apply them.
+
+    Phase 2 — Build the template screen inventory
+
+    For each `<section class="screen">` found in example.html, write one inventory entry:
+    {
+      "template_screen_id": "the id attribute",
+      "heading": "the visible heading text",
+      "purpose": "what this screen does (search, list, detail, form, confirmation, etc.)",
+      "key_components": ["stepper", "table", "form", "sidebar", "modal", etc.],
+      "outbound_gotos": ["screen-id-1", "screen-id-2"],
+      "outbound_actions": ["action-name-1", "action-name-2"]
+    }
+
+    Also note:
+    - The shell navigation pattern (data-goto dispatcher, show() function, etc.)
+    - Any hard rules from SKILL.md (button type rules, stepper constraints, etc.)
+    - Utility functions available (persist, defaultState, EUR, E, toast, showModal, lines)
+    - Functions that are FORBIDDEN in the assembled prototype (route, render, progressTo)
+
+    Phase 3 — Map requirement screens to template screens
+
+    For each requirement screen, find the best matching template screen using:
+    - Same purpose (search form → search form, list/table → list, detail/workspace → workspace)
+    - Similar field count and component types
+    - Similar navigation position in the flow
+
+    Confidence levels:
+    - "high": same purpose AND similar structure (field count within 50%, same component types)
+    - "medium": similar structure but different purpose — content adaptation needed
+    - "new": no good template equivalent — must clone the most similar template screen
+
+    Also identify:
+    - Template screens with no matching requirement screen → mark remove: true
+    - If removing a template screen would orphan a data-goto, note the redirect target
+
+    Phase 4 — Write output files
+
+    Steps
+    1. write_file `build/screen-map.json`:
+    {
+      "template_id": "<from selections.json>",
+      "shell_navigation": {
+        "show_function": "window.__prototype.show",
+        "active_selector": "section.screen.active",
+        "forbidden_functions": ["route", "render", "progressTo"],
+        "safe_utilities": ["persist", "defaultState", "toast", "showModal"]
+      },
+      "hard_rules": ["list every hard rule from SKILL.md verbatim"],
+      "mapping": [
+        {
+          "requirement_screen": "req-screen-id",
+          "template_screen": "tmpl-screen-id",
+          "confidence": "high|medium",
+          "adaptation_notes": "what to keep, what to replace"
+        }
+      ],
+      "new_screens": [
+        {
+          "requirement_screen": "req-screen-id",
+          "clone_from": "tmpl-screen-id",
+          "reason": "no template equivalent"
+        }
+      ],
+      "removed_screens": [
+        {
+          "template_screen": "tmpl-screen-id",
+          "reason": "no matching requirement screen",
+          "redirect_orphans_to": "tmpl-screen-id or null"
+        }
+      ]
+    }
+
+    2. write_file `build/adaptation-plan.md` with a human-readable description:
+       - Section per screen: what to keep, what to replace, what to add, what to remove
+       - Section "Navigation changes": which data-goto values change, which new screens need routing
+       - Section "Shell rules": the hard rules and forbidden functions from SKILL.md
+       - Section "Design system": key color tokens and component classes to apply
+
+    3. Reply with one line: template screens found, requirement screens, mappings high/medium/new, screens removed.
+
+    HOW TO DELIVER
+    Your work files are build/screen-map.json and build/adaptation-plan.md.
+    Then deliver the step file the engine asks for with ONE line — your report.
+  tools:
+    read_files: true
+    write_files: true
+    exec: false
+    tool_sets: []
+  gates: []
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Step 3 — Spec Writer
+# Reads the screen map and requirements, then writes build/spec.md:
+# a complete builder-ready specification for every screen — mapped, new, or
+# modified — including exact fields, actions, business logic, navigation, and
+# novel screen designs. The builder executes the spec; it never has to infer.
+# ─────────────────────────────────────────────────────────────────────────────
+- strategy: single_shot
+  instance_id: spec-writer
+  name: Spec Writer
+  depends_on:
+    - custom-agent:tmpl-analyzer
+  model:
+    model: eu.anthropic.claude-sonnet-5-5
+  agent: custom-agent
+  prompt: |
+    You are the Spec Writer.
+
+    Your job is to read the requirements and the template analysis, then write
+    build/spec.md — a complete, builder-ready specification for every screen in
+    the prototype. The Builder reads ONLY this file; it should not need to look
+    anywhere else. Every detail the builder needs to make a correct, fully
+    interactive, template-faithful prototype must be in your spec.
+
+    5 phases, in order.
+
+    HOW TO WRITE A PATH
+    Paths have no leading slash. If a tool gives you a path starting with `/`, drop it.
+
+    HOW TO READ A LARGE FILE
+    NEVER read a large file whole. Use grep to find a section, then read_file with
+    offset + limit of 80-150 lines. Page a file by repeating with increasing offset
+    until a page is shorter than your limit.
+
+    Phase 1 — Read all inputs
+
+    Steps
+    1. read_file `build/requirements.json` to its end.
+    2. read_file `build/screen-map.json` to its end.
+       Note every item in `"hard_rules"` — list them explicitly before continuing.
+    3. read_file `build/adaptation-plan.md` to its end.
+    4. read_file `.context/design/template/SKILL.md` to its end. Note every hard rule
+       and every utility function (EUR, E, persist, defaultState, showModal, toast).
+    5. If `.context/design/design-system.md` exists, read_file it to its end.
+       Note: primary color hex values, CSS custom properties (--red, --ink, etc.),
+       typography scale (font families, sizes, weights), spacing, border-radius,
+       and any named component CSS classes. These go verbatim into spec.md's
+       "Design Tokens" section so pb-adapt applies them without re-reading the file.
+    6. If `.context/design/tokens.css` exists, read_file it — extract every
+       CSS custom property declaration. Include them in spec.md.
+    7. Read `.context/design/template/example.html` in sections:
+       a. grep for `<script` — read the script block(s) to understand:
+          - the STATE_KEY (localStorage key)
+          - the defaultState() shape (every property)
+          - the central click dispatcher (how it's attached, what it reads)
+          - the show() / __prototype.show() function
+          - every utility function defined (EUR, E, persist, toast, showModal, lines, etc.)
+          - any helper functions (totals, buildOrder, flightBlock, etc.)
+       b. For each screen in the mapping (build/screen-map.json), grep for its
+          template equivalent. Read the section (offset + 150 lines) — note the
+          exact HTML structure, CSS classes, component markup.
+       c. Read the <head> CSS for color variables and class names.
+
+    Phase 2 — Design every screen
+
+    FIRST: Check `build/screen-map.json["template_form"]`. If it says the template
+    is a SPA (e.g. "renders into <div id='app'> via JS view functions; it contains
+    NO <section class='screen'> elements"), use the SPA path below. Otherwise use
+    the standard path.
+
+    SPA PATH (template has no section.screen elements):
+    For each mapped screen, the "template screen" is a JS view function in example.html.
+    Your job is to DESIGN a static `<section class="screen" id="...">` equivalent:
+    - Find the view function in example.html (by grepping for the function name).
+    - Read its return value / template literal to understand the HTML it generates.
+    - Translate that dynamic HTML into static HTML markup with:
+        * The same CSS classes and component patterns.
+        * All dynamic data replaced with requirement-specified values.
+        * All `route()` / `render()` calls replaced with `data-goto` / `data-action`.
+    - Specify this static markup in spec.md so pb-adapt can implement it directly.
+
+    STANDARD PATH (template has section.screen elements):
+    For MAPPED screens (requirement screen matched to template screen):
+    - Start from the template screen's structure. Identify what changes.
+    - Every field: keep template's HTML pattern but replace label, options, validation.
+    - Every action button: keep template's data-goto/data-action but update target ids.
+    - Every piece of demo data: replace with requirement-specified values verbatim.
+    - Business rules: state them explicitly (what gets calculated, when, how).
+    - Do NOT reinvent the HTML. Preserve every CSS class, every component pattern.
+
+    For NEW screens (either path):
+    - Choose the best template screen to clone (the one most structurally similar).
+    - Describe the adapted structure: which containers to keep, what new components
+      to add using existing template component patterns (cards, tables, form rows).
+    - Design all fields, actions, and interactions from scratch but using only
+      component patterns that exist in the template.
+    - Specify exact data-goto targets and data-action names.
+    - Design the JS logic for any new state or calculation.
+
+    For REMOVED screens (either path):
+    - List every data-goto="<removed-id>" that existed in the template.
+    - Specify the exact replacement data-goto target for each.
+
+    Phase 3 — Write the data model and business logic
+
+    For each calculation in the requirements (totals, running sums, conditional
+    additions):
+    - Write the exact formula as JavaScript: `total = fare + seatCharge + bagCharge`
+    - Specify which state properties feed the formula
+    - Specify when and where (which dispatcher case) the recalculation runs
+    - Specify the localStorage state shape extension needed
+
+    For state machines (payment flow, confirmation freeze, edit/lock behaviour):
+    - Specify the states and transitions
+    - Specify what is forbidden after state X (e.g. no re-submission after confirmation)
+
+    Phase 4 — Write the navigation map
+
+    Produce a complete table of every screen transition:
+    | From screen | Element | data-goto or data-action | To screen | When |
+    |---|---|---|---|---|
+
+    This table must be exhaustive — every Back, Next, stepper step, sidebar link,
+    breadcrumb, and modal trigger in the entire prototype. The builder uses it
+    to verify the dispatcher covers every case.
+
+    Phase 5 — Write build/spec.md
+
+    Rules
+    - One file, build/spec.md. One write_file call.
+    - The spec is the builder's complete contract. Every sentence is actionable.
+    - Never write "similar to the template" without saying exactly what changes.
+    - Never write "handle appropriately" — name the exact dispatcher case and action.
+    - Every screen section must be self-contained: a builder reading only that section
+      can implement the screen correctly without referencing any other document.
+
+    Structure of build/spec.md:
+
+    # Prototype Specification
+    ## Overview
+    One paragraph: what the prototype demonstrates, template used, design system,
+    total screen count (consumer N + backend M).
+
+    ## Hard Rules (from SKILL.md)
+    Bullet list of every hard rule. The builder must follow every one.
+    Explicitly call out: type="button" everywhere, no form submit, forbidden functions.
+
+    ## Data Model
+    The complete state object:
+    ```javascript
+    const STATE_KEY = '<exact key from template>';
+    function defaultState() {
+      return {
+        // every property, with requirement-specified initial values
+      };
+    }
+    ```
+    Then for each calculation: formula, trigger, dispatcher case.
+
+    ## Navigation Map
+    The full transition table from Phase 4.
+
+    ## Stepper Definition (consumer screens only)
+    The exact 7 (or N) step button markup for the stepper chrome:
+    ```html
+    <button type="button" class="step active" aria-current="step" data-goto="screen-id"><i>1</i>Label</button>
+    <!-- ... all steps ... -->
+    ```
+    This block must appear verbatim in every consumer screen section.
+
+    ## Screens
+    One subsection per screen, in navigation order.
+    Each screen section contains:
+
+    ### <screen-id> — <Screen Display Name>
+    **Type:** consumer step N / backend / modal
+    **Template source:** <template screen id or "new — clone of <template-id>">
+    **Heading:** exact heading text
+    **Reached by:** what navigates here
+
+    #### Fields
+    | Field label | Control | Required | Options / Default | Validation rule |
+    |---|---|---|---|---|
+
+    #### Actions
+    | Button label | HTML | data-goto / data-action | Outcome | Dispatcher case |
+    |---|---|---|---|---|
+
+    #### Component patterns
+    List the exact template CSS classes and HTML structures to use/keep.
+    For NEW screens: describe the adapted structure explicitly.
+
+    #### Business logic
+    Step-by-step: what happens in the dispatcher when any action on this screen fires.
+    Include state reads, state writes, persist() call, and side effects.
+
+    #### Screen-specific JS
+    Any JS unique to this screen (seat map logic, baggage toggles, running total
+    recalc, payment simulation, etc.). Write the actual JS, not a description.
+
+    ## Removed Template Screens
+    | Template screen | Reason | Redirect all data-goto="<id>" to |
+    |---|---|---|
+
+    HOW TO DELIVER
+    Your work file is build/spec.md. Then deliver the step file the engine asks for
+    with ONE line: screens specified (consumer N + backend M), new screens designed,
+    business rules captured, JS logic sections written.
+  tools:
+    read_files: true
+    write_files: true
+    exec: false
+    tool_sets: []
+  gates: []
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Step 3 — Prototype Adapter (Builder)
+# Takes the template's example.html and adapts it with requirement content.
+# Writes prototype.html.
+# ─────────────────────────────────────────────────────────────────────────────
+- strategy: single_shot
+  instance_id: pb-adapt
+  name: Builder
+  depends_on:
+    - custom-agent:spec-writer
+  model:
+    model: eu.anthropic.claude-sonnet-5-5
+  agent: custom-agent
+  prompt: |
+    You are the Builder.
+
+    You implement the prototype as specified in build/spec.md — your complete
+    contract. Every screen, field, action, business rule, and JS function is
+    already decided. You do not infer anything; the Spec Writer has done that.
+
+    Your job: read the spec, read the template's source code, write prototype.html.
+
+    5 phases, in order.
+
+    HOW TO WRITE A PATH
+    Paths have no leading slash. If a tool gives you a path starting with `/`, drop it.
+
+    HOW TO READ A LARGE FILE
+    NEVER read_file .context/design/template/example.html or prototype.html whole —
+    they are over 100 KB. Use grep to find the section you need, then read_file with
+    offset a few lines above and limit of 80-150 lines. Page through the whole file
+    only if you need the complete content — offset + limit until a page is shorter
+    than your limit.
+
+    Phase 1 — Read the spec and the template source
+
+    Steps
+    1. read_file `build/spec.md` to its end (page it — it may be 200+ lines).
+       This is your build contract. Follow it exactly, screen by screen.
+    2. read_file `build/screen-map.json` — note the `hard_rules` array AND the
+       `template_form` field. If `template_form` says "SPA" or "no section.screen",
+       you are on the SPA path. Otherwise standard.
+    3. Check spec.md for a "Design Tokens" section; if present, extract all CSS
+       custom properties. If absent, read_file `.context/design/design-system.md`
+       (if it exists) to get color, typography, and spacing tokens.
+    4. Read `.context/design/template/example.html`:
+       a. grep for `<script` — read every script block to understand the dispatcher,
+          state machine, utility functions (EUR, E, persist, defaultState, showModal,
+          toast, lines), and show() / __prototype.show() implementation.
+       b. Read the head/CSS block for all CSS classes and CSS variables.
+       c. For each screen in build/spec.md, grep for its template equivalent in
+          example.html. Read that screen's markup (offset + 150 lines) as your base.
+    4. If `.context/design/template/assets/template.html` exists, read it to
+       understand the shell chrome (demo-bar, masthead, nav, footer) — this chrome
+       is in example.html and must be PRESERVED exactly.
+
+    Phase 2 — Implement each screen from the spec
+
+    FIRST: check the `template_form` value from screen-map.json:
+    - "SPA" / "no section.screen" → SPA PATH: example.html renders screens via JS
+      functions, not `<section>` tags. For each screen, spec.md describes a STATIC
+      `<section class="screen" id="...">` to build. Use spec.md's markup description
+      as the primary source; reference example.html's JS functions for CSS classes
+      and component patterns only.
+    - Standard → STANDARD PATH: example.html has `<section class="screen">` elements.
+      Use them as markup base, adapt content per spec.md.
+
+    For each screen in build/spec.md (in order, consumer then backend):
+
+    a. MAPPED screens — take the template screen's markup from example.html:
+       - Keep: all CSS classes, layout containers, component patterns from the template.
+       - Replace: every value with spec.md's exact specification (headings, labels,
+         options, data values). Use verbatim text from the spec.
+       - Update: screen IDs per spec.md. When an ID changes, grep the ENTIRE file
+         for the old ID and update every stepper button that references it across
+         all consumer screen sections.
+       - Remove: template fields/buttons not in spec.md's Fields/Actions tables.
+       - Add: spec.md fields/buttons not in the template, using the closest template
+         component pattern with the same CSS classes.
+
+    b. NEW screens — spec.md names the clone source:
+       - Take the clone source screen's full markup from example.html.
+       - Replace ALL content with spec.md's specification for this screen.
+       - Keep CSS classes, layout containers, and component patterns unchanged.
+       - Assign the new screen ID from spec.md.
+
+    c. REMOVED screens — spec.md's "Removed Template Screens" table names them:
+       - Omit these sections entirely.
+       - Fix every data-goto that pointed to them using the spec's redirect targets.
+
+    Phase 3 — Wire the dispatcher and state machine
+
+    spec.md has a "Data Model" section (state shape + calculation formulas) and a
+    "Navigation Map" section (all transitions). Implement both exactly:
+
+    1. Use the exact STATE_KEY and defaultState() from spec.md "Data Model".
+    2. Every dispatcher case from spec.md's Actions tables — implement every case.
+       - data-goto cases: call show() and update stepper/sidebar active state.
+       - data-action cases: read fields, update state, persist(), side effects.
+    3. Implement all business logic formulas from spec.md's "Business logic" and
+       "Screen-specific JS" sections — use the exact JS written in the spec.
+    4. NEVER rewrite show(). Use it as-is from the template.
+
+    Phase 4 — Pre-write self-check (mandatory before writing prototype.html)
+
+    Work through spec.md's Navigation Map table row by row:
+    1. Every data-goto value exists as a section.screen[id]. List orphans → fix.
+    2. Every data-action value has a dispatcher case. List missing → add now.
+    3. Search for type="submit" → count must be 0.
+    4. Search for addEventListener('submit' → count must be 0.
+    5. Search for onclick= → count must be 0.
+    6. Search for <script src= → count must be 0.
+    7. Every consumer screen: stepper has all N step buttons with correct data-goto.
+    8. Every <select>: CSS sets appearance:none and SVG chevron background-image.
+
+    Report the check results in your reply before writing.
+
+    Phase 5 — Write prototype.html
+
+    IMPORTANT: you are ADAPTING example.html, not building from scratch.
+    The template's shell (head CSS, dispatcher script, chrome) is correct in
+    example.html. Preserve it verbatim. Your changes: replace/add/remove
+    sections per spec.md and Phase 2 above.
+
+    Steps
+    1. Assemble: example.html's full head and shell + all adapted/new sections.
+    2. write_file `prototype.html` (one call, the complete file).
+       write_file cannot overwrite an existing file; use edit_file if it already exists.
+    3. Reply with one line: screens in output, controls wired (data-goto + data-action),
+       pre-write checks (N/total), any unresolved items.
+
+    HOW TO DELIVER
+    Your work file is prototype.html. Then deliver the step file the engine asks
+    for with ONE line — your report. It never holds the work.
+  tools:
+    read_files: true
+    write_files: true
+    exec: false
+    tool_sets: []
+  gates: []
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Step 4 — Browser Validator + Repair Loop
+# Opens prototype.html in a real browser, audits every interactive element,
+# repairs failures, and writes build/validation-report.md.
+# Runs up to 5 repair rounds; exits early when zero faults are found.
+# ─────────────────────────────────────────────────────────────────────────────
+- strategy: single_shot
+  instance_id: pb-verify
+  name: Validator
+  depends_on:
+    - custom-agent:pb-adapt
+  model:
+    model: eu.anthropic.claude-sonnet-5-5
+  agent: custom-agent
+  prompt: |
+    You are the Validator.
+
+    You open prototype.html in a real browser and conduct an EXHAUSTIVE, screen-by-
+    screen, button-by-button audit. Every single interactive control on every single
+    screen must be verified to produce a correct, visible outcome. No sampling.
+    No skipping. A button that does nothing is a blocking defect.
+
+    You repair every fault you find using edit_file (never write_file) and re-verify
+    until a complete pass produces zero faults, or until 5 rounds are exhausted.
+    After the audit you take a screenshot of every screen and write a validation report.
+
+    TOOLS AVAILABLE (playwright tool set):
+    - playwright_navigate(path)     open a file — no leading slash, always "prototype.html"
+    - playwright_snapshot()         DOM tree with ref handles
+    - playwright_click(ref)         click an element
+    - playwright_type(ref, text)    type into a field
+    - playwright_evaluate(js)       run JavaScript in the page
+    - playwright_console_messages() return JS console errors/warnings
+    - playwright_take_screenshot(f) write a PNG file
+
+    HOW TO WORK WITH prototype.html
+    NEVER read_file it whole — use grep to find a line, then read_file offset + 60-120 lines.
+    Use edit_file for ALL repairs (exact old string → replacement).
+    After every edit_file call playwright_navigate("prototype.html") to reload.
+
+    KEY playwright_evaluate PATTERNS:
+    // Show a screen + confirm
+    window.__prototype.show("screen-id");
+    document.querySelector("section.screen.active").id
+
+    // Bulk-check all data-goto orphans
+    JSON.stringify([...document.querySelectorAll("[data-goto]")].map(el=>({
+      goto:el.dataset.goto, exists:!!document.getElementById(el.dataset.goto),
+      label:el.textContent.trim().slice(0,40)
+    })).filter(r=>!r.exists))
+
+    // Get ALL button labels + their type on the current screen
+    JSON.stringify([...document.querySelectorAll("section.screen.active button")].map(el=>({
+      label:el.textContent.trim().slice(0,40),
+      type:el.type,
+      goto:el.dataset.goto||null,
+      action:el.dataset.action||null
+    })))
+
+    // Get ALL data-action values in the DOM
+    JSON.stringify([...new Set([...document.querySelectorAll("[data-action]")].map(el=>el.dataset.action))])
+
+    // Check dispatcher has a case for an action
+    // (inject a probe that intercepts the next dispatcher call)
+
+    // Check dialog open
+    !!document.querySelector("dialog[open]")
+
+    // Horizontal overflow at width W
+    (function(w){var p=document.body.style.width;document.body.style.width=w+"px";
+    var o=document.documentElement.scrollWidth>w;document.body.style.width=p;return o;})(375)
+
+    // Stepper active id
+    document.querySelector(".step.active")?.dataset?.goto
+
+    // Count all buttons on the page
+    document.querySelectorAll("button").length
+
+    // Count type=submit buttons (must be 0)
+    document.querySelectorAll("button[type='submit']").length
+
+    5 phases, in order.
+
+    ════════════════════════════════════════════════════════════
+    Phase 1 — Setup and baseline
+    ════════════════════════════════════════════════════════════
+
+    Steps
+    0. EXISTENCE CHECK — run ls / to confirm prototype.html exists in the sandbox
+       root before opening the browser. If missing:
+       - write_file `build/validation-report.md`: "prototype.html missing — pb-adapt failed."
+       - Reply: "BLOCKED: prototype.html not found." Stop immediately.
+    1. read_file `build/spec.md` to its end — note every screen id, every action name,
+       every navigation transition, and every business rule / calculation.
+    2. read_file `build/screen-map.json` — note the final screen list and hard rules.
+    3. playwright_navigate("prototype.html").
+    4. playwright_console_messages() — any "Error"/"Uncaught" is a critical fault-0.
+    5. playwright_snapshot() — confirm:
+       - Entry screen has class containing "active".
+       - No <dialog> has the `open` attribute.
+       - `button[type="submit"]` count = 0 (use evaluate).
+    6. Bulk-check all data-goto orphans (use pattern above).
+       Each orphan is an immediate critical fault — list them all.
+    7. Count all screens: `document.querySelectorAll("section.screen").length`.
+       Must equal the screen count in build/screen-map.json. Mismatch = critical fault.
+
+    ════════════════════════════════════════════════════════════
+    Phase 2 — Full per-screen audit (run for EVERY screen)
+    ════════════════════════════════════════════════════════════
+
+    For each screen listed in build/spec.md (in navigation order, consumer first,
+    then backend), run the full per-screen checklist below.
+    Do not move to the next screen until the current screen's checklist is complete.
+
+    PER-SCREEN CHECKLIST
+    ====================
+
+    2a. NAVIGATE TO THE SCREEN
+    playwright_evaluate("window.__prototype.show('<id>')")
+    Confirm: active screen id == target id. If not: critical fault.
+    playwright_console_messages() — any new Error is a critical fault.
+
+    2b. SCREENSHOT
+    playwright_take_screenshot(".verify/<screen-id>.png")
+
+    2c. BUTTON INVENTORY (exhaustive — NO sampling)
+    playwright_evaluate(get-all-buttons-pattern above)
+    For each button returned:
+    - If type == "submit": critical fault ("type=submit found on <screen>").
+    - If neither goto nor action: critical fault ("dead button '<label>' on <screen>").
+    - Record: label, type, goto/action.
+
+    2d. CLICK EVERY NAVIGATION BUTTON (data-goto)
+    playwright_snapshot() to get refs.
+    For EACH element with data-goto on this screen:
+    - playwright_click(ref)
+    - playwright_evaluate("document.querySelector('section.screen.active').id")
+    - Must equal the button's data-goto value. If not: critical fault.
+    - playwright_console_messages() — any Error is a critical fault.
+    - playwright_evaluate("window.__prototype.show('<current-screen-id>')") to reset.
+
+    2e. CLICK EVERY ACTION BUTTON (data-action)
+    playwright_snapshot() to get refs.
+    For EACH element with data-action on this screen:
+    - playwright_click(ref)
+    - Check for a visible outcome (any one of):
+        * dialog[open] attribute appeared
+        * A DOM element's class or text changed
+        * A new visible element appeared
+        * playwright_console_messages() shows no Error
+    - If NO visible change AND no error: major fault ("dead action '<name>' on <screen>").
+    - If an Error appeared: critical fault.
+    - Close any opened dialog before testing the next button.
+
+    2f. STEPPER STATE (consumer screens only)
+    playwright_evaluate to get the active step's data-goto.
+    Must match the current screen id. If not: major fault.
+    Steps BEFORE the current one: class must contain "done". If not: major fault.
+    Steps AFTER the current one: class must NOT contain "done". If not: minor fault.
+
+    2g. SIDEBAR / TAB ACTIVE STATE (backend and tabbed screens)
+    For each sidebar item: playwright_click(ref) → active class applied AND correct
+    screen shown. If not: major fault.
+    For each tab: playwright_click(ref) → active class applied AND only that panel visible.
+
+    2h. MODALS
+    For each modal trigger (data-action that opens a dialog):
+    - Click trigger → confirm dialog[open] exists.
+    - Click the × / Close button → confirm dialog[open] is gone.
+    - Re-open → click the backdrop (playwright_evaluate backdrop-click pattern) →
+      confirm dialog[open] is gone.
+    Any failure: major fault.
+
+    2i. FORM FIELDS AND VALIDATION
+    For each screen that has required fields (from spec.md):
+    - playwright_type into each text/date/select field with a test value.
+    - Click the submit-equivalent [data-action] button WITHOUT filling required fields
+      (on a fresh navigate to the screen) → confirm an error element is visible.
+    - Fill in valid values → error clears.
+    Any failure: major fault.
+
+    2j. DROPDOWNS
+    playwright_evaluate("JSON.stringify([...document.querySelectorAll('section.screen.active select')].map(s=>({id:s.id,apparance:getComputedStyle(s).appearance})))")
+    Each select must have appearance:none. If not: minor fault.
+
+    2k. CONSOLE SWEEP (after every action on this screen)
+    playwright_console_messages() — log all "Error"/"Uncaught" lines as critical faults.
+
+    END PER-SCREEN CHECKLIST
+
+    ════════════════════════════════════════════════════════════
+    Phase 3 — End-to-end flow walkthrough
+    ════════════════════════════════════════════════════════════
+
+    After auditing all screens individually, simulate the main user journey
+    from beginning to end using only button clicks (no playwright_evaluate show()):
+
+    Steps
+    1. playwright_navigate("prototype.html") — start fresh.
+    2. playwright_snapshot() on the entry screen.
+    3. Fill any required form fields with valid test values using playwright_type.
+    4. Click the "Next" (or equivalent advance) button → verify the next screen loads.
+    5. Repeat steps 3–4 for every screen in the consumer flow in order, all the way
+       to the final confirmation screen.
+    6. From confirmation, navigate to the backend view (if a link/button exists).
+    7. On the backend, click every sidebar/tab item to verify each view renders.
+    8. At each step, playwright_console_messages() — any Error is a critical fault.
+    9. playwright_take_screenshot(".verify/flow-final.png") at the end of the journey.
+
+    Record any faults found during the flow that were not caught in Phase 2.
+
+    ════════════════════════════════════════════════════════════
+    Phase 4 — Responsive layout
+    ════════════════════════════════════════════════════════════
+
+    For each screen at 375 px, 768 px, 1280 px:
+    - playwright_evaluate(overflow-check pattern)
+    - Overflow at 375 px: major fault.
+    - Overflow at 768 px: minor fault.
+
+    ════════════════════════════════════════════════════════════
+    Phase 5 — Repair loop (up to 5 rounds)
+    ════════════════════════════════════════════════════════════
+
+    For each fault collected in Phases 1–4:
+    Apply an edit_file repair → playwright_navigate("prototype.html") → re-run ONLY
+    the check that failed (not the full audit) to confirm the fix.
+    Full re-audits happen at the END of each round, not after each fix.
+
+    EXIT EARLY when a full re-audit finds ZERO faults.
+    After round 5, report any remaining open faults.
+
+    Priority order within each round:
+    1. Critical faults (dead data-goto, JS crash, screen unreachable, type=submit)
+    2. Major faults (dead action, modal won't close, stepper wrong, tab dead)
+    3. Minor faults (overflow, missing chevron, visual-only issues)
+
+    Repair playbook:
+    | Fault | Fix |
+    |---|---|
+    | data-goto orphan | Fix the id in the button OR add section.screen stub before </body> |
+    | Dead action button | Add case '<action>': { break; } to dispatcher switch |
+    | type="submit" button | Change to type="button" + add data-action + dispatcher case |
+    | form submit listener | Remove listener; read fields in data-action handler |
+    | inline onclick= | Remove, add data-action, add dispatcher case |
+    | Screen unreachable via show() | Check display:none CSS; fix section id |
+    | Stepper not updating | Add stepper-update logic to the navigation handler |
+    | Sidebar not highlighting | Add querySelectorAll('.nav-item').forEach(r) + classList.add |
+    | Tab not switching | Add show/hide panel logic to tab dispatcher case |
+    | Modal not closing on backdrop | Add dialog.addEventListener('click', backdrop-close) |
+    | Modal not closing on Escape | Add keydown Escape listener |
+    | JS crash (ReferenceError) | Add null guard if(!el)return; |
+    | Horizontal overflow 375px | Add @media(max-width:375px){flex-direction:column} |
+    | select missing chevron | Add appearance:none + SVG background-image to CSS |
+    | Running total wrong | Fix calculation formula in the dispatcher case |
+    | State not persisting across screens | Add persist() call after state update |
+
+    ════════════════════════════════════════════════════════════
+    Phase 6 — Final screenshots and report
+    ════════════════════════════════════════════════════════════
+
+    Steps
+    1. playwright_navigate("prototype.html")
+    2. For each screen in build/spec.md (in order):
+       playwright_evaluate("window.__prototype.show('<id>')")
+       playwright_take_screenshot(".verify/<id>-final.png")
+    3. playwright_navigate("prototype.html") — reset to entry.
+    4. write_file `build/validation-report.md` with this format:
+
+    # Prototype Validation Report
+
+    ## Summary
+    | Metric | Value |
+    |---|---|
+    | Screens audited | N |
+    | Buttons checked (total across all screens) | N |
+    | Navigation buttons verified | N |
+    | Action buttons verified | N |
+    | Modals tested | N |
+    | Form fields validated | N |
+    | End-to-end flow completed | YES / NO |
+    | Faults found — Critical | N |
+    | Faults found — Major | N |
+    | Faults found — Minor | N |
+    | Faults fixed | N |
+    | Faults still open | N |
+    | Repair rounds used | N / 5 |
+    | All critical faults resolved | YES / NO |
+    | All major faults resolved | YES / NO |
+
+    ## Per-Screen Results
+    | Screen | Buttons | Nav OK | Actions OK | Modal OK | Form OK | Stepper OK | Status |
+    |---|---|---|---|---|---|---|---|
+
+    ## Open Faults
+    | Screen | Element | Severity | Fault | Attempted fix | Rounds tried |
+    |---|---|---|---|---|---|
+
+    ## Fixed Faults
+    | Screen | Element | Fault | Fix applied |
+    |---|---|---|---|
+
+    ## Screenshots
+    One entry per screen: `.verify/<id>-final.png`
+    Flow end state: `.verify/flow-final.png`
+
+    5. Reply with one line: screens audited, buttons checked, faults (C/M/m),
+       fixed, open, rounds, end-to-end flow PASS/FAIL.
+
+    HOW TO DELIVER
+    Your work files are prototype.html (patched) and build/validation-report.md.
+    Then deliver the step file the engine asks for with ONE line — your report.
+    It never holds the work.
+  tools:
+    read_files: true
+    write_files: true
+    exec: false
+    tool_sets:
+      - playwright
+  gates: []
+
+name: Prototype from Template

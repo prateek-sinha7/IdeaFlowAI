@@ -71,11 +71,29 @@ COVERAGE_THRESHOLD = 0.85
 _SHELL_PATH = Path(__file__).with_name("assemble_shell.html")
 
 _SECTION_TAG = re.compile(r"<(/?)section\b([^>]*)>", re.IGNORECASE)
+# Scripts are COLLECTED from fragment sections and re-injected before </body>
+# rather than stripped — this is Fix 1 of proto-v2-js-fix. Styles and external links
+# are still stripped: they would fight the template's own CSS.
+_SCRIPT_COLLECT_RE = re.compile(r"<script\b.*?</script\s*>", re.IGNORECASE | re.DOTALL)
 _FORBIDDEN = [
-    ("script", re.compile(r"<script\b.*?</script\s*>", re.IGNORECASE | re.DOTALL)),
     ("style", re.compile(r"<style\b.*?</style\s*>", re.IGNORECASE | re.DOTALL)),
     ("link", re.compile(r"<link\b[^>]*>", re.IGNORECASE)),
 ]
+# Used to extract the inner JS text for deduplication across fragments.
+_SCRIPT_INNER_RE = re.compile(
+    r"<script\b[^>]*>(.*?)</script", re.IGNORECASE | re.DOTALL
+)
+
+
+def _script_inner(tag: str) -> str:
+    """Normalized inner JS text of a ``<script>…</script>`` for deduplication.
+
+    Two fragments that both include the same utility function are not double-injected.
+    """
+    m = _SCRIPT_INNER_RE.search(tag)
+    return m.group(1).strip() if m else tag.strip()
+
+
 _ID_ATTR = re.compile(r"""\bid\s*=\s*(["'])(.*?)\1""", re.IGNORECASE | re.DOTALL)
 _REF_ATTRS = (
     "id",
@@ -183,15 +201,30 @@ def extract_section(part: str, sid: str) -> tuple[str | None, list[str]]:
     return new_tag + body[len(tag) :], notes
 
 
-def strip_forbidden(section: str) -> tuple[str, list[str]]:
+def strip_forbidden(section: str) -> tuple[str, list[str], list[str]]:
+    """Strip forbidden content from a fragment section.
+
+    Scripts are **collected** (not discarded) and returned as the third element so the
+    caller can accumulate them for injection before ``</body>``.  Style blocks and
+    external link tags are still stripped: they carry no fragment-specific information
+    and would conflict with the template's own CSS.
+
+    Returns ``(cleaned_html, notes, collected_scripts)``.
+    """
     notes: list[str] = []
+    scripts = _SCRIPT_COLLECT_RE.findall(section)
+    section = _SCRIPT_COLLECT_RE.sub("", section)
+    if scripts:
+        notes.append(
+            f"collected {len(scripts)} <script> element(s) — injected before </body>"
+        )
     for name, pat in _FORBIDDEN:
         section, n = pat.subn("", section)
         if n:
             notes.append(
                 f"removed {n} <{name}> element(s) — parts carry no style or script"
             )
-    return section, notes
+    return section, notes, scripts
 
 
 def namespace_ids(
@@ -1285,6 +1318,11 @@ def assemble(
     report: list[dict] = []
     statuses: dict[str, str] = {}
     doc_ids: Counter = Counter()
+    # Script accumulators (Fix 1 / proto-v2-js-fix): collect every <script> block from
+    # every built fragment; deduplicated by inner JS text so identical utility functions
+    # included by multiple builders are only injected once.
+    seen_frag_keys: set[str] = set()
+    fragment_scripts: list[str] = []
 
     for screen in inv.screens:
         issues: list[str] = []
@@ -1308,8 +1346,13 @@ def assemble(
             )
             section = _stub_section(screen, reason)
         else:
-            section, notes = strip_forbidden(section)
+            section, notes, frag_scripts = strip_forbidden(section)
             issues += notes
+            for _s in frag_scripts:
+                _key = _script_inner(_s)
+                if _key not in seen_frag_keys:
+                    seen_frag_keys.add(_key)
+                    fragment_scripts.append(_s)
             if model and screen.id == model.login:
                 section, notes = _wire_sign_in(section, model)
                 issues += notes
@@ -1456,6 +1499,27 @@ def assemble(
     )
     # The build status is for the run, not the product: validation.json keeps it.
     doc = _STATUS_FOOTER_RE.sub("", doc)
+
+    # ── script injection (Fix 1 + Fix 2 / proto-v2-js-fix) ──────────────────────────
+    # Template scripts first (the SPA runtime the template ships, e.g. iberia's seat /
+    # baggage / routing logic), then fragment scripts (per-screen interactive behaviour
+    # the builders wrote).  Both are deduplicated by inner JS text.  The guard ensures
+    # injection is a no-op when both lists are empty (no template, plain text screens).
+    _inj: list[str] = []
+    _inj_keys: set[str] = set()
+    if template is not None:
+        for _ts in template.template_scripts:
+            _k = _script_inner(_ts)
+            if _k not in _inj_keys:
+                _inj_keys.add(_k)
+                _inj.append(_ts)
+    for _fs in fragment_scripts:
+        _k = _script_inner(_fs)
+        if _k not in _inj_keys:
+            _inj_keys.add(_k)
+            _inj.append(_fs)
+    if _inj:
+        doc = doc.replace("</body>", "\n".join(_inj) + "\n</body>", 1)
 
     validation = {
         "version": 1,

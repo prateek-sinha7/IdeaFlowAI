@@ -467,3 +467,129 @@ async def test_target_still_missing_after_repair_emits_second_repair_event():
     assert repairs[1]["data"]["missing_task_ids"] == ["tb"]
     # Bounded to exactly one repair pass (never loops).
     assert len(runner2.dispatches) == 2
+
+
+# ===========================================================================
+# agent_start / agent_complete name/role/icon regression (ISS-wave-name)
+#
+# Before the fix, wave_scheduler emitted agent_start with
+#   "name": getattr(step, "name", None) or step_id
+# Step is a compiled `Step` dataclass whose display field is `display_name`,
+# NOT `name`, so getattr always returned None and the raw step_id was stored
+# in agent_outputs.  When versionViewFrom() rebuilt agents from those rows
+# for a pinned revision view it showed e.g. "custom-agent:fi-readers" instead
+# of "Readers" and an empty description.
+# ===========================================================================
+
+
+class _FakeSpec:
+    """Minimal AgentSpec stand-in for _spec_for resolution tests."""
+
+    def __init__(self, name, role, icon):
+        self.name = name
+        self.role = role
+        self.icon = icon
+
+
+class _SpecAwareRunner(_StampFakeRunner):
+    """Extends _StampFakeRunner (correct run_fanout / update_wave_run signatures)
+    with _spec_for so lifecycle events get the right name/role/icon."""
+
+    def __init__(self, spec: _FakeSpec):
+        super().__init__()
+        self._spec = spec
+
+    def _spec_for(self, _step):
+        return self._spec
+
+
+class _NamedStep:
+    """Compiled Step stand-in carrying display_name but NOT name (mirrors plan.Step)."""
+
+    def __init__(self, agent_id: str, display_name: str):
+        self.agent_id = agent_id
+        self.display_name = display_name
+        self.task_source = type(
+            "TS",
+            (),
+            {
+                "source_step": "plan",
+                "parser": "json_tasks",
+                "kind": None,
+                "target": None,
+            },
+        )()
+
+
+class _SpecCtx:
+    def __init__(self, runner):
+        self.runner = runner
+        self.is_resuming = False
+
+
+@pytest.mark.asyncio
+async def test_agent_start_carries_display_name_role_icon_from_spec():
+    """agent_start MUST carry name/role/icon from the AgentSpec, not the raw step id.
+
+    Regression guard for the pinned-revision view bug: wave_scheduler stored the
+    raw step_id in agent_outputs (via the wrong getattr(.name)) so versionViewFrom()
+    showed 'custom-agent:fi-readers' instead of 'Readers' and an empty description.
+    """
+    spec = _FakeSpec(name="Readers", role="A user-defined workflow agent", icon="🧩")
+    runner = _SpecAwareRunner(spec)
+    strat = WaveSchedulerStrategy()
+    step = _NamedStep("custom-agent:fi-readers", display_name="Readers")
+
+    # One-task parser so waves actually dispatch and agent_start/agent_complete fire.
+    class _OneTaskParser:
+        def parse(self, _text):
+            return [_t("t1", targets=["out.txt"])]
+
+    strat._registry = type("R", (), {"resolve": lambda self, k, n: _OneTaskParser()})()
+
+    events = [ev async for ev in strat.run(step, _SpecCtx(runner))]
+
+    starts = [e for e in events if e.get("type") == "agent_start"]
+    assert starts, "wave_scheduler did not emit agent_start"
+    data = starts[0]["data"]
+    assert data.get("name") == "Readers", (
+        f"agent_start.name should be the display name 'Readers', got {data.get('name')!r}. "
+        "This is the regression that caused pinned revision views to show the raw agent id."
+    )
+    assert (
+        data.get("role") == "A user-defined workflow agent"
+    ), f"agent_start.role missing or wrong: {data.get('role')!r}"
+    assert (
+        data.get("icon") == "🧩"
+    ), f"agent_start.icon missing or wrong: {data.get('icon')!r}"
+
+    completes = [e for e in events if e.get("type") == "agent_complete"]
+    assert completes, "wave_scheduler did not emit agent_complete"
+    assert (
+        completes[0]["data"].get("name") == "Readers"
+    ), f"agent_complete.name should be 'Readers', got {completes[0]['data'].get('name')!r}"
+
+
+@pytest.mark.asyncio
+async def test_agent_start_falls_back_to_display_name_when_spec_for_unavailable():
+    """Graceful degrade: when the runner has no _spec_for (e.g. _StampFakeRunner used
+    in other tests), name falls back to step.display_name, not the raw step_id."""
+    strat = WaveSchedulerStrategy()
+    # _StampFakeRunner has no _spec_for — mimics an offline harness / old mock.
+    runner = _StampFakeRunner()
+    step = _NamedStep("custom-agent:fi-readers", display_name="Readers")
+
+    class _OneTaskParser:
+        def parse(self, _text):
+            return [_t("t1", targets=["out.txt"])]
+
+    strat._registry = type("R", (), {"resolve": lambda self, k, n: _OneTaskParser()})()
+
+    events = [ev async for ev in strat.run(step, _SpecCtx(runner))]
+
+    starts = [e for e in events if e.get("type") == "agent_start"]
+    assert starts, "wave_scheduler did not emit agent_start"
+    data = starts[0]["data"]
+    assert (
+        data.get("name") == "Readers"
+    ), f"fallback to display_name failed — got {data.get('name')!r} instead of 'Readers'"

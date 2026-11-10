@@ -580,18 +580,59 @@ If `context/design/design-system.md` already exists, skip — do NOT overwrite i
 
 Otherwise write_file `context/design/design-system.md` with all 9 sections (same structure as PATH A Phase A2, derived from the HTML's visual language).
 
+### Phase B3a — Analyse the template HTML
+
+Before writing SKILL.md, analyse the raw HTML you read in Phase B1. Record your findings
+here — you will use them in Phase B3 to produce a rich, product-specific SKILL.md.
+
+**Script analysis** — for every `<script>` block in the HTML, write one sentence describing
+its purpose (e.g. "seat-map click handler — tracks per-passenger seat selection and updates
+the running total").
+
+**Interactive widgets** — identify every interactive widget present: seat maps, baggage
+selectors, quantity steppers, custom dropdowns, modal/dialog overlays, tab panels, accordion
+sections, date pickers, toggle switches. For each, note the HTML structure and key CSS
+classes used.
+
+**Navigation pattern** — determine which pattern the template uses: horizontal numbered
+stepper, sidebar navigation, topbar navigation, tab bar, or other. Note the HTML element
+and class names used (e.g. `<nav class="stepper">`, `.sidebar`, `<header class="topbar">`).
+
+**Footer** — does the HTML have a `<footer>` element? If yes, summarise its content:
+column count, link groups, credit lines, copyright text.
+
+**Select elements** — find every `<select>` element. Does its CSS include
+`appearance: none; -webkit-appearance: none`? Is there a custom SVG chevron as
+`background-image` or a sibling element? List each `<select>` by id or class.
+
+**Event patterns** — find all `onclick`, `addEventListener`, and `data-*` attribute patterns.
+Identify whether there is a central click dispatcher (`switch (action) { … }`) or individual
+inline handlers. List every distinct `data-*` attribute name that carries event semantics.
+
+**CSS custom properties** — extract every property name declared inside `:root { … }` across
+all `<style>` blocks (e.g. `--accent`, `--bg`, `--shell-nav-width`). List names and values.
+
+Do not write any files in this phase. Proceed directly to Phase B3.
+
 ### Phase B3 — Write template files
 
 write_file `context/design/template/example.html`
   → the user's raw HTML verbatim (do not modify it)
 
-write_file `context/design/template/SKILL.md`:
-```markdown
+write_file `context/design/template/SKILL.md`
+
+Using your Phase B3a findings, generate a SKILL.md of **100–300 lines**.
+Structure it with these five sections in order, filled with real details from your
+analysis — do not leave generic placeholders:
+
+**Frontmatter (YAML, 8–15 lines)**
+```yaml
 ---
-name: Custom HTML Template
+name: <product name from the HTML's <title> or brand element>
 description: |
-  A custom HTML prototype uploaded by the user.
-  Use when the brief asks to build from this uploaded design.
+  <2–3 sentences: application domain, screens present, scenario covered.
+  Be specific — e.g. "airline booking flow across 7 consumer screens and 3 backend views"
+  rather than "a web application". Use when the brief asks for <inferred application type>.>
 od:
   mode: prototype
   platform: desktop
@@ -599,21 +640,54 @@ od:
   outputs:
     primary: prototype.html
 ---
-
-# Custom HTML Template
-
-## What this template is
-Custom HTML uploaded by the user. Downstream agents read from
-.context/design/template/example.html.
-
-## Workflow
-1. read_file `context/design/template/example.html` — study its structure.
-2. Reuse its layout and CSS as the base.
-3. Preserve visual identity unless the brief directs otherwise.
-
-## Theme
-Use variables in `:root`. Extend existing CSS class patterns.
 ```
+
+**Section 1 — What this template is (4–8 lines)**
+Describe the application domain, the screens or views present, the user journey depicted,
+and any notable design choices (dark theme, brand colour, stepper progression, sidebar
+layout, etc.).
+
+**Section 2 — Hard rules for the Architect (pb-design) (15–40 lines)**
+Write concrete rules the Architect must follow when building `design.md`,
+`build/screens.json` and `build/theme.json`. Base every rule on Phase B3a findings:
+- Navigation structure rule: which pattern (stepper / sidebar / topbar) and which screens
+  it covers.
+- List each major view or screen visible in the template with a one-line description.
+- If a stepper is present: list the step names and their exact order.
+- If a sidebar is present: list the sidebar section names.
+- Theme rule: state the primary colour hex value. Instruct the Architect to copy the theme
+  mapping table from DESIGN.md exactly.
+- Shell constraint rule: list any CSS variables or layout structures the builders must not
+  override, based on the `:root` properties you found.
+
+**Section 3 — Hard rules for the Builders (pb-build) (25–60 lines)**
+Write concrete rules the Builders must follow, based on Phase B3a findings:
+- Sandbox constraint (always include): every navigation or action button must use
+  `type="button"` and a `data-action` attribute; show a WRONG/CORRECT example.
+- For each interactive widget found: one rule naming the widget and the JavaScript
+  behaviour required (what state to track, what to update, what to prevent).
+- Dropdown arrows rule: if the template uses `appearance: none` on `<select>`, state the
+  SVG arrow pattern. If not, state it is not required.
+- JavaScript inline rule: all scripts must be inline `<script>` blocks at the bottom of
+  the `<section>`, no external dependencies.
+- Footer rule (if a footer was found): include it and describe its content.
+- Any other builder-level rules implied by the template's event patterns.
+
+**Section 4 — JavaScript behaviors (15–40 lines)**
+For each `<script>` block summarised in Phase B3a, describe what it does:
+- Purpose (one sentence per script).
+- State it manages (e.g. "per-passenger-per-flight seat selections").
+- Events it listens for.
+- DOM elements it updates.
+Also describe the overall event dispatch pattern (central dispatcher or per-element handlers)
+and list every `data-*` attribute with event semantics.
+
+**Section 5 — Theme (10–20 lines)**
+Paste every `--variable: value` pair from `:root` exactly as declared.
+Then annotate the role of each key variable:
+- Which maps to primary/accent colour.
+- Which maps to background, surface/card, text, border, muted text.
+- Any template-specific variables (e.g. `--shell-nav-width`, `--stepper-accent`).
 
 ### Phase B4 — Update selections.json
 

@@ -146,6 +146,10 @@ class Settings(BaseSettings):
     # for the coding agent too. Example value for eu-central-1:
     #   eu.anthropic.claude-sonnet-4-5-20250929-v1:0
     BEDROCK_CODING_MODEL_ID: str = ""
+    # Model used by the Concierge chat (post_message CHANNEL_CONCIERGE). Defaults
+    # to Sonnet 5.5 for high-quality vision analysis and revision instructions.
+    # Set to "" to fall back to the global BEDROCK_INFERENCE_PROFILE_ID (Haiku).
+    CONCIERGE_MODEL_ID: str = "eu.anthropic.claude-sonnet-5-5"
     AWS_REGION: str = "eu-central-1"
     # Optional Bedrock API-key / bearer-token auth (env: AWS_BEARER_TOKEN_BEDROCK,
     # consumed natively by botocore). main.py's lifespan reads this to report the

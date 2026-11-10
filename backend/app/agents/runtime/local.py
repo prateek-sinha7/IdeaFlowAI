@@ -762,6 +762,14 @@ class LocalWorkspace:
         # git-tracked (agents write there but the files are not deliverable content;
         # leaving them untracked causes "degraded" finalization status).
         content += ".figma/\n"
+        # Also gitignore chat_uploads/ — user-supplied reference screenshots
+        # saved by _save_images_to_sandbox for revision requests.  The images
+        # are binary and have no approved binary-scan exemption, so git add -A
+        # stages them, scan_staged_binary blocks them, and commit_excluded_files
+        # is set, causing finalize_terminal_run to call attempt.degrade(
+        # "files_not_saved") and publish the run as "degraded".  These are
+        # input files (never deliverable content), identical to .figma/.
+        content += "chat_uploads/\n"
         (self._root / ".gitignore").write_text(content, encoding="utf-8")
 
     def is_dirty(self) -> bool:
@@ -919,6 +927,17 @@ class LocalWorkspace:
             return tags
         except Exception:  # noqa: BLE001 — best-effort, must never raise
             return []
+
+    def delete_tag(self, name: str) -> None:
+        """Delete a lightweight or annotated git tag named ``name``.
+
+        Reached by ``getattr`` duck-typing — same pattern as ``create_tag``
+        and ``list_tags``.  NOT added to the ``Workspace`` Protocol.
+
+        Raises on failure (e.g. the tag does not exist).  Callers that need
+        best-effort behaviour must catch exceptions themselves.
+        """
+        self._git("tag", "-d", name)
 
     # ── Internal run-ref namespace (refs/ideaflow/runs/) ────────────────────
     # V2-Q3 / Requirement 5 AC 3 step 7 / Requirement 7:

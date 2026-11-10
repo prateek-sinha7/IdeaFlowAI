@@ -21,6 +21,13 @@ interface TemplateGalleryProps {
   selectedCustomTemplateId?: string | null;
   figmaFrames?: FigmaFrame[];
   onFigmaFramesChange?: (frames: FigmaFrame[]) => void;
+  /**
+   * When set to "prototype", filters the template list to only show entries
+   * where `template.mode === "prototype"` (od.mode from SKILL.md front-matter).
+   * Used by the prototype_from_template wizard mode to restrict the catalog to
+   * fully interactive prototype templates. Defaults to "all".
+   */
+  filterMode?: "prototype" | "all";
 }
 
 // Consolidate raw scenario values into 6 clean buckets
@@ -37,7 +44,7 @@ function getBucket(scenario: string | null): string {
 
 const CATEGORIES = ["All", "Design", "Marketing", "Operations", "Engineering", "Product", "Finance & HR", "Figma", "Custom"];
 
-export function TemplateGallery({ templates, selectedId, onSelect, onSelectCustomTemplate, selectedCustomTemplateId, figmaFrames, onFigmaFramesChange }: TemplateGalleryProps) {
+export function TemplateGallery({ templates, selectedId, onSelect, onSelectCustomTemplate, selectedCustomTemplateId, figmaFrames, onFigmaFramesChange, filterMode = "all" }: TemplateGalleryProps) {
   const [query, setQuery] = useState("");
   const [activeCategory, setActiveCategory] = useState("All");
   const [detailTemplateId, setDetailTemplateId] = useState<string | null>(null);
@@ -54,18 +61,24 @@ export function TemplateGallery({ templates, selectedId, onSelect, onSelectCusto
     [templates, detailTemplateId],
   );
 
+  // Apply prototype-mode filter before the category/search filter.
+  const baseTemplates = useMemo(
+    () => filterMode === "prototype" ? templates.filter((t) => t.mode === "prototype") : templates,
+    [templates, filterMode],
+  );
+
   const filtered = useMemo(() => {
     // Custom tab shows only custom templates — built-in list is hidden
     if (activeCategory === "Custom") return [];
     const q = query.trim().toLowerCase();
-    return templates.filter((t) => {
+    return baseTemplates.filter((t) => {
       if (!t.has_preview) return false; // hide templates without example.html
       if (activeCategory !== "All" && getBucket(t.scenario) !== activeCategory) return false;
       if (!q) return true;
       return [t.name, t.description, ...(t.triggers || [])]
         .join(" ").toLowerCase().includes(q);
     });
-  }, [templates, query, activeCategory]);
+  }, [baseTemplates, query, activeCategory]);
 
   // Custom templates filtered by search query
   const filteredCustom = useMemo(() => {

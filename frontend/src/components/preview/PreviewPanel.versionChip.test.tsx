@@ -155,17 +155,13 @@ describe("Live version chip (B3 / D5) — PreviewPanel", () => {
     fireEvent.click(screen.getByRole("option", { name: "v1" }));
     await waitFor(() => expect(mockGetWorkflow).toHaveBeenCalledWith("test-token", "root"));
 
-    // The amber read-only banner announces the read-only context. Two status
-    // strips announce it now (the header banner and the Preview tab's ref
-    // view); every one of them must say which version is on screen, read-only.
-    const statuses = await screen.findAllByRole("status");
-    for (const s of statuses) {
-      expect(s).toHaveTextContent(/Viewing v1/);
-      expect(s).toHaveTextContent(/read-only/);
-    }
-    const banner = await screen.findByText(/Viewing v1 \(read-only\)/);
-    const bannerStrip = banner.closest('[role="status"]') as HTMLElement;
-    expect(bannerStrip).not.toBeNull();
+    // Exactly ONE read-only banner renders: the outer header strip is suppressed
+    // when RefVersionPreview already renders its own inside the preview tab
+    // (INV-12 — no second banner). The single strip identifies the version and
+    // the read-only state.
+    const bannerStrip = await screen.findByRole("status");
+    expect(bannerStrip).toHaveTextContent(/Viewing v1/);
+    expect(bannerStrip).toHaveTextContent(/read-only/);
 
     // Back to latest → banner gone (live content restored).
     fireEvent.click(within(bannerStrip).getByRole("button", { name: /Back to latest/ }));

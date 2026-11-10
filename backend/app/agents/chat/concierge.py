@@ -1149,9 +1149,61 @@ class ConciergeCapability:
                 + attached_files.strip()
             )
 
+        # Image override: when per-turn images are attached the Concierge LLM can
+        # see them in the multi-modal user_message. Inject guidance as a PRIORITY
+        # block so it knows to describe the image visually and embed that description
+        # in propose_revision — the revision agents cannot see the image themselves.
+        # Payload-transient (ND-10). Dormant when ctx.images empty (INV-3).
+        _ctx_images: list = getattr(ctx, "images", None) or []
+        image_override_block: str = ""
+        if _ctx_images:
+            _n = len(_ctx_images)
+            _img_noun = "image" if _n == 1 else f"{_n} images"
+            _it_them = "it" if _n == 1 else "them"
+            image_override_block = (
+                f"## PRIORITY OVERRIDE — {_img_noun.capitalize()} attached this turn\n\n"
+                f"The user has attached {_img_noun}. You CAN SEE {_it_them} in this "
+                f"message — analyze {_it_them} visually before responding.\n\n"
+                "Apply EXACTLY one of the following cases:\n\n"
+                "CASE A — User's message is a REVISION REQUEST\n"
+                "(e.g. 'make it look like this', 'match this design', 'use this layout',\n"
+                "'make this page look like this screenshot', 'redesign it', 'update it'):\n"
+                "  → Check run_status first:\n"
+                "    - If 'revising': BLOCK. Tell user: 'A revision is already running — "
+                "please wait for it to finish before starting a new one.'\n"
+                "    - If 'running': BLOCK. Tell user: 'The pipeline is still building — "
+                "please wait for it to complete before requesting a revision.'\n"
+                "    - If 'completed': call propose_revision. Compose the instruction as:\n"
+                "      1. 'Revise the prototype to match the following visual reference:'\n"
+                "      2. A DETAILED description of what the image shows. Be specific:\n"
+                "         • Overall layout (sidebar, topbar, main area, footer)\n"
+                "         • Colour palette (background, surface, accent, text colours)\n"
+                "         • Typography (font weight, size, heading vs body style)\n"
+                "         • Navigation structure (tabs, sidebar items, breadcrumbs)\n"
+                "         • Key UI components visible (cards, tables, forms, buttons, icons)\n"
+                "         • Any readable text, labels, or values shown in the screenshot\n"
+                "         Example: 'Dark sidebar with icon-only navigation on the left. "
+                "Top header bar contains a search input and user avatar. Main content area "
+                "shows a two-column card grid with blue accent CTA buttons and white cards "
+                "on a grey #F4F4F5 background.'\n"
+                "      3. Append the user's exact typed message after the description (if any).\n"
+                "      The revision agent cannot see the image — your description IS the "
+                "revision instruction. Make it precise enough to reproduce the design.\n\n"
+                "CASE B — User's message is a QUESTION about the image or the run:\n"
+                "  → Answer it. Use your visual analysis. Do NOT call propose_revision.\n\n"
+                "CASE C — No actionable text (empty message or only a greeting):\n"
+                "  → Ask: 'I can see the image. Would you like me to revise the prototype "
+                "to match this design?' Do NOT call propose_revision without confirmation.\n\n"
+                "ALWAYS describe what you see in detail before deciding which case applies."
+            )
+
         parts: list[str] = []
 
-        # File override goes first — nothing can outrank it.
+        # Image override goes first (vision guidance, highest priority), then file
+        # override. Both are dormant when their ctx fields are empty (INV-3).
+        if image_override_block:
+            parts.append(image_override_block)
+        # File override next — nothing else can outrank it.
         if file_override_block:
             parts.append(file_override_block)
 

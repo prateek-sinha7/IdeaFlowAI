@@ -66,43 +66,95 @@ class TestStripForbidden:
 
     def test_strip_script_tags(self):
         html = '<section><script>alert("x")</script>Content</section>'
-        result, notes = strip_forbidden(html)
+        result, notes, scripts = strip_forbidden(html)
         assert "<script>" not in result
         assert "Content" in result
-        assert any("removed" in n and "script" in n for n in notes)
+        assert any("collected" in n and "script" in n for n in notes)
+        assert len(scripts) == 1
 
     def test_strip_style_tags(self):
         html = "<section><style>.x { color: red; }</style>Content</section>"
-        result, notes = strip_forbidden(html)
+        result, notes, scripts = strip_forbidden(html)
         assert "<style>" not in result
         assert "Content" in result
         assert any("removed" in n and "style" in n for n in notes)
 
     def test_strip_link_tags(self):
         html = '<section><link rel="stylesheet" href="style.css">Content</section>'
-        result, notes = strip_forbidden(html)
+        result, notes, scripts = strip_forbidden(html)
         assert "<link" not in result
         assert "Content" in result
         assert any("removed" in n and "link" in n for n in notes)
 
     def test_strip_multiple_forbidden(self):
         html = '<section><script>x</script><style>y</style><link href="z">Content</section>'
-        result, notes = strip_forbidden(html)
+        result, notes, scripts = strip_forbidden(html)
         assert "<script>" not in result
         assert "<style>" not in result
         assert "<link" not in result
         assert "Content" in result
+        assert len(scripts) == 1
 
     def test_strip_no_forbidden_empty_notes(self):
         html = "<section>Clean content</section>"
-        result, notes = strip_forbidden(html)
+        result, notes, scripts = strip_forbidden(html)
         assert result == html
         assert len(notes) == 0
+        assert scripts == []
+
+    def test_strip_forbidden_returns_scripts_list_with_full_tags(self):
+        html = "<section><script>var x = 1;</script>Hi</section>"
+        result, notes, scripts = strip_forbidden(html)
+        assert scripts == ["<script>var x = 1;</script>"]
+        assert "<script>" not in result
+
+    def test_strip_forbidden_collects_multiple_scripts(self):
+        html = "<section><script>a()</script><p>body</p><script>b()</script></section>"
+        result, notes, scripts = strip_forbidden(html)
+        assert len(scripts) == 2
+        assert "<script>" not in result
+
+    def test_strip_forbidden_style_and_link_still_stripped_not_collected(self):
+        html = '<section><style>.x{}</style><link href="x.css"><p>ok</p></section>'
+        result, notes, scripts = strip_forbidden(html)
+        assert scripts == []
+        assert "<style>" not in result
+        assert "<link" not in result
+
+
+def test_assemble_injects_fragment_scripts_before_body_close():
+    """Scripts in builder parts are collected and appear before </body>."""
+    inv_json = json.dumps({"screens": [{"id": "home", "title": "Home"}]})
+    parts = {
+        "home": '<section class="screen" id="home"><p>Hi</p><script>var foo=1;</script></section>'
+    }
+    doc, _ = assemble(parse_inventory(inv_json), parts)
+    assert "var foo=1;" in doc, "fragment script must appear in the document"
+    body_pos = doc.rindex("</body>")
+    script_pos = doc.rindex("var foo=1;")
+    assert script_pos < body_pos, "fragment script must appear before </body>"
+    # The script must be stripped from the section content itself.
+    section_content = doc.split('id="home"')[1].split("</section>")[0]
+    assert (
+        "<script>" not in section_content
+    ), "script must be removed from the section body"
+
+
+def test_assemble_deduplicates_identical_fragment_scripts():
+    """The same script in two different screen fragments is only injected once."""
+    common_script = "<script>function shared(){return 1;}</script>"
+    inv_json = json.dumps(
+        {"screens": [{"id": "a", "title": "A"}, {"id": "b", "title": "B"}]}
+    )
+    parts = {
+        "a": f'<section class="screen" id="a"><p>A</p>{common_script}</section>',
+        "b": f'<section class="screen" id="b"><p>B</p>{common_script}</section>',
+    }
+    doc, _ = assemble(parse_inventory(inv_json), parts)
+    assert doc.count("function shared()") == 1, "duplicate script must be deduplicated"
 
 
 class TestNamespaceIds:
-    """Test the namespace_ids() function."""
-
     def test_namespace_prefixes_inner_ids(self):
         html = '<section id="home"><div id="panel-a">A</div></section>'
         result, dups, local = namespace_ids(html, "home", set())

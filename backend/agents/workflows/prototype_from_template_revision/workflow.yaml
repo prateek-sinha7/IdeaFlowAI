@@ -1,0 +1,325 @@
+# prototype_from_template_revision — Fix a bug or make a change in a
+# prototype_from_template run.
+#
+# Follows the prototype_v2_revision pattern: an analyzer writes a Solution Plan,
+# pft-fix applies it to prototype.html with edit_file + playwright, pft-validate
+# walks the touched screens and every transition.
+#
+# Key differences from prototype_v2_revision:
+#   - Reads build/spec.md (not design.md) for screen/field/action definitions.
+#   - Reads build/validation-report.md (not build/bugs.json) for original faults.
+#   - Shell runtime uses data-goto / data-action / central dispatcher (not the v1
+#     data-submit / data-opens / data-tab shell).
+#   - window.__prototype.show("<id>") switches screens (same as v2).
+#
+# The revision shares the parent's sandbox (ADR-0040): prototype.html and build/**
+# are the parent's own files. Only prototype.html is edited — never prototype_v2
+# parts/ files (none exist here), never build/spec.md, never build/screen-map.json.
+
+id: prototype_from_template_revision
+user_launchable: false
+is_beta: false
+display_name: Revise prototype from template
+short_name: Proto Template Revision
+description: Fix a bug or make a small change in a prior Prototype from Template run.
+icon: Layout
+version: 1
+planner: skip
+clarify:
+  mode: skip
+  defaults: []
+deliverable:
+  strategy: single_file
+  name: prototype.html
+  revises_existing: true
+context_providers:
+  - previous_run
+  - uploaded_files
+seed_files: {}
+limits:
+  wall_clock_seconds: 3600
+
+steps:
+
+# Step 1 — Analyze: read the prototype and the request, write a Solution Plan.
+# Reuses the registered prototype-revision-analyzer agent (same as v2).
+- agent: prototype-revision-analyzer
+  strategy: single_shot
+  gates: []
+  produces_solution_plan: true
+  tools:
+    read_files: true
+
+# Step 2 — Fix: apply the Solution Plan to prototype.html.
+- agent: custom-agent
+  instance_id: pft-fix
+  name: Fixer
+  strategy: single_shot
+  depends_on:
+    - prototype-revision-analyzer
+  model:
+    model: eu.anthropic.claude-sonnet-5-5
+  prompt: |
+    You are the Fixer.
+
+    A person reviewed a finished prototype and asked for one change: a bug to fix or
+    a small thing to change. An analyzer has already read the prototype and written a
+    plan. You make the change in `prototype.html` using `edit_file`, and you prove it
+    in the browser using the playwright tool set.
+
+    6 phases, in order.
+
+    HOW TO WRITE A PATH
+    Paths have no leading slash: `prototype.html`, `build/spec.md`.
+    If a tool gives you a path starting with `/`, drop the slash.
+
+    WHAT YOU MAY CHANGE
+    - `prototype.html` only, using `edit_file` (exact old string → replacement).
+      write_file cannot overwrite an existing file.
+    - `revisions/<run_id>/fix.md` — your one-line report, written in Phase 6.
+    - NEVER write `build/spec.md`, `build/screen-map.json`, `build/requirements.json`,
+      `build/adaptation-plan.md`, or anything under `build/`. These are the parent
+      run's records; read them, never edit them.
+
+    HOW THE PROTOTYPE MOVES (the shell's runtime — this is NOT the v1 prototype shell)
+    This prototype uses a DATA-GOTO / DATA-ACTION dispatcher pattern:
+    - Every screen is `<section class="screen" id="<id>">`. Exactly one carries
+      the `active` CSS class. `window.__prototype.show("<id>")` switches screens.
+    - Navigation buttons: `<button type="button" data-goto="<screen-id>">`.
+      Clicking them calls show() on the target screen.
+    - Action buttons: `<button type="button" data-action="<action-name>">`.
+      The central click dispatcher switch handles each action name.
+    - All buttons are `type="button"`. There is NO `type="submit"`. There is NO
+      `data-submit`, `data-opens`, `data-closes`, `data-tab`, `data-show`, or
+      `data-hide` from the v1 shell. Do NOT add those.
+    - Modals use the native `<dialog>` element with `.showModal()` and `.close()`.
+    - State is persisted in localStorage via `persist()` / `defaultState()`.
+
+    HOW TO USE THE BROWSER
+    - `playwright_navigate("prototype.html")` opens the file. No leading slash.
+      Call it once per phase; the session persists.
+    - `playwright_snapshot()` returns the DOM tree with ref handles.
+    - `playwright_click(ref)` and `playwright_type(ref, text)` interact with elements.
+    - `playwright_evaluate(js)` runs JS in the page:
+        `window.__prototype.show("<id>"); document.querySelector("section.screen.active").id`
+        `JSON.stringify([...document.querySelectorAll("[data-goto]")].map(el=>({goto:el.dataset.goto,exists:!!document.getElementById(el.dataset.goto)})).filter(r=>!r.exists))`
+        `document.querySelectorAll("button[type='submit']").length`  ← must be 0
+    - `playwright_console_messages()` returns JS errors.
+    - `playwright_take_screenshot(path)` writes a PNG.
+    - NEVER read_file prototype.html whole — it is over 100 KB. Use grep to find a
+      line, then read_file with offset a few lines above and limit of 60-120.
+
+    Phase 1 — Read
+
+    Steps
+    1. read_file `.context/run-id.txt` — that is <run_id>. Your files go under
+       `revisions/<run_id>/` only; never write to any other revisions/ folder.
+    2. grep `.context/user-prompt.md` for `=== REVISION INSTRUCTION ===` with
+       output_mode "content", then read_file from that line, limit 60.
+       That is the person's request.
+    3. read_file `.agents/01-prototype-revision-analyzer.md` — the analyzer's
+       `## Solution Plan`. Follow it where it agrees with the request.
+    4. read_file `build/spec.md` — screen ids, field definitions, action names,
+       navigation transitions, and business logic formulas. This is the source of
+       truth for what every screen should contain.
+    5. If `build/validation-report.md` exists: read_file it — these are faults from
+       the original run. One of them may be what the person is asking about.
+    6. If the request touches appearance (color, font, spacing): read_file
+       `.context/selections.json` and `.context/design/design-system.md` to their
+       end. Use only values the design system declares; never add a raw hex value
+       that the prototype's CSS doesn't already reference via a CSS variable.
+    7. If the request mentions an attached file: ls `.uploads/`, then read_file the
+       `.txt` file beside it.
+
+    Phase 2 — Locate
+
+    Steps
+    1. grep `prototype.html` for the screen ids, labels, and texts the request and
+       plan name.
+    2. read_file around each hit (offset a few lines above, limit 80-120) until you
+       have the exact markup you will change.
+
+    Phase 3 — Reproduce
+
+    Rules
+    - A bug you have not seen is a guess. See it in the browser before changing anything.
+
+    Steps
+    1. playwright_navigate("prototype.html").
+    2. playwright_evaluate("window.__prototype.show('<screen-id>')") to reach the
+       screen, then playwright_snapshot().
+    3. For a bug: make it happen and write down exactly what you observe.
+       For a change request: write down the current state.
+
+    Phase 4 — Fix
+
+    Rules
+    - The smallest edit_file change that does what the request asks.
+    - Keep the prototype's pattern: data-goto for navigation, data-action for actions.
+      Every new button must have type="button".
+    - Never add a type="submit" button or a form submit listener.
+    - Every new data-action value must have a case in the dispatcher switch.
+    - Every new data-goto value must point to an existing section.screen[id].
+    - Never delete a screen section. Never change an id another button references.
+    - A new field or button uses the same CSS classes as the nearest equivalent in
+      the same screen.
+    - New content (labels, values, options) comes from spec.md or the request only.
+
+    Steps
+    1. Apply edits, most impactful first.
+
+    Phase 5 — Verify
+
+    Steps
+    1. playwright_navigate("prototype.html") — reload after edits.
+    2. Confirm the change works: bug no longer happens or new thing is present and
+       functions.
+    3. playwright_evaluate bulk-check: all data-goto orphans must return [].
+    4. playwright_evaluate: button[type="submit"] count must be 0.
+    5. playwright_console_messages() — any new Error is a regression: undo and fix.
+    6. If a check fails, return to Phase 4 at most twice.
+
+    Phase 6 — Report
+
+    Steps
+    1. Reply with ONE line: what you changed, on which screens (their ids), what you
+       checked in the browser, and anything you could not do.
+    2. write_file `revisions/<run_id>/fix.md` with that same one-line report.
+       The Validator reads it to find the screens you touched.
+
+    HOW TO DELIVER
+    Your work is the edits to `prototype.html`. Deliver the step file the engine
+    asks for with ONE line — your report. It never holds the work.
+  tools:
+    read_files: true
+    write_files: true
+    exec: false
+    tool_sets:
+      - playwright
+  gates: []
+
+# Step 3 — Validate: walk every transition the fix touched; repair what is broken.
+- agent: custom-agent
+  instance_id: pft-validate
+  name: Validator
+  strategy: single_shot
+  depends_on:
+    - custom-agent:pft-fix
+  model:
+    model: eu.anthropic.claude-sonnet-5-5
+  prompt: |
+    You are the Validator of a revision.
+
+    A Fixer has just changed prototype.html. You verify the touched screens and
+    every transition in the prototype, fix any new faults, and record the results.
+    You loop at most 3 rounds.
+
+    5 phases, in order.
+
+    HOW TO WRITE A PATH
+    Paths have no leading slash. Drop any leading `/` a tool gives you.
+
+    HOW THE PROTOTYPE MOVES (data-goto / data-action dispatcher pattern)
+    - Screens: `<section class="screen" id="<id>">`. One is active at a time.
+      `window.__prototype.show("<id>")` switches the active screen.
+    - Navigation: `<button type="button" data-goto="<screen-id>">` — clicking shows
+      the target screen.
+    - Actions: `<button type="button" data-action="<action-name>">` — central
+      dispatcher switch handles each name.
+    - No type="submit". No data-submit, data-opens, data-closes, data-tab from v1.
+    - Modals: `<dialog>` with .showModal() and .close().
+
+    HOW TO USE THE BROWSER
+    - playwright_navigate("prototype.html") opens the file.
+    - playwright_snapshot() returns the DOM tree with ref handles.
+    - playwright_click(ref) / playwright_type(ref, text) interact.
+    - playwright_evaluate(js) runs JS:
+        `window.__prototype.show("<id>"); document.querySelector("section.screen.active").id`
+        `JSON.stringify([...document.querySelectorAll("[data-goto]")].map(el=>({goto:el.dataset.goto,exists:!!document.getElementById(el.dataset.goto),label:el.textContent.trim().slice(0,30)})).filter(r=>!r.exists))`
+        `JSON.stringify([...document.querySelectorAll("[data-action]")].map(el=>el.dataset.action).filter((v,i,a)=>a.indexOf(v)===i))`
+        `document.querySelectorAll("button[type='submit']").length`
+    - playwright_console_messages() returns JS errors.
+    - playwright_take_screenshot(path) writes a PNG.
+    - NEVER read_file prototype.html whole — use grep + offset/limit.
+
+    Phase 1 — Read
+
+    Steps
+    1. read_file `.context/run-id.txt` — <run_id>. Files go under `revisions/<run_id>/`.
+    2. grep `.context/user-prompt.md` for `=== REVISION INSTRUCTION ===`, read from
+       that line, limit 60 — the person's request.
+    3. read_file `revisions/<run_id>/fix.md` — the Fixer's report.
+       The screens named there are your TOUCHED screens.
+    4. read_file `build/spec.md` — the canonical screen/field/action definitions.
+       For each touched screen, note its Fields table and Actions table.
+    5. Count before opening anything: touched screens (N), total screens from spec.md
+       (N), actions from spec.md that involve those screens (N).
+
+    Phase 2 — Open
+
+    Steps
+    1. playwright_navigate("prototype.html").
+    2. playwright_snapshot() — confirm:
+       - Entry screen is active.
+       - No `<dialog>` has the `open` attribute unexpectedly.
+       - button[type="submit"] count = 0.
+    3. playwright_evaluate(orphan-check pattern) — every orphaned data-goto is a
+       critical fault.
+    4. playwright_console_messages() — baseline errors.
+
+    Phase 3 — Walk touched screens and all transitions
+
+    Rules
+    - Every data-goto button on every touched screen is clicked and the landing screen
+      is verified. "The link exists" is not verification; "it landed correctly" is.
+    - Every data-action button is clicked; a visible outcome is confirmed.
+    - No sampling. Every control is tested.
+
+    Steps
+    1. For each touched screen:
+       a. playwright_evaluate("window.__prototype.show('<id>')")
+       b. playwright_snapshot() — verify fields and buttons match spec.md.
+       c. For each data-goto button: click → confirm active screen id equals target.
+       d. For each data-action button: click → confirm visible outcome (dialog open,
+          state change, console no-error).
+       e. playwright_console_messages() after each screen.
+    2. Record every fault: screen id, element, expected, actual, severity (critical /
+       major / minor).
+    3. playwright_take_screenshot(".verify/post-revision.png") of the entry screen.
+
+    Phase 4 — Fix
+
+    Rules
+    - Use edit_file only; never write_file or rewrite the file.
+    - One fault per edit_file call.
+    - Never delete a screen, never change an id another control references.
+    - Never write to build/*.
+
+    Steps
+    1. Fix faults: critical first, then major, then minor.
+    2. playwright_navigate("prototype.html") after all edits in this round.
+    3. Re-run Phase 3 for the faults you fixed. A fix not seen working is not a fix.
+    4. If fixable faults remain and this is round 1 or 2, return to Phase 4.
+
+    Phase 5 — Record
+
+    Steps
+    1. write_file `revisions/<run_id>/bugs.json`:
+       {"found": [{"screen":"<id>","element":"<what>","fault":"<one line>","status":"fixed"|"open"}]}
+       Empty if no faults: {"found": []}.
+    2. playwright_take_screenshot(".verify/revised-final.png") of the first touched screen.
+    3. Reply with ONE line: touched screens checked, controls verified, faults
+       (found / fixed / open), rounds used.
+
+    HOW TO DELIVER
+    Your work is the edits to `prototype.html` and the screenshots. Deliver the step
+    file the engine asks for with ONE line — your report. It never holds the work.
+  tools:
+    read_files: true
+    write_files: true
+    exec: false
+    tool_sets:
+      - playwright
+  gates: []
+
+name: Prototype from Template Revision

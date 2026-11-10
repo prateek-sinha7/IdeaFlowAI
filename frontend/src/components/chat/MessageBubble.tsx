@@ -12,6 +12,7 @@ import {
   ChevronDown,
   ChevronRight,
   FileText,
+  ImageIcon,
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import type { ChatMessage } from "@/types/index";
@@ -26,6 +27,36 @@ import { renderToolBlock } from "./runtime/tool-renderers";
 import { ThinkingBlock } from "./blocks/ThinkingBlock";
 import { FileOpsSummary } from "./blocks/FileOpsSummary";
 import { ResultCard } from "./ResultCard";
+
+/** Convert a raw Bedrock/Anthropic/OpenAI model ID into a short human-readable
+ *  label for the concierge reply footer.
+ *
+ *  Examples:
+ *    eu.anthropic.claude-haiku-4-5-20251001-v1:0 → Claude Haiku 4.5
+ *    eu.anthropic.claude-sonnet-5-5               → Claude Sonnet 5.5
+ *    global.openai.gpt-5.6-luna                   → GPT 5.6 Luna
+ */
+function _modelLabel(modelId: string): string {
+  if (!modelId) return "";
+  let s = modelId
+    // strip region prefix (eu. / us. / global. / ap. / ca.)
+    .replace(/^(eu|us|global|ap|ca|sa)\./i, "")
+    // strip provider prefix (anthropic. / openai. / amazon. / meta. / mistral.)
+    .replace(/^(anthropic|openai|amazon|meta|mistral)\./i, "")
+    // strip date-version suffix e.g. -20251001-v1:0
+    .replace(/-\d{8}-v\d+[:.]\d+$/, "")
+    // strip trailing :0 / :1 version qualifiers
+    .replace(/:\d+$/, "");
+  // convert digit-hyphen-digit version segments to dots (4-5 → 4.5)
+  s = s.replace(/(\d+)-(\d+)/g, "$1.$2");
+  // replace remaining hyphens with spaces
+  s = s.replace(/-/g, " ");
+  // capitalize each word
+  s = s.replace(/\b\w/g, (c) => c.toUpperCase());
+  // normalize known acronyms
+  s = s.replace(/\bGpt\b/g, "GPT");
+  return s.trim();
+}
 
 interface MessageBubbleProps {
   message: ChatMessage;
@@ -251,7 +282,8 @@ export function MessageBubble({
                 Text present (with or without files): brand-fill bubble wraps everything. */}
             {(() => {
               const fileAtts = (message.attachments ?? []).filter((a) => a.kind === "file");
-              const fileOnly = fileAtts.length > 0 && !displayContent;
+              const imageAtts = (message.attachments ?? []).filter((a) => a.kind === "image");
+              const fileOnly = fileAtts.length > 0 && imageAtts.length === 0 && !displayContent;
 
               const fileChips = fileAtts.length > 0 ? (
                 <div className={`flex flex-col gap-[5px] ${!fileOnly ? "mb-[8px]" : ""}`}>
@@ -268,6 +300,46 @@ export function MessageBubble({
                       </span>
                     </div>
                   ))}
+                </div>
+              ) : null;
+
+              // Image thumbnails — shown before text content.
+              // Optimistic bubble: PendingAttachment carries `data` (base64) → render
+              // a real thumbnail. After server echo / on reopen: payload-transient
+              // (ND-10, retained:false), no bytes → render a named chip.
+              const imageChips = imageAtts.length > 0 ? (
+                <div className="flex flex-wrap gap-2 mb-[8px]">
+                  {imageAtts.map((a, i) => {
+                    const imgData = (a as { data?: string }).data;
+                    const mimeType = (a as { mimeType?: string }).mimeType || "image/png";
+                    return imgData ? (
+                      // Live optimistic: render actual thumbnail
+                      <div
+                        key={`img-${i}`}
+                        className="overflow-hidden rounded-[8px] border border-brand-border"
+                      >
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={`data:${mimeType};base64,${imgData}`}
+                          alt={a.name || "Attached image"}
+                          className="max-h-[200px] max-w-[260px] object-contain"
+                        />
+                      </div>
+                    ) : (
+                      // After server echo: bytes are gone (ND-10) — show a named chip
+                      <div
+                        key={`img-${i}`}
+                        className="inline-flex items-center gap-[8px] rounded-[8px] border border-brand-border bg-brand-fill px-[10px] py-[7px]"
+                      >
+                        <span className="grid h-[24px] w-[24px] flex-none place-items-center rounded-[6px] bg-white/70">
+                          <ImageIcon className="h-[13px] w-[13px] text-brand" strokeWidth={1.7} />
+                        </span>
+                        <span className="font-sans text-[12px] font-semibold text-ink-900">
+                          {a.name || "Screenshot"}
+                        </span>
+                      </div>
+                    );
+                  })}
                 </div>
               ) : null;
 
@@ -306,6 +378,7 @@ export function MessageBubble({
                     </div>
                   ) : (
                     <>
+                      {imageChips}
                       {fileChips}
                       {displayContent && (
                         <p className="font-serif text-[13.5px] leading-[1.5] text-ink-800 whitespace-pre-wrap">

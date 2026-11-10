@@ -2507,6 +2507,7 @@ export function DashboardLayout({
       // `reviseBase === "prototype" ? ... : "ppt.draft"` ternary would have put
       // it in the DECK slot even if the gate had let it through.
       const draftKey = { prototype: "prototype.draft", prototype_v2: "prototype.draft",
+                         prototype_from_template: "prototype.draft",
                          ppt: "ppt.draft", ppt_v2: "ppt.draft" }[effectiveReviseType as string] ?? "idea.draft";
       sessionStorage.setItem(draftKey, JSON.stringify({ brief: editedBrief }));
       setMainView("input");

@@ -1428,6 +1428,7 @@ class _ConciergeCtx:
         open_gate=None,
         run_status=None,
         attached_files=None,
+        images=None,
     ):
         self.run_id = run_id
         self.scoped_store = scoped_store
@@ -1465,6 +1466,11 @@ class _ConciergeCtx:
         # NOTE (merge 2026-08-13): "FIX-218" here is dev's id. This branch's own FIX-218
         # was renumbered to FIX-252 on merge — see .planning/FIX-REGISTER.md.
         self.attached_files = attached_files or ""
+        # Per-turn image attachments (validated {mime_type, data} blobs from the ingress
+        # gate). Payload-transient (ND-10) — never persisted; threaded to converse so
+        # the Concierge LLM can see the image and produce a visual revision instruction.
+        # Dormant (empty list) when IMAGE_INPUT_ENABLED is False or no images attached.
+        self.images: list = list(images or [])
 
 
 def _resolve_concierge():
@@ -1560,6 +1566,117 @@ def _revision_base_type(wr_type: str) -> str:
     return wr_type.removesuffix("_revision")
 
 
+def _save_images_to_sandbox(
+    images: list,
+    run_id: str,
+    user_id: str,
+) -> list[str]:
+    """Step 6 (image-revision feature): write base64 images to the run's ``.uploads/``
+    folder so the revision analyzer agent can read them directly via ``read_file``.
+
+    Returns the list of sandbox-relative paths written (e.g.
+    ``['.uploads/concierge-reference-0.png']``). Best-effort — returns ``[]`` on any
+    error so the caller degrades gracefully and the revision is never blocked.
+
+    Deferred imports keep the app→capabilities boundary clean (same pattern as
+    ``_compute_revision_ordinal`` and ``_classify_revision_tier``).
+    """
+    import base64 as _b64  # noqa: PLC0415 — stdlib, deferred for clarity
+
+    try:
+        from app.agents.sandbox import RunSandbox  # noqa: PLC0415
+        from app.models.database import SessionLocal as _SL_img  # noqa: PLC0415
+
+        # Resolve the chain root using the same resolver the workspace/files
+        # endpoints use (run_files._resolve_chain_root_or_404). Fall back to
+        # run_id for prototype roots (parent_run_id = None → root = itself).
+        _db = _SL_img()
+        try:
+            _chain_root = _revision_chain_root_id(_db, run_id, user_id)
+        except Exception:  # noqa: BLE001 — degrade; run_id is correct for prototype roots
+            _chain_root = run_id
+        finally:
+            _db.close()
+
+        # Construct the sandbox WITHOUT an explicit runs_root so RunSandbox uses
+        # its own settings.RUNS_ROOT — the same path the engine and workspace
+        # endpoints use. Passing _settings.RUNS_ROOT here caused a path mismatch
+        # in local dev where the value in app.core.config differs from the one
+        # already resolved inside the running agent process.
+        sandbox = RunSandbox(user_id, _chain_root)
+        uploads_dir = sandbox.root / "chat_uploads"
+
+        logger.info(
+            "_save_images_to_sandbox: sandbox root=%s exists=%s chat_uploads_exists=%s images=%d",
+            sandbox.root,
+            sandbox.root.exists(),
+            uploads_dir.exists(),
+            len(images or []),
+        )
+
+        _EXT_MAP = {
+            "image/jpeg": "jpg",
+            "image/jpg": "jpg",
+            "image/webp": "webp",
+            "image/gif": "gif",
+        }
+        saved: list[str] = []
+        for idx, img in enumerate(images or []):
+            if not isinstance(img, dict):
+                continue
+            data_b64 = img.get("data", "")
+            mime = img.get("mime_type", "image/png")
+            if not data_b64:
+                continue
+            # Strip data URI prefix if present (e.g. "data:image/png;base64,...")
+            # Some resizers return the full data URL; b64decode rejects the prefix.
+            if "base64," in data_b64:
+                data_b64 = data_b64.split("base64,", 1)[1]
+            ext = _EXT_MAP.get(mime, "png")
+            filename = f"concierge-reference-{idx}.{ext}"
+            try:
+                raw = _b64.b64decode(data_b64)
+                uploads_dir.mkdir(parents=True, exist_ok=True)
+                # Prevent binary images from being staged by ``git add -A``
+                # and triggering the binary scan that marks runs as degraded
+                # (``commit_in_sandbox`` → ``scan_staged_binary`` → unknown
+                # binary type → ``ectx.commit_excluded_files`` →
+                # ``attempt.degrade("files_not_saved")``).
+                # A per-directory ``.gitignore`` with ``*`` tells git to skip
+                # every file under ``chat_uploads/``, including this one and
+                # any uploaded on later revisions in the same sandbox chain.
+                # The ``.gitignore`` itself is also ignored by the ``*`` rule,
+                # so it is re-created on every call without accumulating in
+                # git history.  See the matching entry in
+                # ``LocalWorkspace._write_gitignore`` (local.py) which covers
+                # newly initialised sandboxes.
+                _gitignore_path = uploads_dir / ".gitignore"
+                if not _gitignore_path.exists():
+                    _gitignore_path.write_text("*\n", encoding="utf-8")
+                (uploads_dir / filename).write_bytes(raw)
+                saved.append(f"chat_uploads/{filename}")
+                logger.info(
+                    "_save_images_to_sandbox: wrote %s (%d bytes) for run=%s",
+                    filename,
+                    len(raw),
+                    run_id,
+                )
+            except Exception as _write_exc:  # noqa: BLE001 — never block the revision
+                logger.warning(
+                    "_save_images_to_sandbox: could not write %s for run=%s — %s",
+                    filename,
+                    run_id,
+                    _write_exc,
+                )
+        return saved
+
+    except Exception as _outer_exc:  # noqa: BLE001 — sandbox errors must not block revision
+        logger.warning(
+            "_save_images_to_sandbox: failed for run=%s — %s", run_id, _outer_exc
+        )
+        return []
+
+
 async def _dispose_concierge_proposal(
     intent,
     *,
@@ -1580,6 +1697,7 @@ async def _dispose_concierge_proposal(
     ectx,
     open_gate: str | None = None,
     attached_files: str = "",
+    images: list | None = None,
 ) -> dict:
     """Dispose ONE Concierge ``ProposalIntent`` through its matching Phase-29 seam (D-05).
 
@@ -1634,6 +1752,17 @@ async def _dispose_concierge_proposal(
 
     # ── CONSEQUENTIAL: hold behind a confirm chip until the FE confirms (33-04). ─────
     if channel in _CONSEQUENTIAL_PROPOSAL_CHANNELS and not confirmed:
+        # For a revision intent carrying images: save the images to the sandbox NOW
+        # (while we still have them) so the confirm turn can reference the saved
+        # paths. The confirm turn has no images — they are payload-transient (ND-10).
+        # Store the saved paths in params so _dispose_concierge_proposal can append
+        # them to the instruction at confirm time. Best-effort: never blocks the hold.
+        _hold_params = dict(params)
+        if channel == "revision" and images:
+            _hold_image_refs = _save_images_to_sandbox(images, run_id, current_user.id)
+            if _hold_image_refs:
+                _hold_params["image_refs"] = _hold_image_refs
+
         await store.append_event_next_seq(
             run_id,
             event_id=f"concierge-proposal:{message_id}:{channel}",
@@ -1642,11 +1771,11 @@ async def _dispose_concierge_proposal(
                 "pipeline_run_id": run_id,
                 "message_id": message_id,
                 "channel": channel,
-                "params": params,
+                "params": _hold_params,
                 "status": "pending",  # awaiting the FE confirm round-trip (33-04)
             },
         )
-        return {"channel": channel, "held": True, "params": params}
+        return {"channel": channel, "held": True, "params": _hold_params}
 
     # ── gate_action → store.set_review_response (KAN-94 armed + KAN-100 fenced). ─────
     if channel == "gate_action":
@@ -1762,6 +1891,7 @@ async def _dispose_concierge_proposal(
                 instruction,
                 run_id,
                 model_id=getattr(run_user, "preferred_model", None),
+                images=images,
             )
             target = _REVISION_TIER_TARGET_MAP.get(_tier, "prototype_output")
             logger.info(
@@ -1775,6 +1905,7 @@ async def _dispose_concierge_proposal(
                 instruction,
                 run_id,
                 model_id=getattr(run_user, "preferred_model", None),
+                images=images,
             )
             target = _V2_REVISION_TIER_TARGET_MAP.get(_tier, "prototype_v2_output")
             logger.info(
@@ -1807,6 +1938,23 @@ async def _dispose_concierge_proposal(
                 + "\n=== END REFERENCE MATERIAL ==="
             )
             instruction = file_section
+
+        # Step 6 (image-revision): write base64 images to the parent sandbox so
+        # the revision analyzer can read_file them directly alongside prototype.html.
+        # At HOLD time (confirmed=False above) images were saved and paths stored in
+        # params["image_refs"]. Use those here. Fall back to saving now only on the
+        # direct (non-held) disposal path where images may be present.
+        _image_refs: list[str] = list(params.get("image_refs") or [])
+        if not _image_refs and images:
+            _image_refs = _save_images_to_sandbox(images, run_id, current_user.id)
+        if _image_refs:
+            _ref_block = (
+                "\n\nReference image(s) for this revision have been saved in the "
+                "sandbox under the chat_uploads/ folder. Read and analyze each one "
+                "using read_file to understand the visual target before producing "
+                "the solution plan:\n" + "\n".join(f"- {ref}" for ref in _image_refs)
+            )
+            instruction = instruction + _ref_block
 
         child_run_id = str(_uuid.uuid4())
 
@@ -2250,7 +2398,26 @@ async def post_message(
             # injection into the running pipeline. Payload-transient (ND-10) — never
             # persisted. Absent ⇒ "" ⇒ dormant (byte-identical prompt, INV-3).
             attached_files=_build_attached_files_block(body.file_contents),
+            # Thread validated per-turn images so the Concierge LLM can see them.
+            # validated_turn_images is already empty when IMAGE_INPUT_ENABLED is False
+            # or the body carried no images — no extra guard needed here (INV-3).
+            images=validated_turn_images,
         )
+        # Override the Concierge model when CONCIERGE_MODEL_ID is configured (default
+        # Sonnet 5.5). Sonnet gives higher-quality vision analysis for revision
+        # instructions and better multi-turn reasoning than the global Haiku default.
+        # ctx.model = None → ConciergeCapability falls back to build_model(None)
+        # (the global default) so existing runs/tests remain unaffected when the
+        # setting is cleared. No workflow-name branch (INV-1 / SC-001).
+        #
+        # Pass the model ID STRING (not a pre-built BaseChatModel instance) so
+        # DeepAgentRunner sets self.model_id = the string directly — the instance
+        # path calls model_identifier() which can return "unknown" and fall back
+        # to settings.BEDROCK_INFERENCE_PROFILE_ID (Haiku).
+        if settings.CONCIERGE_MODEL_ID:
+            ctx.model = (
+                settings.CONCIERGE_MODEL_ID
+            )  # string → DeepAgentRunner builds it
         # If a child revision run is active, set it on the ctx so get_run_progress
         # can read its events and list its agents correctly.
         if active_child_revision is not None:
@@ -2319,12 +2486,44 @@ async def post_message(
             held: list = []
             errored = False
             try:
+                # Build a multi-modal user_message when images are attached.
+                # Matches the engine's block shape (source_type/mime_type/data) so
+                # DeepAgentRunner._astream_events_once → HumanMessage(content=<list>)
+                # works identically to the in-run per-agent image path (30-03).
+                # Dormant when ctx.images is empty — body.text plain string, no delta
+                # from the pre-image code path → INV-3 byte-parity for text-only turns.
+                _ctx_images: list = ctx.images or []
+                if _ctx_images:
+                    _user_message: str | list = [
+                        {"type": "text", "text": body.text or "(no text provided)"},
+                        *[
+                            {
+                                "type": "image",
+                                "source_type": "base64",
+                                "mime_type": img["mime_type"],
+                                "data": img["data"],
+                            }
+                            for img in _ctx_images
+                            if isinstance(img, dict)
+                            and img.get("data")
+                            and img.get("mime_type")
+                        ],
+                    ]
+                else:
+                    _user_message = body.text
                 answer_text = (
-                    await concierge.converse(ctx, body.text, on_chunk=_on_chunk) or ""
+                    await concierge.converse(ctx, _user_message, on_chunk=_on_chunk)
+                    or ""
                 )
             except Exception:  # noqa: BLE001 — stream a partial terminal, still persist.
                 logger.exception("Concierge stream failed for run %s", run_id)
                 errored = True
+            # Extract model ID once — used in BOTH the durable row AND the transient
+            # terminal frame so the FE label renders whether it sources from the live
+            # stream or the post-send fetchEvents re-fetch (DEF-44-12-2).
+            _conc_model_id: str = (getattr(ctx, "usage", {}) or {}).get(
+                "model_id", ""
+            ) or ""
             try:
                 # Durable terminal — persists EXACTLY as today (the single canonical
                 # record history/replay/BUG-017/the li0 spinner depend on).
@@ -2336,6 +2535,10 @@ async def post_message(
                         "pipeline_run_id": run_id,
                         "message_id": body.message_id,
                         "text": answer_text or "",
+                        # Surface the model ID so the FE can label the reply.
+                        # ctx.usage is set by ConciergeCapability.converse right
+                        # before it returns; absent (errored run, older ctx) → omit.
+                        **({"model_id": _conc_model_id} if _conc_model_id else {}),
                     },
                 )
                 # ── ISS-092: record the Concierge's OWN model spend, durably. ──────
@@ -2425,6 +2628,12 @@ async def post_message(
                         ectx=ectx,
                         open_gate=open_gate,
                         attached_files=_attached_block,
+                        # Thread the per-turn images so the tier classifier can see
+                        # the visual target when classifying a prototype revision.
+                        # Payload-transient (ND-10) — images are on _ConciergeCtx (ctx),
+                        # not on the engine ectx. Absent on the confirm-proposal path
+                        # (that turn has no images; the instruction already encodes them).
+                        images=getattr(ctx, "images", None),
                     )
                     held.append(disposed)
                     logger.info(
@@ -2488,6 +2697,9 @@ async def post_message(
                     "text": display_text,
                     "seq": reply_seq,
                     "proposals": held,
+                    # Thread model_id onto the LIVE frame so the FE label renders
+                    # immediately from the stream, not only on the post-send re-fetch.
+                    **({"model_id": _conc_model_id} if _conc_model_id else {}),
                 }
                 if errored:
                     terminal["error"] = True
@@ -5825,6 +6037,7 @@ async def _classify_revision_tier(
     instruction: str,
     parent_run_id: str,
     model_id: str | None = None,
+    images: list | None = None,
 ) -> str:
     """Classify a prototype revision request into a tier before minting the run.
 
@@ -5923,7 +6136,31 @@ async def _classify_revision_tier(
             len(existing_html),
             revision_text[:80],
         )
-        response = await llm.ainvoke([HumanMessage(content=classifier_prompt)])
+        # When images are attached (concierge path), pass them as a multi-modal
+        # content list so the classifier can see the visual target and pick the
+        # correct tier. Matches engine block shape (source_type/mime_type/data).
+        # Dormant (plain string) when no images — byte-identical (INV-3).
+        _tier_images = [
+            img
+            for img in (images or [])
+            if isinstance(img, dict) and img.get("data") and img.get("mime_type")
+        ]
+        if _tier_images:
+            _classifier_content: str | list = [
+                {"type": "text", "text": classifier_prompt},
+                *[
+                    {
+                        "type": "image",
+                        "source_type": "base64",
+                        "mime_type": img["mime_type"],
+                        "data": img["data"],
+                    }
+                    for img in _tier_images
+                ],
+            ]
+        else:
+            _classifier_content = classifier_prompt
+        response = await llm.ainvoke([HumanMessage(content=_classifier_content)])
         tier = response.content.strip().lower()
         if tier in ("small", "large", "feature"):
             logger.info(

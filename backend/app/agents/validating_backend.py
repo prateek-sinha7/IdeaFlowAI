@@ -14,12 +14,38 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 from pathlib import Path
 
 from deepagents.backends.filesystem import FilesystemBackend
 from deepagents.backends.protocol import EditResult, WriteResult
 
 _O_NOFOLLOW = getattr(os, "O_NOFOLLOW", 0)
+
+
+def _sanitize_path_for_os(file_path: str) -> str:
+    """Replace Windows-illegal characters in sandbox-relative path components.
+
+    ``deepagents`` ``SummarizationMiddleware`` builds the conversation history
+    offload filename from the LangGraph ``thread_id``, which the engine formats
+    as ``{run_id}:{agent_id}`` (e.g.
+    ``0f16c8a8-ab3d-4cbc-8337-92887846a76f:custom-agent:v2-build``).
+
+    On Linux/macOS ``':'`` is a valid filename character and the write
+    succeeds.  On Windows ``':'`` is illegal everywhere except the drive-letter
+    colon, so the OS rejects the path with ``[Errno 22] Invalid argument``.
+    The failure is non-fatal inside the middleware but it marks the run as
+    *degraded* because the warning propagates as a ``UserWarning`` that the
+    engine's attempt accumulator catches.
+
+    The ``file_path`` argument here is always a sandbox-relative POSIX path
+    (no drive letter), so replacing every ``':'`` with ``'_'`` is safe —
+    each ``{run_id}:{agent_id}`` pair is still unique after substitution.
+    """
+    if sys.platform != "win32":
+        return file_path
+    parts = file_path.replace("\\", "/").split("/")
+    return "/".join(part.replace(":", "_") for part in parts)
 
 
 def _is_json_path(file_path: str) -> bool:
@@ -63,6 +89,7 @@ class ValidatingFilesystemBackend(FilesystemBackend):
             `WriteResult` with path on success, or error message if validation fails
                 or the file already exists or write fails.
         """
+        file_path = _sanitize_path_for_os(file_path)
         if _is_json_path(file_path):
             try:
                 json.loads(content)
@@ -98,6 +125,7 @@ class ValidatingFilesystemBackend(FilesystemBackend):
             `EditResult` with path and occurrence count on success, or error
                 message if file not found, replacement fails, or JSON validation fails.
         """
+        file_path = _sanitize_path_for_os(file_path)
         if not _is_json_path(file_path):
             return super().edit(file_path, old_string, new_string, replace_all)
 

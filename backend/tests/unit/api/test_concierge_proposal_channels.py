@@ -271,7 +271,9 @@ class TestRevisionDisposal:
         # own contract, while THIS test is about mint+drive routing. "small" is the tier
         # that maps back to prototype_output, so the target asserted below is the one the
         # intent actually requested.
-        async def _fake_classify(instruction, parent_run_id, model_id=None):
+        async def _fake_classify(
+            instruction, parent_run_id, model_id=None, images=None
+        ):
             return "small"
 
         monkeypatch.setattr(rc, "_classify_revision_tier", _fake_classify)

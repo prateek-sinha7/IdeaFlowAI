@@ -152,6 +152,12 @@ class TemplateKit:
     # so the design system reaches them too (a template's own --navy, not just --accent).
     chrome_vars: list[str] = field(default_factory=list)
     button_vars: list[str] = field(default_factory=list)
+    # Application scripts extracted from the template body before the frame is stripped.
+    # The assembler injects these into the final prototype before </body> so template
+    # interactivity (SPA runtimes, seat maps, baggage toggles, etc.) survives assembly.
+    # Scripts that contain data-goto / data-submit are excluded — injecting a second
+    # copy of the shell routing handler would break navigation.
+    template_scripts: list[str] = field(default_factory=list)
 
     @property
     def css(self) -> str:
@@ -422,12 +428,33 @@ def load_template_kit(read: Callable[[str], str | None]) -> TemplateKit | None:
             ):
                 head_links.append(link)
     frame = None
+    template_scripts: list[str] = []
+    _seen_script_keys: set[str] = set()
     # The frame comes from the finished example first — the seed is a skeleton of
     # `[REPLACE]` placeholders — and from the seed when the example has none.
+    # Scripts are accumulated from ALL sources (not just the frame source). This is
+    # critical when assets/template.html provides the frame but has no <script> tags:
+    # without accumulation, the frame source's empty candidates would overwrite the
+    # application scripts from example.html (e.g. the iberia SPA runtime).
     for src in reversed(SOURCES):
         body = _BODY_RE.search(texts.get(src, ""))
-        if body and (frame := _find_frame(_SCRIPT_RE.sub("", body.group(1)))):
-            break
+        if not body:
+            continue
+        body_text = body.group(1)
+        _candidates = [
+            s
+            for s in _SCRIPT_RE.findall(body_text)
+            if "data-goto" not in s and "data-submit" not in s
+        ]
+        # Accumulate scripts from every source, deduplicating by inner content.
+        for _s in _candidates:
+            _k = _s.strip()
+            if _k not in _seen_script_keys:
+                _seen_script_keys.add(_k)
+                template_scripts.append(_s)
+        # Find the frame from the first source that provides one.
+        if frame is None:
+            frame = _find_frame(_SCRIPT_RE.sub("", body_text))
     chrome_vars = (
         [v for v in _bg_vars(css, frame.chrome_classes) if _is_dark(css, v)]
         if frame
@@ -442,4 +469,5 @@ def load_template_kit(read: Callable[[str], str | None]) -> TemplateKit | None:
         frame=frame,
         chrome_vars=chrome_vars,
         button_vars=_bg_vars(css, ["btn-primary"]),
+        template_scripts=template_scripts,
     )

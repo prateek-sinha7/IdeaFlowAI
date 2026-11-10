@@ -313,7 +313,7 @@ describe("AgentDetailPanel — ISS-087: the tasks card follows the selected vers
     // FAIL-BEFORE: the rows and the count came from protoCompletedTasks, so nothing
     // here moved — and with no such prop supplied, no card rendered at all.
     await waitFor(() => expect(screen.getByText(/10 planned/)).toBeInTheDocument());
-    expect(screen.getByText(/Transaction Wizard Page \(Steps 1-2\)/)).toBeInTheDocument();
+    expect(screen.getAllByText(/Transaction Wizard Page \(Steps 1-2\)/).length).toBeGreaterThan(0);
     expect(screen.queryByText(/Final QA & Deliverable/)).not.toBeInTheDocument();
     expect(screen.queryByText(/11 planned/)).not.toBeInTheDocument();
 
