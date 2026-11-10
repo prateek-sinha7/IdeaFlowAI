@@ -41,6 +41,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
   ArrowUpDown,
+  Braces,
   ChevronRight,
   ChevronsDownUp,
   ChevronsUpDown,
@@ -233,6 +234,16 @@ export function allFileGroups(files: SandboxFile[]): FileGroup[] {
 
 function extOf(name: string): string {
   return name.includes(".") ? name.slice(name.lastIndexOf(".") + 1).toLowerCase() : "";
+}
+
+/** A `.json` file indented 2 spaces for reading, or null when it does not parse
+ *  (the viewer then shows the raw bytes and disables Format). Display only. */
+function prettyJson(text: string): string | null {
+  try {
+    return JSON.stringify(JSON.parse(text), null, 2);
+  } catch {
+    return null;
+  }
 }
 
 /** Which of the three text views a text file gets.
@@ -1085,6 +1096,11 @@ export function SandboxTab({ runId, agentNameById, hasDeliverable, selectedRef: 
 
   const [active, setActive] = useState<SandboxFile | null>(null);
   const [content, setContent] = useState<string | null>(null);
+  // JSON opens formatted (`rendered`); null when the file is not JSON or does not parse.
+  const prettyContent = useMemo(
+    () => (active && content && extOf(active.path) === "json" ? prettyJson(content) : null),
+    [active, content],
+  );
   const [fileLoading, setFileLoading] = useState(false);
   const [fileError, setFileError] = useState<string | null>(null);
   const [downloading, setDownloading] = useState(false);
@@ -1201,7 +1217,7 @@ export function SandboxTab({ runId, agentNameById, hasDeliverable, selectedRef: 
   const handleSelect = useCallback(
     (file: SandboxFile) => {
       const kind = kindOf(file);
-      setRendered(textFlavour(file.path) === "markdown");
+      setRendered(textFlavour(file.path) === "markdown" || extOf(file.path) === "json");
       setActive(file);
       setContent(null);
       setMedia(null);
@@ -1578,6 +1594,18 @@ export function SandboxTab({ runId, agentNameById, hasDeliverable, selectedRef: 
                   {rendered ? "Code" : "Preview"}
                 </button>
               )}
+              {content !== null && extOf(active.path) === "json" && (
+                <button
+                  type="button"
+                  onClick={() => setRendered((r) => !r)}
+                  disabled={prettyContent === null}
+                  title={prettyContent === null ? "Not valid JSON — shown as stored" : undefined}
+                  className="flex flex-shrink-0 items-center gap-1 rounded-[6px] border border-line-border px-2 py-1 text-[11px] text-ink-700 transition-colors hover:bg-surface-warm disabled:opacity-50"
+                >
+                  {rendered && prettyContent !== null ? <Code2 className="h-3 w-3" /> : <Braces className="h-3 w-3" />}{" "}
+                  {rendered && prettyContent !== null ? "Raw" : "Format"}
+                </button>
+              )}
               <button
                 type="button"
                 onClick={handleDownload}
@@ -1645,7 +1673,13 @@ export function SandboxTab({ runId, agentNameById, hasDeliverable, selectedRef: 
                 (textFlavour(active.path) === "code" ||
                   !rendered ||
                   textFlavour(active.path) === "plain") && (
-                  <CodeView code={content} lang={extOf(active.path)} fill />
+                  <CodeView
+                    code={
+                      rendered && prettyContent !== null ? prettyContent : content
+                    }
+                    lang={extOf(active.path)}
+                    fill
+                  />
                 )}
               {content !== null && rendered && textFlavour(active.path) === "markdown" && (
                 <div className="min-w-0 max-w-full px-5 py-4">

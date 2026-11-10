@@ -1,4 +1,4 @@
-"""agents/capabilities/tools/acceptance.py -- the ``acceptance`` tool_provider capability (P27 goal_v2 W1).
+"""agents/capabilities/tools/acceptance.py -- the ``acceptance`` tool_provider capability (P27 goal W1).
 
 Emits the tool KEYS for the acceptance-test runner and the page outline. Strings only, so this
 package stays import-clean of ``app.*``; the implementation lives in

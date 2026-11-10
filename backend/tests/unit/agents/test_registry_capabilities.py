@@ -180,7 +180,7 @@ _EXPECTED_NAMES: list[tuple[str, str]] = [
     ("tool", "playwright"),  # spec 018 — headless-browser tool set
     ("tool", "file_extract"),  # spec 019 — pdf/docx/xlsx/pptx extraction
     ("tool", "ledger"),  # P27 E5 — read-only requirement-ledger check
-    ("tool", "acceptance"),  # P27 goal_v2 W1 — acceptance runner + page outline
+    ("tool", "acceptance"),  # P27 goal W1 — acceptance runner + page outline
 ]
 
 

@@ -14,7 +14,7 @@ export const PIPELINE_LABEL: Record<string, string> = {
   ppt_v2: "Presentation",
   prototype: "Prototype",
   prototype_v2: "Prototype",
-  goal_v2: "GOAL",
+  goal: "GOAL",
   pdf_to_prototype: "PDF → Prototype",
   pdf_to_prototype_v2: "PDF → Prototype",
   app_builder: "App Builder",

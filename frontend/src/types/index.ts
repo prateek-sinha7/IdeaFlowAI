@@ -397,7 +397,7 @@ export interface Story {
 // WORKFLOW / PIPELINE TYPES
 // ============================================================
 
-export type WorkflowType = "user_stories" | "user_stories_revision" | "ppt" | "ppt_v2" | "ppt_revision" | "prototype" | "prototype_v2" | "prototype_revision" | "prototype_large_revision" | "prototype_feature_revision" | "prototype_v2_revision" | "prototype_v2_feature_revision" | "prototype_from_template" | "prototype_from_template_revision" | "goal_v2" | "app_builder" | "app_builder_revision" | "custom" | "custom_revision" | "backlog" | "backlog_revision" | "migration" | "mulesoft_to_springboot" | "dotnet_to_azure";
+export type WorkflowType = "user_stories" | "user_stories_revision" | "ppt" | "ppt_v2" | "ppt_revision" | "prototype" | "prototype_v2" | "prototype_revision" | "prototype_large_revision" | "prototype_feature_revision" | "prototype_v2_revision" | "prototype_v2_feature_revision" | "prototype_from_template" | "prototype_from_template_revision" | "goal" | "app_builder" | "app_builder_revision" | "custom" | "custom_revision" | "backlog" | "backlog_revision" | "migration" | "mulesoft_to_springboot" | "dotnet_to_azure";
 
 // Phase 16 (WR-01): ISS-016 newly persists "degraded" for a partially-failed
 // run (websocket.py), and the revision drainer can persist "revising". The raw

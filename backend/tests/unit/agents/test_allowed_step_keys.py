@@ -104,18 +104,10 @@ _DISPOSITIONS: dict[str, tuple[object, object]] = {
     # consumption WOULD look like on a custom-agent step.
     "prompt": ("do the thing", lambda s, c: s.prompt == "do the thing"),
     "skills": (["poet"], lambda s, c: s.skills == ["poet"]),
-    # P27 E4: inline skill bodies / data-driven selection (ids validated vs catalog).
-    "skills_inline": (
-        ["velocity-design"],
-        lambda s, c: s.skills_inline == ["velocity-design"],
-    ),
-    "skills_select": (
-        {"file": "a.json", "field": "k", "map": {"v": ["velocity-design"]}},
-        lambda s, c: s.skills_select is not None
-        and s.skills_select["map"] == {"v": ["velocity-design"]},
-    ),
     # P27: opt-in write allow-list, enforced by the runner's path guard.
     "write_paths": ([".goal/*"], lambda s, c: s.write_paths == [".goal/*"]),
+    # P27: existing files matching these may only be edited (write_file refused).
+    "edit_only": (["prototype.html"], lambda s, c: s.edit_only == ["prototype.html"]),
     # P27: frame the user brief as background for this step.
     "brief_role": ("reference", lambda s, c: s.brief_role == "reference"),
     # `subagents` is EXPANDED at compile time into child steps + depends_on edges

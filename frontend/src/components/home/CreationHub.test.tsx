@@ -43,7 +43,7 @@ describe("CreationHub", () => {
     expect(
       screen.getByRole("heading", { level: 1, name: "What would you like to build today?" }),
     ).toBeInTheDocument();
-    // 7 = the six workflows + goal_v2 ("Deliver from documents (Goal)").
+    // 7 = the six workflows + goal ("Deliver from documents (Goal)").
     expect(screen.getAllByRole("button")).toHaveLength(7);
   });
 

@@ -59,19 +59,6 @@ from agents.workflows.permission_caps import (
 logger = logging.getLogger(__name__)
 
 
-def _global_skill_ids() -> set[str]:
-    """Ids in the global skills catalog (the set ``factory._resolve_step_skills`` uses).
-
-    Loaded by name, not a static import: the catalog lives in the ``app`` layer, which
-    this declaration layer must not import (import-linter), and a step's inline-skill
-    ids are only checkable against that catalog. Tests monkeypatch this function.
-    """
-    import importlib
-
-    catalog = importlib.import_module("app.agents.skills_catalog")
-    return {entry.id for entry in catalog.list_global_skills()}
-
-
 class CompilerError(Exception):
     """Raised when a manifest references an unknown capability or has a bad DAG.
 
@@ -122,9 +109,8 @@ _ALLOWED_STEP_KEYS: frozenset[str] = frozenset(
         "name",  # user-editable display label; never affects instance_id (R-02)
         "prompt",  # per-instance purpose text; custom-agent steps only (R-02/R-06)
         "skills",  # per-step skill ids (R-01)
-        "skills_inline",  # P27 E4: skill bodies injected into the prompt
-        "skills_select",  # P27 E4: {file, field, map} data-driven inline skills
         "write_paths",  # P27: opt-in allow-list of sandbox paths the step may write
+        "edit_only",  # P27: existing files matching these may only be edited, never rewritten
         "brief_role",  # P27: "reference" frames the user brief as context, not the task
         "subagents",  # declarative child-step group (R-02/R-04)
         "produces_solution_plan",  # post-step solution-plan extraction flag
@@ -956,58 +942,6 @@ class WorkflowCompiler:
 
     # ── Step compilation ─────────────────────────────────────────────────────
 
-    @staticmethod
-    def _compile_inline_skills(raw: dict, where: str) -> tuple[list[str], dict | None]:
-        """Validate ``skills_inline`` / ``skills_select`` (P27 E4); return the carried values."""
-
-        def _str_list(value: object, label: str) -> list[str]:
-            if not isinstance(value, list) or not all(
-                isinstance(v, str) and v for v in value
-            ):
-                raise CompilerError(f"{label} in {where} must be a list of skill ids")
-            return list(value)
-
-        inline = _str_list(raw.get("skills_inline", []), "skills_inline")
-        select_raw = raw.get("skills_select")
-        select: dict | None = None
-        if select_raw is not None:
-            if not isinstance(select_raw, dict) or set(select_raw) != {
-                "file",
-                "field",
-                "map",
-            }:
-                raise CompilerError(
-                    f"skills_select in {where} must be a mapping with exactly "
-                    f"file, field and map"
-                )
-            if not isinstance(select_raw["file"], str) or not select_raw["file"]:
-                raise CompilerError(f"skills_select.file in {where} must be a string")
-            if not isinstance(select_raw["field"], str) or not select_raw["field"]:
-                raise CompilerError(f"skills_select.field in {where} must be a string")
-            if not isinstance(select_raw["map"], dict):
-                raise CompilerError(f"skills_select.map in {where} must be a mapping")
-            mapped = {
-                str(k): _str_list(v, f"skills_select.map[{k!r}]")
-                for k, v in select_raw["map"].items()
-            }
-            select = {
-                "file": select_raw["file"],
-                "field": select_raw["field"],
-                "map": mapped,
-            }
-        wanted = list(inline) + [
-            i for ids in (select or {"map": {}})["map"].values() for i in ids
-        ]
-        if wanted:
-            known = _global_skill_ids()
-            for skill_id in wanted:
-                if skill_id not in known:
-                    raise CompilerError(
-                        f"unknown skill id '{skill_id}' in {where} — not in the "
-                        f"global skills catalog"
-                    )
-        return inline, select
-
     def _compile_step(
         self, raw: dict, registry: CapabilityRegistry, trusted: bool, trust: str
     ) -> Step:
@@ -1312,7 +1246,6 @@ class WorkflowCompiler:
         display_name = str(raw.get("name") or "")
         prompt = str(raw.get("prompt") or "")
         skills = list(raw.get("skills") or [])
-        skills_inline, skills_select = self._compile_inline_skills(raw, where)
         write_paths_raw = raw.get("write_paths")
         if write_paths_raw is not None and (
             not isinstance(write_paths_raw, list)
@@ -1323,6 +1256,16 @@ class WorkflowCompiler:
                 f"write_paths in {where} must be a non-empty list of sandbox path patterns"
             )
         write_paths = list(write_paths_raw) if write_paths_raw is not None else None
+        edit_only_raw = raw.get("edit_only")
+        if edit_only_raw is not None and (
+            not isinstance(edit_only_raw, list)
+            or not edit_only_raw
+            or not all(isinstance(v, str) and v.strip() for v in edit_only_raw)
+        ):
+            raise CompilerError(
+                f"edit_only in {where} must be a non-empty list of sandbox path patterns"
+            )
+        edit_only = list(edit_only_raw) if edit_only_raw is not None else None
         brief_role = raw.get("brief_role")
         if brief_role is not None and brief_role not in ("task", "reference"):
             raise CompilerError(f"brief_role in {where} must be 'task' or 'reference'")
@@ -1360,9 +1303,8 @@ class WorkflowCompiler:
             display_name=display_name,
             prompt=prompt,
             skills=skills,
-            skills_inline=skills_inline,
-            skills_select=skills_select,
             write_paths=write_paths,
+            edit_only=edit_only,
             brief_role=brief_role,
             # Wave-scheduling conflict key — DERIVED, never authored, so
             # `_ALLOWED_STEP_KEYS` stays closed (INV-5). Semantics on

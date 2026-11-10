@@ -71,7 +71,6 @@ DEFAULT_ORDER: tuple[str, ...] = (
     "skills",
     "hooks",
     "constitution",
-    "inline_skills",
     "prompt_body",
 )
 
@@ -79,11 +78,7 @@ DEFAULT_ORDER: tuple[str, ...] = (
 # Dropping all six wrapper blocks means the Constitution is also absent — that is
 # intentional for *ungoverned* agents, and the compiler warns when a governed agent
 # (one with guardrails, hooks, or a Constitution) picks this order (Req 29 AC3/5).
-# ``inline_skills`` (P27 E4) is present in EVERY order: a step's forced skills
-# (``skills_inline`` / ``skills_select``) must reach the agent whatever its policy —
-# composed workflows run on ``custom-agent``, whose policy is body_only. Only steps that
-# declare inline skills fill the slot, so every other prompt is byte-identical.
-BODY_ONLY_ORDER: tuple[str, ...] = ("inline_skills", "prompt_body")
+BODY_ONLY_ORDER: tuple[str, ...] = ("prompt_body",)
 
 # governance — preserves the three blocks that define governed-agent behaviour while
 # dropping the Seam-2 injection boilerplate (Requirement 29 AC2).
@@ -91,7 +86,6 @@ GOVERNANCE_ORDER: tuple[str, ...] = (
     "guardrails",
     "hooks",
     "constitution",
-    "inline_skills",
     "prompt_body",
 )
 

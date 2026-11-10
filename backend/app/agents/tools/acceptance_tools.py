@@ -1,4 +1,4 @@
-"""app/agents/tools/acceptance_tools.py -- acceptance-test runner and page outline (P27 goal_v2 W1).
+"""app/agents/tools/acceptance_tools.py -- acceptance-test runner and page outline (P27 goal W1).
 
 Two sandbox-confined tools:
 

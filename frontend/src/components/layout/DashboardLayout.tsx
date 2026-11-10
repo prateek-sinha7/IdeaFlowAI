@@ -2507,7 +2507,7 @@ export function DashboardLayout({
       // `reviseBase === "prototype" ? ... : "ppt.draft"` ternary would have put
       // it in the DECK slot even if the gate had let it through.
       const draftKey = { prototype: "prototype.draft", prototype_v2: "prototype.draft",
-                         prototype_from_template: "prototype.draft", goal_v2: "prototype.draft",
+                         prototype_from_template: "prototype.draft", goal: "prototype.draft",
                          ppt: "ppt.draft", ppt_v2: "ppt.draft" }[effectiveReviseType as string] ?? "idea.draft";
       sessionStorage.setItem(draftKey, JSON.stringify({ brief: editedBrief }));
       setMainView("input");
@@ -2528,9 +2528,9 @@ export function DashboardLayout({
   }, [isPipelineRunning, onResetPipeline, effectiveReviseType, router, contentSourceRunId, submittedBrief]);
 
   const activeReviseHandler =
-    // goal_v2 has no revision pipeline. Undefined hides Revise; falling through would
+    // goal has no revision pipeline. Undefined hides Revise; falling through would
     // reach the !!prototypeContent branch and start a prototype_revision run.
-    effectiveReviseType === "goal_v2" ? undefined :
+    effectiveReviseType === "goal" ? undefined :
     // ISS-252: ppt_v2 is a deck run (spec 017) — it produces the same HTML
     // deliverable as ppt and must resolve to handleRevisePpt, not undefined.
     (effectiveReviseType === "ppt" || effectiveReviseType === "ppt_v2" || effectiveReviseType === "ppt_revision") ? handleRevisePpt :

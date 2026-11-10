@@ -401,6 +401,41 @@ describe("SandboxTab", () => {
     expect(getRunSandboxFile).toHaveBeenCalledTimes(1);
   });
 
+  it("opens JSON formatted, with a Raw toggle back to the stored bytes", async () => {
+    getRunSandbox.mockResolvedValue({ ...PPT_V2, files: [f("data.json", 20)] });
+    getRunSandboxFile.mockResolvedValue('{"a":1,"b":[2]}');
+    const { container } = render(<SandboxTab runId="run-1" />);
+    await waitFor(() => expect(screen.getByText("data.json")).toBeInTheDocument());
+    await userEvent.click(screen.getByText("data.json"));
+
+    await waitFor(() => expect(screen.getByRole("button", { name: /raw/i })).toBeEnabled());
+    expect(container.textContent).toContain('"a": 1');
+
+    await userEvent.click(screen.getByRole("button", { name: /raw/i }));
+    expect(container.textContent).toContain('{"a":1,"b":[2]}');
+    expect(screen.getByRole("button", { name: /format/i })).toBeEnabled();
+  });
+
+  it("shows invalid JSON as stored, with Format disabled", async () => {
+    getRunSandbox.mockResolvedValue({ ...PPT_V2, files: [f("bad.json", 10)] });
+    getRunSandboxFile.mockResolvedValue("{not json");
+    const { container } = render(<SandboxTab runId="run-1" />);
+    await waitFor(() => expect(screen.getByText("bad.json")).toBeInTheDocument());
+    await userEvent.click(screen.getByText("bad.json"));
+
+    await waitFor(() => expect(screen.getByRole("button", { name: /format/i })).toBeDisabled());
+    expect(container.textContent).toContain("{not json");
+  });
+
+  it("offers no Format button for a non-JSON file", async () => {
+    getRunSandboxFile.mockResolvedValue("# the plan");
+    render(<SandboxTab runId="run-1" />);
+    await waitFor(() => expect(screen.getByText("PLANNER.md")).toBeInTheDocument());
+    await userEvent.click(screen.getByText("PLANNER.md"));
+    await waitFor(() => expect(screen.getByRole("heading", { name: "the plan" })).toBeInTheDocument());
+    expect(screen.queryByRole("button", { name: /format|raw/i })).toBeNull();
+  });
+
   it("shows HTML as source first, with a Preview that sandboxes it", async () => {
     getRunSandboxFile.mockResolvedValue(
       "<!DOCTYPE html><html><body><h1>Deck</h1></body></html>",

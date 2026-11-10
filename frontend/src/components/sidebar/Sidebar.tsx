@@ -43,7 +43,7 @@ const TYPE_CONFIG: Record<WorkflowType, { icon: typeof FileText; color: string; 
   ppt_revision: { icon: Presentation, color: "text-amber-400", label: "Presentation (revision)" },
   prototype: { icon: Layout, color: "text-emerald-400", label: "Prototype" },
   prototype_v2: { icon: Layout, color: "text-emerald-400", label: "Prototype v2" },
-  goal_v2: { icon: Layout, color: "text-emerald-400", label: "Goal" },
+  goal: { icon: Layout, color: "text-emerald-400", label: "Goal" },
   prototype_revision: { icon: Layout, color: "text-emerald-400", label: "Prototype (revision)" },
   prototype_large_revision: { icon: Layout, color: "text-emerald-400", label: "Prototype (large revision)" },
   prototype_feature_revision: { icon: Layout, color: "text-emerald-400", label: "Prototype (feature revision)" },

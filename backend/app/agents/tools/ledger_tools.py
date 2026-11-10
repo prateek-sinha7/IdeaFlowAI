@@ -7,9 +7,13 @@ goal-workflow artefacts in the run sandbox against `.goal/ledger.json`:
   coverage  every ledger ID in spec.md, tasks.json and (if testable) .goal/acceptance/
   trace     every ledger ID has exactly one valid result in .goal/trace.json
   report    every non-pass ID is named in .goal/report.md
-  acceptance_schema  every acceptance file is valid v2 format; every testable ID has one (goal_v2)
+  acceptance_schema  every acceptance file is valid v2 format; every testable ID has one (goal)
   trace_fresh        trace.json was written by run_acceptance over ALL ids, against the current page
-                     (goal_v2)
+                     (goal)
+  gaps      every page of every requirements upload accounted for in .goal/pages.json, every
+            requirement-like sentence in the ledger or excused, plus harvest (read-only preview)
+  gaps_decide  the same check for the gap-analysis step: records one loop pass and WRITES
+            .goal/gaps.json with the pass history and a code-made `next` (ok | retry) (goal)
 
 Sandbox binding mirrors file_extract_tools: the factory calls `bind_sandbox(sandbox)` per
 run and every path goes through RunSandbox.path_for (traversal-proof). Files reached by
@@ -30,7 +34,16 @@ from langchain_core.tools import tool
 
 LEDGER_CHECK = "ledger_check"
 
-MODES = ("harvest", "coverage", "trace", "report", "acceptance_schema", "trace_fresh")
+MODES = (
+    "harvest",
+    "coverage",
+    "trace",
+    "report",
+    "acceptance_schema",
+    "trace_fresh",
+    "gaps",
+    "gaps_decide",
+)
 _TRACE_STATUSES = ("pass", "fail", "not-testable")
 _MAX_GAPS = 200
 _LEDGER = ".goal/ledger.json"
@@ -459,6 +472,264 @@ def _trace_fresh(sandbox: Any, ledger: dict[str, Any]) -> tuple[list[dict], dict
     }
 
 
+# --------------------------------------------------------------------------- gaps
+
+_INVENTORY = ".goal/inventory.json"
+_PAGES = ".goal/pages.json"
+_GAPS = ".goal/gaps.json"
+# Wording that marks a sentence as a possible requirement. Deliberately broad: a false
+# candidate costs one "not a requirement" line in pages.json; a missed one costs a
+# requirement.
+_REQ_WORDS = re.compile(
+    r"\b(must|shall|should|required|requires|mandatory|needs? to|has to|have to|"
+    r"is not allowed|are not allowed|may not|cannot|can not|never|always)\b",
+    re.IGNORECASE,
+)
+_ID_LIKE = re.compile(r"(?<![\w-])[A-Z]{1,5}-?\d+(?:-[A-Z]?\d+)?(?![\w-])")
+_STOP = frozenset(
+    "the and for with that this from are was were will shall must should have has "
+    "not but all any can may its their them they into than then when which while "
+    "only also each such been being are".split()
+)
+_COVER_RATIO = 0.6
+
+
+def _norm(text: str) -> str:
+    return " ".join(re.findall(r"[a-z0-9]+", text.lower()))
+
+
+def _words(text: str) -> set[str]:
+    return {w for w in re.findall(r"[a-z0-9]+", text.lower()) if len(w) > 2} - _STOP
+
+
+def _requirement_docs(sandbox: Any) -> list[tuple[str, str, int]]:
+    """(upload name, extract dir, page_count) for every `requirements` upload."""
+    inv, _ = _read_json(sandbox, _INVENTORY)
+    names = {
+        str(f.get("name"))
+        for f in (inv or {}).get("files", [])
+        if isinstance(f, dict) and f.get("role") == "requirements"
+    }
+    docs: list[tuple[str, str, int]] = []
+    root = sandbox.path_for(".")
+    for m in _iter_files(sandbox, _EXTRACT, lambda p: p.name == "manifest.json"):
+        try:
+            man = json.loads(m.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if not isinstance(man, dict) or str(man.get("source")) not in names:
+            continue
+        count = man.get("page_count")
+        if not isinstance(count, int):
+            count = len(man.get("pages") or {})
+        docs.append((str(man["source"]), m.parent.relative_to(root).as_posix(), count))
+    return docs
+
+
+def _page_texts(sandbox: Any, doc_dir: str) -> dict[int, str]:
+    out: dict[int, str] = {}
+    for p in _iter_files(sandbox, f"{doc_dir}/pages", lambda p: p.name == "text.md"):
+        try:
+            out[int(p.parent.name)] = p.read_text(encoding="utf-8", errors="replace")
+        except (ValueError, OSError):
+            continue
+    return out
+
+
+def _row_page(row: dict[str, Any], default: int) -> int:
+    """The row's source page as an int; `default` when absent or not a number."""
+    try:
+        return int((row.get("source") or {}).get("page") or default)
+    except (TypeError, ValueError):
+        return default
+
+
+def _candidates(text: str) -> list[str]:
+    """Requirement-like sentences on one page.
+
+    PDF text wraps mid-sentence, so a line that does not end a sentence is joined with
+    the next one unless the next starts a new item (bullet, number, table row, heading).
+    """
+    paras: list[str] = []
+    for raw in text.splitlines():
+        line = raw.strip()
+        new_item = not line or re.match(r"([-*•#|]|\d+[.)]\s|[A-Z]{1,5}-?\d)", line)
+        if (
+            paras
+            and paras[-1]
+            and not new_item
+            and not paras[-1].endswith((".", ";", ":", "!", "?"))
+        ):
+            paras[-1] += " " + line
+        else:
+            paras.append(line)
+    found: list[str] = []
+    for block in paras:
+        block = block.strip().strip("|").strip()
+        for part in re.split(r"(?<=[.;!?])\s+(?=[A-Z])", block):
+            part = part.strip(" -*•\t")
+            if len(part.split()) >= 4 and _REQ_WORDS.search(part):
+                found.append(part)
+    return found
+
+
+def _gaps(
+    sandbox: Any, ledger: dict[str, Any], decide: bool = False
+) -> tuple[list[dict], dict, str | None]:
+    """Page accounting + requirement-like sentences + ids.
+
+    `gaps` (decide=False) is a read-only preview any step may run. `gaps_decide`
+    (decide=True) is for the gap-analysis step only: it records one loop pass and WRITES
+    `.goal/gaps.json` (all gaps, uncapped, plus the pass history) so the ledger step can
+    work from it and progress is measured by code. Only decide calls enter the history,
+    so a preview can never make a later pass look like "no progress". `next` is `ok`
+    when nothing blocking is left, or when a pass made no progress (the rest goes to the
+    human review); otherwise `retry`.
+    """
+    gaps: list[dict[str, Any]] = []
+    rows = [r for r in ledger["rows"] if isinstance(r, dict)]
+    pages_doc, problem = _read_json(sandbox, _PAGES)
+    entries = (pages_doc or {}).get("pages") if isinstance(pages_doc, dict) else None
+    if not isinstance(entries, list):
+        entries = []
+        gaps.append(_gap("-", _PAGES, f"pages.json {problem or 'has no pages list'}"))
+    by_page: dict[tuple[str, int], dict] = {}
+    for e in entries:
+        if isinstance(e, dict) and isinstance(e.get("page"), int):
+            by_page[(str(e.get("file")), e["page"])] = e
+
+    docs = _requirement_docs(sandbox)
+    if not docs:
+        gaps.append(_gap("-", _INVENTORY, "no extracted requirements document found"))
+    pages_total = pages_read = candidates_total = 0
+    for name, doc_dir, count in docs:
+        texts = _page_texts(sandbox, doc_dir)
+        for page in range(1, max(count, max(texts, default=0)) + 1):
+            pages_total += 1
+            where = f"{name} p{page}"
+            entry = by_page.get((name, page))
+            if entry is None:
+                gaps.append(
+                    _gap(
+                        "-",
+                        where,
+                        "page not read (not in pages.json)",
+                        kind="page",
+                        file=name,
+                        page=page,
+                    )
+                )
+                continue
+            pages_read += 1
+            near = [
+                r
+                for r in rows
+                if str((r.get("source") or {}).get("file")) == name
+                and abs(_row_page(r, page) - page) <= 1
+            ]
+            row_words = [_words(str(r.get("text", ""))) for r in near]
+            excused = [_norm(str(s)) for s in entry.get("not_requirements") or []]
+            excused = [s for s in excused if len(s) >= 15]
+            for cand in _candidates(texts.get(page, "")):
+                candidates_total += 1
+                cw = _words(cand)
+                if not cw:
+                    continue
+                if any(len(cw & rw) / len(cw) >= _COVER_RATIO for rw in row_words):
+                    continue
+                nc = _norm(cand)
+                if any(s in nc for s in excused):
+                    continue
+                gaps.append(
+                    _gap(
+                        "-",
+                        where,
+                        "requirement-like sentence not in the "
+                        "ledger and not listed under not_requirements",
+                        kind="sentence",
+                        file=name,
+                        page=page,
+                        text=cand[:300],
+                    )
+                )
+
+    harvest_gaps, harvest_counts, note = _harvest(sandbox, ledger)
+    for g in harvest_gaps:
+        gaps.append({**g, "kind": "id"})
+
+    # Id-like tokens the id_pattern does not match: a narrow pattern hides ids from harvest.
+    pattern = ledger.get("id_pattern")
+    if pattern:
+        try:
+            rx = re.compile(str(pattern))
+        except re.error:
+            rx = None
+        if rx is not None:
+            seen: dict[str, int] = {}
+            for _rel, text in _source_texts(sandbox):
+                if not _rel.startswith(_EXTRACT):
+                    continue
+                for tok in _ID_LIKE.findall(text):
+                    seen[tok] = seen.get(tok, 0) + 1
+            for tok, n in sorted(seen.items()):
+                if n >= 2 and not rx.fullmatch(tok):
+                    gaps.append(
+                        _gap(
+                            tok,
+                            "id_pattern",
+                            f"id-like token seen {n} times "
+                            "but not matched by id_pattern",
+                            kind="id_like",
+                            severity="warning",
+                        )
+                    )
+
+    blocking = sum(1 for g in gaps if g.get("severity") != "warning")
+    if not decide:
+        return (
+            gaps,
+            {
+                "preview": True,
+                "pages_total": pages_total,
+                "pages_read": pages_read,
+                "candidates": candidates_total,
+                "ledger_rows": len(rows),
+                "blocking": blocking,
+                **{f"harvest_{k}": v for k, v in harvest_counts.items()},
+            },
+            note,
+        )
+    prev, _ = _read_json(sandbox, _GAPS)
+    history = list((prev or {}).get("history") or []) if isinstance(prev, dict) else []
+    if blocking == 0:
+        decision = "ok"
+    elif history and blocking >= history[-1]:
+        decision = (
+            "ok"  # no progress since the last pass: stop, the review shows the rest
+        )
+    else:
+        decision = "retry"
+    history.append(blocking)
+    counts = {
+        "pass": len(history),
+        "pages_total": pages_total,
+        "pages_read": pages_read,
+        "candidates": candidates_total,
+        "ledger_rows": len(rows),
+        "blocking": blocking,
+        "history": history,
+        "next": decision,
+        **{f"harvest_{k}": v for k, v in harvest_counts.items()},
+    }
+    try:
+        out = sandbox.path_for(_GAPS)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(json.dumps({**counts, "gaps": gaps}, indent=1), encoding="utf-8")
+    except (ValueError, OSError) as exc:
+        gaps.append(_gap("-", _GAPS, f"could not write gaps.json: {exc}"))
+    return gaps, counts, note
+
+
 def run_ledger_check(sandbox: Any, mode: str) -> dict[str, Any]:
     """Pure core of the tool: returns the result dict (never raises)."""
     if mode not in MODES:
@@ -484,6 +755,8 @@ def run_ledger_check(sandbox: Any, mode: str) -> dict[str, Any]:
             gaps, counts = _acceptance_schema(sandbox, ledger)
         elif mode == "trace_fresh":
             gaps, counts = _trace_fresh(sandbox, ledger)
+        elif mode in ("gaps", "gaps_decide"):
+            gaps, counts, note = _gaps(sandbox, ledger, decide=mode == "gaps_decide")
         else:
             gaps, counts = _report(sandbox, ledger)
 
@@ -504,7 +777,10 @@ def ledger_check(mode: str) -> str:
 
     mode is one of: harvest (source IDs vs ledger), coverage (ledger IDs in spec.md,
     tasks.json and acceptance files), trace (one valid result per ID in trace.json),
-    report (every non-pass ID named in report.md). Returns JSON:
+    report (every non-pass ID named in report.md), acceptance_schema, trace_fresh,
+    gaps (preview: unread pages and unaccounted requirement sentences), gaps_decide
+    (gap-analysis step only: records the pass, writes .goal/gaps.json and returns
+    counts.next = ok | retry). Returns JSON:
     {"ok": bool, "mode", "counts", "gaps": [{"id", "where", "reason"}]}.
     """
     if _SANDBOX is None:

@@ -291,3 +291,168 @@ def test_tool_wrapper_json_and_unbound(sb):
     finally:
         ledger_tools.bind_sandbox(None)
     assert out["ok"] is True and out["mode"] == "trace"
+
+
+# gaps ------------------------------------------------------------------------
+
+
+def _req_doc(sb, pages: dict[int, str], name="brief.pdf", slug="brief"):
+    _w(
+        sb.root,
+        ".goal/inventory.json",
+        {"files": [{"name": name, "role": "requirements"}]},
+    )
+    _w(
+        sb.root,
+        f".extract/pdf/{slug}/manifest.json",
+        {"source": name, "slug": slug, "page_count": len(pages)},
+    )
+    for n, text in pages.items():
+        _w(sb.root, f".extract/pdf/{slug}/pages/{n:02d}/text.md", text)
+
+
+def _gap_row(rid, text, page, file="brief.pdf"):
+    return {**_row(rid), "text": text, "source": {"file": file, "page": page}}
+
+
+def _kinds(res):
+    return sorted(g.get("kind") for g in res["gaps"] if g.get("severity") != "warning")
+
+
+def test_gaps_clean_and_decides_ok(sb):
+    _req_doc(sb, {1: "Cover page.", 2: "G1 The system must show the order id."})
+    _ledger(sb, [_gap_row("G1", "The system must show the order id.", 2)])
+    _w(
+        sb.root,
+        ".goal/pages.json",
+        {
+            "pages": [
+                {"file": "brief.pdf", "page": 1, "rows": []},
+                {"file": "brief.pdf", "page": 2, "rows": ["G1"]},
+            ]
+        },
+    )
+    res = run_ledger_check(sb, "gaps_decide")
+    assert res["ok"] is True, res["gaps"]
+    assert res["counts"]["next"] == "ok" and res["counts"]["pages_read"] == 2
+    written = json.loads((sb.root / ".goal/gaps.json").read_text())
+    assert written["history"] == [0] and written["next"] == "ok"
+
+
+def test_gaps_unread_page_and_unmatched_sentence_retry(sb):
+    _req_doc(
+        sb,
+        {
+            1: "G1 The system must show the order id.",
+            2: "The user must be able to download the request as a file.",
+            3: "Nothing to see.",
+        },
+    )
+    _ledger(sb, [_gap_row("G1", "The system must show the order id.", 1)])
+    _w(
+        sb.root,
+        ".goal/pages.json",
+        {
+            "pages": [
+                {"file": "brief.pdf", "page": 1, "rows": ["G1"]},
+                {"file": "brief.pdf", "page": 2, "rows": []},
+            ]
+        },
+    )
+    res = run_ledger_check(sb, "gaps_decide")
+    assert res["ok"] is False
+    assert _kinds(res) == ["page", "sentence"]
+    assert res["counts"]["next"] == "retry"
+    sentence = next(g for g in res["gaps"] if g.get("kind") == "sentence")
+    assert sentence["page"] == 2 and "download" in sentence["text"]
+
+
+def test_gaps_not_requirements_excuses_a_sentence(sb):
+    _req_doc(sb, {1: "This document should be read with the IATA guide."})
+    _ledger(sb, [_gap_row("G1", "unrelated", 1)], pattern=None)
+    _w(
+        sb.root,
+        ".goal/pages.json",
+        {
+            "pages": [
+                {
+                    "file": "brief.pdf",
+                    "page": 1,
+                    "rows": [],
+                    "not_requirements": [
+                        "This document should be read with the IATA guide"
+                    ],
+                },
+            ]
+        },
+    )
+    res = run_ledger_check(sb, "gaps_decide")
+    assert res["ok"] is True, res["gaps"]
+
+
+def test_gaps_no_progress_stops_the_loop(sb):
+    _req_doc(sb, {1: "x", 2: "y"})
+    _ledger(sb, [_gap_row("G1", "x", 1)], pattern=None)
+    _w(sb.root, ".goal/pages.json", {"pages": [{"file": "brief.pdf", "page": 1}]})
+    first = run_ledger_check(sb, "gaps_decide")
+    assert first["counts"]["next"] == "retry"
+    second = run_ledger_check(sb, "gaps_decide")  # nothing changed between passes
+    assert second["counts"]["next"] == "ok" and second["counts"]["history"] == [1, 1]
+    assert second["ok"] is False  # still reported as open for the review
+
+
+def test_gaps_missing_ids_and_narrow_pattern(sb):
+    _req_doc(sb, {1: "G1 and G2 apply. NFR-7 and NFR-7 again."})
+    _ledger(sb, [_gap_row("G1", "G1 and G2 apply.", 1)])
+    _w(sb.root, ".goal/pages.json", {"pages": [{"file": "brief.pdf", "page": 1}]})
+    res = run_ledger_check(sb, "gaps_decide")
+    assert ("G2", "in source but not in ledger") in _reasons(res)
+    warn = [g for g in res["gaps"] if g.get("kind") == "id_like"]
+    assert [g["id"] for g in warn] == ["NFR-7"] and warn[0]["severity"] == "warning"
+
+
+def test_gaps_without_pages_or_docs(sb):
+    _ledger(sb, [_row("G1")])
+    res = run_ledger_check(sb, "gaps_decide")
+    reasons = {g["reason"] for g in res["gaps"]}
+    assert "pages.json missing" in reasons
+    assert "no extracted requirements document found" in reasons
+
+
+def test_gaps_joins_wrapped_lines_into_one_sentence(sb):
+    _req_doc(
+        sb,
+        {
+            1: "Preconditions The order is paid. The fare must permit name changes, as\nshown by the quote.\nFlow\n1. Load the file and review the order."
+        },
+    )
+    _ledger(
+        sb,
+        [
+            _gap_row(
+                "U5-1", "The fare must permit name changes, as shown by the quote.", 1
+            )
+        ],
+        pattern=None,
+    )
+    _w(sb.root, ".goal/pages.json", {"pages": [{"file": "brief.pdf", "page": 1}]})
+    res = run_ledger_check(sb, "gaps_decide")
+    assert res["ok"] is True, res["gaps"]
+
+
+def test_gaps_preview_never_writes_or_counts_a_pass(sb):
+    _req_doc(sb, {1: "x", 2: "y"})
+    _ledger(sb, [_gap_row("G1", "x", 1)], pattern=None)
+    _w(sb.root, ".goal/pages.json", {"pages": [{"file": "brief.pdf", "page": 1}]})
+    first = run_ledger_check(sb, "gaps_decide")
+    assert first["counts"]["next"] == "retry"
+    preview = run_ledger_check(sb, "gaps")  # e.g. the ledger agent self-checking
+    assert preview["counts"]["preview"] is True and "next" not in preview["counts"]
+    assert json.loads((sb.root / ".goal/gaps.json").read_text())["history"] == [1]
+    _w(
+        sb.root,
+        ".goal/pages.json",
+        {"pages": [{"file": "brief.pdf", "page": 1}, {"file": "brief.pdf", "page": 2}]},
+    )
+    second = run_ledger_check(sb, "gaps_decide")
+    assert second["counts"]["history"] == [1, 0] and second["counts"]["next"] == "ok"

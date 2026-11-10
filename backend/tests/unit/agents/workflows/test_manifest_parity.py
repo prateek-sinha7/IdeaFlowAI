@@ -161,10 +161,9 @@ _PLANNER_SKIP_IDS = _RUN_REVISION_DISPATCHED | {
     # like prototype_large/feature_revision above, not by the run_revision WS frame.
     "prototype_v2_revision",
     "prototype_v2_feature_revision",
-    # P27 goal_v1: plans for itself (ledger + spec steps and a human review replace
+    # P27 goal: plans for itself (ledger + spec steps and a human review replace
     # the deep-planner and clarify).
-    "goal_v1",
-    "goal_v2",
+    "goal",
     "backlog_revision",
     # spec 022: the prototype_v2 and backlog BASE pipelines also declare planner:
     # skip — they carry their own in-pipeline reading/planner step (prototype_v2
@@ -320,8 +319,7 @@ _ENGINE_PIPELINE_DEFAULTS: dict[str, list[str]] = {
     # their topic straight from the run input via their own in-pipeline reading
     # step, so they declare defaults: [] rather than the custom fallback list.
     "prototype_v2": [],
-    "goal_v1": [],
-    "goal_v2": [],
+    "goal": [],
     "backlog": [],
     # clarify.mode: skip — spec 023 (prototype_from_template). The base pipeline
     # takes its requirements from an uploaded PDF (req-reader step). The revision

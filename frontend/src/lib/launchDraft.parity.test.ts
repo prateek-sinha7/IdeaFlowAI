@@ -52,6 +52,12 @@ describe("ppt_v2 rides the ppt launch pipe without disturbing it (spec 017)", ()
     expect(v2.pipelineType).toBe("ppt_v2");
   });
 
+  it("names goal in its prototype-slot draft, so the dashboard does not launch prototype", () => {
+    const goal = buildLaunchDraft("goal", inputs);
+    expect(goal.draftKey).toBe("prototype.draft");
+    expect(JSON.parse(goal.draftJson).pipelineType).toBe("goal");
+  });
+
   it("leaves the ppt and prototype drafts byte-identical (no new key)", () => {
     // The parity goldens above already pin these; this states the reason the
     // pipelineType spread is CONDITIONAL rather than always-present.

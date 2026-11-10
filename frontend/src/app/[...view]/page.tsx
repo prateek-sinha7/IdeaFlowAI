@@ -362,7 +362,7 @@ function wizardModeFor(parsed: ParsedView): LaunchMode | undefined {
     // panel and silently drops the template/design-system step the run needs.
     // `ppt_v2` is the live case; `ppt`/`prototype` have their own screens above.
     case "create-workflow":
-      return parsed.pipelineType === "ppt_v2" || parsed.pipelineType === "prototype_v2" || parsed.pipelineType === "prototype_from_template" || parsed.pipelineType === "goal_v2"
+      return parsed.pipelineType === "ppt_v2" || parsed.pipelineType === "prototype_v2" || parsed.pipelineType === "prototype_from_template" || parsed.pipelineType === "goal"
         ? (parsed.pipelineType as LaunchMode)
         : undefined;
     default:
@@ -1783,7 +1783,7 @@ export default function DashboardPage() {
               || pipelineType === "prototype_feature_revision"
               || pipelineType === "prototype_v2_revision"
               || pipelineType === "prototype_v2_feature_revision"
-              || pipelineType === "goal_v2") {
+              || pipelineType === "goal") {
               setPrototypeContent(finalOutput);
             } else {
               // ISS-021 (18-03) + CR-01 (18 review fix): any pipeline_type matching
@@ -3230,7 +3230,7 @@ export default function DashboardPage() {
             || fullRun.type === "prototype_feature_revision"
             || fullRun.type === "prototype_v2_revision"
             || fullRun.type === "prototype_v2_feature_revision"
-            || fullRun.type === "goal_v2") {
+            || fullRun.type === "goal") {
             setPrototypeContent(fullRun.output);
           } else {
             // ISS-021 (18-03) / UXFIX-02 (22-03) — generic reopen fallback.
@@ -4290,7 +4290,7 @@ export default function DashboardPage() {
           prototype:    { mode: "prototype",    draftKey: "prototype.draft" },
           prototype_v2: { mode: "prototype_v2", draftKey: "prototype.draft" },
           prototype_from_template: { mode: "prototype_from_template", draftKey: "prototype.draft" },
-          goal_v2: { mode: "goal_v2", draftKey: "prototype.draft" },
+          goal: { mode: "goal", draftKey: "prototype.draft" },
           ppt:          { mode: "ppt",          draftKey: "ppt.draft" },
           ppt_v2:       { mode: "ppt_v2",       draftKey: "ppt.draft" },
         };

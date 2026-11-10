@@ -110,7 +110,7 @@ def test_dispatchable_count_is_13() -> None:
     Went 31 -> 30 when the ``pdf_to_prototype`` manifest was removed, together
     with its dedicated test, in aa8673cc (GitLab dev sync #12).
 
-    Went 36 -> 37 when ``goal_v2`` was added (feat/goal-v2-dev), a new
+    Went 36 -> 37 when ``goal`` was added (feat/goal-dev), a new
     manifest-backed workflow with fully-loadable steps.
     """
     assert len(_DISPATCHABLE) == 37

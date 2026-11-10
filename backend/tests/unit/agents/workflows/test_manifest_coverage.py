@@ -75,7 +75,7 @@ def test_exactly_18_keys() -> None:
     Went 36 -> 39 with spec 022: prototype_v2_revision, prototype_v2_feature_revision
     and backlog_revision.
 
-    Went 41 -> 42 with goal_v2 (P27).
+    Went 41 -> 42 with goal (P27).
 
     Includes the ``sample_*`` fixture manifests: ``SUPPORTED_PIPELINE_TYPES``
     is derived from disk (ADR-0005), so every directory with a

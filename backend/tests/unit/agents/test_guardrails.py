@@ -259,25 +259,21 @@ class TestPromptAssemblyPolicyParity:
     def test_policy_registered_with_default_order(self):
         policy = self._policy()
         assert policy.name == "default"
-        assert (
-            tuple(policy.order)
-            == (
-                # tool_availability (13-02 / F4) is FIRST: the anti-fabrication
-                # no-tools preamble must frame everything after it. Emitted ONLY for
-                # agents resolved to zero callable tools, so it is absent from the
-                # byte-identical baseline.
-                # skill_directive (spec 012 / R-13) was removed — deepagents'
-                # SKILLS_SYSTEM_PROMPT already names each staged skill and its exact
-                # read path; see tests/agents/test_skill_directive_block.py.
-                "tool_availability",
-                "injects",
-                "guardrails",
-                "skills",
-                "hooks",
-                "constitution",
-                "inline_skills",  # P27 E4: forced step skills, empty unless a step declares them
-                "prompt_body",
-            )
+        assert tuple(policy.order) == (
+            # tool_availability (13-02 / F4) is FIRST: the anti-fabrication
+            # no-tools preamble must frame everything after it. Emitted ONLY for
+            # agents resolved to zero callable tools, so it is absent from the
+            # byte-identical baseline.
+            # skill_directive (spec 012 / R-13) was removed — deepagents'
+            # SKILLS_SYSTEM_PROMPT already names each staged skill and its exact
+            # read path; see tests/agents/test_skill_directive_block.py.
+            "tool_availability",
+            "injects",
+            "guardrails",
+            "skills",
+            "hooks",
+            "constitution",
+            "prompt_body",
         )
 
     def test_policy_byte_identical_for_guardrail_agent(self):

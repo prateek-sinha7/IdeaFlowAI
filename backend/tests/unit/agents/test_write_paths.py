@@ -142,3 +142,72 @@ async def test_reference_brief_is_framed_as_background():
 async def test_default_brief_is_unchanged():
     msg = await _first_message(SimpleNamespace(brief_role=None))
     assert msg.startswith("=== ORIGINAL USER REQUEST ===\nBuild the simulator")
+
+
+# ── edit_only: an existing page is edited, never regenerated whole ─────────────
+# Run ed539abb: build task 3 rewrote the 70 KB prototype.html with write_file three
+# times (~20k output tokens each), most of a 15-minute task.
+
+
+def test_compile_carries_edit_only():
+    assert _compile(edit_only=["prototype.html"]).edit_only == ["prototype.html"]
+    assert _compile().edit_only is None
+
+
+@pytest.mark.parametrize("value", [[], "x", [""], [1]])
+def test_compile_rejects_bad_edit_only(value):
+    with pytest.raises(CompilerError, match="edit_only"):
+        _compile(edit_only=value)
+
+
+def _edit_only_guard(existing):
+    return _ReservedPathGuardMiddleware(
+        write_paths=["prototype.html", "build-*.md"],
+        edit_only=["prototype.html"],
+        exists=lambda rel: rel in existing,
+    )
+
+
+def test_rewrite_of_existing_page_is_refused():
+    msg = _edit_only_guard({"prototype.html"})._refusal(_write("/prototype.html"))
+    assert msg is not None and "edit_file" in msg.content
+
+
+def test_edit_of_existing_page_is_allowed():
+    guard = _edit_only_guard({"prototype.html"})
+    assert guard._refusal(_write("prototype.html", tool="edit_file")) is None
+
+
+def test_first_write_creates_the_page():
+    assert _edit_only_guard(set())._refusal(_write("prototype.html")) is None
+
+
+def test_edit_only_leaves_other_files_alone():
+    guard = _edit_only_guard({"prototype.html", "build-t1.md"})
+    assert guard._refusal(_write("build-t1.md")) is None
+
+
+def test_compiler_allows_empty_seed_names():
+    m = WorkflowManifest(
+        id="t",
+        steps=[{"agent": "step-x"}],
+        deliverable={"strategy": "single_file", "name": "o.html"},
+        planner="run",
+        clarify={"mode": "auto", "defaults": []},
+        context_providers=[],
+        seed_files={"from_run": ["", "design.md", ""]},
+        version=1,
+    )
+    WorkflowCompiler().compile(m, CapabilityRegistry())
+
+
+def test_task_loop_skips_empty_seed_names():
+    from agents.capabilities.strategies.task_loop import _declared_seed_files
+
+    ctx = SimpleNamespace(seed_files={"from_run": ["", "design.md", None]})
+    assert _declared_seed_files(ctx) == ("", "design.md", "")
+    assert _declared_seed_files(SimpleNamespace(seed_files={})) == (
+        "spec.md",
+        "design.md",
+        "tasks.md",
+    )

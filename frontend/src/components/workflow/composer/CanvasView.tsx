@@ -962,6 +962,7 @@ export function CanvasView({
   // Backward/loop targets are excluded — a loop target is a real EARLIER node
   // with an established position, and re-placing it would fight that.
   const ROW_GAP = 64; // clear air between two stacked nodes' bounding boxes
+  const LOOP_ROW_GAP = 112; // wrapped chain with a loop: room for the arc + label above the row-break line
 
   // How much room each root node really occupies, INCLUDING its sub-agent fan.
   // Measured once at a neutral origin (layoutChildren is pure), so it can feed
@@ -1086,7 +1087,20 @@ export function CanvasView({
     const perRow = isStraightChain
       ? Math.ceil(cols.length / Math.ceil(cols.length / MAX_PER_ROW))
       : cols.length;
-    const rowPitch = Math.max(rowPortOffset * 2, ROOT_H_EST) + ROW_GAP;
+    // A loop arcs over its own row, inside the gutter the row-break connector
+    // also runs through (at the gutter's middle). The default gutter leaves no
+    // room for both, so a wrapped chain with any loop gets a taller one.
+    const ids = new Map(pipelineAgents.map((a, i) => [a.id, i]));
+    const hasLoop = pipelineAgents.some((a, i) =>
+      Object.values(a.route?.outcomes ?? {}).some(
+        (o) =>
+          o.trigger === "step" &&
+          !!o.target &&
+          (ids.get(resolveRouteTargetId(o.target, (id) => ids.has(id))) ?? Infinity) <= i,
+      ),
+    );
+    const rowGap = isStraightChain && hasLoop ? LOOP_ROW_GAP : ROW_GAP;
+    const rowPitch = Math.max(rowPortOffset * 2, ROOT_H_EST) + rowGap;
 
     let x = START_X;
     cols.forEach((col, i) => {
@@ -1618,6 +1632,7 @@ export function CanvasView({
   // made three branches look like they sprouted from three different places.
   const routeEdges: RouteEdgeSpec[] = [];
   let loopIndex = 0;
+  const loopsPerBand = new Map<number, number>();
   for (const agent of [...pipelineAgents, ...allDescendants]) {
     // Gates live on the SelectionsMap lever (mirrors CanvasNode's own
     // `conditionalOn` check) — `route` itself is the AgentDef field.
@@ -1683,15 +1698,27 @@ export function CanvasView({
       if (backward && !selfLoop) {
         const x0 = Math.min(geom.sx, geom.ex);
         const x1 = Math.max(geom.sx, geom.ex);
-        let topInSpan = Math.min(geom.sy, geom.ey);
+        const rowTop = Math.min(geom.sy, geom.ey);
+        let topInSpan = rowTop;
         for (const other of [
           ...pipelineAgents,
           ...allDescendants.filter((d) => childPositions.has(d.id)),
         ]) {
           const p = positionOf(other.id);
-          if (p.x < x1 && p.x + p.width > x0) topInSpan = Math.min(topInSpan, p.y);
+          // Only nodes the arc would actually cross: those reaching into the
+          // band just above the loop's own row. A node in an EARLIER wrapped
+          // row ends well above that band — counting it sent the arc over the
+          // top of the whole canvas, straight through every row in between.
+          if (p.x < x1 && p.x + p.width > x0 && p.y + Math.max(rowCardHeight, ROOT_H_EST) > rowTop - 28) {
+            topInSpan = Math.min(topInSpan, p.y);
+          }
         }
-        crestY = topInSpan - 28 - (loopIndex - 1) * 20;
+        // Stagger only against loops cresting over the same band, so a loop in
+        // one wrapped row does not push another row's loop up into its gutter.
+        const band = Math.round(topInSpan);
+        const stagger = loopsPerBand.get(band) ?? 0;
+        loopsPerBand.set(band, stagger + 1);
+        crestY = topInSpan - 28 - stagger * 20;
       }
       routeEdges.push({
         key: `route-${agent.id}-${outcomeKey}`,

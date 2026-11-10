@@ -104,12 +104,14 @@ def _declared_seed_files(ctx) -> tuple[str, str, str]:
     Its ``from_run`` list (when present + holding 3 entries) names the (spec, design,
     tasks) reference files; otherwise fall back to ``_SEED_FILES``. INV-5: the manifest
     only DECLARES the list; this control flow lives in the strategy, never the compiler.
+    An empty entry ("" or null) means "do not write that reference file" — for a workflow
+    whose producer step already writes the real file (goal writes spec.md itself).
     """
     declared = getattr(ctx, "seed_files", None) or {}
     if isinstance(declared, dict):
         from_run = declared.get("from_run")
         if from_run and len(from_run) == 3:
-            return (str(from_run[0]), str(from_run[1]), str(from_run[2]))
+            return tuple("" if e is None else str(e) for e in from_run)  # type: ignore[return-value]
     return _SEED_FILES
 
 
@@ -606,9 +608,9 @@ class TaskLoopStrategy:
         ds_body = od.get("ds_body") or ""
 
         try:
-            if spec_text:
+            if spec_text and spec_name:
                 runner.sandbox.write(spec_name, spec_text)
-            if tasks_text:
+            if tasks_text and tasks_name:
                 runner.sandbox.write(tasks_name, tasks_text)
 
             design_sections: list[str] = []
@@ -620,7 +622,7 @@ class TaskLoopStrategy:
                 ds_id = od.get("ds_id", "") or ""
                 hdr = f"# ACTIVE DESIGN SYSTEM{f' ({ds_id})' if ds_id else ''}"
                 design_sections.append(f"{hdr}\n\n{ds_body}")
-            if design_sections:
+            if design_sections and design_name:
                 runner.sandbox.write(design_name, "\n\n".join(design_sections))
             # KAN-103: seed the template's reference HTML as a separate workspace file
             # so the revision agent can read_file("template.html") directly — clean

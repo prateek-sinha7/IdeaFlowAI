@@ -321,6 +321,20 @@ describe("LaunchWizard — SC-001 Web/Deck deliverable-mode toggle", () => {
   });
 });
 
+describe("LaunchWizard — goal keeps its own pipeline", () => {
+  it("picking Web on a goal launch keeps goal (it used to fall back to prototype)", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<LaunchWizard initialMode="goal" />);
+    await user.type(await screen.findByLabelText("Brief"), "Deliver the simulator");
+    await user.click(screen.getByTestId("pick-web"));
+    await user.click(await screen.findByTestId("pick-ds"));
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+
+    const draft = JSON.parse(sessionStorage.getItem("prototype.draft")!);
+    expect(draft.pipelineType).toBe("goal");
+  });
+});
+
 describe("LaunchWizard — ported behaviors", () => {
   it("review gates: touching gates threads gateAgentIds into the draft", async () => {
     const user = userEvent.setup();

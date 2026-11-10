@@ -10235,17 +10235,11 @@ class ExecutionEngine:
                         getattr(getattr(ectx, "current_step", None), "skills", None)
                         or []
                     ),
-                    step_skills_inline=list(
-                        getattr(
-                            getattr(ectx, "current_step", None), "skills_inline", None
-                        )
-                        or []
-                    ),
-                    step_skills_select=getattr(
-                        getattr(ectx, "current_step", None), "skills_select", None
-                    ),
                     step_write_paths=getattr(
                         getattr(ectx, "current_step", None), "write_paths", None
+                    ),
+                    step_edit_only=getattr(
+                        getattr(ectx, "current_step", None), "edit_only", None
                     ),
                     # skills_prune_scope (ADR-0006 Consequences): the union of the
                     # concurrently-dispatched cohort's skill ids, so a sibling running

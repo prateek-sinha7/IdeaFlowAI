@@ -28,7 +28,7 @@ TIER_PIPELINES: dict[str, set[str]] = {
         "prototype_v2_feature_revision",  # spec 022
         "prototype_from_template",  # requirement-PDF-driven template adaptation
         "prototype_from_template_revision",  # revision of prototype_from_template runs
-        "goal_v2",  # P27 goal workflow v2: documents in, working tested deliverable out
+        "goal",  # P27 goal workflow: documents in, working tested deliverable out
         "prototype_large_revision",  # tiered large-revision manifest
         "prototype_feature_revision",  # tiered feature-revision manifest
         "backlog",  # file-manifest workflow: full-application user stories from a prototype (spec 021)
@@ -47,7 +47,7 @@ TIER_PIPELINES: dict[str, set[str]] = {
         "prototype_v2_feature_revision",  # spec 022
         "prototype_from_template",  # requirement-PDF-driven template adaptation
         "prototype_from_template_revision",  # revision of prototype_from_template runs
-        "goal_v2",  # P27 goal workflow v2: documents in, working tested deliverable out
+        "goal",  # P27 goal workflow: documents in, working tested deliverable out
         "prototype_large_revision",  # tiered large-revision manifest
         "prototype_feature_revision",  # tiered feature-revision manifest
         "app_builder",
@@ -68,7 +68,7 @@ TIER_PIPELINES: dict[str, set[str]] = {
         "prototype_v2_feature_revision",  # spec 022
         "prototype_from_template",  # requirement-PDF-driven template adaptation
         "prototype_from_template_revision",  # revision of prototype_from_template runs
-        "goal_v2",  # P27 goal workflow v2: documents in, working tested deliverable out
+        "goal",  # P27 goal workflow: documents in, working tested deliverable out
         "prototype_large_revision",  # tiered large-revision manifest
         "prototype_feature_revision",  # tiered feature-revision manifest
         "app_builder",

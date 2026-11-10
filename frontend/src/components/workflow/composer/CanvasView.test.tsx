@@ -1107,6 +1107,26 @@ describe("CanvasView — a long straight chain wraps into balanced rows", () => 
     expect(pos("s2").left).toBeGreaterThan(pos("s1").left);
   });
 
+  it("a loop in a lower wrapped row arcs over its own row, not over the rows above", () => {
+    // 9 steps → rows [s0-s2] [s3-s5] [s6-s8]; s7 goes on to s8 or loops back to s6 (goal_v2 shape).
+    const agents = chain(9);
+    agents[7] = {
+      ...agents[7],
+      route: { loop_max_iterations: 3, outcomes: { ok: { target: "s8", trigger: "step" }, fail: { target: "s6", trigger: "step" } } },
+    };
+    renderCanvas({ pipelineAgents: agents, selections: { s7: { gates: ["conditional"] } } });
+    const loop = screen
+      .getAllByTestId("canvas-route-edge")
+      .find((e) => e.getAttribute("data-direction") === "backward");
+    expect(loop).toBeDefined();
+    const ys = ((loop!.getAttribute("d") ?? "").match(/-?\d+\.?\d*/g) ?? [])
+      .map(Number)
+      .filter((_, i) => i % 2 === 1);
+    const crest = Math.min(...ys);
+    expect(crest).toBeLessThan(pos("s6").top); // above its own row...
+    expect(crest).toBeGreaterThan(pos("s3").top); // ...but not up through row 2
+  });
+
   it("a chain with a sub-agent tree does not wrap", () => {
     const agents = chain(5);
     agents[1] = { ...agents[1], children: [mkAgent({ id: "kid", name: "Kid", instance_id: "kid" })] };

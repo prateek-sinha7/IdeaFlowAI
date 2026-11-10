@@ -728,10 +728,27 @@ class _ReservedPathGuardMiddleware(AgentMiddleware[Any, Any, Any]):
     # Tools that read from the sandbox (and therefore subject to the read guard).
     _READ_TOOLS: frozenset[str] = frozenset({"read_file", "ls", "glob", "grep"})
 
-    def __init__(self, write_paths: list[str] | None = None) -> None:
+    def __init__(
+        self,
+        write_paths: list[str] | None = None,
+        edit_only: list[str] | None = None,
+        exists: "Callable[[str], bool] | None" = None,
+    ) -> None:
         super().__init__()
         # P27 ``write_paths``: None = no allow-list (the reserved-path rules only).
         self._write_paths: list[str] | None = list(write_paths) if write_paths else None
+        # P27 ``edit_only``: write_file on an EXISTING matching file is refused, so a
+        # step changes it with edit_file instead of regenerating it whole. ``exists``
+        # answers "is this sandbox path a file already" (None = rule off).
+        self._edit_only: list[str] | None = list(edit_only) if edit_only else None
+        self._exists = exists
+
+    def _is_edit_only(self, path: str) -> bool:
+        norm = self._normalise(path)
+        return any(
+            fnmatch.fnmatchcase(norm, self._normalise(pattern))
+            for pattern in self._edit_only or ()
+        )
 
     def _is_write_allowed(self, path: str) -> bool:
         """True when *path* matches one ``write_paths`` pattern (fnmatch, ``*`` spans ``/``)."""
@@ -815,6 +832,25 @@ class _ReservedPathGuardMiddleware(AgentMiddleware[Any, Any, Any]):
             return None
 
         if name in self._WRITE_TOOLS:
+            if (
+                name == "write_file"
+                and self._edit_only is not None
+                and self._exists is not None
+                and self._is_edit_only(path)
+                and self._exists(self._normalise(path))
+            ):
+                logger.warning("edit_only REWRITE DENIED: tool=%r path=%r", name, path)
+                return ToolMessage(
+                    content=(
+                        f"'{path}' already exists, so it may not be rewritten with write_file "
+                        f"in this step. Change it with edit_file: to replace or remove a large "
+                        f"block, pass that block as old_string. Read only the region you need "
+                        f"(page_outline, then read_file with an offset)."
+                    ),
+                    name=name,
+                    tool_call_id=call.get("id") or "",
+                    status="error",
+                )
             if self._write_paths is not None and not self._is_write_allowed(path):
                 logger.warning(
                     "write_paths WRITE DENIED: tool=%r path=%r allowed=%r",
@@ -963,10 +999,14 @@ class DeepAgentRunner:
         # P27 ``write_paths``: when set, write tools may only touch sandbox paths that
         # match one of these fnmatch patterns. None (every step without the key) = today.
         write_paths: list[str] | None = None,
+        # P27 ``edit_only``: existing files matching these patterns may only be edited
+        # (write_file on them is refused). None (every step without the key) = today.
+        edit_only: list[str] | None = None,
     ) -> None:
         self.system_prompt = system_prompt
         self.resilience = resilience
         self.write_paths = list(write_paths) if write_paths else None
+        self.edit_only = list(edit_only) if edit_only else None
         self.tools = list(tools or [])
 
         # ── Resolve the chat model ────────────────────────────────────────
@@ -1083,7 +1123,10 @@ class DeepAgentRunner:
             t for t in self.tools if not isinstance(t, _ReservedPathGuardSentinel)
         ]
         _attach_path_guard: bool = (
-            _guard_requested or (run_sandbox is not None) or bool(self.write_paths)
+            _guard_requested
+            or (run_sandbox is not None)
+            or bool(self.write_paths)
+            or bool(self.edit_only)
         )
 
         # ── Assemble the graph ────────────────────────────────────────────
@@ -1103,8 +1146,21 @@ class DeepAgentRunner:
             _TruncatedWriteGuardMiddleware(),
         ]
         if _attach_path_guard:
+            _exists = None
+            if run_sandbox is not None and self.edit_only:
+
+                def _exists(rel: str, _sb=run_sandbox) -> bool:
+                    try:
+                        return _sb.path_for(rel).is_file()
+                    except (ValueError, OSError):
+                        return False
+
             _middleware.append(
-                _ReservedPathGuardMiddleware(write_paths=self.write_paths)
+                _ReservedPathGuardMiddleware(
+                    write_paths=self.write_paths,
+                    edit_only=self.edit_only,
+                    exists=_exists,
+                )
             )
             logger.debug(
                 "reserved_path_guard ACTIVE for agent %s",

@@ -579,13 +579,12 @@ class Step:
     display_name: str = ""  # user-editable label; never affects instance_id
     prompt: str = ""  # per-instance purpose text; custom-agent steps only
     skills: list[str] = field(default_factory=list)  # per-step skill ids (R-01)
-    # P27 E4: skill BODIES injected into the prompt (``skills`` only stages/advertises).
-    skills_inline: list[str] = field(default_factory=list)
-    # {file, field, map}: pick extra inline skill ids from a sandbox JSON file at dispatch.
-    skills_select: dict | None = None
     # P27: opt-in write allow-list (fnmatch patterns, sandbox-relative). None = no limit
     # beyond the reserved-path guard (every step that does not declare it).
     write_paths: list[str] | None = None
+    # P27: files matching these patterns may be created, but once they exist only edited
+    # (edit_file), never rewritten whole with write_file. None = no such rule.
+    edit_only: list[str] | None = None
     # P27: "reference" = the user brief reaches this step framed as background (it
     # describes the final product), not as the step's task. None/"task" = today.
     brief_role: str | None = None

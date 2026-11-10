@@ -27,11 +27,12 @@ function CreateRoute() {
   // and silently rendered the prototype wizard under an unresolved URL. An explicit
   // redirect here closes the gap: any `raw` that is not a known mode gets
   // canonicalized to `?mode=prototype` so the URL and content agree.
-  const isKnownMode = raw === "prototype" || raw === "prototype_v2" || raw === "prototype_from_template" || raw === "ppt" || raw === "ppt_v2";
+  const isKnownMode = raw === "prototype" || raw === "prototype_v2" || raw === "prototype_from_template" || raw === "goal" || raw === "ppt" || raw === "ppt_v2";
   const mode: LaunchMode =
     raw === "ppt" || raw === "ppt_v2" ? raw
     : raw === "prototype_v2" ? "prototype_v2"
     : raw === "prototype_from_template" ? "prototype_from_template"
+    : raw === "goal" ? "goal"
     : "prototype";
 
   useEffect(() => {

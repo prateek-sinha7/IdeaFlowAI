@@ -95,7 +95,7 @@ const STAGE_FAILED_PLACEHOLDER =
 /** The Web/Deck stepper toggle value ↔ the deliverable mode. `ppt_v2` is a deck
  *  deliverable, so it sits under "deck" alongside `ppt`. `prototype_from_template`
  *  is a web deliverable. */
-const STEPPER_MODE: Record<LaunchMode, "web" | "deck"> = { prototype: "web", prototype_v2: "web", ppt: "deck", ppt_v2: "deck", prototype_from_template: "web", goal_v2: "web" };
+const STEPPER_MODE: Record<LaunchMode, "web" | "deck"> = { prototype: "web", prototype_v2: "web", ppt: "deck", ppt_v2: "deck", prototype_from_template: "web", goal: "web" };
 /** The sessionStorage key a caller stages this mode's draft under. The chain pickup
  *  and the draft restore both read it, so they cannot disagree (ISS-347). */
 const draftKeyFor = (m: LaunchMode) => (STEPPER_MODE[m] === "web" ? "prototype.draft" : "ppt.draft");
@@ -155,9 +155,9 @@ const MODE_CONFIG: Record<LaunchMode, ModeConfig> = {
   // Same web wizard as `prototype` — same template step, same design systems —
   // because it declares the same `opendesign` context provider and `design_mode`.
   // Only the pipeline it launches and the copy differ (the ppt/ppt_v2 precedent).
-  goal_v2: {
-    agentPipeline: "goal_v2",
-    savePipeline: "goal_v2",
+  goal: {
+    agentPipeline: "goal",
+    savePipeline: "goal",
     title: "Configure your deliverable",
     chainingTitle: "Pick a template & design system",
     eyebrow: "Deliver from documents (Goal)",
@@ -277,11 +277,12 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
   // Which deck deliverable the Deck half of the toggle means for THIS wizard —
   // see modeFromStepper. Fixed at open; the toggle switches families, not
   // deliverables within a family.
-  const deckMode: LaunchMode = initialMode === "ppt_v2" ? "ppt_v2" : "ppt";
+  const deckMode: LaunchMode = STEPPER_MODE[initialMode] === "deck" ? initialMode : "ppt";
   // The web analogue of deckMode: which web deliverable the Web half of the toggle
-  // means for THIS wizard. Without it, toggling deck -> web would silently downgrade
-  // a prototype_v2 / prototype_from_template launch to prototype.
-  const webMode: LaunchMode = initialMode === "prototype_v2" ? "prototype_v2" : initialMode === "prototype_from_template" ? "prototype_from_template" : "prototype";
+  // means for THIS wizard. Without it, picking Web would silently downgrade the
+  // launch to prototype. Keyed on STEPPER_MODE (SC-001): every web deliverable keeps
+  // itself (a hard-coded list here dropped goal, so a Goal launch ran prototype).
+  const webMode: LaunchMode = STEPPER_MODE[initialMode] === "web" ? initialMode : "prototype";
   // Web-family test. Keyed on STEPPER_MODE data, never on a workflow name, so a new
   // web deliverable joins by adding one STEPPER_MODE row (SC-001 / INV-1).
   const isWeb = STEPPER_MODE[mode] === "web";

@@ -1,4 +1,4 @@
-"""Unit tests for app/agents/tools/acceptance_tools.py and ledger_check's goal_v2 modes (P27 W1)."""
+"""Unit tests for app/agents/tools/acceptance_tools.py and ledger_check's goal modes (P27 W1)."""
 
 from __future__ import annotations
 
@@ -414,7 +414,7 @@ def test_trace_fresh_rejects_hand_written_trace(sb):
     assert [g["reason"] for g in res["gaps"]] == ["no result in trace.json"]
 
 
-# --- goal_v2 dev port: the deliverable is always prototype.html -------------------
+# --- goal dev port: the deliverable is always prototype.html -------------------
 
 
 def test_trace_fresh_flags_a_trace_of_another_page(sb):

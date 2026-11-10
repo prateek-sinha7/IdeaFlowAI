@@ -29,7 +29,7 @@ export const TIER_PIPELINES: Record<Tier, Set<string>> = {
     // file-manifest copy of the DB-composed Prototype v2; entitled on the backend
     // wherever `prototype` is (backend/app/core/entitlements.py).
     "prototype_v2", "prototype_v2_revision", "prototype_v2_feature_revision",
-    "goal_v2",
+    "goal",
     // revision-pipeline-agent-reuse spec: these share the main prototype
     // pipeline's agents. Entitled on the backend wherever `prototype` is —
     // the UI hid them, so the backend allowed a launch the catalog never offered.
@@ -47,7 +47,7 @@ export const TIER_PIPELINES: Record<Tier, Set<string>> = {
     // file-manifest copy of the DB-composed Prototype v2; entitled on the backend
     // wherever `prototype` is (backend/app/core/entitlements.py).
     "prototype_v2", "prototype_v2_revision", "prototype_v2_feature_revision",
-    "goal_v2",
+    "goal",
     // revision-pipeline-agent-reuse spec: these share the main prototype
     // pipeline's agents. Entitled on the backend wherever `prototype` is —
     // the UI hid them, so the backend allowed a launch the catalog never offered.
@@ -66,7 +66,7 @@ export const TIER_PIPELINES: Record<Tier, Set<string>> = {
     // file-manifest copy of the DB-composed Prototype v2; entitled on the backend
     // wherever `prototype` is (backend/app/core/entitlements.py).
     "prototype_v2", "prototype_v2_revision", "prototype_v2_feature_revision",
-    "goal_v2",
+    "goal",
     // revision-pipeline-agent-reuse spec: these share the main prototype
     // pipeline's agents. Entitled on the backend wherever `prototype` is —
     // the UI hid them, so the backend allowed a launch the catalog never offered.
