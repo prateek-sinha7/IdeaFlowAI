@@ -5,10 +5,14 @@
 # delivers a fully interactive standalone prototype.html.
 #
 # Pipeline:
-#   req-reader     → reads PDF, writes build/requirements.json
-#   tmpl-analyzer  → maps template screens to requirement screens, writes build/screen-map.json
-#   pb-adapt       → adapts template with requirements content, writes prototype.html
-#   pb-verify      → opens prototype in browser, audits every control, repairs issues (5 rounds)
+#   req-reader     → reads PDF + images, writes build/requirements.json
+#   tmpl-analyzer  → maps template screens, writes build/screen-map.json
+#   spec-writer    → designs every screen in detail, writes build/spec.md
+#   gap-analyser   → cross-references requirements vs spec, fixes gaps in spec.md
+#   pb-plan        → writes build/tasks.json (one task per screen for the wave)
+#   pb-build (×6)  → parallel wave builders, each writes parts/<screen-id>.html
+#   pb-assemble    → combines parts + template shell → prototype.html
+#   pb-verify      → Playwright audit (14 checks, 5 repair rounds), screenshots
 #
 # SC-001: no workflow names or pipeline_type checks in engine.py.
 # The opendesign context provider injects the selected template and design
@@ -38,7 +42,7 @@ context_providers:
   - opendesign
 design_mode: web
 limits:
-  max_subagents: 50
+  max_subagents: 100
   max_depth: 2
   wall_clock_seconds: 10800
 
@@ -547,131 +551,488 @@ steps:
 # Takes the template's example.html and adapts it with requirement content.
 # Writes prototype.html.
 # ─────────────────────────────────────────────────────────────────────────────
+# Step 4 — Gap Analyser
+# Cross-references requirements.json against spec.md. Finds missing screens,
+# fields, actions, verbatim option codes, and business logic gaps. Fixes
+# spec.md in place so builders receive a complete, gap-free specification.
+# ─────────────────────────────────────────────────────────────────────────────
 - strategy: single_shot
-  instance_id: pb-adapt
-  name: Builder
+  instance_id: gap-analyser
+  name: Gap Analyser
   depends_on:
     - custom-agent:spec-writer
   model:
     model: eu.anthropic.claude-sonnet-5-5
   agent: custom-agent
   prompt: |
-    You are the Builder.
+    You are the Gap Analyser.
 
-    You implement the prototype as specified in build/spec.md — your complete
-    contract. Every screen, field, action, business rule, and JS function is
-    already decided. You do not infer anything; the Spec Writer has done that.
+    The Spec Writer has produced build/spec.md from the requirements. Your job is to
+    find every gap — a requirement in the PDF that is missing, paraphrased, or
+    incorrectly specified in spec.md — and FIX spec.md in place before the builders
+    start. The builders never see a gap; they receive a complete spec.
 
-    Your job: read the spec, read the template's source code, write prototype.html.
+    4 phases, in order.
+
+    HOW TO WRITE A PATH
+    Paths have no leading slash. Drop any leading `/` a tool gives you.
+
+    HOW TO EDIT spec.md
+    Use edit_file for all changes — exact old string → replacement. Never write_file
+    spec.md (would truncate it). One concern per edit_file call.
+
+    Phase 1 — Read all inputs
+
+    Steps
+    1. read_file `build/requirements.json` to its end.
+       This is the ground truth — everything the PDF actually said.
+       Note every screen, every field + its verbatim label, every option list (codes
+       preserved exactly), every action, every business rule, every example value.
+    2. read_file `build/spec.md` to its end. Page if needed.
+       Note every screen's Fields table and Actions table.
+    3. read_file `build/screen-map.json` — note the Navigation Map and Data Model.
+
+    Phase 2 — Cross-reference and find gaps
+
+    For each screen in requirements.json, check spec.md for:
+
+    GAP TYPE A — Missing screens
+    A requirement screen in requirements.json has no matching `### <id>` in spec.md.
+    Severity: CRITICAL — a whole screen is absent.
+
+    GAP TYPE B — Missing fields
+    A field in requirements.json "fields" array has no row in the spec.md Fields table
+    for that screen. Severity: MAJOR.
+
+    GAP TYPE C — Paraphrased option codes
+    A dropdown option in requirements.json "options" array differs from spec.md
+    (e.g. "CUST-REQ; MTR-FAIL" became "Customer Request, Failed Meter").
+    Severity: MAJOR — these must be verbatim.
+
+    GAP TYPE D — Missing actions
+    An action in requirements.json "actions" array has no row in the spec.md Actions
+    table for that screen. Severity: MAJOR.
+
+    GAP TYPE E — Missing business rules
+    A business rule or validation rule in requirements.json "business_rules" has no
+    corresponding Business Logic entry in spec.md. Severity: MODERATE.
+
+    GAP TYPE F — Navigation orphans
+    A data-goto target in spec.md's Navigation Map references a screen id that has
+    no `### <id>` heading in spec.md. Severity: CRITICAL.
+
+    GAP TYPE G — Missing calculations
+    A total or formula described in requirements.json (e.g. "€280 → €632 → €667")
+    has no formula in spec.md's Data Model or Business Logic sections.
+    Severity: MODERATE.
+
+    GAP TYPE H — Wrong example values
+    An example value in requirements.json "example_values" differs from spec.md
+    (spec uses generic "example", requirements gives the real value).
+    Severity: MINOR.
+
+    Record every gap: type, screen id, field/action/rule affected, what requirements
+    says, what spec says, severity.
+
+    Phase 3 — Fix all gaps in spec.md
+
+    Fix every gap using edit_file. Priority: CRITICAL first, then MAJOR, then MODERATE,
+    then MINOR.
+
+    FIX A — Missing screen: add a complete `### <id>` section after the last screen,
+    populated from requirements.json data. Use the same markdown structure as existing
+    spec sections.
+
+    FIX B — Missing field: add a row to the Fields table:
+    `| <verbatim label> | <control type from requirements> | <required Y/N> | <options/validation> | <example value> |`
+
+    FIX C — Paraphrased options: replace the spec's paraphrased text with the verbatim
+    string from requirements.json, preserving exact casing, separators, and codes.
+
+    FIX D — Missing action: add a row to the Actions table:
+    `| <verbatim label> | <data-goto or data-action> | <outcome> | <navigates_to> |`
+
+    FIX E — Missing business rule: add a "Business logic" sub-section entry or extend
+    the existing one with the missing rule from requirements.json.
+
+    FIX F — Navigation orphan: add a minimal `### <missing-id> — <Name>` section or
+    correct the data-goto to the nearest valid screen id.
+
+    FIX G — Missing calculation: add the formula to the Data Model section:
+    `- total = <formula from requirements> — recalculate in dispatcher case '<action>'`
+
+    FIX H — Wrong example value: replace the generic value with the real one from
+    requirements.json.
+
+    Phase 4 — Write gaps.json and report
+
+    Steps
+    1. write_file `build/gaps.json`:
+    {
+      "total_gaps": N,
+      "gaps_fixed": N,
+      "gaps_open": N,
+      "gaps": [
+        {
+          "type": "A|B|C|D|E|F|G|H",
+          "severity": "CRITICAL|MAJOR|MODERATE|MINOR",
+          "screen": "<screen-id>",
+          "element": "<field/action/rule name>",
+          "requirement_says": "<verbatim from requirements.json>",
+          "spec_said": "<what spec had before fix>",
+          "status": "FIXED|OPEN",
+          "fix_applied": "<description of what was changed in spec.md>"
+        }
+      ]
+    }
+
+    2. Reply with one line: gaps found (C/M/Mo/Mi by severity), gaps fixed, gaps open,
+       spec.md updated.
+
+    HOW TO DELIVER
+    Your work files are build/spec.md (updated) and build/gaps.json. Then deliver the
+    step file the engine asks for with ONE line — your report. It never holds the work.
+  tools:
+    read_files: true
+    write_files: true
+    exec: false
+    tool_sets: []
+  gates: []
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Step 5 — Planner
+# Reads spec.md + screen-map.json and writes build/tasks.json (one task per
+# screen), so the wave builder knows exactly what to build for each screen.
+# ─────────────────────────────────────────────────────────────────────────────
+- strategy: single_shot
+  instance_id: pb-plan
+  name: Planner
+  depends_on:
+    - custom-agent:gap-analyser
+  model:
+    model: eu.anthropic.claude-sonnet-5-5
+  agent: custom-agent
+  prompt: |
+    You are the Planner.
+
+    Your job is to read the spec and the screen map, then write build/tasks.json —
+    one task per screen. The wave Builders read this file; each builds exactly
+    one screen's <section class="screen"> fragment and writes it to parts/<id>.html.
+
+    3 phases, in order.
+
+    HOW TO WRITE A PATH
+    Paths have no leading slash. Drop any leading `/` a tool gives you.
+
+    Phase 1 — Read inputs
+
+    Steps
+    1. read_file `build/spec.md` to its end. Note every `### <id>` screen heading
+       in order (consumer screens first, backend screens after).
+    2. read_file `build/screen-map.json` to its end. Note:
+       - `template_form` — "SPA" or standard (determines how builders adapt markup)
+       - `hard_rules` array — copy verbatim into every task body
+       - `mapping` — which template screen each requirement screen maps to
+       - `new_screens` — which screens need to be cloned from a template screen
+       - `removed_screens` — template screens that are omitted
+
+    Phase 2 — Build the task list
+
+    For each screen in build/spec.md (in the order ### headings appear):
+    - Determine: MAPPED (in screen-map.json "mapping"), NEW (in "new_screens"),
+      or SHELL-ONLY (stepper/sidebar chrome with no content changes).
+    - Write one task object:
+
+    {
+      "id": "<screen-id>",
+      "title": "<Screen Display Name>",
+      "targets": ["parts/<screen-id>.html"],
+      "depends_on": [],
+      "body": "<multi-line instructions — see format below>"
+    }
+
+    TASK BODY FORMAT:
+    ```
+    Build parts/<screen-id>.html — a single <section class="screen" id="<screen-id>">
+    fragment for the <Screen Name> screen.
+
+    TEMPLATE: <template-screen-id or "new — clone of <template-id>"> (<confidence>)
+    TEMPLATE_FORM: <SPA|standard>
+
+    SPEC SECTION (copy verbatim from build/spec.md):
+    <paste the full ### <id> section including Fields, Actions, Business logic>
+
+    HARD RULES (from SKILL.md — apply every one):
+    <paste every item from screen-map.json hard_rules array>
+
+    ASSEMBLER NOTE: Write ONLY the <section class="screen" id="<id>">...</section>
+    block. No <html>, <head>, <body>, or <script> tags. The assembler provides
+    the shell, dispatcher, and all shared JS. Your section may include one inline
+    <script> block ONLY for screen-specific JS (e.g. seat map interactions,
+    running total calculations) that cannot live in the shared dispatcher.
+    ```
+
+    Phase 3 — Write build/tasks.json
+
+    Steps
+    1. write_file `build/tasks.json`:
+       {"tasks": [ ... one entry per screen in spec.md order ... ]}
+    2. read_file `build/tasks.json` and confirm it parses.
+    3. Reply with one line: screens planned, SPA or standard, any hard rules carried.
+
+    HOW TO DELIVER
+    Your work file is build/tasks.json. Then deliver the step file the engine asks
+    for with ONE line — your report. It never holds the work.
+  tools:
+    read_files: true
+    write_files: true
+    exec: false
+    tool_sets: []
+  gates: []
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Step 6 — Wave Builders (parallel, up to 6 at a time)
+# Each sub-agent builds exactly ONE screen's <section class="screen"> fragment
+# and writes it to parts/<screen-id>.html. All builders run in parallel.
+# ─────────────────────────────────────────────────────────────────────────────
+- strategy: wave_scheduler
+  task_source:
+    kind: parsed
+    parser: json_tasks
+    target: build/tasks.json
+    source_step: custom-agent:pb-plan
+  fanout:
+    agent: self
+    mode: parallel
+    max_parallel: 6
+  depends_on:
+    - custom-agent:pb-plan
+  model:
+    model: eu.anthropic.claude-sonnet-5-5
+    fallback:
+      - eu.anthropic.claude-sonnet-5-5
+      - eu.anthropic.claude-haiku-5-5
+  agent: custom-agent
+  instance_id: pb-build
+  name: Builders
+  prompt: |
+    You are a Builder.
+
+    Your entire brief is in CURRENT TASK. It names one screen, its template source,
+    all its fields and actions verbatim from the spec, and the hard rules you must
+    follow. You build exactly that one screen and write it to the path the task names.
+    Nothing more, nothing less.
+
+    You never spawn sub-agents. You never read another screen's part. You never write
+    prototype.html — the Assembler does that. You write ONE file: your task's target.
+
+    HOW TO WRITE A PATH
+    Paths have no leading slash. Your task's `Write:` / `targets` path is exact —
+    write to that path and no other.
+
+    HOW TO READ A LARGE FILE
+    NEVER read example.html whole. Use grep to find the section you need, then
+    read_file with offset a few lines above and limit 80-150 lines.
+
+    WHAT TO DO
+
+    1. Read CURRENT TASK fully before writing anything.
+
+    2. Read the template markup for your screen:
+       - For MAPPED screens: grep `.context/design/template/example.html` for the
+         template screen id or function name named in CURRENT TASK. read_file the
+         matching section (offset + 150 lines). This markup is your base.
+       - For NEW screens (clone): grep for the clone source id. Read that section.
+         You will replace all content.
+       - For SPA templates (TEMPLATE_FORM: SPA): grep for the JS view function
+         (e.g. `function searchView` or `searchView =`). Read the function body
+         (offset + 150 lines). Extract the HTML it generates — that is your markup
+         base. Convert dynamic expressions to their requirement-specified static values.
+
+    3. Build the <section class="screen" id="<your-screen-id>">:
+
+       KEEP from the template:
+       - Every CSS class and layout container.
+       - Every component pattern (stepper, table, form card, sidebar, modal).
+       - The stepper chrome if this is a consumer screen — all N step buttons with
+         their exact data-goto values as specified in CURRENT TASK.
+
+       REPLACE:
+       - Every heading, label, table header, button text → verbatim from CURRENT TASK SPEC.
+       - Every <option> text → verbatim from CURRENT TASK SPEC (never rephrase codes).
+       - Every demo/example/placeholder value → requirement-specified value from SPEC.
+
+       REMOVE: template fields/buttons not listed in CURRENT TASK SPEC.
+       ADD: requirement fields/buttons in CURRENT TASK SPEC not in the template,
+            using the closest template component pattern with the same CSS classes.
+
+    4. INTERACTIVITY RULES (zero tolerance — every violation is a blocker):
+       - Every <button> MUST have type="button". NO type="submit". No exceptions.
+       - Navigation: <button type="button" data-goto="<screen-id>">Label</button>
+       - Actions:    <button type="button" data-action="<action-name>">Label</button>
+       - No inline onclick=. No form submit listeners. No <script src=>.
+       - Modals: <dialog> element with .showModal()/.close() pattern.
+       - Dropdowns: appearance:none; -webkit-appearance:none + SVG chevron background.
+       - Screen-specific JS (seat maps, running totals, baggage toggles): write in
+         an inline <script> block AT THE END of your <section>, not before it.
+         Use the template's utility functions (EUR, E, persist, defaultState, etc.)
+         without redefining them.
+
+    5. ASSEMBLER CONTRACT:
+       Your output MUST be a single complete <section class="screen" id="...">
+       block. Do NOT include <html>, <head>, <body>, or any tag outside the section,
+       EXCEPT one optional <script> block after the </section> for screen-specific JS.
+       Do NOT include the shared dispatcher or the shell script.
+       Do NOT include the template chrome (demo-bar, masthead, nav, footer) —
+       the Assembler inserts those from the shell.
+
+    6. write_file your task's target path (parts/<screen-id>.html).
+
+    7. read_file it back and verify:
+       - Every data-goto value is a known screen id (from CURRENT TASK's navigation map).
+       - Every data-action value matches an action in CURRENT TASK SPEC.
+       - No type="submit" button exists.
+       - No onclick= attribute exists.
+       Fix any violations before replying.
+
+    8. Reply with ONE line: path written, controls wired (data-goto N + data-action N),
+       any SPEC items you could not build.
+
+    Other builders share the step file: if it already exists, leave it as is.
+    Your reply is enough.
+
+    HOW TO DELIVER
+    Your work file is your task's target (parts/<screen-id>.html). Then deliver the
+    step file the engine asks for with ONE line. It never holds the work.
+  tools:
+    read_files: true
+    write_files: true
+    exec: false
+    tool_sets: []
+  gates: []
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Step 7 — Assembler
+# Reads all parts/*.html fragments and the template shell from example.html,
+# then combines them into a single prototype.html with the full dispatcher,
+# shared utilities, and all screen sections.
+# ─────────────────────────────────────────────────────────────────────────────
+- strategy: single_shot
+  instance_id: pb-assemble
+  name: Assembler
+  depends_on:
+    - custom-agent:pb-build
+  model:
+    model: eu.anthropic.claude-sonnet-5-5
+  agent: custom-agent
+  prompt: |
+    You are the Assembler.
+
+    All screens have been built as individual fragments in parts/<screen-id>.html.
+    Your job is to combine them with the template's shell (head CSS, shared JS,
+    chrome) from example.html into one complete standalone prototype.html.
 
     5 phases, in order.
 
     HOW TO WRITE A PATH
-    Paths have no leading slash. If a tool gives you a path starting with `/`, drop it.
+    Paths have no leading slash. Drop any leading `/` a tool gives you.
 
     HOW TO READ A LARGE FILE
-    NEVER read_file .context/design/template/example.html or prototype.html whole —
-    they are over 100 KB. Use grep to find the section you need, then read_file with
-    offset a few lines above and limit of 80-150 lines. Page through the whole file
-    only if you need the complete content — offset + limit until a page is shorter
-    than your limit.
+    NEVER read example.html whole. Use grep to find sections, then read_file with
+    offset + limit 80-150 lines. Page through fully only when you need the complete
+    shell content.
 
-    Phase 1 — Read the spec and the template source
+    Phase 1 — Read the shell from example.html
 
     Steps
-    1. read_file `build/spec.md` to its end (page it — it may be 200+ lines).
-       This is your build contract. Follow it exactly, screen by screen.
-    2. read_file `build/screen-map.json` — note the `hard_rules` array AND the
-       `template_form` field. If `template_form` says "SPA" or "no section.screen",
-       you are on the SPA path. Otherwise standard.
-    3. Check spec.md for a "Design Tokens" section; if present, extract all CSS
-       custom properties. If absent, read_file `.context/design/design-system.md`
-       (if it exists) to get color, typography, and spacing tokens.
-    4. Read `.context/design/template/example.html`:
-       a. grep for `<script` — read every script block to understand the dispatcher,
-          state machine, utility functions (EUR, E, persist, defaultState, showModal,
-          toast, lines), and show() / __prototype.show() implementation.
-       b. Read the head/CSS block for all CSS classes and CSS variables.
-       c. For each screen in build/spec.md, grep for its template equivalent in
-          example.html. Read that screen's markup (offset + 150 lines) as your base.
-    4. If `.context/design/template/assets/template.html` exists, read it to
-       understand the shell chrome (demo-bar, masthead, nav, footer) — this chrome
-       is in example.html and must be PRESERVED exactly.
+    1. read_file `build/screen-map.json` — note:
+       - `template_form` (SPA or standard)
+       - `hard_rules` — apply every one
+       - Ordered screen list from `mapping` + `new_screens` (this is the assembly order)
+    2. read_file `build/spec.md` — note the Navigation Map (all screen transitions),
+       Data Model (STATE_KEY, defaultState shape), and every data-action case needed.
+    3. Read `.context/design/template/example.html` in sections:
+       a. grep for `<head` — read the full <head> block (CSS, meta tags, title).
+       b. grep for `<script` — read ALL inline script blocks:
+          - The STATE_KEY constant and defaultState() function
+          - The show() / __prototype.show() function
+          - ALL utility functions (EUR, E, persist, toast, showModal, lines, etc.)
+          - The central click dispatcher switch
+          - Any initialisation code (DOMContentLoaded, localStorage restore)
+          - Helper functions (totals, buildOrder, flightBlock, etc.)
+          Note: for SPA templates, the dispatcher may be scattered. Collect ALL of it.
+       c. grep for `<body` and the opening chrome elements (demo-bar, masthead, nav).
+       d. grep for `</body` and the closing chrome elements (footer, shared overlays).
+    4. ls `parts/` — list every screen fragment file.
 
-    Phase 2 — Implement each screen from the spec
+    Phase 2 — Read all screen fragments
 
-    FIRST: check the `template_form` value from screen-map.json:
-    - "SPA" / "no section.screen" → SPA PATH: example.html renders screens via JS
-      functions, not `<section>` tags. For each screen, spec.md describes a STATIC
-      `<section class="screen" id="...">` to build. Use spec.md's markup description
-      as the primary source; reference example.html's JS functions for CSS classes
-      and component patterns only.
-    - Standard → STANDARD PATH: example.html has `<section class="screen">` elements.
-      Use them as markup base, adapt content per spec.md.
+    For each file listed in parts/:
+    - read_file `parts/<screen-id>.html` (each fragment is small, read in full)
+    - Note any inline <script> blocks AT THE END of the fragment (screen-specific JS)
+    - Collect all data-action values not already covered by the template dispatcher
 
-    For each screen in build/spec.md (in order, consumer then backend):
+    Phase 3 — Extend the dispatcher
 
-    a. MAPPED screens — take the template screen's markup from example.html:
-       - Keep: all CSS classes, layout containers, component patterns from the template.
-       - Replace: every value with spec.md's exact specification (headings, labels,
-         options, data values). Use verbatim text from the spec.
-       - Update: screen IDs per spec.md. When an ID changes, grep the ENTIRE file
-         for the old ID and update every stepper button that references it across
-         all consumer screen sections.
-       - Remove: template fields/buttons not in spec.md's Fields/Actions tables.
-       - Add: spec.md fields/buttons not in the template, using the closest template
-         component pattern with the same CSS classes.
+    From your spec.md Navigation Map and the parts you read:
+    1. List every data-action value across ALL screen fragments.
+    2. Compare with the dispatcher cases already in example.html.
+    3. For each NEW data-action not in the original dispatcher, add a case:
+       case '<action>': {
+         // from spec.md "Business logic" for this action
+         persist();
+         break;
+       }
+    4. Keep ALL original dispatcher cases — removing them breaks the template.
 
-    b. NEW screens — spec.md names the clone source:
-       - Take the clone source screen's full markup from example.html.
-       - Replace ALL content with spec.md's specification for this screen.
-       - Keep CSS classes, layout containers, and component patterns unchanged.
-       - Assign the new screen ID from spec.md.
+    Phase 4 — Assemble prototype.html
 
-    c. REMOVED screens — spec.md's "Removed Template Screens" table names them:
-       - Omit these sections entirely.
-       - Fix every data-goto that pointed to them using the spec's redirect targets.
-
-    Phase 3 — Wire the dispatcher and state machine
-
-    spec.md has a "Data Model" section (state shape + calculation formulas) and a
-    "Navigation Map" section (all transitions). Implement both exactly:
-
-    1. Use the exact STATE_KEY and defaultState() from spec.md "Data Model".
-    2. Every dispatcher case from spec.md's Actions tables — implement every case.
-       - data-goto cases: call show() and update stepper/sidebar active state.
-       - data-action cases: read fields, update state, persist(), side effects.
-    3. Implement all business logic formulas from spec.md's "Business logic" and
-       "Screen-specific JS" sections — use the exact JS written in the spec.
-    4. NEVER rewrite show(). Use it as-is from the template.
-
-    Phase 4 — Pre-write self-check (mandatory before writing prototype.html)
-
-    Work through spec.md's Navigation Map table row by row:
-    1. Every data-goto value exists as a section.screen[id]. List orphans → fix.
-    2. Every data-action value has a dispatcher case. List missing → add now.
-    3. Search for type="submit" → count must be 0.
-    4. Search for addEventListener('submit' → count must be 0.
-    5. Search for onclick= → count must be 0.
-    6. Search for <script src= → count must be 0.
-    7. Every consumer screen: stepper has all N step buttons with correct data-goto.
-    8. Every <select>: CSS sets appearance:none and SVG chevron background-image.
-
-    Report the check results in your reply before writing.
-
-    Phase 5 — Write prototype.html
-
-    IMPORTANT: you are ADAPTING example.html, not building from scratch.
-    The template's shell (head CSS, dispatcher script, chrome) is correct in
-    example.html. Preserve it verbatim. Your changes: replace/add/remove
-    sections per spec.md and Phase 2 above.
+    Rules
+    - PRESERVE the template shell exactly: head CSS, all utility functions, show(),
+      the dispatcher (extended), chrome elements (demo-bar, masthead, nav, footer).
+    - NEVER call route(), render(), or progressTo() — forbidden for assembled prototypes.
+    - Insert ALL screen sections in this order:
+      1. Consumer screens in flow order (from screen-map.json mapping order)
+      2. New/cloned screens
+      3. Backend screens
+    - Each screen's section appears ONCE. No duplicates.
+    - Any inline <script> blocks from parts (screen-specific JS) are appended
+      AFTER all section elements, before </body>.
 
     Steps
-    1. Assemble: example.html's full head and shell + all adapted/new sections.
-    2. write_file `prototype.html` (one call, the complete file).
-       write_file cannot overwrite an existing file; use edit_file if it already exists.
-    3. Reply with one line: screens in output, controls wired (data-goto + data-action),
-       pre-write checks (N/total), any unresolved items.
+    1. Build the complete file in memory:
+       <head block from example.html>
+       <body>
+         <shell chrome from example.html — demo-bar, masthead, nav>
+         <main or equivalent wrapper from example.html>
+           <all screen <section> elements in order>
+         </main>
+         <footer from example.html>
+         <shared overlays / dialogs from example.html>
+         <shell script block: STATE_KEY, defaultState, show(), utilities, EXTENDED dispatcher>
+         <screen-specific <script> blocks from parts>
+       </body>
+       </html>
+
+    2. Pre-write checks (fix before writing):
+       a. All data-goto values resolve to a section.screen[id]. Orphans → fix.
+       b. All data-action values have a dispatcher case. Missing → add.
+       c. No type="submit" buttons. Count must be 0.
+       d. No onclick= attributes. Count must be 0.
+       e. No <script src=. Count must be 0.
+       f. Every consumer screen has the stepper with all N step buttons.
+
+    3. write_file `prototype.html` (one call, the complete assembled file).
+       write_file cannot overwrite; use edit_file if the file already exists.
+
+    Phase 5 — Verify and report
+
+    Steps
+    1. grep `prototype.html` for `type="submit"` → count must be 0.
+    2. grep `prototype.html` for `onclick=` → count must be 0.
+    3. Count `<section class="screen"` occurrences — must equal screen count from spec.md.
+    4. Reply with one line: screens assembled, controls wired (data-goto + data-action),
+       dispatcher cases (original + new), pre-write checks passed/total.
 
     HOW TO DELIVER
     Your work file is prototype.html. Then deliver the step file the engine asks
@@ -684,7 +1045,7 @@ steps:
   gates: []
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Step 4 — Browser Validator + Repair Loop
+# Step 8 — Browser Validator + Repair Loop
 # Opens prototype.html in a real browser, audits every interactive element,
 # repairs failures, and writes build/validation-report.md.
 # Runs up to 5 repair rounds; exits early when zero faults are found.
@@ -693,7 +1054,7 @@ steps:
   instance_id: pb-verify
   name: Validator
   depends_on:
-    - custom-agent:pb-adapt
+    - custom-agent:pb-assemble
   model:
     model: eu.anthropic.claude-sonnet-5-5
   agent: custom-agent

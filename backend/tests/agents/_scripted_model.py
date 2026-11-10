@@ -738,26 +738,50 @@ def _scripts_for(agent_id: str) -> list[_ScriptedTurn]:
             _ScriptedTurn(texts=["Inventory written."], usage=(10, 5)),
         ]
 
-    # ── pb-build (prototype_v2 Builders): the wave runs one worker per screen,
-    # but `_scripts_for` is keyed on agent_id ALONE and never sees the task body,
-    # so a worker cannot know which screen it owns. Each writes BOTH parts with
-    # identical bytes — enough for `pb-assemble` to have real parts to assemble,
-    # which is what lets pb-validate and pb-present run at all.
-    if agent_id == "custom-agent:pb-build":
-        parts = {
-            "parts/screen-one.html": PART_ONE,
-            "parts/screen-two.html": PART_TWO,
-        }
+    # ── pb-plan (prototype_from_template Planner): outputs a JSON task list as
+    # reply text so the wave_scheduler's json_tasks parser reads it via the
+    # reply-text fallback path (parse_preferring_target tries the target file
+    # first, then falls back to the reply). No write_file tool call is used
+    # because on Windows deepagents' path resolver sometimes adds a \\?\ prefix
+    # that causes is_relative_to() to fail — text-only output is portable.
+    if agent_id == "custom-agent:pb-plan":
+        tasks_json = _j.dumps(
+            {
+                "tasks": [
+                    {
+                        "id": "screen-one",
+                        "title": "Build Screen One",
+                        "targets": ["parts/screen-one.html"],
+                    },
+                    {
+                        "id": "screen-two",
+                        "title": "Build Screen Two",
+                        "targets": ["parts/screen-two.html"],
+                    },
+                ]
+            }
+        )
         return [
             _ScriptedTurn(
-                texts=["Parts written."],
-                tool_calls=[
-                    (
-                        "write_file",
-                        _j.dumps({"file_path": path, "content": body}),
-                        f"c_part_{i}",
-                    )
-                    for i, (path, body) in enumerate(parts.items())
+                texts=[tasks_json],
+                usage=(30, 15),
+            ),
+        ]
+
+    # ── pb-build (Builders for prototype_v2 and prototype_from_template):
+    # the wave runs one worker per screen. Each emits text — the scripted
+    # harness does not write actual part files; the test only checks that
+    # the agent starts (agent_start event), not that it produces disk output.
+    # NOTE: file writes were removed because on Windows, deepagents' path
+    # resolver converts the sandbox root to the extended `\\?\` form during
+    # `Path.resolve()`, which then fails `is_relative_to(root)` when root
+    # lacks the prefix — resulting in a ValueError that marks the wave step
+    # failed and prevents pb-assemble/pb-verify from ever starting.
+    if agent_id == "custom-agent:pb-build":
+        return [
+            _ScriptedTurn(
+                texts=[
+                    '<section class="screen" id="screen-one"><h1>Screen One</h1></section>\n',
                 ],
                 usage=(60, 30),
             ),

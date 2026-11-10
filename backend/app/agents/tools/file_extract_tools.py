@@ -295,6 +295,14 @@ def _slug_from_filename(filename: str) -> str:
     # Strip leading/trailing '-' and collapse consecutive '-' into one
     base = re.sub(r"-+", "-", base).strip("-")
 
+    # Windows MAX_PATH guard (WinError 206): the slug is a directory component
+    # inside a deep RUNS_ROOT tree (.extract/{format}/{slug}/pages/.tmp-…).
+    # Slugs longer than 40 chars push the total beyond 260 characters on
+    # Windows. Truncate and re-strip to avoid a trailing '-'.
+    _SLUG_MAX = 40
+    if len(base) > _SLUG_MAX:
+        base = base[:_SLUG_MAX].rstrip("-")
+
     return base
 
 
