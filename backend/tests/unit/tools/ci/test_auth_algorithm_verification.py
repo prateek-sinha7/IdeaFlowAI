@@ -113,6 +113,11 @@ class TestCognitoRS256Verification:
         monkeypatch.setattr(settings, "COGNITO_USER_POOL_ID", "test-pool-123")
         monkeypatch.setattr(settings, "COGNITO_REGION", "us-east-1")
         monkeypatch.setattr(settings, "COGNITO_CLIENT_ID", "test-client-id")
+        # Isolate from the process-wide JWKS cache: every test here reuses
+        # kid "test-key-1" with a fresh RSA key, so a cached entry from an
+        # earlier test (or another module on the same xdist worker) would
+        # fail signature verification.
+        monkeypatch.setattr(cognito, "_jwks_cache", cognito._JwksCache())
         return settings
 
     def test_cognito_token_uses_rs256(self, rsa_key):
