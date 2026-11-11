@@ -118,13 +118,25 @@ def test_existing_figma_frame_upload_tests_unaffected() -> None:
     import sys
     from pathlib import Path
 
+    import os
+
+    from tools.ci.offline_guards import CREDENTIAL_ENV_PATTERNS
+
     backend = Path(__file__).resolve().parents[3]
     target = str(backend / "tests" / "integration" / "api" / "test_figma_frames_api.py")
+    # The child inherits this worker's environment. Another test sharing the
+    # xdist worker may have left provider credentials in os.environ; under
+    # CI_OFFLINE the child's session guard (tests/conftest.py) then aborts every
+    # test. The figma tests need no credentials, so hand the child a clean env.
+    child_env = {
+        k: v for k, v in os.environ.items() if k not in CREDENTIAL_ENV_PATTERNS
+    }
     result = subprocess.run(
         [sys.executable, "-m", "pytest", target, "-q", "--no-header", "--tb=short"],
         capture_output=True,
         text=True,
         cwd=str(backend),
+        env=child_env,
     )
     assert result.returncode == 0, (
         f"Existing figma frame upload tests FAILED (exit={result.returncode}):\n"
