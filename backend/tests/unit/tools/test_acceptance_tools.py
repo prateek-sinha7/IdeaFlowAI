@@ -471,3 +471,75 @@ def test_check_xml_refuses_dtd_and_entities():
     bomb = '<?xml version="1.0"?><!DOCTYPE r [<!ENTITY a "x">]><r>&a;</r>'
     assert "DOCTYPE/ENTITY" in at.check_xml(bomb, {"well_formed": True})
     assert at.check_xml('<?xml version="1.0"?><r/>', {"well_formed": True}) is None
+
+
+# --- stuck tests: fix-attempt history (no browser) ---------------------------------
+
+
+def _res(rid, status="fail", step="case 'c' step 2: expect_text out"):
+    return {"id": rid, "status": status, "failing_step": step, "observed": "o"}
+
+
+def test_fail_history_marks_stuck_after_two_targeted_attempts():
+    h = at.update_fail_history(None, [_res("U1")], full=True)
+    assert h["U1"]["attempts"] == 0
+    for n in (1, 2):
+        part = [_res("U1")]
+        h = at.update_fail_history(h, part, full=False)  # fixer targets U1
+        assert part[0]["stuck"] is False
+        full = [_res("U1")]
+        h = at.update_fail_history(h, full, full=True)  # still fails at the same step
+        assert full[0]["fix_attempts"] == n
+    assert full[0]["stuck"] is True
+
+
+def test_fail_history_full_runs_alone_do_not_count():
+    h = None
+    for _ in range(5):
+        r = [_res("U1")]
+        h = at.update_fail_history(h, r, full=True)
+    assert r[0]["fix_attempts"] == 0 and r[0]["stuck"] is False
+
+
+def test_fail_history_new_step_resets_and_pass_clears():
+    h = at.update_fail_history(None, [_res("U1")], full=True)
+    for _ in range(2):
+        h = at.update_fail_history(h, [_res("U1")], full=False)
+        h = at.update_fail_history(h, [_res("U1")], full=True)
+    moved = [_res("U1", step="case 'c' step 5: expect_xml out")]
+    h = at.update_fail_history(h, moved, full=True)
+    assert moved[0]["fix_attempts"] == 0 and moved[0]["stuck"] is False
+    h = at.update_fail_history(h, [_res("U1", status="pass")], full=True)
+    assert "U1" not in h
+
+
+def test_fail_history_ignores_garbage_input():
+    r = [_res("U1")]
+    assert at.update_fail_history("nonsense", r, full=True) == {
+        "U1": {"signature": r[0]["failing_step"], "attempts": 0, "targeted": False}
+    }
+
+
+def test_schema_rejects_xpath_functions_the_runner_cannot_evaluate(sb):
+    base = {"verb": "expect_xml", "target": "out", "well_formed": True}
+    for xp in ("count(//Item)", "//*[local-name()='Item']", "//Item/text()"):
+        probs = at._validate_step(sb, {**base, "xpath_text": {xp: "1"}})
+        assert probs and "cannot be evaluated" in probs[0], (xp, probs)
+    ok = {"//Item": "hello", "/Doc/Item/@id": "7", "//ns:Item[@id='7']": "hello"}
+    assert at._validate_step(sb, {**base, "xpath_text": ok}) == []
+
+
+@pytest.mark.allow_io("drives real headless Chromium")
+def test_runner_writes_history_and_flags_stuck(sb, _chromium_ok):
+    _setup_run(sb)
+    _run(sb)  # first detection
+    for _ in range(2):
+        _run(sb, "G3")  # a fixer works on G3 (page unchanged: it stays failing)
+        out = _run(sb)
+    g3 = next(f for f in out["failures"] if f["id"] == "G3")
+    assert g3["stuck"] is True and g3["fix_attempts"] == 2
+    assert next(f for f in out["failures"] if f["id"] == "G2")["stuck"] is False
+    by = {r["id"]: r for r in _trace(sb)["results"]}
+    assert by["G3"]["stuck"] is True
+    hist = json.loads((sb.root / ".goal/fail-history.json").read_text())
+    assert hist["G3"]["attempts"] == 2 and "G1" not in hist

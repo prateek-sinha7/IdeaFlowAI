@@ -950,16 +950,32 @@ steps:
 
     1. Read `.goal/trace.json` (written by `run_acceptance`). Work list: results with status `fail` or `error`.
        No trace or nothing failing → reply exactly "nothing to fix".
-    2. Per failing id: read its acceptance test (`failing_step`, `observed`), its ledger row and spec section. Use
-       `page_outline` to find the code; read only that region.
-    3. Fix the cause with `edit_file` (smallest change). Fix the product, never the test. If the test contradicts the
-       ledger row, say so in your reply with the row text — do not edit the test.
-    4. `run_acceptance("<the ids you fixed>")` until they pass, then `run_acceptance("<use-case prefix>")` for each
-       use case you touched (e.g. "U6-") so nothing that passed now fails.
-    5. Never write or edit `.goal/trace.json` or `.goal/acceptance/*`. Write what you did to `.goal/fix-notes.md`
-       (append: pass number, id, cause, change).
+       Read `.goal/fix-notes.md` and `.goal/blocked.json` when they exist. Never repeat an approach the notes
+       record as tried, and never undo a change they record.
+    2. A result with `"stuck": true` has already failed the same way after two fix attempts. Do not edit the page
+       for it. Record it in `.goal/blocked.json` (step 6) and move on.
+    3. Per other failing id: read its acceptance test (`failing_step`, `observed`), its ledger row and spec section.
+       Use `page_outline` to find the code; read only that region.
+    4. Fix the cause with `edit_file` (smallest change). Fix the product, never the test. If the product already
+       meets the ledger row and the test itself cannot pass (wrong expectation, a check the runner cannot
+       evaluate, a contradiction with the spec), do not edit the page to satisfy it: record it in
+       `.goal/blocked.json` (step 6).
+    5. Run `run_acceptance("<id>")` at least once for every failing id you worked on, fixed or not — this is how
+       an attempt is counted. Then `run_acceptance("<use-case prefix>")` for each use case you touched
+       (e.g. "U6-") so nothing that passed now fails.
+    6. `.goal/blocked.json` is `{"items": [...]}`, one item per id you cannot fix in the page (update an existing
+       item for the same id instead of adding a second):
+       `{"id", "category": "test_defect" | "runner_limitation" | "spec_conflict" | "needs_input" | "product",
+       "failing_step", "evidence": what you checked and saw, "how_to_fix": the exact change needed and where
+       (for a test: the replacement step as JSON), "revision_request": one or two sentences a person can paste
+       into a revision run to resolve it}`.
+    7. Never write or edit `.goal/trace.json`, `.goal/fail-history.json` or `.goal/acceptance/*`. Append what you
+       did to `.goal/fix-notes.md`: pass number, id, cause, change (or "blocked: <category>").
 
-    Reply with one line per id: fixed / not fixed (why).
+    If a retry message asks for a different answer, that means a different approach for an id that is not stuck,
+    or recording an id in `.goal/blocked.json` — never undoing an earlier change.
+
+    Reply with one line per id: fixed / not fixed (why) / blocked (category).
 
     # Goal — Executable Acceptance Tests
 
@@ -1192,7 +1208,7 @@ steps:
     .goal/trace.json; if there is none, reply exactly "nothing to fix". Use page_outline, fix with edit_file,
     re-run with run_acceptance. Never write .goal/trace.json or the acceptance files. Fix the cause inside
     prototype.html; never create another page file and never redirect or navigate the page elsewhere.
-  write_paths: ["prototype.html", ".goal/fix-notes.md", "fix-*.md"]
+  write_paths: ["prototype.html", ".goal/fix-notes.md", ".goal/blocked.json", "fix-*.md"]
   edit_only: ["prototype.html"]
   tools:
     read_files: true
@@ -1217,13 +1233,15 @@ steps:
     2. `ledger_check` mode `trace_fresh` must be clean (runner-written, current page, full run, every testable id).
        If it is not, run `run_acceptance("all")` again — never hand-write results.
     3. Look at the page as a person once: light and dark, 1024 px wide. Anything broken that no test caught: name it
-       in your reply with the ledger id it belongs to (the fix step reads your reply as feedback).
+       in your reply with the ledger id it belongs to (the fix step reads your reply as feedback). For failing tests,
+       name the id and the trace's failing step only — do not guess at causes or tell the fix step what to change.
     3b. Check the page wears the chosen design: read `.context/design/design-system.md` and
        `.context/design/template/SKILL.md` (when present). The template's chrome and layout must be there and only the
        design system's colours and fonts used. Name every mismatch in your reply the same way.
-    4. Decide from the trace counts only:
-       final reply is exactly one line, no markdown — `{"decision": "ok"}` when no result is `fail` or `error`,
-       otherwise `{"decision": "retry"}`.
+    4. Decide from the trace and `.goal/blocked.json` only:
+       final reply is exactly one line, no markdown — `{"decision": "retry"}` when any `fail` or `error` result is
+       not `"stuck": true`, or is stuck but has no item in `.goal/blocked.json`; otherwise `{"decision": "ok"}`
+       (stuck, recorded ids are reported as open issues, not retried).
 
     # Goal — Executable Acceptance Tests
 
@@ -1374,7 +1392,8 @@ steps:
     Look at the page only through run_acceptance and page_outline; never open the app's own web address
     (localhost:3000 needs a login and is not the page).
     Your final reply is exactly one line, no markdown:
-    {"decision": "ok"} when no result is fail or error, otherwise {"decision": "retry"}.
+    {"decision": "retry"} when a fail or error result is not stuck, or is stuck without an item in
+    .goal/blocked.json; otherwise {"decision": "ok"}.
   tools:
     read_files: true
     write_files: false
@@ -1390,8 +1409,9 @@ steps:
         target: fix
         feedback: >-
           Verify found failing requirements. Read .goal/trace.json (written by run_acceptance) and fix every
-          result with status fail or error, then hand back to verify.
-    loop_max_iterations: 3
+          result with status fail or error that is not stuck; record every stuck one in .goal/blocked.json.
+          Then hand back to verify.
+    loop_max_iterations: 10
 
 - agent: custom-agent
   instance_id: report
@@ -1408,10 +1428,12 @@ steps:
     2. `ledger_check` mode `trace_fresh` must be clean (runner-written, current page, full run, every testable id).
        If it is not, run `run_acceptance("all")` again — never hand-write results.
     3. Look at the page as a person once: light and dark, 1024 px wide. Anything broken that no test caught: name it
-       in your reply with the ledger id it belongs to (the fix step reads your reply as feedback).
-    4. Decide from the trace counts only:
-       final reply is exactly one line, no markdown — `{"decision": "ok"}` when no result is `fail` or `error`,
-       otherwise `{"decision": "retry"}`.
+       in your reply with the ledger id it belongs to (the fix step reads your reply as feedback). For failing tests,
+       name the id and the trace's failing step only — do not guess at causes or tell the fix step what to change.
+    4. Decide from the trace and `.goal/blocked.json` only:
+       final reply is exactly one line, no markdown — `{"decision": "retry"}` when any `fail` or `error` result is
+       not `"stuck": true`, or is stuck but has no item in `.goal/blocked.json`; otherwise `{"decision": "ok"}`
+       (stuck, recorded ids are reported as open issues, not retried).
 
     # Your task
 
@@ -1422,6 +1444,9 @@ steps:
        number and page hash.
     3. The trace matrix: id | requirement (short) | spec section | task | test | result | evidence.
     4. Every id that is not pass, named, with the trace's failing step and observation.
+    4b. A section "Open issues — resolve with a revision" built from `.goal/blocked.json` (and any stuck trace
+       result missing from it): per id — the requirement, what fails, the category, how to fix it, and the
+       `revision_request` text the user can paste into a revision run. Say "None" when there are none.
     5. Missing inputs (.goal/missing.json), anything the gap analysis left open (.goal/gaps.json) and the
        reviewer's decisions.
     `ledger_check` mode `report` must be clean. Reply with the totals line.

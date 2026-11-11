@@ -17,6 +17,7 @@ import { ReadOnlyVersionBanner } from "./ReadOnlyVersionBanner";
 // deliverable renderer (ND-G) with a real-filename URL bar (ND-D) + the "Renders
 // as" segmented type switch. A passive frame — no content rendering here.
 import { PreviewChrome, RendersAsSwitch } from "./PreviewChrome";
+import { liveDraftStage, pickLiveDraftPath } from "./liveDraft";
 import { useTheme } from "@/hooks/useTheme";
 // Phase 39 (RUNUI-06/07) — the mock's right-column run header (Version menu /
 // Share / Download / status badge) mounts above the tab row. It supersedes the
@@ -1244,6 +1245,35 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
   //   • history path — the reopened run's persisted status ("failed"/"cancelled").
   const isStillRunning = !!(isStreaming || pipelineState?.isRunning);
   const isTerminal = !isStillRunning;
+
+  // Live draft — while the run builds and no final output has arrived, show the
+  // main output file from the workspace (prototype.html, slides.html, …). It is
+  // re-read when a task completes or the step changes, not on every save, so the
+  // view does not flicker through half-applied edits.
+  const [liveDraftState, setLiveDraft] = useState<{ runId: string; path: string; content: string; at: Date } | null>(null);
+  const [liveDraftNonce, setLiveDraftNonce] = useState(0);
+  const wantsLiveDraft = isStillRunning && shellOnScreen && !hasContent && !!unpinnedRunId;
+  const liveDraftKey = `${pipelineState?.protoCompletedTaskCount ?? 0}:${pipelineState?.currentAgentIndex ?? -1}:${liveDraftNonce}`;
+  const declaredDeliverable = pipelineState?.deliverableFilename;
+  useEffect(() => {
+    if (!wantsLiveDraft || !unpinnedRunId) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const token = getToken() || "";
+        const listing = await getRunSandbox(token, unpinnedRunId);
+        const path = pickLiveDraftPath(listing.files, declaredDeliverable);
+        if (!path || cancelled) return;
+        const content = await getRunSandboxFile(token, unpinnedRunId, path);
+        if (!cancelled) setLiveDraft({ runId: unpinnedRunId, path, content, at: new Date() });
+      } catch {
+        // Best effort: keep whatever is on screen (the previous draft or the placeholder).
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [wantsLiveDraft, unpinnedRunId, liveDraftKey, declaredDeliverable]);
+  const liveDraft = liveDraftState?.runId === unpinnedRunId ? liveDraftState : null;
+  const liveDraftStep = pipelineState?.agents?.[pipelineState.currentAgentIndex]?.name;
   const liveFailureSignal = shellOnScreen && !!(pipelineState?.failed || pipelineState?.degraded);
   // WR-01 (16 review): "degraded" is a terminal failure-signal status ISS-016 now
   // persists. A degraded run reopened with NO partial deliverable must surface the
@@ -2016,6 +2046,33 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
                 <PreviewChrome filename={previewFilename} versionLabel={headerVersionLabel} streaming>
                   {hasContent ? (
                     renderDeliverable()
+                  ) : liveDraft ? (
+                    <div className="flex h-full flex-col" data-testid="live-draft">
+                      <div className="flex items-center justify-between gap-3 border-b border-amber-200 bg-amber-50 px-3 py-1.5 text-[11px] text-amber-700">
+                        <span>
+                          <span className="font-medium">Work in progress</span>
+                          {" — "}
+                          {liveDraftStage(liveDraftStep, pipelineState?.protoCompletedTaskCount, pipelineState?.protoTotalTasks)}
+                          {" · updated "}
+                          {liveDraft.at.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                        </span>
+                        <button
+                          type="button"
+                          className="font-medium text-amber-700 hover:underline"
+                          onClick={() => setLiveDraftNonce((n) => n + 1)}
+                        >
+                          Refresh
+                        </button>
+                      </div>
+                      <div className="min-h-0 flex-1">
+                        <GenericDeliverablePreview
+                          deliverable={{ mimetype: mimetypeForPath(liveDraft.path, "text/html"), filename: liveDraft.path, content: liveDraft.content }}
+                          agentOutputs={effAgentOutputs}
+                          runId={unpinnedRunId ?? undefined}
+                          cacheablePdf={false}
+                        />
+                      </div>
+                    </div>
                   ) : (
                     <div className="flex h-full items-center justify-center">
                       <p className="text-xs text-ink-400">Building your deliverable…</p>

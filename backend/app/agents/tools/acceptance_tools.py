@@ -18,6 +18,11 @@ Trace: ``{"runner": "run_acceptance", "run_at", "page", "page_sha256", "pass", "
 sets ``partial`` true and leaves ``pass`` unchanged -- ``trace_fresh`` rejects partial traces,
 so the verifier has to run "all".
 
+Stuck tests: ``.goal/fail-history.json`` (written only by this runner) counts fix attempts per
+failing id. An attempt is a targeted (partial) run that named the id, followed by a full run where
+it still fails at the same step. After ``STUCK_AFTER_ATTEMPTS`` attempts the id's trace result
+carries ``"stuck": true``; a failure at a different step resets its count, a pass clears it.
+
 Never-raise discipline: every failure comes back as JSON. Time is capped per case and per call
 and the browser is always closed. The browser is launched the way ``render_check`` does
 (``chromium.launch(args=["--no-sandbox"])``) on the shared Playwright bridge loop, and the
@@ -42,6 +47,8 @@ RUN_ACCEPTANCE = "run_acceptance"
 PAGE_OUTLINE = "page_outline"
 
 TRACE_REL = ".goal/trace.json"
+HISTORY_REL = ".goal/fail-history.json"
+STUCK_AFTER_ATTEMPTS = 2
 LEDGER_REL = ".goal/ledger.json"
 ACCEPTANCE_DIR = ".goal/acceptance"
 DEFAULT_PAGE = "prototype.html"
@@ -217,6 +224,15 @@ def _validate_step(sandbox: Any, step: Any) -> list[str]:
             out.append(
                 "expect_xml: xpath_text must be an object of xpath -> expected text"
             )
+        else:
+            for xp in step.get("xpath_text") or {}:
+                if _xpath_compile(xp) is None:
+                    out.append(
+                        f"expect_xml: xpath {xp!r} cannot be evaluated by the runner "
+                        "(functions such as count(), local-name() or text() are not "
+                        "supported); use a plain element path, an [@attr='v'] predicate, "
+                        "or a contains check instead"
+                    )
     if verb == "eval" and not isinstance(step.get("js"), str):
         out.append("eval: js must be a string")
     if (
@@ -277,8 +293,11 @@ def check_xml(text: str, step: dict[str, Any]) -> str | None:
     return None
 
 
-def _xpath_first(root: ET.Element, xpath: str) -> str | None:
-    """Text (or attribute value) of the first match; namespaces already stripped."""
+def _xpath_compile(xpath: str) -> tuple[str | None, str, str | None] | None:
+    """Split an xpath into (absolute root tag or None, ElementTree path, attribute).
+
+    None when ElementTree cannot evaluate it (functions such as count() or local-name()).
+    """
     xp = xpath.strip()
     attr = None
     m = re.search(r"/@([\w.-]+)$", xp)
@@ -286,16 +305,32 @@ def _xpath_first(root: ET.Element, xpath: str) -> str | None:
         attr, xp = m.group(1), xp[: m.start()]
     # local-name()='x' and prefixes are not supported; plain paths and [@a='v'] predicates are.
     xp = re.sub(r"\b[\w.-]+:(?=[\w*])", "", xp)
+    root_tag = None
     if xp.startswith("//"):
         xp = "." + xp
     elif xp.startswith("/"):
         parts = xp.lstrip("/").split("/", 1)
-        if _local(parts[0].split("[")[0]) != root.tag:
-            return None
+        root_tag = _local(parts[0].split("[")[0])
         xp = parts[1] if len(parts) > 1 else "."
+    if xp != ".":
+        try:
+            ET.Element("probe").findall(xp)
+        except (SyntaxError, ValueError, KeyError, TypeError):
+            return None
+    return root_tag, xp, attr
+
+
+def _xpath_first(root: ET.Element, xpath: str) -> str | None:
+    """Text (or attribute value) of the first match; namespaces already stripped."""
+    compiled = _xpath_compile(xpath)
+    if compiled is None:
+        return None
+    root_tag, xp, attr = compiled
+    if root_tag is not None and root_tag != root.tag:
+        return None
     try:
         found = root.findall(xp) if xp != "." else [root]
-    except (SyntaxError, ValueError, KeyError):
+    except (SyntaxError, ValueError, KeyError, TypeError):
         return None
     if not found:
         return None
@@ -550,12 +585,62 @@ def _not_testable_reason(row: dict[str, Any]) -> str:
     return "marked not testable in the ledger"
 
 
+def _signature(result: dict[str, Any]) -> str:
+    """Where a failure happens: the failing step, else the start of the observation."""
+    return str(result.get("failing_step") or result.get("observed") or "")[:200]
+
+
+def update_fail_history(
+    history: Any, results: list[dict[str, Any]], full: bool
+) -> dict[str, Any]:
+    """Count fix attempts per failing id and mark ``stuck`` on the results (in place).
+
+    A partial run marks the ids it ran as targeted. A full run turns each targeted id that
+    still fails at the same step into one more attempt; a new failing step resets the count,
+    a pass or not-testable result drops the id. Returns the new history.
+    """
+    hist: dict[str, Any] = {
+        k: dict(v)
+        for k, v in (history if isinstance(history, dict) else {}).items()
+        if isinstance(v, dict)
+    }
+    for r in results:
+        rid = r["id"]
+        if r["status"] not in ("fail", "error"):
+            hist.pop(rid, None)
+            continue
+        sig = _signature(r)
+        h = hist.get(rid)
+        if h is None or h.get("signature") != sig:
+            h = {"signature": sig, "attempts": 0, "targeted": False}
+        if not full:
+            h["targeted"] = True
+        elif h.get("targeted"):
+            h["attempts"] = int(h.get("attempts") or 0) + 1
+            h["targeted"] = False
+        hist[rid] = h
+        r["fix_attempts"] = h["attempts"]
+        r["stuck"] = h["attempts"] >= STUCK_AFTER_ATTEMPTS
+    return hist
+
+
 def _summary(ok: bool, results: list[dict[str, Any]], **extra: Any) -> str:
     counts = {s: 0 for s in ("pass", "fail", "error", "not-testable")}
     for r in results:
         counts[r["status"]] = counts.get(r["status"], 0) + 1
     failures = [
-        {k: r[k] for k in ("id", "status", "test", "failing_step", "observed")}
+        {
+            k: r.get(k)
+            for k in (
+                "id",
+                "status",
+                "test",
+                "failing_step",
+                "observed",
+                "fix_attempts",
+                "stuck",
+            )
+        }
         for r in results
         if r["status"] in ("fail", "error")
     ]
@@ -664,6 +749,7 @@ async def _run_acceptance_async(sandbox: Any, ids: str, page: str) -> str:
     results.sort(key=lambda r: order[r["id"]])
 
     full = ids.strip().lower() == "all" or not ids.strip()
+    history = update_fail_history(read_json(sandbox, HISTORY_REL), results, full)
     prev = read_json(sandbox, TRACE_REL)
     prev = prev if isinstance(prev, dict) else {}
     prev_pass = prev.get("pass") if isinstance(prev.get("pass"), int) else 0
@@ -689,6 +775,9 @@ async def _run_acceptance_async(sandbox: Any, ids: str, page: str) -> str:
         tp = sandbox.path_for(TRACE_REL)
         tp.parent.mkdir(parents=True, exist_ok=True)
         tp.write_text(json.dumps(trace, indent=1), encoding="utf-8")
+        sandbox.path_for(HISTORY_REL).write_text(
+            json.dumps(history, indent=1), encoding="utf-8"
+        )
     except (ValueError, OSError) as exc:
         return _err(f"could not write {TRACE_REL}: {exc}")
     ok = all(r["status"] in ("pass", "not-testable") for r in results)
@@ -721,6 +810,8 @@ def run_acceptance(ids: str = "all") -> str:
     Each test case starts from a fresh page load. This tool WRITES .goal/trace.json
     itself ("all" = full trace, pass counter + 1; any other ids = merged partial trace,
     counter unchanged). Returns JSON: {"ok", "counts", "failures": [...], "pass_number"}.
+    A failure marked "stuck": true has survived two fix attempts at the same step; do not
+    edit the page for it again -- record it in .goal/blocked.json instead.
     """
     if _SANDBOX is None:
         return _err("no run sandbox bound")
