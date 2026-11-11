@@ -17,10 +17,8 @@ const RUNNING: RunningTurnView = {
   startedAt: 0,
   lastSeq: 0,
   activity: [],
-  checks: [],
+  steps: [],
   warnings: [],
-  text: "",
-  thinking: "",
   pendingDraft: null,
 };
 

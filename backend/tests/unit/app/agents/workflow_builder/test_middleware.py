@@ -296,6 +296,11 @@ async def test_awrap_tool_call_pairs_started_and_finished_when_tool_succeeds() -
         ("$ x\nexit code: 0\nhello", "success", "ok"),
         ("$ x\nexit code: 2\nboom", "success", "error"),
         ("$ x\nexit code: timed out\n", "success", "timed_out"),
+        (
+            "$ x\nexit code: none\nThe script did not finish because the turn stopped.",
+            "success",
+            "stopped",
+        ),
         ("Refused: not allowed", "success", "refused"),
         ("runner crashed", "error", "error"),
     ],
@@ -316,6 +321,26 @@ async def test_awrap_tool_call_maps_status_when_script_result_has_given_header(
 
     assert _of_type(turn.events, ToolFinished)[0].status == expected
     assert turn.finished[0].activity.status == expected
+
+
+async def test_awrap_tool_call_reports_timed_out_when_turn_cap_stopped_the_script() -> (
+    None
+):
+    turn = FakeTurnPort()
+    middleware = BuilderToolObserverMiddleware(turn, stopped_by_turn_cap=lambda: True)
+    handler = _Handler(
+        "$ x\nexit code: none\nThe script did not finish because the turn stopped."
+    )
+
+    await _call(
+        middleware,
+        "run_skill_script",
+        {"command": f"{_SCRIPTS}/selftest.py"},
+        handler,
+    )
+
+    assert _of_type(turn.events, ToolFinished)[0].status == "timed_out"
+    assert turn.finished[0].activity.status == "timed_out"
 
 
 async def test_awrap_tool_call_reports_ok_when_validator_exits_with_one() -> None:
@@ -372,7 +397,7 @@ async def test_awrap_tool_call_publishes_error_finish_and_reraises_when_handler_
 
 @pytest.mark.parametrize(
     ("capped", "expected"),
-    [(True, "timed_out"), (False, "error")],
+    [(True, "timed_out"), (False, "stopped")],
     ids=["turn-cap", "plain-cancel"],
 )
 async def test_awrap_tool_call_finishes_by_stop_reason_when_handler_is_cancelled(

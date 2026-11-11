@@ -71,6 +71,7 @@ from app.agents.workflow_builder.events import (
     BuilderEvent,
     CheckResult,
     CheckResultEvent,
+    CheckStep,
     ErrorEvent,
     LimitWarning,
     Outcome,
@@ -80,13 +81,16 @@ from app.agents.workflow_builder.events import (
     StopReason,
     Text,
     Thinking,
+    ThinkingStep,
     TokenUsage,
     ToolActivity,
     ToolFinished,
+    ToolsStep,
     TurnCompleted,
     TurnScoped,
     TurnStarted,
     TurnStatus,
+    TurnStep,
 )
 from app.agents.workflow_builder.events import ToolStarted as ToolStartedEvent
 from app.agents.workflow_builder.model_catalog_view import builder_models
@@ -147,6 +151,7 @@ from app.models.workflow_builder import (
     MESSAGE_STATUS_TOOL_ERROR,
     MESSAGE_STATUS_TOOL_OK,
     MESSAGE_STATUS_TOOL_REFUSED,
+    MESSAGE_STATUS_TOOL_STOPPED,
     WorkflowBuilderDraft,
     WorkflowBuilderMessage,
 )
@@ -165,6 +170,8 @@ __all__ = [
     "TurnRunState",
     "TurnRunner",
     "TurnStore",
+    "add_thinking_step",
+    "add_tool_step",
     "attach_task",
     "build_snapshot",
     "cancel_turn",
@@ -181,6 +188,7 @@ __all__ = [
     "stop_session_turn",
     "stop_user_turns",
     "status_for_stop",
+    "stored_steps",
     "truncate_result",
 ]
 
@@ -196,12 +204,45 @@ _TOOL_ROW_STATUSES: Final = frozenset(
         MESSAGE_STATUS_TOOL_OK,
         MESSAGE_STATUS_TOOL_ERROR,
         MESSAGE_STATUS_TOOL_REFUSED,
+        MESSAGE_STATUS_TOOL_STOPPED,
         MESSAGE_STATUS_TIMED_OUT,
     }
 )
 
 
 # --- Pure helpers ---------------------------------------------------------------------
+
+
+def add_thinking_step(steps: list[TurnStep], text: str) -> None:
+    """Add reasoning ``text`` to ``steps``: join the last step when it is thinking.
+
+    An empty ``text`` changes nothing.
+    """
+    if not text:
+        return
+    last = steps[-1] if steps else None
+    if isinstance(last, ThinkingStep):
+        steps[-1] = last.model_copy(update={"text": last.text + text})
+    else:
+        steps.append(ThinkingStep(text=text))
+
+
+def add_tool_step(steps: list[TurnStep], call_id: str) -> None:
+    """Add a started call to ``steps``: join the last step when it is a tool group.
+
+    A call id already in the last group is not added twice.
+    """
+    last = steps[-1] if steps else None
+    if isinstance(last, ToolsStep):
+        if call_id not in last.call_ids:
+            steps[-1] = last.model_copy(update={"call_ids": [*last.call_ids, call_id]})
+    else:
+        steps.append(ToolsStep(call_ids=[call_id]))
+
+
+def stored_steps(steps: list[TurnStep]) -> list[dict[str, Any]] | None:
+    """The JSON form of ``steps`` for the assistant row, or ``None`` when there are none."""
+    return [step.model_dump(mode="json") for step in steps] or None
 
 
 def truncate_result(text: str) -> str:
@@ -251,6 +292,8 @@ class LiveTurn:
         stage_seconds: Seconds spent in each finished stage.
         activity: Tool calls so far, running and finished.
         checks: Check results so far.
+        steps: Thinking, tool-call groups and checks in the order they were
+            published. Stored on the assistant row when the Turn ends.
         finished_calls: Finished tool calls, for the adherence record.
         tool_calls: Tool calls counted so far.
         gate_rejections: Server_Gate rejections so far.
@@ -282,6 +325,7 @@ class LiveTurn:
     stage_seconds: dict[Stage, float] = field(default_factory=dict)
     activity: list[ToolActivity] = field(default_factory=list)
     checks: list[CheckResult] = field(default_factory=list)
+    steps: list[TurnStep] = field(default_factory=list)
     finished_calls: list[AdherenceToolCall] = field(default_factory=list)
     tool_calls: int = 0
     gate_rejections: int = 0
@@ -425,6 +469,7 @@ class TurnStore(InputStore, Protocol):
         error_code: str | None = None,
         content: str = "",
         thinking: str | None = None,
+        steps: list[dict[str, Any]] | None = None,
         usage: dict[str, Any] | None = None,
         adherence: dict[str, Any] | None = None,
         revision: int | None = None,
@@ -603,7 +648,10 @@ class TurnRunner:
         match event:
             case StageChanged():
                 turn.set_stage(event.stage)
+            case Thinking():
+                add_thinking_step(turn.steps, event.text)
             case ToolStartedEvent():
+                add_tool_step(turn.steps, event.call_id)
                 turn.activity.append(
                     ToolActivity(
                         call_id=event.call_id,
@@ -617,16 +665,16 @@ class TurnRunner:
             case ToolFinished():
                 self._finish_activity(event)
             case CheckResultEvent():
-                turn.checks.append(
-                    CheckResult(
-                        source=event.source,
-                        verdict=event.verdict,
-                        errors=event.errors,
-                        warnings=event.warnings,
-                        attempt=event.attempt,
-                        attempts_left=event.attempts_left,
-                    )
+                check = CheckResult(
+                    source=event.source,
+                    verdict=event.verdict,
+                    errors=event.errors,
+                    warnings=event.warnings,
+                    attempt=event.attempt,
+                    attempts_left=event.attempts_left,
                 )
+                turn.checks.append(check)
+                turn.steps.append(CheckStep(check=check))
             case _:
                 pass
 
@@ -1372,6 +1420,7 @@ class _Final:
     stop_reason: StopReason | None
     content: str
     thinking: str | None
+    steps: list[dict[str, Any]] | None
     usage: dict[str, Any]
     adherence: dict[str, Any] | None
     error_code: str | None
@@ -1473,6 +1522,7 @@ def _persist_turn(
                 error_code=final.error_code,
                 content=final.content,
                 thinking=final.thinking,
+                steps=final.steps,
                 usage=final.usage,
                 adherence=final.adherence,
                 revision=turn.accepted_revision,
@@ -1541,6 +1591,7 @@ async def finalize_turn(
             stop_reason=reason,
             content=_reply_content(turn, run, reason),
             thinking="".join(run.thinking) or None,
+            steps=stored_steps(turn.steps),
             usage=turn.usage.model_dump(mode="json"),
             adherence=adherence_record.as_dict(),
             error_code=run.fatal.code if run.fatal is not None else None,

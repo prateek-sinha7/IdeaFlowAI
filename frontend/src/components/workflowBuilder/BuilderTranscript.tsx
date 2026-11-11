@@ -25,10 +25,10 @@ import { AssistantMark } from "@/components/chat/AssistantMark";
 import { USER_BUBBLE_CLASS, USER_BUBBLE_TEXT_CLASS } from "@/components/chat/chatStyles";
 import type { DraftRevisionOut, TranscriptMessage } from "@/types/workflowBuilder";
 
-import { BuilderMessage, SafeMarkdown } from "./BuilderMessage";
+import { BuilderMessage } from "./BuilderMessage";
 import { ActivityList, BuilderProgress } from "./BuilderProgress";
 import type { RunningTurnView, TurnView } from "./builderReducer";
-import { undoTargetMessageId } from "./builderSelectors";
+import { orderedStepsOf, undoTargetMessageId } from "./builderSelectors";
 
 export interface BuilderTranscriptProps {
   messages: readonly TranscriptMessage[];
@@ -56,9 +56,6 @@ export interface BuilderTranscriptProps {
 
 const BUBBLE_CLASS = `ml-auto max-w-[86%] break-words ${USER_BUBBLE_CLASS} ${USER_BUBBLE_TEXT_CLASS}`;
 
-const FOCUS_RING =
-  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-1";
-
 /** A builder reply's row: the assistant mark, then the reply's content. */
 function ReplyRow({ children }: { children: ReactNode }) {
   return (
@@ -73,9 +70,13 @@ function ReplyRow({ children }: { children: ReactNode }) {
 
 // --- Live parts -----------------------------------------------------------------------
 
-/** The turn in progress. Text and thinking appear only when this tab sent the message. */
+/** The turn in progress. Its steps appear in the order they happened. */
 function LiveReply({ turn }: { turn: RunningTurnView }) {
   const isOwnTab = turn.origin === "this_tab";
+  // Text and thinking reach only the tab that sent the message. Other tabs see tool calls and checks.
+  const steps = isOwnTab
+    ? turn.steps
+    : turn.steps.filter((step) => step.kind === "tools" || step.kind === "check");
   return (
     <article aria-label="Builder reply in progress" className="min-w-0">
       <ReplyRow>
@@ -84,26 +85,10 @@ function LiveReply({ turn }: { turn: RunningTurnView }) {
           label={turn.label}
           startedAt={turn.startedAt}
           activity={turn.activity}
-          checks={turn.checks}
+          steps={steps}
           warnings={turn.warnings}
         />
-        {isOwnTab ? (
-          <>
-            {turn.thinking.length > 0 ? (
-              <details className="rounded-[var(--radius-node)] border border-line-border bg-surface-card">
-                <summary
-                  className={`cursor-pointer rounded-[var(--radius-node)] px-3 py-1.5 text-[12px] font-semibold text-ink-700 ${FOCUS_RING}`}
-                >
-                  Thinking
-                </summary>
-                <p className="whitespace-pre-wrap break-words border-t border-line-divider px-3 py-2 font-sans text-[12px] leading-relaxed text-ink-600">
-                  {turn.thinking}
-                </p>
-              </details>
-            ) : null}
-            {turn.text.length > 0 ? <SafeMarkdown text={turn.text} /> : null}
-          </>
-        ) : (
+        {isOwnTab ? null : (
           <p className="font-sans text-[12px] font-semibold text-ink-700">Still working</p>
         )}
       </ReplyRow>
@@ -192,6 +177,9 @@ export function BuilderTranscript({
             : (revisions.find((entry) => entry.revision === message.revision) ?? null);
         const stopped = message.status === "timed_out" || message.status === "interrupted";
         const summary = message.activity_summary;
+        // Stored steps put thinking, tool calls and checks in the order they happened.
+        // A turn without them keeps the older layout (a flat list, a separate Thinking block).
+        const orderedSteps = orderedStepsOf(message);
         return (
           <ReplyRow key={message.id}>
             {summary !== null && summary.actions > 0 ? (
@@ -200,10 +188,12 @@ export function BuilderTranscript({
                 summary={summary}
                 activity={message.activity}
                 checks={[]}
+                steps={orderedSteps}
               />
             ) : null}
             <BuilderMessage
               message={message}
+              hideThinking={orderedSteps !== null}
               draft={draft}
               actionsDisabled={actionsDisabled}
               onRetry={message.status === "failed" ? onRetry : undefined}

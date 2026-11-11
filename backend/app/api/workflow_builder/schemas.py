@@ -30,6 +30,7 @@ from app.agents.workflow_builder.events import (
     TargetTrust,
     ToolActivity,
     TurnStatus,
+    TurnStep,
 )
 from app.api.capabilities import ModelCatalogEntry
 from app.core.config import settings
@@ -196,6 +197,9 @@ class TranscriptMessage(_Response):
     stop_reason: StopReason | None
     content: str
     thinking: str | None
+    # Assistant only: thinking, tool-call groups and checks in the order they happened.
+    # None for a turn from before they were stored, and for a turn with none.
+    steps: list[TurnStep] | None
     model_id: str
     effort: str | None
     skill_hash: str | None

@@ -427,6 +427,76 @@ def test_get_session_returns_transcript_in_order(env: _Env) -> None:
     assert [m["role"] for m in response.json()["messages"]] == ["user", "assistant"]
 
 
+def _assistant_json(env: _Env, session_id: str) -> dict[str, Any]:
+    response = env.client().get(f"{BASE}/sessions/{session_id}")
+    assert response.status_code == 200
+    return next(m for m in response.json()["messages"] if m["role"] == "assistant")
+
+
+def test_get_session_returns_steps_in_stored_order_when_the_turn_stored_them(
+    env: _Env,
+) -> None:
+    session_id = env.new_session()
+    turn_id, _ = env.run_turn(session_id, status=None)
+    steps = [
+        {"kind": "thinking", "text": "plan"},
+        {"kind": "tools", "call_ids": ["c1", "c2"]},
+        {
+            "kind": "check",
+            "check": {
+                "source": "skill_validator",
+                "verdict": "invalid",
+                "errors": 1,
+                "warnings": 0,
+                "attempt": 1,
+                "attempts_left": 1,
+            },
+        },
+        {"kind": "thinking", "text": "fix"},
+    ]
+    env.store.finalize_assistant(USER_ID, turn_id, status="completed", steps=steps)
+
+    assistant = _assistant_json(env, session_id)
+
+    assert assistant["steps"] == steps
+
+
+def test_get_session_returns_null_steps_when_the_turn_stored_none(env: _Env) -> None:
+    session_id = env.new_session()
+    env.run_turn(session_id, status="completed")
+
+    assert _assistant_json(env, session_id)["steps"] is None
+
+
+def test_get_session_returns_null_steps_for_the_user_message(env: _Env) -> None:
+    session_id = env.new_session()
+    env.run_turn(session_id, status="completed")
+
+    response = env.client().get(f"{BASE}/sessions/{session_id}")
+
+    user = next(m for m in response.json()["messages"] if m["role"] == "user")
+    assert user["steps"] is None
+
+
+def test_get_session_returns_null_steps_and_still_loads_when_stored_steps_are_malformed(
+    env: _Env,
+) -> None:
+    session_id = env.new_session()
+    turn_id, _ = env.run_turn(session_id, status=None)
+    env.store.finalize_assistant(
+        USER_ID,
+        turn_id,
+        status="completed",
+        content="the reply",
+        steps=[{"kind": "banana", "text": "x"}],
+    )
+
+    assistant = _assistant_json(env, session_id)
+
+    assert assistant["steps"] is None
+    assert assistant["content"] == "the reply"
+
+
 def test_get_session_returns_404_when_session_belongs_to_other_user(env: _Env) -> None:
     session_id = env.new_session(OTHER_USER_ID)
 

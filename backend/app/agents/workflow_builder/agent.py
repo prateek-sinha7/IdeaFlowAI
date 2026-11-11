@@ -244,4 +244,7 @@ def build_builder_runner(
         recover_tool_failures=False,
         # Req 42.4: assistant text must not reach the logs.
         log_model_output=False,
+        # Stream reasoning and reply text live. Without it the pinned
+        # langchain-aws returns each Claude 5 call in one piece at the end.
+        force_streaming=True,
     )

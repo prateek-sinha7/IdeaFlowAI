@@ -13,6 +13,7 @@ from hypothesis import strategies as st
 
 from agents.workflows import permission_caps as caps
 from agents.workflows.plan import CompiledWorkflow, Step, ToolPermissions
+from tests.property.budget import examples
 
 _ADMITTED = {"db", "user"}
 
@@ -35,7 +36,7 @@ def _plan(grants: list[list[str]], *, admits: bool) -> CompiledWorkflow:
     return CompiledWorkflow(id="demo", steps=steps, admits_connector_grants=admits)
 
 
-@settings(max_examples=200)
+@settings(max_examples=examples(200, quick=50))
 @given(trust=_trust, grant=_grant)
 def test_apply_cap_leaves_connectors_only_when_trust_is_db_or_user(
     trust: str | None, grant: list[str]
@@ -48,7 +49,7 @@ def test_apply_cap_leaves_connectors_only_when_trust_is_db_or_user(
         assert effective.connectors == []
 
 
-@settings(max_examples=200)
+@settings(max_examples=examples(200, quick=50))
 @given(trust=_trust, grant=_grant)
 def test_apply_cap_never_adds_a_name_when_resolving(
     trust: str | None, grant: list[str]
@@ -58,7 +59,7 @@ def test_apply_cap_never_adds_a_name_when_resolving(
     assert set(effective.connectors) <= set(grant)
 
 
-@settings(max_examples=200)
+@settings(max_examples=examples(200, quick=50))
 @given(trust=_trust)
 def test_connector_grants_permitted_matches_the_trust_set_when_any_value(
     trust: str | None,
@@ -66,7 +67,7 @@ def test_connector_grants_permitted_matches_the_trust_set_when_any_value(
     assert caps.connector_grants_permitted(trust) is (trust in _ADMITTED)
 
 
-@settings(max_examples=100)
+@settings(max_examples=examples(100, quick=50))
 @given(grant=_grant)
 def test_apply_cap_does_not_mutate_the_request_when_resolving(
     grant: list[str],
@@ -79,7 +80,7 @@ def test_apply_cap_does_not_mutate_the_request_when_resolving(
     assert request.connectors == grant
 
 
-@settings(max_examples=200)
+@settings(max_examples=examples(200, quick=50))
 @given(
     named=st.fixed_dictionaries(
         {"connectors": _grant},
@@ -95,7 +96,7 @@ def test_overlay_tool_slots_drops_connectors_when_plan_does_not_admit(
     assert overlay == {k: v for k, v in named.items() if k != "connectors"}
 
 
-@settings(max_examples=100)
+@settings(max_examples=examples(100, quick=50))
 @given(
     named=st.fixed_dictionaries(
         {"connectors": _grant}, optional={"write_files": _bools}
@@ -108,7 +109,7 @@ def test_overlay_tool_slots_keeps_every_slot_when_plan_admits(named: dict) -> No
     assert overlay is not named
 
 
-@settings(max_examples=200)
+@settings(max_examples=examples(200, quick=50))
 @given(grants=st.lists(_grant, min_size=1, max_size=5))
 def test_connector_tool_grants_is_empty_when_plan_does_not_admit(
     grants: list[list[str]],
@@ -116,7 +117,7 @@ def test_connector_tool_grants_is_empty_when_plan_does_not_admit(
     assert caps.connector_tool_grants(_plan(grants, admits=False)) == frozenset()
 
 
-@settings(max_examples=200)
+@settings(max_examples=examples(200, quick=50))
 @given(grants=st.lists(_grant, min_size=1, max_size=5))
 def test_connector_tool_grants_is_the_union_of_step_grants_when_plan_admits(
     grants: list[list[str]],
@@ -126,7 +127,7 @@ def test_connector_tool_grants_is_the_union_of_step_grants_when_plan_admits(
     assert caps.connector_tool_grants(_plan(grants, admits=True)) == expected
 
 
-@settings(max_examples=100)
+@settings(max_examples=examples(100, quick=50))
 @given(count=st.integers(min_value=1, max_value=5), admits=_bools)
 def test_connector_tool_grants_is_empty_when_no_step_names_a_connector(
     count: int, admits: bool
@@ -136,7 +137,7 @@ def test_connector_tool_grants_is_empty_when_no_step_names_a_connector(
     assert caps.connector_tool_grants(plan) == frozenset()
 
 
-@settings(max_examples=200)
+@settings(max_examples=examples(200, quick=50))
 @given(grant=_grant, pool_names=st.lists(_name, max_size=12))
 def test_bound_connector_tools_returns_only_granted_names_that_are_in_the_pool(
     grant: list[str], pool_names: list[str]
@@ -150,7 +151,7 @@ def test_bound_connector_tools_returns_only_granted_names_that_are_in_the_pool(
     assert len(bound) == len(allowed)
 
 
-@settings(max_examples=100)
+@settings(max_examples=examples(100, quick=50))
 @given(pool_names=st.lists(_name, max_size=12))
 def test_bound_connector_tools_returns_nothing_when_no_step_is_bound(
     pool_names: list[str],
@@ -160,7 +161,7 @@ def test_bound_connector_tools_returns_nothing_when_no_step_is_bound(
     assert caps.bound_connector_tools(None, pool) == []
 
 
-@settings(max_examples=200)
+@settings(max_examples=examples(200, quick=50))
 @given(grant=_grant, other=_grant)
 def test_bound_connector_tools_never_returns_a_name_the_step_did_not_grant(
     grant: list[str], other: list[str]
@@ -172,7 +173,7 @@ def test_bound_connector_tools_never_returns_a_name_the_step_did_not_grant(
     assert {id(tool) for tool in bound} <= {id(pool[n]) for n in grant}
 
 
-@settings(max_examples=100)
+@settings(max_examples=examples(100, quick=50))
 @given(grant=_grant)
 def test_without_connector_grants_empties_the_grant_and_keeps_other_levers(
     grant: list[str],

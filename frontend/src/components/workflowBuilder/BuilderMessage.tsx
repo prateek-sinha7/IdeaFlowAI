@@ -50,6 +50,11 @@ export interface BuilderMessageProps {
   onUndo?: () => void;
   /** Disables the three actions, for example while a turn runs. */
   actionsDisabled?: boolean;
+  /**
+   * Leave out the separate Thinking block because the reply's thinking is already
+   * shown in its ordered steps. The transcript sets it; the default shows the block.
+   */
+  hideThinking?: boolean;
 }
 
 // --- Markdown ------------------------------------------------------------------------
@@ -214,6 +219,7 @@ export function BuilderMessage({
   onContinue,
   onUndo,
   actionsDisabled = false,
+  hideThinking = false,
 }: BuilderMessageProps) {
   const [readingView, setReadingView] = useState(false);
 
@@ -241,7 +247,7 @@ export function BuilderMessage({
         </p>
       ) : null}
       <article aria-label="Builder reply" className="min-w-0">
-        {message.thinking ? (
+        {message.thinking && !hideThinking ? (
           <Fold label="Thinking">
             <p className="whitespace-pre-wrap break-words font-sans text-[12px] leading-relaxed text-ink-600">
               {message.thinking}

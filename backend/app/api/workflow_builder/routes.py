@@ -30,11 +30,16 @@ from typing import Any, Final
 
 from fastapi import APIRouter, Depends, Query, Response, status
 from fastapi.responses import JSONResponse
+from pydantic import TypeAdapter, ValidationError
 from sqlalchemy.orm import Session as DbSession
 
 from agents.capabilities.model_catalog import ModelCatalog
 from app.agents.workflow_builder.canonical import canonical_hash
-from app.agents.workflow_builder.events import DraftRestored, SessionDeleted
+from app.agents.workflow_builder.events import (
+    DraftRestored,
+    SessionDeleted,
+    TurnStep,
+)
 from app.agents.workflow_builder.model_catalog_view import (
     builder_models,
     check_chat_choice,
@@ -290,6 +295,25 @@ def _tool_activity(row: WorkflowBuilderMessage) -> ToolActivityOut:
     )
 
 
+_STEPS_ADAPTER: Final = TypeAdapter(list[TurnStep])
+
+
+def _stored_steps(row: WorkflowBuilderMessage) -> list[TurnStep] | None:
+    """The row's ordered steps, or ``None`` when it has none or they do not parse.
+
+    A stored value that fails validation must not stop the whole session from
+    loading, so it reads as "no steps" and the panel falls back to the old layout.
+    """
+    raw = row.steps
+    if raw is None:
+        return None
+    try:
+        return _STEPS_ADAPTER.validate_python(raw)
+    except ValidationError:
+        logger.warning("stored steps do not parse message=%s", row.id)
+        return None
+
+
 def _activity_summary(
     row: WorkflowBuilderMessage, activity: list[ToolActivityOut]
 ) -> ActivitySummary:
@@ -343,6 +367,7 @@ def _transcript(rows: Iterable[WorkflowBuilderMessage]) -> list[TranscriptMessag
                 stop_reason=row.stop_reason,  # type: ignore[arg-type]
                 content=str(row.content or ""),
                 thinking=row.thinking,  # type: ignore[arg-type]
+                steps=_stored_steps(row) if is_assistant else None,
                 model_id=str(row.model_id or ""),
                 effort=row.effort,  # type: ignore[arg-type]
                 skill_hash=row.skill_hash,  # type: ignore[arg-type]

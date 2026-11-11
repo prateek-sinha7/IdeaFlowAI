@@ -797,3 +797,109 @@ def test_build_model_sends_no_effort_to_chat_anthropic_when_model_has_no_levels(
     mock_cls = _mock_chat_anthropic(monkeypatch)
     build_model("claude-haiku-4-5-20251001", max_tokens=32768)
     assert "effort" not in mock_cls.call_args.kwargs
+
+
+# ---------------------------------------------------------------------------
+# force_streaming — stream Claude on Bedrock even when langchain-aws does not
+# know the model (1.4.6 lists Claude families only up to 4 and turns streaming
+# off for Claude 5). The workflow builder sets it.
+# ---------------------------------------------------------------------------
+
+
+class TestBuildModelForceStreaming:
+    # Plan #1 | B1, B2
+    @pytest.mark.parametrize(
+        "model_id",
+        [
+            "eu.anthropic.claude-sonnet-5-5",
+            "eu.anthropic.claude-haiku-5-5",
+            "anthropic.claude-haiku-5-5",
+            "anthropic.claude-haiku-4-5-20251001-v1:0",
+        ],
+        ids=[
+            "geo-sonnet-5-5",
+            "geo-haiku-5-5",
+            "bare-haiku-5-5",
+            "versioned-haiku-4-5",
+        ],
+    )
+    def test_build_model_enables_streaming_when_force_streaming_on_bedrock_claude(
+        self, monkeypatch: pytest.MonkeyPatch, model_id: str
+    ) -> None:
+        # Arrange
+        mock_cls = _mock_chat_bedrock(monkeypatch)
+        monkeypatch.setattr(settings, "BEDROCK_MODEL_ID", model_id)
+
+        # Act
+        build_model(model_id, force_streaming=True)
+
+        # Assert
+        assert mock_cls.call_args.kwargs["disable_streaming"] is False
+
+    # Plan #2 | B1
+    def test_build_model_leaves_streaming_to_library_when_force_streaming_is_omitted(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Arrange
+        mock_cls = _mock_chat_bedrock(monkeypatch)
+        monkeypatch.setattr(settings, "BEDROCK_MODEL_ID", SONNET_55)
+
+        # Act
+        build_model(SONNET_55, effort="high")
+
+        # Assert: every other caller keeps the request it had before the option existed.
+        assert "disable_streaming" not in mock_cls.call_args.kwargs
+
+    # Plan #3 | B2
+    @pytest.mark.parametrize(
+        "model_id",
+        ["global.openai.gpt-5.6-luna", "amazon.nova-pro-v1:0", "claude-sonnet-5-5"],
+        ids=["openai", "amazon-nova", "no-provider-segment"],
+    )
+    def test_build_model_leaves_streaming_to_library_when_force_streaming_on_non_claude_bedrock_model(
+        self, monkeypatch: pytest.MonkeyPatch, model_id: str
+    ) -> None:
+        # Arrange
+        mock_cls = _mock_chat_bedrock(monkeypatch)
+        monkeypatch.setattr(settings, "BEDROCK_MODEL_ID", model_id)
+
+        # Act
+        build_model(model_id, force_streaming=True)
+
+        # Assert
+        assert "disable_streaming" not in mock_cls.call_args.kwargs
+
+    # Plan #4 | B3
+    def test_build_model_ignores_force_streaming_when_provider_is_anthropic_direct(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Arrange: ChatAnthropic already streams, so the option has nothing to do.
+        monkeypatch.setattr(settings, "ANTHROPIC_API_KEY", "sk-test")
+        mock_cls = _mock_chat_anthropic(monkeypatch)
+
+        # Act
+        build_model("claude-haiku-5-5", force_streaming=True)
+
+        # Assert
+        assert "disable_streaming" not in mock_cls.call_args.kwargs
+
+    # Plan #5 | B1
+    def test_build_model_kwargs_keep_streaming_on_through_langchain_aws_when_force_streaming_on_claude_5(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Arrange: capture the constructor kwargs (a real client is refused offline,
+        # ISS-102), then run them through langchain-aws's own streaming validator.
+        # This proves the explicit value beats the library's model table, which
+        # on its own turns streaming off for Claude 5.
+        from langchain_aws import ChatBedrockConverse
+
+        mock_cls = _mock_chat_bedrock(monkeypatch)
+        monkeypatch.setattr(settings, "BEDROCK_MODEL_ID", SONNET_55)
+        build_model(SONNET_55, effort="high", force_streaming=True)
+        kwargs = dict(mock_cls.call_args.kwargs)
+
+        # Act
+        validated = ChatBedrockConverse.set_disable_streaming(kwargs)
+
+        # Assert
+        assert validated["disable_streaming"] is False

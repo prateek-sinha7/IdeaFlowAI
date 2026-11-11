@@ -402,6 +402,7 @@ def build_model(
     provider: str | None = None,
     disable_thinking: bool = False,
     effort: str | None = None,
+    force_streaming: bool = False,
 ) -> "BaseChatModel":
     """Return a configured chat model for an agent graph.
 
@@ -417,6 +418,12 @@ def build_model(
     On adaptive models (sonnet-5, opus-5) this passes {"type": "disabled"}
     explicitly — omitting the field is not enough since those models enable
     adaptive thinking by default.
+    ``force_streaming`` streams a Claude model on Bedrock through ConverseStream
+    even when the pinned langchain-aws does not know the model. langchain-aws
+    1.4.6 lists Claude families only up to 4, so it sets ``disable_streaming=True``
+    for ``claude-*-5*`` and every call returns in one piece at the end. Off by
+    default, so only callers that ask for it change. Ignored on the other
+    providers: ChatAnthropic already streams.
     """
     # --- LOCAL OLLAMA OVERRIDE (temp, dev-only — comment out or delete when done) ---
     # Off unless USE_LOCAL_OLLAMA is explicitly truthy, so this block can stay
@@ -612,7 +619,17 @@ def build_model(
         bedrock_kwargs["additional_model_request_fields"] = extra_fields
     if thinking_is_on(extra_fields):
         bedrock_kwargs["temperature"] = 1  # required when thinking is on
+    if force_streaming and _is_bedrock_claude(model_id):
+        # Every Claude model on Bedrock supports ConverseStream with tools. An
+        # explicit value wins over langchain-aws's own model table.
+        bedrock_kwargs["disable_streaming"] = False
     return ChatBedrockConverse(**bedrock_kwargs)
+
+
+def _is_bedrock_claude(model_id: str) -> bool:
+    """True for a Bedrock Anthropic id, with or without a geo prefix (``eu.``)."""
+    parts = model_id.split(".")
+    return len(parts) > 1 and parts[-2] == "anthropic"
 
 
 def _build_bedrock_bearer_session():

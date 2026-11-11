@@ -661,10 +661,18 @@ jobs:
           PYTHONPATH: .
         run: |
           set -euo pipefail
+          # -n auto --dist loadfile: one xdist worker per CPU, each test FILE kept on
+          # one worker (the suite's module-scoped state and per-worker SQLite file,
+          # tests/conftest.py, assume that). The serial run took ~40 min with one
+          # core busy. tools.ci.execution_recorder is xdist-aware: workers hand their
+          # collection to the controller, which writes the single execution record
+          # that verify-execution checks below. pytest-cov combines worker data.
           uv run --frozen pytest tests \
+            -n auto --dist loadfile \
             -m "not live and not requires_api_key and not requires_postgres and not requires_postgres_populated_migration" \
             -p tools.ci.execution_recorder \
             --execution-record="$GITHUB_WORKSPACE/ci-results/execution-backend-offline.json" \
+            --durations=25 \
             --cov=app --cov=agents --cov=tools \
             --cov-report=xml:"$GITHUB_WORKSPACE/ci-results/backend-offline-coverage.xml" \
             --junitxml="$GITHUB_WORKSPACE/ci-results/backend-offline-junit.xml" \

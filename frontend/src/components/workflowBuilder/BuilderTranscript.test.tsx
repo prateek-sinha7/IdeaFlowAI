@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { DraftRevisionOut, ToolActivity, TranscriptMessage } from "@/types/workflowBuilder";
 
 import { BuilderTranscript, type BuilderTranscriptProps } from "./BuilderTranscript";
-import type { RunningTurnView, TurnView } from "./builderReducer";
+import type { RunningTurnView, TurnStep, TurnView } from "./builderReducer";
 
 function message(overrides: Partial<TranscriptMessage> = {}): TranscriptMessage {
   return {
@@ -19,6 +19,7 @@ function message(overrides: Partial<TranscriptMessage> = {}): TranscriptMessage 
     stop_reason: null,
     content: "Build a report workflow",
     thinking: null,
+    steps: null,
     model_id: "model-a",
     effort: null,
     skill_hash: null,
@@ -70,6 +71,9 @@ const tool: ToolActivity = {
   summary: null,
 };
 
+const textStep = (text: string): TurnStep => ({ kind: "text", id: `text-${text}`, text });
+const thinkingStep = (text: string): TurnStep => ({ kind: "thinking", id: `thinking-${text}`, text });
+
 function running(overrides: Partial<RunningTurnView> = {}): RunningTurnView {
   return {
     kind: "running",
@@ -80,10 +84,8 @@ function running(overrides: Partial<RunningTurnView> = {}): RunningTurnView {
     startedAt: Date.now(),
     lastSeq: 0,
     activity: [],
-    checks: [],
+    steps: [],
     warnings: [],
-    text: "",
-    thinking: "",
     pendingDraft: null,
     ...overrides,
   };
@@ -111,7 +113,7 @@ describe("BuilderTranscript", () => {
       <BuilderTranscript
         messages={[message()]}
         revisions={[]}
-        turn={running({ text: "streaming words" })}
+        turn={running({ steps: [textStep("streaming words")] })}
       />,
     );
     expect(container.querySelector("[aria-live]")).toBeNull();
@@ -139,10 +141,82 @@ describe("BuilderTranscript", () => {
     expect(summary.closest("details")).not.toHaveAttribute("open");
   });
 
+  describe("a finished reply with stored steps", () => {
+    const lookup: ToolActivity = {
+      ...tool,
+      call_id: "c2",
+      label: "Looked up the catalog",
+      status: "stopped",
+    };
+    const finished = (overrides: Partial<TranscriptMessage> = {}) =>
+      reply({
+        thinking: "First thought. Second thought.",
+        activity: [tool, lookup],
+        activity_summary: { actions: 2, checks: 0, duration_ms: 5_000 },
+        steps: [
+          { kind: "thinking", text: "First thought." },
+          { kind: "tools", call_ids: ["c1"] },
+          { kind: "thinking", text: "Second thought." },
+          { kind: "tools", call_ids: ["c2"] },
+        ],
+        ...overrides,
+      });
+
+    it("shows thinking and tool calls in the order they happened, inside the summary", async () => {
+      const user = userEvent.setup();
+      setup({ messages: [message(), finished()] });
+      await user.click(screen.getByText("2 actions, 0 checks, 5 s"));
+      const text = screen.getByRole("region", { name: "Conversation" }).textContent ?? "";
+      const positions = [
+        "First thought.",
+        "Read the catalog",
+        "Second thought.",
+        "Looked up the catalog",
+      ].map((mark) => text.indexOf(mark));
+      expect(positions.every((p) => p >= 0)).toBe(true);
+      expect(positions).toEqual([...positions].sort((a, b) => a - b));
+    });
+
+    it("labels a stopped call Stopped", async () => {
+      const user = userEvent.setup();
+      setup({ messages: [message(), finished()] });
+      await user.click(screen.getByText("2 actions, 0 checks, 5 s"));
+      expect(screen.getByText("Stopped")).toBeInTheDocument();
+      expect(screen.queryByText("Failed")).toBeNull();
+    });
+
+    it("does not repeat the thinking in a separate Thinking block under the summary", () => {
+      setup({ messages: [message(), finished()] });
+      const article = screen.getByRole("article", { name: "Builder reply" });
+      expect(within(article).queryByText("Thinking")).toBeNull();
+    });
+
+    it("keeps the older layout and the Thinking block when the steps are null", () => {
+      setup({ messages: [message(), finished({ steps: null })] });
+      const article = screen.getByRole("article", { name: "Builder reply" });
+      expect(within(article).getByText("Thinking")).toBeInTheDocument();
+    });
+
+    it("keeps the Thinking block for a thinking-only turn with no tool calls", () => {
+      setup({
+        messages: [
+          message(),
+          finished({
+            activity: [],
+            activity_summary: { actions: 0, checks: 0, duration_ms: 1_000 },
+            steps: [{ kind: "thinking", text: "Only a thought." }],
+          }),
+        ],
+      });
+      const article = screen.getByRole("article", { name: "Builder reply" });
+      expect(within(article).getByText("Thinking")).toBeInTheDocument();
+    });
+  });
+
   it("shows text and thinking of a running turn started in this tab", () => {
     setup({
       messages: [message()],
-      turn: running({ text: "Drafting now", thinking: "Weighing options" }),
+      turn: running({ steps: [thinkingStep("Weighing options"), textStep("Drafting now")] }),
     });
     expect(screen.getByRole("article", { name: "Builder reply in progress" })).toBeInTheDocument();
     expect(screen.getByText("Drafting now")).toBeInTheDocument();
@@ -155,9 +229,12 @@ describe("BuilderTranscript", () => {
       messages: [message()],
       turn: running({
         origin: "other_tab",
-        text: "hidden text",
-        thinking: "hidden thought",
         activity: [tool],
+        steps: [
+          { kind: "tools", id: "tools-2", callIds: ["c1"] },
+          textStep("hidden text"),
+          thinkingStep("hidden thought"),
+        ],
       }),
     });
     expect(screen.getByText("Still working")).toBeInTheDocument();
@@ -181,7 +258,7 @@ describe("BuilderTranscript", () => {
   it("renders the live turn in place of its stored running row, once", () => {
     setup({
       messages: [message(), reply({ status: "running", turn_id: "t2", content: "" })],
-      turn: running({ turnId: "t2", text: "Live words" }),
+      turn: running({ turnId: "t2", steps: [textStep("Live words")] }),
     });
     expect(screen.getAllByRole("article", { name: "Builder reply in progress" })).toHaveLength(1);
     expect(screen.getByText("Live words")).toBeInTheDocument();
@@ -204,7 +281,7 @@ describe("BuilderTranscript", () => {
   });
 
   it("keeps the user's message above the live reply while the turn runs", () => {
-    setup({ turn: running({ text: "Working on it" }), pendingUserText: "Please build it" });
+    setup({ turn: running({ steps: [textStep("Working on it")] }), pendingUserText: "Please build it" });
     const mine = screen.getByRole("article", { name: "Your message" });
     expect(mine).toHaveTextContent("Please build it");
     expect(screen.queryByText("Sending")).toBeNull();
@@ -220,13 +297,17 @@ describe("BuilderTranscript", () => {
   });
 
   it("drops Sending for the first message once its turn runs", () => {
-    setup({ turn: running({ text: "Working on it" }), pendingUserText: "Make a brief", starting: true });
+    setup({
+      turn: running({ steps: [textStep("Working on it")] }),
+      pendingUserText: "Make a brief",
+      starting: true,
+    });
     expect(screen.getByRole("article", { name: "Your message" })).toHaveTextContent("Make a brief");
     expect(screen.queryByText("Sending")).toBeNull();
   });
 
   it("shows no pending bubble once the host passes no pending text", () => {
-    setup({ turn: running({ text: "Working on it" }), pendingUserText: null });
+    setup({ turn: running({ steps: [textStep("Working on it")] }), pendingUserText: null });
     expect(screen.queryByRole("article", { name: "Your message" })).toBeNull();
   });
 

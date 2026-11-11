@@ -13,6 +13,9 @@
  *      text so it can be sent again (Req 13.10)
  *   04 docked at 360 px under the header from 1280 px; below that the panel is an
  *      overlay that leaves the canvas width alone (Req 3.1, 3.3)
+ *   05 thinking, tool calls and a check read in the order they happened while the
+ *      turn runs and again from the stored row after it ends; a stopped call is
+ *      labelled Stopped, not Failed
  *
  * The panel is found by role and name. `tier` defaults to enterprise, which holds
  * the Custom_Entitlement (`canRunPipeline(tier, "custom")`).
@@ -99,12 +102,12 @@ test.describe("TS-Z4 — AI workflow builder journey", () => {
       label: "Read the builder guide",
     });
     await expect(progress).toContainText("Reading the builder guide");
-    await expect(progress.getByText("Activity (1)")).toBeVisible();
+    await expect(progress.getByText("1 tool call", { exact: true })).toBeVisible();
     await turn.toolFinished({ callId: "call-1", summary: "Read the builder guide." });
     await turn.setStage("checking", "Checking the workflow");
     await turn.check();
     await expect(progress).toContainText("Checking the workflow");
-    await expect(progress.getByRole("list", { name: "Checks" })).toBeVisible();
+    await expect(progress.getByText("Skill validator: VALID")).toBeVisible();
 
     // The user's own message stays on screen while the turn runs, exactly once, and
     // is no longer "Sending" once the server accepted it (open decision 22.10).
@@ -273,6 +276,47 @@ test.describe("TS-Z4 — AI workflow builder journey", () => {
     expect(builder.messages.map((m) => m.content)).toEqual([PROMPT, followUp]);
     const posts = builder.requests.filter((r) => r.method === "POST" && r.path.endsWith("/messages"));
     expect(posts).toHaveLength(3);
+  });
+
+  test("TS-Z4-05 thinking, tool calls and a check read in the order they happened, live and after the turn", async ({
+    dashboard,
+    page,
+  }) => {
+    const builder = await installWorkflowBuilderMocks(page);
+    await dashboard.openComposer();
+    await page.getByRole("button", { name: "Build with AI" }).click();
+    await sendFromPanel(page, PROMPT);
+    const panel = panelOf(page);
+
+    const turn = await builder.nextTurn();
+    await turn.start();
+    await turn.thinking("First, read the guide.");
+    await turn.toolStarted({ callId: "c1", tool: "read_file", kind: "read", label: "Read the guide" });
+    await turn.toolFinished({ callId: "c1", summary: "Read the guide." });
+    await turn.thinking("Now look up the catalog.");
+    await turn.toolStarted({ callId: "c2", tool: "run_skill_script", kind: "lookup", label: "Looked up the catalog" });
+    await turn.toolFinished({ callId: "c2", status: "stopped", durationMs: 523, summary: "Looked up the catalog was stopped." });
+    await turn.check({ verdict: "invalid", errors: 1 });
+
+    // Live: each part appears after the one before it, and a stopped call is not "Failed".
+    const progress = panel.getByRole("region", { name: "Progress" });
+    const marks = ["First, read the guide.", "Read the guide", "Now look up the catalog.", "Looked up the catalog", "Stopped", "Skill validator"];
+    const liveText = (await progress.textContent()) ?? "";
+    const livePositions = marks.map((mark) => liveText.indexOf(mark));
+    expect(livePositions.every((p) => p >= 0)).toBe(true);
+    expect(livePositions).toEqual([...livePositions].sort((a, b) => a - b));
+    await expect(progress.getByText("Failed")).toHaveCount(0);
+
+    // After the turn the stored row replaces the live view and keeps the same order.
+    await turn.complete({ status: "completed", outcome: "reply", content: "All done." });
+    await expect(panel.getByText("All done.")).toBeVisible();
+    await panel.getByText(/2 actions/).click();
+    const endedText = (await panel.getByRole("region", { name: "Conversation" }).textContent()) ?? "";
+    const endedPositions = marks.map((mark) => endedText.indexOf(mark));
+    expect(endedPositions.every((p) => p >= 0)).toBe(true);
+    expect(endedPositions).toEqual([...endedPositions].sort((a, b) => a - b));
+    // The thinking is inside the summary, so there is no second, separate Thinking block.
+    await expect(panel.getByRole("article", { name: "Builder reply" }).getByText("Thinking", { exact: true })).toHaveCount(0);
   });
 
   test("TS-Z4-04 docked under the header from 1280 px, an overlay below that", async ({

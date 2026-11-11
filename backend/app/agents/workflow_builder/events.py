@@ -33,6 +33,7 @@ __all__ = [
     "CheckResult",
     "CheckResultEvent",
     "CheckSource",
+    "CheckStep",
     "CheckVerdict",
     "DraftApplied",
     "DraftRestored",
@@ -52,6 +53,7 @@ __all__ = [
     "TargetTrust",
     "Text",
     "Thinking",
+    "ThinkingStep",
     "TokenUsage",
     "ToolActivity",
     "ToolFinishStatus",
@@ -59,10 +61,12 @@ __all__ = [
     "ToolKind",
     "ToolStarted",
     "ToolStatus",
+    "ToolsStep",
     "TurnCompleted",
     "TurnScoped",
     "TurnStarted",
     "TurnStatus",
+    "TurnStep",
     "UsageCounts",
     "event_types",
     "from_wire",
@@ -91,8 +95,10 @@ RevisionKind = Literal["seed", "accepted", "undo", "unproposed"]
 TargetTrust = Literal["user", "db"]
 
 ToolKind = Literal["read", "write", "script", "lookup", "propose"]
-ToolStatus = Literal["running", "ok", "error", "refused", "timed_out"]
-ToolFinishStatus = Literal["ok", "error", "refused", "timed_out"]
+# "stopped": the call was still running when the turn stopped (cancel, shutdown or a
+# user stop). It is not a failure, so the panel must not label it Failed.
+ToolStatus = Literal["running", "ok", "error", "refused", "timed_out", "stopped"]
+ToolFinishStatus = Literal["ok", "error", "refused", "timed_out", "stopped"]
 CheckSource = Literal["skill_validator", "platform_dry_run", "server_gate"]
 CheckVerdict = Literal["valid", "invalid", "unknown"]
 LimitKind = Literal["time", "tool_calls", "tokens"]
@@ -134,6 +140,34 @@ class CheckResult(_Model):
     warnings: int
     attempt: int | None = None
     attempts_left: int | None = None
+
+
+class ThinkingStep(_Model):
+    """A run of reasoning text between two other steps."""
+
+    kind: Literal["thinking"] = "thinking"
+    text: str
+
+
+class ToolsStep(_Model):
+    """Consecutive tool calls. ``call_ids`` name the turn's tool rows, in start order."""
+
+    kind: Literal["tools"] = "tools"
+    call_ids: list[str]
+
+
+class CheckStep(_Model):
+    """A validator, dry-run or Server_Gate result at its place in the turn."""
+
+    kind: Literal["check"] = "check"
+    check: CheckResult
+
+
+type TurnStep = Annotated[
+    ThinkingStep | ToolsStep | CheckStep, Field(discriminator="kind")
+]
+"""One step of a turn, in the order it happened. Reply text is not a step: it is
+stored whole in the message ``content``."""
 
 
 class ChangeSummary(_Model):

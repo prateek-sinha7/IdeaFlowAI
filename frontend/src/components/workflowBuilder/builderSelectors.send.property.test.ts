@@ -132,10 +132,8 @@ const RUNNING_BASE: RunningTurnView = {
   startedAt: 0,
   lastSeq: 1,
   activity: [],
-  checks: [],
+  steps: [],
   warnings: [],
-  text: "",
-  thinking: "",
   pendingDraft: null,
 };
 

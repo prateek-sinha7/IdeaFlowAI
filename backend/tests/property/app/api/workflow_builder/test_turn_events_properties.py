@@ -75,6 +75,7 @@ from tests.factories.builder_session_factory import BuilderSessionFactory
 from tests.fakes.builder_gate import FakeGate, accepted_result, rejected_result
 from tests.fakes.process_factory import FakeProcessFactory, ProcessScript
 from tests.fakes.scripted_chat_model import FakeChatModel, ModelTurn, ScriptedToolCall
+from tests.property.budget import examples
 
 USER = "user-a"
 _SKILLS_ROOT = SKILLS_ROOT
@@ -396,7 +397,7 @@ def _check_well_formed(scenario: Scenario, out: Outcome) -> None:
 
 
 @settings(
-    max_examples=100,
+    max_examples=examples(100, quick=25),
     deadline=None,
     suppress_health_check=[HealthCheck.function_scoped_fixture],
 )

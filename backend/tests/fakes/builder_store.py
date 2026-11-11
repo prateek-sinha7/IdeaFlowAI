@@ -69,6 +69,7 @@ from app.models.workflow_builder import (
     MESSAGE_STATUS_TOOL_ERROR,
     MESSAGE_STATUS_TOOL_OK,
     MESSAGE_STATUS_TOOL_REFUSED,
+    MESSAGE_STATUS_TOOL_STOPPED,
     MESSAGE_STATUS_USER_ACCEPTED,
     SESSION_MODE_CREATE,
     SESSION_MODE_EDIT,
@@ -92,6 +93,7 @@ _TOOL_STATUSES = frozenset(
         MESSAGE_STATUS_TOOL_OK,
         MESSAGE_STATUS_TOOL_ERROR,
         MESSAGE_STATUS_TOOL_REFUSED,
+        MESSAGE_STATUS_TOOL_STOPPED,
         MESSAGE_STATUS_TIMED_OUT,
     }
 )
@@ -456,6 +458,7 @@ class InMemoryBuilderStore:
         error_code: str | None = None,
         content: str = "",
         thinking: str | None = None,
+        steps: list[dict[str, Any]] | None = None,
         usage: dict[str, Any] | None = None,
         adherence: dict[str, Any] | None = None,
         revision: int | None = None,
@@ -485,6 +488,7 @@ class InMemoryBuilderStore:
         row.error_code = error_code  # type: ignore[assignment]
         row.content = content  # type: ignore[assignment]
         row.thinking = thinking  # type: ignore[assignment]
+        row.steps = steps  # type: ignore[assignment]
         row.usage = usage  # type: ignore[assignment]
         row.adherence = adherence  # type: ignore[assignment]
         row.revision = revision  # type: ignore[assignment]

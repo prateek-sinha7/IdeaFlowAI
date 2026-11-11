@@ -145,6 +145,7 @@ function message(overrides: Partial<TranscriptMessage>): TranscriptMessage {
     stop_reason: null,
     content: "Make a blog workflow",
     thinking: null,
+    steps: null,
     model_id: "sonnet",
     effort: "low",
     skill_hash: null,

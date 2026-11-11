@@ -189,6 +189,26 @@
         "title": "CheckResult",
         "type": "object"
       },
+      "CheckStep": {
+        "additionalProperties": false,
+        "description": "A validator, dry-run or Server_Gate result at its place in the turn.",
+        "properties": {
+          "check": {
+            "$ref": "#/components/schemas/CheckResult"
+          },
+          "kind": {
+            "const": "check",
+            "default": "check",
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "check"
+        ],
+        "title": "CheckStep",
+        "type": "object"
+      },
       "CreateSessionRequest": {
         "additionalProperties": false,
         "description": "Body of ``POST /sessions``. Edit mode names the saved workflow.",
@@ -851,6 +871,27 @@
         "title": "Stage",
         "type": "string"
       },
+      "ThinkingStep": {
+        "additionalProperties": false,
+        "description": "A run of reasoning text between two other steps.",
+        "properties": {
+          "kind": {
+            "const": "thinking",
+            "default": "thinking",
+            "title": "Kind",
+            "type": "string"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "text"
+        ],
+        "title": "ThinkingStep",
+        "type": "object"
+      },
       "ToolActivity": {
         "additionalProperties": false,
         "description": "One tool call as the transcript and the live panel show it.",
@@ -913,7 +954,8 @@
               "ok",
               "error",
               "refused",
-              "timed_out"
+              "timed_out",
+              "stopped"
             ],
             "title": "Status",
             "type": "string"
@@ -942,6 +984,30 @@
           "status"
         ],
         "title": "ToolActivity",
+        "type": "object"
+      },
+      "ToolsStep": {
+        "additionalProperties": false,
+        "description": "Consecutive tool calls. ``call_ids`` name the turn's tool rows, in start order.",
+        "properties": {
+          "call_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Call Ids",
+            "type": "array"
+          },
+          "kind": {
+            "const": "tools",
+            "default": "tools",
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "call_ids"
+        ],
+        "title": "ToolsStep",
         "type": "object"
       },
       "TranscriptMessage": {
@@ -1100,6 +1166,20 @@
             ],
             "title": "Status"
           },
+          "steps": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/TurnStep"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Steps"
+          },
           "stop_reason": {
             "anyOf": [
               {
@@ -1150,6 +1230,7 @@
           "stop_reason",
           "content",
           "thinking",
+          "steps",
           "model_id",
           "effort",
           "skill_hash",
@@ -1188,6 +1269,27 @@
         ],
         "title": "TurnAccepted",
         "type": "object"
+      },
+      "TurnStep": {
+        "discriminator": {
+          "mapping": {
+            "check": "#/components/schemas/CheckStep",
+            "thinking": "#/components/schemas/ThinkingStep",
+            "tools": "#/components/schemas/ToolsStep"
+          },
+          "propertyName": "kind"
+        },
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/ThinkingStep"
+          },
+          {
+            "$ref": "#/components/schemas/ToolsStep"
+          },
+          {
+            "$ref": "#/components/schemas/CheckStep"
+          }
+        ]
       },
       "UndoRequest": {
         "additionalProperties": false,

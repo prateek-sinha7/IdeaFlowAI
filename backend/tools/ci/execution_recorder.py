@@ -24,10 +24,9 @@ from __future__ import annotations
 import json
 from collections import Counter
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
-if TYPE_CHECKING:  # pragma: no cover - typing only
-    import pytest
+import pytest
 
 #: Markers that place a node in the credential-gated live partition. A node
 #: carrying any of these is excluded from every mandatory partition.
@@ -139,6 +138,21 @@ class _Recorder:
                     reason = str(longrepr[2])
             self.skip_reasons.setdefault(report.nodeid, reason)
 
+    # -- xdist hand-off --------------------------------------------------
+    def export_collection(self) -> dict[str, Any]:
+        """Return this process's collection facts as plain, serializable data."""
+        return {
+            "collected": self.collected,
+            "xfail_meta": self.xfail_meta,
+            "collection_errors": self.collection_errors,
+        }
+
+    def merge_collection(self, payload: dict[str, Any]) -> None:
+        """Fold one worker's collection facts into this (controller) recorder."""
+        self.collected.update(payload.get("collected", {}))
+        self.xfail_meta.update(payload.get("xfail_meta", {}))
+        self.collection_errors.extend(payload.get("collection_errors", []))
+
     # -- output ----------------------------------------------------------
     def write(self) -> None:
         """Write whichever records were requested."""
@@ -147,7 +161,9 @@ class _Recorder:
                 self.inventory_path,
                 {
                     "schema_version": 1,
-                    "collection_errors": self.collection_errors,
+                    # De-duplicated: under xdist the controller sees each worker's
+                    # forwarded collect report AND that worker's own list.
+                    "collection_errors": list(dict.fromkeys(self.collection_errors)),
                     "nodes": [
                         self.collected[nodeid] for nodeid in sorted(self.collected)
                     ],
@@ -210,6 +226,15 @@ def _known_bug_meta(item: Any) -> dict[str, Any]:
 
 _recorder: _Recorder | None = None
 
+#: Key under ``config.workeroutput`` that carries one xdist worker's collection
+#: facts back to the controller. Plain JSON-able types only: execnet serializes it.
+_WORKER_KEY = "ci_execution_recorder"
+
+
+def _is_xdist_worker(config: Any) -> bool:
+    """True inside an ``pytest-xdist`` worker process (never in the controller)."""
+    return hasattr(config, "workerinput")
+
 
 def pytest_configure(config: Any) -> None:
     """Create the recorder if either output was requested."""
@@ -243,27 +268,58 @@ def pytest_runtest_logreport(report: Any) -> None:
     _recorder.record_report(report)
 
 
-def pytest_sessionfinish() -> None:
+def pytest_sessionfinish(session: Any) -> None:
     """
     Flush the records. Runs even when the session failed.
 
-    DELIBERATELY ZERO-ARGUMENT. A hookimpl may accept any SUBSET of its
+    ONLY DECLARED HOOKSPEC NAMES. A hookimpl may accept any SUBSET of its
     hookspec's parameters, but never a name the spec does not declare: pluggy
     validates argument names at plugin REGISTRATION time and raises
-    PluginValidationError otherwise. This signature was
-    `(session, _exitstatus)`, and `_exitstatus` — an underscore-prefixed
+    PluginValidationError otherwise. An earlier signature
+    `(session, _exitstatus)` used `_exitstatus` — an underscore-prefixed
     "unused parameter" marker, added because vulture flags a genuinely unused
-    `exitstatus` at 100% confidence — is not in
-    `_pytest.hookspec.pytest_sessionfinish`, whose parameter is `exitstatus`.
-    Registration therefore aborted pytest before collection began, so the
-    inventory plugin could never load and the canonical inventory could never
-    be produced.
+    `exitstatus` at 100% confidence — which is not in
+    `_pytest.hookspec.pytest_sessionfinish` (its parameter is `exitstatus`).
+    Registration aborted pytest before collection began. `session` IS declared
+    and is used below, so this signature has neither problem; `exitstatus` is
+    deliberately left out because nothing here needs it.
 
-    Taking neither parameter satisfies both constraints at once: pluggy has no
-    unknown name to reject, and vulture has no unused binding to report.
-    pytest's own plugins do the same (see `_pytest/junitxml.py` and
-    `_pytest/terminal.py`). The body needs neither value — it flushes the
-    module-level recorder.
+    Under ``pytest-xdist`` (``-n``) every worker collects the full item list but
+    executes only its share, and the controller never collects at all. So:
+
+    * a WORKER does not write; it hands its collection facts to the controller
+      through ``config.workeroutput`` (see ``pytest_testnodedown``);
+    * the CONTROLLER receives every forwarded ``pytest_runtest_logreport`` (one
+      per executed phase, from exactly one worker) and writes the single file.
+
+    Without this split each worker would overwrite the same JSON with only its own
+    share and ``verify-execution`` would report the rest as omissions.
     """
-    if _recorder is not None:
-        _recorder.write()
+    if _recorder is None:
+        return
+    config = session.config
+    if _is_xdist_worker(config):
+        config.workeroutput[_WORKER_KEY] = _recorder.export_collection()
+        return
+    _recorder.write()
+
+
+@pytest.hookimpl(optionalhook=True)
+def pytest_testnodedown(node: Any, error: Any) -> None:
+    """xdist controller hook: fold one finished worker's collection into the record.
+
+    ``optionalhook`` because the hook is declared by ``pytest-xdist``; without that
+    plugin loaded (``-p no:xdist``, or a plain serial run) the name is unknown and
+    pluggy would otherwise reject this plugin at registration.
+
+    ``error`` is set when the worker crashed and never produced ``workeroutput``;
+    that worker's tests are then reported by xdist as failures, and the missing
+    collection data is still covered by the other workers, which each collect the
+    full list.
+    """
+    if _recorder is None or error is not None:
+        return
+    output = getattr(node, "workeroutput", None) or {}
+    payload = output.get(_WORKER_KEY)
+    if payload:
+        _recorder.merge_collection(payload)

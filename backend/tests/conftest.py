@@ -402,6 +402,52 @@ def _isolate_compiled_plan_cache():
     compile_for_run.cache_clear()
 
 
+class _CachedYamlModule:
+    """Stand-in for ``yaml`` inside ``agents.workflows.manifest`` only.
+
+    ``safe_load`` memoizes the parsed document by its exact source text and hands
+    every caller a deep copy; every other attribute (``YAMLError`` …) delegates to
+    the real module. Keyed on content, so a test that writes a different manifest
+    to ``tmp_path`` is parsed fresh, and a malformed document still raises.
+    """
+
+    def __init__(self, real_yaml):
+        self._real = real_yaml
+        self._parsed: dict[str, object] = {}
+
+    def safe_load(self, stream):
+        import copy
+
+        if not isinstance(stream, str):
+            return self._real.safe_load(stream)
+        if stream not in self._parsed:
+            self._parsed[stream] = self._real.safe_load(stream)
+        return copy.deepcopy(self._parsed[stream])
+
+    def __getattr__(self, name):
+        return getattr(self._real, name)
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _cache_manifest_yaml_parse():
+    """Parse each distinct ``workflow.yaml`` text once per session.
+
+    ``_isolate_compiled_plan_cache`` clears ``compile_for_run`` before every test,
+    so each test that lists workflows re-reads and re-parses every manifest with the
+    pure-Python YAML loader (about 4 s per ``GET /api/workflows`` on a CI runner,
+    168 ``load_manifest`` calls). Compilation itself is ~0.5 ms per manifest; the
+    parse is the cost. Caching the parse keeps the per-test isolation (each test
+    still gets a fresh ``CompiledWorkflow`` built from a private deep copy) while
+    removing the repeated parsing.
+    """
+    from agents.workflows import manifest as manifest_module
+
+    patcher = pytest.MonkeyPatch()
+    patcher.setattr(manifest_module, "yaml", _CachedYamlModule(manifest_module.yaml))
+    yield
+    patcher.undo()
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # CI_OFFLINE: prove the mandatory partition needs no provider credentials.
 #

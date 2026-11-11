@@ -50,6 +50,13 @@ export interface LimitWarningView {
   limit: number;
 }
 
+/** One step of a running turn, in the order its events arrived. */
+export type TurnStep =
+  | { kind: "thinking"; id: string; text: string }
+  | { kind: "text"; id: string; text: string }
+  | { kind: "tools"; id: string; callIds: readonly string[] }
+  | { kind: "check"; id: string; check: CheckLine };
+
 export interface RunningTurnView {
   kind: "running";
   turnId: string;
@@ -59,13 +66,11 @@ export interface RunningTurnView {
   /** Client clock, ms since the epoch. */
   startedAt: number;
   lastSeq: number;
+  /** Every tool call of the turn so far, in start order. Steps refer to calls by `call_id`. */
   activity: ActivityLine[];
-  checks: CheckLine[];
+  /** The turn in arrival order. Thinking and text steps exist only when origin is this_tab. */
+  steps: readonly TurnStep[];
   warnings: LimitWarningView[];
-  /** Filled only when `origin === "this_tab"`. */
-  text: string;
-  /** Filled only when `origin === "this_tab"`. */
-  thinking: string;
   /** Held when `origin !== "this_tab"` until `turn_completed`. */
   pendingDraft: DraftAppliedEvent | null;
 }
@@ -300,15 +305,73 @@ function runningFromSnapshot(
     startedAt: Number.isFinite(elapsed) && elapsed >= 0 ? now - elapsed : now,
     lastSeq: snapshot.through_seq,
     activity: snapshot.activity,
-    checks: snapshot.checks,
+    steps: reconcileSteps([], snapshot),
     warnings: [],
-    text: "",
-    thinking: "",
     pendingDraft: null,
   };
 }
 
 // --- Stream events ------------------------------------------------------------------
+
+/** A step that accumulates a streamed string. */
+type TextStep = Extract<TurnStep, { kind: "thinking" | "text" }>;
+
+/**
+ * Adds a thinking or text delta to the last step when that step has the same kind,
+ * and starts a new step otherwise. An empty delta changes nothing.
+ */
+function appendText(
+  steps: readonly TurnStep[],
+  kind: TextStep["kind"],
+  id: string,
+  delta: string,
+): readonly TurnStep[] {
+  if (delta === "") {
+    return steps;
+  }
+  const last = steps[steps.length - 1];
+  if (
+    last !== undefined &&
+    (last.kind === "thinking" || last.kind === "text") &&
+    last.kind === kind
+  ) {
+    return [...steps.slice(0, -1), { ...last, text: last.text + delta }];
+  }
+  return [...steps, { kind, id, text: delta }];
+}
+
+/** Adds a tool call to the last step when that step is a tool group, and starts a group otherwise. */
+function appendCall(steps: readonly TurnStep[], id: string, callId: string): readonly TurnStep[] {
+  const last = steps[steps.length - 1];
+  if (last !== undefined && last.kind === "tools") {
+    return [...steps.slice(0, -1), { ...last, callIds: [...last.callIds, callId] }];
+  }
+  return [...steps, { kind: "tools", id, callIds: [callId] }];
+}
+
+/**
+ * Brings the steps up to a snapshot. The snapshot is the authority for tool calls and
+ * checks, so any it reports that the steps lack are appended. A snapshot cannot carry
+ * thinking or text, so those steps are kept as they are.
+ */
+function reconcileSteps(
+  steps: readonly TurnStep[],
+  snapshot: RunningTurnSnapshot,
+): readonly TurnStep[] {
+  let result = steps;
+  const known = new Set(result.flatMap((step) => (step.kind === "tools" ? step.callIds : [])));
+  for (const line of snapshot.activity) {
+    if (!known.has(line.call_id)) {
+      known.add(line.call_id);
+      result = appendCall(result, `tools-snapshot-${result.length}`, line.call_id);
+    }
+  }
+  const checksKnown = result.filter((step) => step.kind === "check").length;
+  for (const [offset, check] of snapshot.checks.slice(checksKnown).entries()) {
+    result = [...result, { kind: "check", id: `check-snapshot-${checksKnown + offset}`, check }];
+  }
+  return result;
+}
 
 function applySnapshot(state: BuilderState, event: SnapshotEvent, now: number): BuilderState {
   const running = event.running_turn;
@@ -323,7 +386,7 @@ function applySnapshot(state: BuilderState, event: SnapshotEvent, now: number): 
         stage: running.stage,
         label: running.label,
         activity: running.activity,
-        checks: running.checks,
+        steps: reconcileSteps(turn.steps, running),
         lastSeq: Math.max(turn.lastSeq, running.through_seq),
       };
     } else {
@@ -369,10 +432,8 @@ function applyTurnStarted(
     startedAt: now,
     lastSeq: event.seq,
     activity: [],
-    checks: [],
+    steps: [],
     warnings: [],
-    text: "",
-    thinking: "",
     pendingDraft: null,
   };
   return {
@@ -408,11 +469,17 @@ function reduceTurnEvent(state: BuilderState, event: TurnScopedEvent): BuilderSt
       return withTurn(state, { ...turn, stage: event.stage, label: event.label });
     case "thinking":
       return turn.origin === "this_tab"
-        ? withTurn(state, { ...turn, thinking: turn.thinking + event.text })
+        ? withTurn(state, {
+            ...turn,
+            steps: appendText(turn.steps, "thinking", `thinking-${event.seq}`, event.text),
+          })
         : withTurn(state, turn);
     case "text":
       return turn.origin === "this_tab"
-        ? withTurn(state, { ...turn, text: turn.text + event.text })
+        ? withTurn(state, {
+            ...turn,
+            steps: appendText(turn.steps, "text", `text-${event.seq}`, event.text),
+          })
         : withTurn(state, turn);
     case "tool_started": {
       if (turn.activity.some((line) => line.call_id === event.call_id)) {
@@ -429,7 +496,11 @@ function reduceTurnEvent(state: BuilderState, event: TurnScopedEvent): BuilderSt
         exit_code: null,
         summary: null,
       };
-      return withTurn(state, { ...turn, activity: [...turn.activity, line] });
+      return withTurn(state, {
+        ...turn,
+        activity: [...turn.activity, line],
+        steps: appendCall(turn.steps, `tools-${event.seq}`, event.call_id),
+      });
     }
     case "tool_finished":
       return withTurn(state, {
@@ -454,7 +525,10 @@ function reduceTurnEvent(state: BuilderState, event: TurnScopedEvent): BuilderSt
         attempt: event.attempt,
         attempts_left: event.attempts_left,
       };
-      return withTurn(state, { ...turn, checks: [...turn.checks, check] });
+      return withTurn(state, {
+        ...turn,
+        steps: [...turn.steps, { kind: "check", id: `check-${event.seq}`, check }],
+      });
     }
     case "limit_warning": {
       const warning: LimitWarningView = {
@@ -621,7 +695,11 @@ export function builderReducer(state: BuilderState, action: BuilderAction): Buil
       ) {
         return {
           ...unsent,
-          turn: { ...turn, origin: "other_tab", text: "", thinking: "" },
+          turn: {
+            ...turn,
+            origin: "other_tab",
+            steps: turn.steps.filter((step) => step.kind === "tools" || step.kind === "check"),
+          },
           notice,
         };
       }

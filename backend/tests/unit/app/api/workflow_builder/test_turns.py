@@ -36,14 +36,18 @@ from app.agents.workflow_builder.events import (
     StageChanged,
     StopReason,
     Text,
+    Thinking,
+    ThinkingStep,
     ToolActivity,
     ToolFinished,
+    ToolsStep,
     ToolStarted,
     TurnCompleted,
     TurnScoped,
     TurnStarted,
     UsageCounts,
 )
+from app.agents.workflow_builder.events import CheckResultEvent, CheckStep
 from app.agents.workflow_builder.ports import (
     AcceptedDraft,
     FinishedToolCall,
@@ -59,6 +63,8 @@ from app.api.workflow_builder.turns import (
     TurnRequest,
     TurnRunner,
     TurnRunState,
+    add_thinking_step,
+    add_tool_step,
     attach_task,
     build_snapshot,
     cancel_turn,
@@ -73,6 +79,7 @@ from app.api.workflow_builder.turns import (
     stop_session_turn,
     stop_user_turns,
     status_for_stop,
+    stored_steps,
     truncate_result,
 )
 from app.core.config import settings
@@ -519,6 +526,196 @@ async def test_record_tool_call_stores_unknown_status_as_error_when_activity_run
     await runner.record_tool_call(running)
 
     assert store.list_tool_rows(USER, live.turn_id)[0].status == "error"
+
+
+# --- ordered steps -----------------------------------------------------------------
+
+
+def test_add_thinking_step_joins_the_last_step_when_it_is_thinking() -> None:
+    steps: list[Any] = []
+
+    add_thinking_step(steps, "a")
+    add_thinking_step(steps, "b")
+
+    assert steps == [ThinkingStep(text="ab")]
+
+
+def test_add_thinking_step_ignores_empty_text() -> None:
+    steps: list[Any] = [ToolsStep(call_ids=["c1"])]
+
+    add_thinking_step(steps, "")
+
+    assert steps == [ToolsStep(call_ids=["c1"])]
+
+
+def test_add_thinking_step_starts_a_new_step_when_the_last_is_a_tool_group() -> None:
+    steps: list[Any] = [ToolsStep(call_ids=["c1"])]
+
+    add_thinking_step(steps, "after")
+
+    assert steps == [ToolsStep(call_ids=["c1"]), ThinkingStep(text="after")]
+
+
+def test_add_tool_step_groups_consecutive_calls_and_skips_a_repeated_id() -> None:
+    steps: list[Any] = []
+
+    add_tool_step(steps, "c1")
+    add_tool_step(steps, "c2")
+    add_tool_step(steps, "c2")
+
+    assert steps == [ToolsStep(call_ids=["c1", "c2"])]
+
+
+def test_add_tool_step_starts_a_new_group_when_thinking_came_between() -> None:
+    steps: list[Any] = []
+
+    add_tool_step(steps, "c1")
+    add_thinking_step(steps, "hm")
+    add_tool_step(steps, "c2")
+
+    assert steps == [
+        ToolsStep(call_ids=["c1"]),
+        ThinkingStep(text="hm"),
+        ToolsStep(call_ids=["c2"]),
+    ]
+
+
+def test_stored_steps_returns_none_when_there_are_no_steps() -> None:
+    assert stored_steps([]) is None
+
+
+def test_stored_steps_returns_json_dicts_in_order_when_steps_exist() -> None:
+    check = CheckResult(source="skill_validator", verdict="valid", errors=0, warnings=0)
+
+    result = stored_steps(
+        [ThinkingStep(text="t"), ToolsStep(call_ids=["c1"]), CheckStep(check=check)]
+    )
+
+    assert result == [
+        {"kind": "thinking", "text": "t"},
+        {"kind": "tools", "call_ids": ["c1"]},
+        {
+            "kind": "check",
+            "check": {
+                "source": "skill_validator",
+                "verdict": "valid",
+                "errors": 0,
+                "warnings": 0,
+                "attempt": None,
+                "attempts_left": None,
+            },
+        },
+    ]
+
+
+async def test_publish_builds_steps_in_publish_order_when_events_interleave(
+    store: InMemoryBuilderStore, bus: SessionEventBus
+) -> None:
+    live = _begin(store)
+    runner = _runner(live, store, bus)
+    started = ToolStarted(
+        ts=_now(),
+        turn_id="x",
+        seq=1,
+        call_id="c1",
+        tool="read_file",
+        kind="read",
+        label="Read A",
+        command=None,
+    )
+    check = CheckResultEvent(
+        ts=_now(),
+        turn_id="x",
+        seq=1,
+        source="platform_dry_run",
+        verdict="invalid",
+        errors=2,
+        warnings=0,
+        attempt=1,
+        attempts_left=1,
+    )
+
+    await runner.publish(Thinking(ts=_now(), turn_id="x", seq=1, text="one "))
+    await runner.publish(Thinking(ts=_now(), turn_id="x", seq=1, text="two"))
+    await runner.publish(started)
+    await runner.publish(
+        started.model_copy(update={"call_id": "c2", "label": "Read B"})
+    )
+    await runner.publish(check)
+    await runner.publish(Thinking(ts=_now(), turn_id="x", seq=1, text="three"))
+
+    assert [step.kind for step in live.steps] == [
+        "thinking",
+        "tools",
+        "check",
+        "thinking",
+    ]
+    assert live.steps[0] == ThinkingStep(text="one two")
+    assert live.steps[1] == ToolsStep(call_ids=["c1", "c2"])
+    assert isinstance(live.steps[2], CheckStep)
+    assert live.steps[2].check.errors == 2
+    assert live.steps[3] == ThinkingStep(text="three")
+
+
+async def test_run_turn_stores_the_order_of_thinking_and_tool_calls_on_the_row(
+    store: InMemoryBuilderStore, bus: SessionEventBus, tmp_path: Path
+) -> None:
+    live = _begin(store)
+    register_live_turn(live)
+    model = FakeChatModel(
+        turns=(
+            ModelTurn(
+                thinking=("plan",),
+                tool_calls=(ScriptedToolCall("get_builder_models", {}, "call-a"),),
+            ),
+            ModelTurn(
+                thinking=("then",),
+                tool_calls=(ScriptedToolCall("get_builder_models", {}, "call-b"),),
+            ),
+            ModelTurn(text=("Done",)),
+        )
+    )
+
+    await run_turn(live, _request(), _deps(store, bus, tmp_path, model))
+
+    row = _assistant_row(store, live)
+    assert row.steps == [
+        {"kind": "thinking", "text": "plan"},
+        {"kind": "tools", "call_ids": ["call-a"]},
+        {"kind": "thinking", "text": "then"},
+        {"kind": "tools", "call_ids": ["call-b"]},
+    ]
+    assert row.thinking == "planthen"
+    assert row.content == "Done"
+
+
+async def test_run_turn_stores_no_steps_when_the_turn_had_no_thinking_or_tools(
+    store: InMemoryBuilderStore, bus: SessionEventBus, tmp_path: Path
+) -> None:
+    live = _begin(store)
+    register_live_turn(live)
+    model = FakeChatModel(turns=(ModelTurn(text=("Hi",)),))
+
+    await run_turn(live, _request(), _deps(store, bus, tmp_path, model))
+
+    assert _assistant_row(store, live).steps is None
+
+
+async def test_record_tool_call_stores_stopped_status_as_stopped_when_activity_was_stopped(
+    store: InMemoryBuilderStore, bus: SessionEventBus
+) -> None:
+    live = _begin(store)
+    runner = _runner(live, store, bus)
+    base = _finished()
+    stopped = FinishedToolCall(
+        activity=base.activity.model_copy(update={"status": "stopped"}),
+        call=base.call,
+        result="",
+    )
+
+    await runner.record_tool_call(stopped)
+
+    assert store.list_tool_rows(USER, live.turn_id)[0].status == "stopped"
 
 
 async def test_publish_tracks_activity_when_tool_events_arrive_then_finish_replaces_it(

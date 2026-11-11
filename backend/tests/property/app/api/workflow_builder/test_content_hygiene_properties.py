@@ -91,6 +91,7 @@ from tests.fakes.builder_store import InMemoryBuilderStore
 from tests.fakes.principal import principal_for
 from tests.fakes.process_factory import FakeProcessFactory, ProcessScript
 from tests.fakes.scripted_chat_model import FakeChatModel, ModelTurn, ScriptedToolCall
+from tests.property.budget import examples
 
 USER: Final = "user-a"
 MODEL: Final = "eu.anthropic.claude-sonnet-5-5"
@@ -475,7 +476,7 @@ def _reset_turn_registries() -> Iterator[None]:
 
 
 @settings(
-    max_examples=100,
+    max_examples=examples(100, quick=25),
     deadline=None,
     suppress_health_check=[HealthCheck.function_scoped_fixture],
 )
@@ -614,7 +615,7 @@ async def _send(case: FailingRequest) -> HTTPException:
 
 
 @settings(
-    max_examples=100,
+    max_examples=examples(100, quick=25),
     deadline=None,
     suppress_health_check=[HealthCheck.function_scoped_fixture],
 )

@@ -36,6 +36,7 @@ function assistant(seq: number, turnId: string, status: TranscriptMessage["statu
     stop_reason: null,
     content: "",
     thinking: null,
+    steps: null,
     model_id: "m",
     effort: null,
     skill_hash: null,

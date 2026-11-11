@@ -530,7 +530,7 @@ async def test_run_command_kills_the_child_when_the_call_is_cancelled(
     assert time.monotonic() - cancelled_at < 10
     assert spawner.processes[0].returncode is not None
     assert not (sandbox.path / ".tmp" / "call-cancel").exists()
-    assert [(cid, r.status) for cid, r in finished] == [("call-cancel", "error")]
+    assert [(cid, r.status) for cid, r in finished] == [("call-cancel", "stopped")]
     await _assert_heartbeat_stopped(beat)
 
 

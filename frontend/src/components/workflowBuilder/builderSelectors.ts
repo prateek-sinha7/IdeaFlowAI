@@ -12,11 +12,12 @@ import type {
   ActivitySummary,
   CheckResult,
   DraftRevisionOut,
+  StoredStep,
   ToolActivity,
   TranscriptMessage,
 } from "@/types/workflowBuilder";
 
-import type { BuilderState, TurnView } from "./builderReducer";
+import type { BuilderState, TurnStep, TurnView } from "./builderReducer";
 
 /** `BUILDER_MAX_MESSAGE_CHARS` placeholder (Q-24), in code points. */
 export const MAX_MESSAGE_CODE_POINTS = 12_000;
@@ -127,6 +128,49 @@ export function activitySummary(
     checks: checks.length,
     duration_ms: durationMs,
   });
+}
+
+/**
+ * Stored steps in the shape the live view renders, so a finished reply and a running
+ * one share one renderer. Ids are the step index, which is stable for a stored list.
+ * Returns `null` when there is nothing to show, so the caller keeps the older layout.
+ */
+export function storedStepsToTurnSteps(
+  steps: readonly StoredStep[] | null,
+): readonly TurnStep[] | null {
+  // A payload from before `steps` existed (or a mock) can lack the key: read it as none.
+  if (!steps || steps.length === 0) {
+    return null;
+  }
+  return steps.map((step, index): TurnStep => {
+    switch (step.kind) {
+      case "thinking":
+        return { kind: "thinking", id: `stored-${index}`, text: step.text };
+      case "tools":
+        return { kind: "tools", id: `stored-${index}`, callIds: step.call_ids };
+      case "check":
+        return { kind: "check", id: `stored-${index}`, check: step.check };
+    }
+  });
+}
+
+/**
+ * The ordered steps to show for a finished assistant message, or `null` to keep the
+ * older layout (one summary line, a separate Thinking block). Steps apply only when the
+ * turn made tool calls: a thinking-only turn has no summary to open, so it keeps the
+ * Thinking block.
+ */
+export function orderedStepsOf(
+  message: Pick<TranscriptMessage, "role" | "steps" | "activity_summary">,
+): readonly TurnStep[] | null {
+  if (message.role !== "assistant") {
+    return null;
+  }
+  const summary = message.activity_summary;
+  if (summary === null || summary.actions === 0) {
+    return null;
+  }
+  return storedStepsToTurnSteps(message.steps);
 }
 
 /**

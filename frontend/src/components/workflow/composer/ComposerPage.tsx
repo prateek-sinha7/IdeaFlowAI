@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { motion } from "motion/react";
-import { ArrowLeft, Save, Play, Plus, GitBranch, LayoutList, Sparkles, Loader2, Check, Paperclip, Palette, Layout, X, AlertCircle } from "lucide-react";
+import { ArrowLeft, Save, Play, Plus, GitBranch, LayoutList, Sparkles, Loader2, Check, Paperclip, Palette, Layout, X, AlertCircle, ChevronDown, Copy } from "lucide-react";
 import { IdentityCard } from "./IdentityCard";
 import { AgentRow } from "./AgentRow";
 import { SubAgentReadOnlyList } from "./SubAgentReadOnlyList";
@@ -337,6 +337,8 @@ export function ComposerPage({
   // every save, with no feedback once it closed — nothing told you it had
   // actually finished, so the instinct was to click Save again).
   const [justSaved, setJustSaved] = useState(false);
+  // Open state of the Save menu shown for a linked custom row ("Save workflow" / "Save as new").
+  const [saveMenuOpen, setSaveMenuOpen] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const nameInputRef = useRef<HTMLInputElement>(null);
   // ISS-353 — synchronous mutex for Save. `saving` (React state) gates the
@@ -1572,6 +1574,53 @@ export function ComposerPage({
     (!!builtinCanvasType && !initialManifestSteps?.length && !initialAgentIds?.length) ||
     (!!expectedUserWorkflowId && !userWorkflowId);
 
+  // Save control. A linked custom row gets ONE Save control whose menu offers
+  // "Save workflow" (updates the row) and "Save as new" (creates a row). Every other
+  // case keeps a single button named for what it does.
+  const saveDisabled = saving || seedUnresolved || builderTurnRunning;
+  const saveTitle = builderTurnRunning
+    ? BUILDER_UPDATING_MESSAGE
+    : !name.trim()
+      ? "Name the workflow first"
+      : seedUnresolved
+        ? "This workflow has not loaded. Reload the page to retry."
+        : undefined;
+  const saveSingleLabel = builderSaveAsNewOnly
+    ? "Save as new"
+    : builtinCanvasType
+      ? "Save as copy"
+      : "Save workflow";
+  const saveButtonClass = `inline-flex min-w-[148px] items-center justify-center gap-2 whitespace-nowrap rounded-[10px] px-[18px] py-2.5 font-sans text-[12.5px] font-semibold text-surface-white transition-colors enabled:active:scale-[0.97] disabled:cursor-not-allowed ${
+    justSaved ? "bg-status-done" : "bg-brand enabled:hover:bg-brand-pressed disabled:opacity-50"
+  }`;
+  const saveMenuItemClass =
+    "flex w-full items-center gap-2 px-3 py-2 text-left font-sans text-[12px] font-medium text-ink-700 transition-colors hover:bg-surface-warm disabled:cursor-not-allowed disabled:opacity-40";
+  const saveButtonBody = (label: string, withChevron: boolean) => {
+    if (saving) {
+      return (
+        <>
+          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          Saving…
+        </>
+      );
+    }
+    if (justSaved) {
+      return (
+        <>
+          <Check className="h-3.5 w-3.5" />
+          Saved
+        </>
+      );
+    }
+    return (
+      <>
+        <Save className="h-3.5 w-3.5" />
+        {label}
+        {withChevron && <ChevronDown className="h-3.5 w-3.5" />}
+      </>
+    );
+  };
+
   return (
     <div className="flex h-full flex-col overflow-hidden bg-surface-paper text-ink-900">
       {/* Header */}
@@ -1735,53 +1784,75 @@ export function ComposerPage({
           <Play className="h-3.5 w-3.5" />
           Run once
         </button>
-        {builderSaveAsNewBeside && (
+        {builderSaveAsNewBeside ? (
+          <div
+            className="relative"
+            onKeyDown={(e) => {
+              if (e.key === "Escape") setSaveMenuOpen(false);
+            }}
+          >
+            <button
+              type="button"
+              aria-haspopup="menu"
+              aria-expanded={saveMenuOpen}
+              onClick={() => setSaveMenuOpen((open) => !open)}
+              disabled={saveDisabled}
+              aria-describedby={builderTurnRunning ? "composer-builder-note" : undefined}
+              title={saveTitle}
+              className={saveButtonClass}
+            >
+              {saveButtonBody("Save workflow", true)}
+            </button>
+            {saveMenuOpen && (
+              <>
+                <div className="fixed inset-0 z-40" onClick={() => setSaveMenuOpen(false)} />
+                <div
+                  role="menu"
+                  aria-label="Save options"
+                  className="absolute right-0 top-full z-50 mt-1.5 w-[200px] overflow-hidden rounded-[10px] border border-line-control bg-surface-card py-1 shadow-lg"
+                >
+                  <button
+                    type="button"
+                    role="menuitem"
+                    disabled={saveDisabled}
+                    onClick={() => {
+                      setSaveMenuOpen(false);
+                      submitSave("save");
+                    }}
+                    className={saveMenuItemClass}
+                  >
+                    <Save className="h-3.5 w-3.5" />
+                    Save workflow
+                  </button>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    disabled={saveDisabled}
+                    onClick={() => {
+                      setSaveMenuOpen(false);
+                      submitSave("save_as_new");
+                    }}
+                    className={saveMenuItemClass}
+                  >
+                    <Copy className="h-3.5 w-3.5" />
+                    Save as new
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        ) : (
           <button
             type="button"
-            onClick={() => submitSave("save_as_new")}
-            disabled={saving || seedUnresolved || builderTurnRunning}
+            onClick={() => submitSave(builderSaveAsNewOnly ? "save_as_new" : "save")}
+            disabled={saveDisabled}
             aria-describedby={builderTurnRunning ? "composer-builder-note" : undefined}
-            className="inline-flex items-center gap-1.5 rounded-[10px] border border-line-control bg-surface-card px-3.5 py-2.5 font-sans text-[12.5px] font-semibold text-ink-700 transition-colors enabled:hover:border-line-faint enabled:hover:bg-surface-warm enabled:active:scale-[0.97] disabled:opacity-40"
+            title={saveTitle}
+            className={saveButtonClass}
           >
-            <Save className="h-3.5 w-3.5" />
-            Save as new
+            {saveButtonBody(saveSingleLabel, false)}
           </button>
         )}
-        <button
-          type="button"
-          onClick={() => submitSave(builderSaveAsNewOnly ? "save_as_new" : "save")}
-          disabled={saving || seedUnresolved || builderTurnRunning}
-          aria-describedby={builderTurnRunning ? "composer-builder-note" : undefined}
-          title={
-            builderTurnRunning
-              ? BUILDER_UPDATING_MESSAGE
-              : !name.trim()
-                ? "Name the workflow first"
-                : seedUnresolved
-                  ? "This workflow has not loaded. Reload the page to retry."
-                  : undefined
-          }
-          className={`inline-flex w-[148px] items-center justify-center gap-2 rounded-[10px] px-[18px] py-2.5 font-sans text-[12.5px] font-semibold text-surface-white transition-colors enabled:active:scale-[0.97] disabled:cursor-not-allowed ${
-            justSaved ? "bg-status-done" : "bg-brand enabled:hover:bg-brand-pressed disabled:opacity-50"
-          }`}
-        >
-          {saving ? (
-            <>
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              Saving…
-            </>
-          ) : justSaved ? (
-            <>
-              <Check className="h-3.5 w-3.5" />
-              Saved
-            </>
-          ) : (
-            <>
-              <Save className="h-3.5 w-3.5" />
-              {builderSaveAsNewOnly ? "Save as new" : builtinCanvasType ? "Save as copy" : "Save workflow"}
-            </>
-          )}
-        </button>
       </div>
 
       {/* Below the header: the AI Workflow Builder panel when the host passes one

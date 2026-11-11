@@ -883,7 +883,8 @@
             "ok",
             "error",
             "refused",
-            "timed_out"
+            "timed_out",
+            "stopped"
           ],
           "title": "Status",
           "type": "string"
@@ -937,7 +938,8 @@
             "ok",
             "error",
             "refused",
-            "timed_out"
+            "timed_out",
+            "stopped"
           ],
           "title": "Status",
           "type": "string"

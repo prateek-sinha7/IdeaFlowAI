@@ -18,6 +18,7 @@ function assistant(overrides: Partial<TranscriptMessage> = {}): TranscriptMessag
     stop_reason: null,
     content: "Hello **there**",
     thinking: null,
+    steps: null,
     model_id: "model-a",
     effort: null,
     skill_hash: null,

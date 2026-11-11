@@ -15,10 +15,8 @@ function running(label: string, text = ""): RunningTurnView {
     startedAt: 0,
     lastSeq: 0,
     activity: [],
-    checks: [],
+    steps: text === "" ? [] : [{ kind: "text", id: "text-1", text }],
     warnings: [],
-    text,
-    thinking: "",
     pendingDraft: null,
   };
 }

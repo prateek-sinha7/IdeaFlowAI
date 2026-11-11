@@ -54,6 +54,7 @@ from app.agents.workflow_builder.events import (
 )
 from app.agents.workflow_builder.events import ToolStarted as ToolStartedEvent
 from app.agents.workflow_builder.ports import FinishedToolCall
+from app.agents.workflow_builder.script_runner import STOPPED_NOTE
 from app.agents.workflow_builder.stages import READ_TOOL_NAMES
 from app.agents.workflow_builder.stages import ToolStarted as ToolStartedSignal
 
@@ -269,6 +270,13 @@ def _script_timed_out(text: str) -> bool:
     )
 
 
+def _script_stopped(text: str) -> bool:
+    """True when the script result header says the turn stopped before the call ended."""
+    return any(
+        line.strip() == STOPPED_NOTE for line in text.splitlines()[:_HEADER_LINES]
+    )
+
+
 def _script_verdict(text: str) -> Verdict | None:
     """Return the validator verdict on the last non-empty output line, if any."""
     for line in reversed(text.splitlines()):
@@ -347,6 +355,8 @@ def _summary_for(
         return cap_summary(
             f"{label} was refused. {reason}" if reason else f"{label} was refused."
         )
+    if status == "stopped":
+        return cap_summary(f"{label} was stopped.")
     if status == "timed_out":
         return cap_summary(f"{label} timed out.")
     if exit_code is not None:
@@ -478,7 +488,7 @@ class BuilderToolObserverMiddleware(AgentMiddleware[Any, Any, Any]):
             result = await handler(request)
         except asyncio.CancelledError:
             cancel_status: ToolFinishStatus = (
-                "timed_out" if self._stopped_by_turn_cap() else "error"
+                "timed_out" if self._stopped_by_turn_cap() else "stopped"
             )
             await self._finish_unreturned(
                 call_id, name, args, described, started, status=cancel_status
@@ -490,6 +500,8 @@ class BuilderToolObserverMiddleware(AgentMiddleware[Any, Any, Any]):
 
         message = _message_of(result)
         status = self._status_of(name, described, message)
+        if status == "stopped" and self._stopped_by_turn_cap():
+            status = "timed_out"  # same rule as a cancelled call
         await self._finish(
             call_id, name, args, described, started, message, status=status, reason=None
         )
@@ -579,6 +591,8 @@ class BuilderToolObserverMiddleware(AgentMiddleware[Any, Any, Any]):
         text = _content_text(message.content) if message is not None else ""
         if _script_timed_out(text):
             return "timed_out"
+        if _script_stopped(text):
+            return "stopped"
         exit_code = _script_exit_code(text)
         if exit_code is None:
             return "refused"

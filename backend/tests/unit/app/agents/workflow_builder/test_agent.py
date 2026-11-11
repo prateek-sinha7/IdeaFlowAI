@@ -15,10 +15,12 @@ import hashlib
 import re
 from pathlib import Path
 from typing import Any
+from unittest.mock import create_autospec
 
 import pytest
 from langchain_core.messages import HumanMessage
 
+from app.agents import deep_agent_runner as deep_agent_runner_module
 from app.agents.workflow_builder.skill_package import SKILLS_ROOT
 from app.agents.deep_agent_runner import DeepAgentRunner
 from app.agents.workflow_builder.agent import (
@@ -283,6 +285,47 @@ async def test_build_builder_runner_runs_read_tool_through_observer_when_model_c
     assert [(e.call_id, e.status) for e in finished] == [("call-a", "ok")]
     assert len(turn.finished) == 1
     assert '"available":true' in turn.finished[0].result
+
+
+# Plan #9 (unit-test-prompt/test-files/backend__app__agents__model_factory) | B6
+def test_build_builder_runner_builds_model_with_force_streaming_when_model_id_is_given(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Arrange: no chat_model, so the runner builds one from the id. The spy stands
+    # in for the real Bedrock client.
+    spy = create_autospec(
+        deep_agent_runner_module.build_model, return_value=FakeChatModel(turns=())
+    )
+    monkeypatch.setattr(deep_agent_runner_module, "build_model", spy)
+    sandbox = BuilderSandbox("user-1", "session-1", root=tmp_path / "builder")
+    sandbox.ensure()
+    inputs = BuilderTurnInputs(
+        session_id="session-1",
+        turn_id=_TURN_ID,
+        user_id="user-1",
+        tier="enterprise",
+        model_id="eu.anthropic.claude-sonnet-5-5",
+        effort="high",
+        message=HumanMessage(
+            content="Build me a review workflow.", id=f"turn:{_TURN_ID}"
+        ),
+    )
+    ports = BuilderPorts(
+        turn=FakeTurnPort(turn_id=_TURN_ID),
+        gate=FakeGate(),
+        reads=PlaceholderReadPort(),
+    )
+
+    # Act
+    build_builder_runner(inputs, sandbox, ports, skills_root=_SKILLS_ROOT)
+
+    # Assert: the builder asks for live streaming.
+    spy.assert_called_once_with(
+        "eu.anthropic.claude-sonnet-5-5",
+        max_tokens=None,
+        effort="high",
+        force_streaming=True,
+    )
 
 
 def test_build_builder_runner_raises_when_message_id_is_not_the_turn_id(

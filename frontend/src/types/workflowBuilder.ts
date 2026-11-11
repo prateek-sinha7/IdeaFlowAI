@@ -51,7 +51,7 @@ export type BuilderStage =
   | "responding";
 
 export type ToolKind = "read" | "write" | "script" | "lookup" | "propose";
-export type ToolStatus = "running" | "ok" | "error" | "refused" | "timed_out";
+export type ToolStatus = "running" | "ok" | "error" | "refused" | "timed_out" | "stopped";
 export type ToolFinishStatus = Exclude<ToolStatus, "running">;
 export type CheckSource = "skill_validator" | "platform_dry_run" | "server_gate";
 export type CheckVerdict = "valid" | "invalid" | "unknown";
@@ -183,6 +183,16 @@ export interface DraftRevisionOut {
   created_at: string;
 }
 
+/**
+ * One stored step of a finished turn, in the order it happened. A tools step names
+ * the turn's `activity` entries by `call_id`. Reply text is not a step: it is the
+ * message `content`.
+ */
+export type StoredStep =
+  | { kind: "thinking"; text: string }
+  | { kind: "tools"; call_ids: string[] }
+  | { kind: "check"; check: CheckResult };
+
 export interface TranscriptMessage {
   id: string;
   seq: number;
@@ -194,6 +204,11 @@ export interface TranscriptMessage {
   stop_reason: StopReason | null;
   content: string;
   thinking: string | null;
+  /**
+   * Assistant messages: the turn's thinking, tool-call groups and checks in order.
+   * `null` for a turn stored before steps existed, and for a turn with none.
+   */
+  steps: StoredStep[] | null;
   model_id: string;
   effort: string | null;
   skill_hash: string | null;

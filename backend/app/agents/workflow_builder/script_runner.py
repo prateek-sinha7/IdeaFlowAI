@@ -81,6 +81,7 @@ from app.core.config import settings
 __all__ = [
     "SCRIPT_ENV_NAMES",
     "SCRIPT_SEMAPHORE",
+    "STOPPED_NOTE",
     "OutputCapture",
     "ParsedCommand",
     "ProcessLike",
@@ -755,6 +756,8 @@ _MAX_COMMAND_ECHO: Final = 2_000
 _MAX_DRY_RUN_ISSUES: Final = 20
 _MAX_ISSUE_CHARS: Final = 400
 _STOPPED_SUMMARY: Final = "stopped with the turn"
+STOPPED_NOTE: Final = "The script did not finish because the turn stopped."
+"""Third line of the result of a call the turn stopped. The tool observer reads it."""
 _NO_EXIT_CODE: Final = "none"
 _UNSUPPORTED_TRUST: Final = "Only user or db trust applies to Composer workflows."
 _DRY_RUN_FAILED: Final = (
@@ -1314,10 +1317,9 @@ def _stopped_result(
     parsed: ParsedCommand, ctx: ScriptContext, started: float
 ) -> ScriptResult:
     """Build the result of a call stopped by cancel, a turn cap or a shutdown."""
-    status: ToolFinishStatus = "timed_out" if ctx.stopped_by_turn_cap() else "error"
+    status: ToolFinishStatus = "timed_out" if ctx.stopped_by_turn_cap() else "stopped"
     text = (
-        f"$ {_clip_command(parsed.command)}\nexit code: {_NO_EXIT_CODE}\n"
-        "The script did not finish because the turn stopped."
+        f"$ {_clip_command(parsed.command)}\nexit code: {_NO_EXIT_CODE}\n{STOPPED_NOTE}"
     )
     return ScriptResult(
         script=parsed.script.name,

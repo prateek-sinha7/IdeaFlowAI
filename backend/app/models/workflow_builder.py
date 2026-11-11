@@ -60,6 +60,7 @@ MESSAGE_STATUS_INTERRUPTED = "interrupted"
 MESSAGE_STATUS_TOOL_OK = "ok"
 MESSAGE_STATUS_TOOL_ERROR = "error"
 MESSAGE_STATUS_TOOL_REFUSED = "refused"
+MESSAGE_STATUS_TOOL_STOPPED = "stopped"
 
 # ``workflow_builder_drafts.kind`` (Req 24.2)
 DRAFT_KIND_SEED = "seed"
@@ -168,6 +169,10 @@ class WorkflowBuilderMessage(Base):
     error_code = Column(String, nullable=True)
     content = Column(Text, nullable=False, default="", server_default=text("''"))
     thinking = Column(Text, nullable=True)  # shown to the user, so stored (Req 5.4)
+    # Assistant rows: the turn's thinking, tool-call groups and checks in the order
+    # they happened (migration 0054). NULL on rows from before it, and on a turn
+    # with none of them; the reader then falls back to ``thinking`` and the tool rows.
+    steps = Column(JSON, nullable=True)
     canvas_state = Column(JSON, nullable=True)  # user rows: Undo source (Req 8.4)
     client_message_id = Column(String, nullable=True)
     # Req 24.3: what produced the message.

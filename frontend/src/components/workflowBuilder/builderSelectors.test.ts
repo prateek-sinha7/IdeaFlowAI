@@ -8,6 +8,8 @@ import {
   codePointLength,
   formatElapsed,
   isTurnRunning,
+  orderedStepsOf,
+  storedStepsToTurnSteps,
   undoTargetMessageId,
 } from "./builderSelectors";
 import type { CheckResult, ToolActivity } from "@/types/workflowBuilder";
@@ -23,10 +25,8 @@ const RUNNING: TurnView = {
   startedAt: 0,
   lastSeq: 1,
   activity: [],
-  checks: [],
+  steps: [],
   warnings: [],
-  text: "",
-  thinking: "",
   pendingDraft: null,
 };
 const ENDED: TurnView = {
@@ -36,6 +36,59 @@ const ENDED: TurnView = {
   outcome: "reply",
   stopReason: null,
 };
+
+describe("storedStepsToTurnSteps", () => {
+  const check: CheckResult = {
+    source: "skill_validator", verdict: "valid", errors: 0, warnings: 0,
+    attempt: null, attempts_left: null,
+  };
+
+  it("returns null for null, for a missing key and for an empty list", () => {
+    expect(storedStepsToTurnSteps(null)).toBeNull();
+    expect(storedStepsToTurnSteps(undefined as unknown as null)).toBeNull();
+    expect(storedStepsToTurnSteps([])).toBeNull();
+  });
+
+  it("keeps the order and maps each kind to the live step shape", () => {
+    expect(
+      storedStepsToTurnSteps([
+        { kind: "thinking", text: "t" },
+        { kind: "tools", call_ids: ["c1", "c2"] },
+        { kind: "check", check },
+      ]),
+    ).toEqual([
+      { kind: "thinking", id: "stored-0", text: "t" },
+      { kind: "tools", id: "stored-1", callIds: ["c1", "c2"] },
+      { kind: "check", id: "stored-2", check },
+    ]);
+  });
+});
+
+describe("orderedStepsOf", () => {
+  const steps = [{ kind: "thinking" as const, text: "t" }];
+  const summary = { actions: 2, checks: 0, duration_ms: 10 };
+
+  it("returns the steps for an assistant message that made tool calls", () => {
+    expect(orderedStepsOf({ role: "assistant", steps, activity_summary: summary })).toEqual([
+      { kind: "thinking", id: "stored-0", text: "t" },
+    ]);
+  });
+
+  it("returns null for a user message", () => {
+    expect(orderedStepsOf({ role: "user", steps, activity_summary: summary })).toBeNull();
+  });
+
+  it("returns null when the turn made no tool calls, so the Thinking block stays", () => {
+    expect(
+      orderedStepsOf({ role: "assistant", steps, activity_summary: { ...summary, actions: 0 } }),
+    ).toBeNull();
+    expect(orderedStepsOf({ role: "assistant", steps, activity_summary: null })).toBeNull();
+  });
+
+  it("returns null when no steps were stored", () => {
+    expect(orderedStepsOf({ role: "assistant", steps: null, activity_summary: summary })).toBeNull();
+  });
+});
 
 describe("codePointLength", () => {
   it("counts an astral character once", () => {

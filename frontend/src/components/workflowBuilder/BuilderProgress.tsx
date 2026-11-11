@@ -5,8 +5,9 @@
  *
  * Two modes:
  * - `live`: the stage label with the elapsed time ticking every second, the
- *   limit notices, the check lines and an expandable activity list. Used while a
- *   turn runs, in this tab or another.
+ *   limit notices, and the turn's steps in the order they happened: thinking,
+ *   tool calls grouped under "N tool calls", check results and reply text. Used
+ *   while a turn runs, in this tab or another.
  * - `ended`: the stored one-line summary ("14 actions, 2 checks, 1 min 40 s"),
  *   which expands to the activity list and check lines.
  *
@@ -17,7 +18,8 @@
 
 import { useEffect, useState } from "react";
 
-import type { LimitWarningView } from "./builderReducer";
+import { SafeMarkdown } from "./BuilderMessage";
+import type { LimitWarningView, TurnStep } from "./builderReducer";
 import { formatActivitySummary, formatElapsed } from "./builderSelectors";
 import {
   activityStatusText,
@@ -124,6 +126,88 @@ export function CheckList({ checks }: { checks: readonly CheckResult[] }) {
   );
 }
 
+// --- Live steps ------------------------------------------------------------------------
+
+function toolCallCountText(count: number): string {
+  return `${count} tool call${count === 1 ? "" : "s"}`;
+}
+
+/** A thinking step. It folds closed, and its text keeps the model's line breaks. */
+function ThinkingStep({ text }: { text: string }) {
+  return (
+    <details className={FOLD_CLASS}>
+      <summary
+        className={`cursor-pointer rounded-[var(--radius-node)] px-3 py-1.5 font-semibold text-ink-700 ${FOCUS_RING}`}
+      >
+        Thinking
+      </summary>
+      <p className="whitespace-pre-wrap break-words border-t border-line-divider px-3 py-2 font-sans text-[12px] leading-relaxed text-ink-600">
+        {text}
+      </p>
+    </details>
+  );
+}
+
+/** A run of consecutive tool calls. It is open, so each call shows its status while it runs. */
+function ToolGroup({ calls }: { calls: readonly ToolActivity[] }) {
+  return (
+    <details open className={FOLD_CLASS}>
+      <summary
+        className={`cursor-pointer rounded-[var(--radius-node)] px-3 py-1.5 font-semibold text-ink-700 ${FOCUS_RING}`}
+      >
+        {toolCallCountText(calls.length)}
+      </summary>
+      <div className="border-t border-line-divider px-3 py-2">
+        <ul aria-label="Tool calls" className="flex flex-col gap-1 text-[12px] text-ink-700">
+          {calls.map((line) => (
+            <ActivityRow key={line.call_id} line={line} />
+          ))}
+        </ul>
+      </div>
+    </details>
+  );
+}
+
+/** The steps of a live turn in arrival order. A tool step whose calls are unknown renders nothing. */
+function LiveSteps({
+  steps,
+  activity,
+}: {
+  steps: readonly TurnStep[];
+  activity: readonly ToolActivity[];
+}) {
+  const callsById = new Map(activity.map((line) => [line.call_id, line] as const));
+  return (
+    <div className="flex flex-col gap-2">
+      {steps.map((step) => {
+        switch (step.kind) {
+          case "thinking":
+            return <ThinkingStep key={step.id} text={step.text} />;
+          case "text":
+            return <SafeMarkdown key={step.id} text={step.text} />;
+          case "tools": {
+            const calls = step.callIds.flatMap((callId) => {
+              const line = callsById.get(callId);
+              return line === undefined ? [] : [line];
+            });
+            return calls.length > 0 ? <ToolGroup key={step.id} calls={calls} /> : null;
+          }
+          case "check":
+            return (
+              <p key={step.id} className="break-words text-[12px] text-ink-700">
+                {checkLineText(step.check)}
+              </p>
+            );
+          default: {
+            const unreachable: never = step;
+            return unreachable;
+          }
+        }
+      })}
+    </div>
+  );
+}
+
 // --- Modes -----------------------------------------------------------------------------
 
 export interface LiveProgressProps {
@@ -131,8 +215,10 @@ export interface LiveProgressProps {
   label: string;
   /** Client clock, ms since the epoch, when the turn started. */
   startedAt: number;
+  /** Every tool call of the turn so far. The steps refer to them by `call_id`. */
   activity: readonly ToolActivity[];
-  checks: readonly CheckResult[];
+  /** The turn's steps in the order they arrived. */
+  steps: readonly TurnStep[];
   warnings: readonly LimitWarningView[];
 }
 
@@ -153,7 +239,7 @@ function WorkingDots() {
   );
 }
 
-function LiveProgress({ label, startedAt, activity, checks, warnings }: LiveProgressProps) {
+function LiveProgress({ label, startedAt, activity, steps, warnings }: LiveProgressProps) {
   const now = useClock();
   const elapsed = Math.max(0, now - startedAt);
   return (
@@ -170,19 +256,7 @@ function LiveProgress({ label, startedAt, activity, checks, warnings }: LiveProg
           {limitNoticeText(warning)}
         </p>
       ))}
-      <CheckList checks={checks} />
-      {activity.length > 0 ? (
-        <details open className={FOLD_CLASS}>
-          <summary
-            className={`cursor-pointer rounded-[var(--radius-node)] px-3 py-1.5 font-semibold text-ink-700 ${FOCUS_RING}`}
-          >
-            {`Activity (${activity.length})`}
-          </summary>
-          <div className="border-t border-line-divider px-3 py-2">
-            <ActivityList activity={activity} />
-          </div>
-        </details>
-      ) : null}
+      <LiveSteps steps={steps} activity={activity} />
     </section>
   );
 }
@@ -191,9 +265,15 @@ export interface EndedProgressProps {
   summary: Pick<ActivitySummary, "actions" | "checks" | "duration_ms">;
   activity: readonly ToolActivity[];
   checks: readonly CheckResult[];
+  /**
+   * The turn's stored steps in order. When given, they replace the flat activity and
+   * check lists, so a finished reply reads like the live one. Omit for a turn stored
+   * before steps existed.
+   */
+  steps?: readonly TurnStep[] | null;
 }
 
-function EndedProgress({ summary, activity, checks }: EndedProgressProps) {
+function EndedProgress({ summary, activity, checks, steps = null }: EndedProgressProps) {
   return (
     <details className={FOLD_CLASS}>
       <summary
@@ -202,8 +282,14 @@ function EndedProgress({ summary, activity, checks }: EndedProgressProps) {
         {formatActivitySummary(summary)}
       </summary>
       <div className="flex flex-col gap-2 border-t border-line-divider px-3 py-2">
-        <ActivityList activity={activity} />
-        <CheckList checks={checks} />
+        {steps !== null ? (
+          <LiveSteps steps={steps} activity={activity} />
+        ) : (
+          <>
+            <ActivityList activity={activity} />
+            <CheckList checks={checks} />
+          </>
+        )}
       </div>
     </details>
   );
@@ -221,13 +307,18 @@ export function BuilderProgress(props: BuilderProgressProps) {
         label={props.label}
         startedAt={props.startedAt}
         activity={props.activity}
-        checks={props.checks}
+        steps={props.steps}
         warnings={props.warnings}
       />
     );
   }
   return (
-    <EndedProgress summary={props.summary} activity={props.activity} checks={props.checks} />
+    <EndedProgress
+      summary={props.summary}
+      activity={props.activity}
+      checks={props.checks}
+      steps={props.steps}
+    />
   );
 }
 

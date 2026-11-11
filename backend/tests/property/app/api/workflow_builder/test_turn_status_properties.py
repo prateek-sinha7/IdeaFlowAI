@@ -59,6 +59,7 @@ from tests.factories.builder_session_factory import BuilderSessionFactory
 from tests.fakes.builder_gate import FakeGate
 from tests.fakes.builder_store import InMemoryBuilderStore
 from tests.fakes.scripted_chat_model import FakeChatModel, ModelTurn, ScriptedToolCall
+from tests.property.budget import examples
 
 USER = "user-a"
 _SKILLS_ROOT = SKILLS_ROOT
@@ -292,7 +293,7 @@ def _fresh_state() -> None:
 
 
 @settings(
-    max_examples=100,
+    max_examples=examples(100, quick=25),
     deadline=None,
     suppress_health_check=[HealthCheck.too_slow],
 )
@@ -307,7 +308,7 @@ def test_run_turn_stores_status_of_first_stop_when_signals_arrive_in_any_order(
 
 
 @settings(
-    max_examples=100,
+    max_examples=examples(100, quick=25),
     deadline=None,
     suppress_health_check=[HealthCheck.too_slow],
 )

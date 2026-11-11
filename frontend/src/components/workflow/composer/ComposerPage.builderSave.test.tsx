@@ -195,26 +195,31 @@ describe("ComposerPage builder Save — linked rows", () => {
     expect(screen.getByDisplayValue("Bar")).toBeInTheDocument();
   });
 
-  it("updates the linked custom row on Save and shows Save as new beside it", async () => {
+  it("offers Save workflow and Save as new in one Save menu for a linked custom row", async () => {
     const user = userEvent.setup();
     const builder = binding({ linkedBaseIsCustom: true });
     mockSave.mockResolvedValue({ id: "wf-1" } as Awaited<ReturnType<typeof saveUserWorkflow>>);
     renderComposer({ initialName: "Foo", initialUserWorkflowId: "wf-1", builder });
 
-    expect(screen.getByRole("button", { name: "Save as new" })).toBeEnabled();
+    expect(screen.queryByRole("button", { name: "Save as new" })).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: /Save workflow/i }));
+    expect(screen.getByRole("menuitem", { name: "Save workflow" })).toBeEnabled();
+    expect(screen.getByRole("menuitem", { name: "Save as new" })).toBeEnabled();
+
+    await user.click(screen.getByRole("menuitem", { name: "Save workflow" }));
 
     await waitFor(() => expect(mockSave).toHaveBeenCalledTimes(1));
     expect(mockSave.mock.calls[0][1]).toBe("wf-1");
     expect(builder.onSaved).toHaveBeenCalledWith({ id: "wf-1", baseIsCustom: true });
   });
 
-  it("creates a new row for Save as new beside a linked custom row", async () => {
+  it("creates a new row for Save as new from the Save menu of a linked custom row", async () => {
     const user = userEvent.setup();
     mockSave.mockResolvedValue({ id: "wf-2" } as Awaited<ReturnType<typeof saveUserWorkflow>>);
     renderComposer({ initialName: "Foo", initialUserWorkflowId: "wf-1", builder: binding() });
 
-    await user.click(screen.getByRole("button", { name: "Save as new" }));
+    await user.click(screen.getByRole("button", { name: /Save workflow/i }));
+    await user.click(screen.getByRole("menuitem", { name: "Save as new" }));
 
     await waitFor(() => expect(mockSave).toHaveBeenCalledTimes(1));
     expect(mockSave.mock.calls[0][1]).toBeUndefined();
@@ -227,9 +232,10 @@ describe("ComposerPage builder Save — linked rows", () => {
     renderComposer({ initialName: "Foo", initialUserWorkflowId: "wf-1", builder });
 
     await user.click(screen.getByRole("button", { name: /Save workflow/i }));
+    await user.click(screen.getByRole("menuitem", { name: "Save workflow" }));
 
     expect(await screen.findByText("The manifest does not compile.")).toBeInTheDocument();
     expect(builder.onSaved).not.toHaveBeenCalled();
-    expect(screen.getByRole("button", { name: "Save as new" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Save workflow/i })).toBeEnabled();
   });
 });

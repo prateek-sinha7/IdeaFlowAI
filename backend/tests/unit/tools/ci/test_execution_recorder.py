@@ -8,6 +8,7 @@ these pin that both kinds of skip keep their reason.
 
 from __future__ import annotations
 
+import json
 from types import SimpleNamespace
 
 from tools.ci.execution_recorder import _known_bug_meta, _Recorder
@@ -137,3 +138,70 @@ def test_record_report_flags_an_xfail_as_xfailed_but_not_a_plain_skip() -> None:
         )
     )
     assert rec.xfailed == {"tests/x.py::t"}
+
+
+# ---------------------------------------------------------------------------
+# xdist hand-off: workers export collection facts, the controller merges them.
+# ---------------------------------------------------------------------------
+
+
+def _collected(nodeid: str, partition: str = "offline") -> dict:
+    return {
+        nodeid: {
+            "nodeid": nodeid,
+            "path": "",
+            "markers": [],
+            "partition": partition,
+        }
+    }
+
+
+def test_merge_collection_unions_nodes_when_two_workers_report_the_same_list() -> None:
+    worker = _recorder()
+    worker.collected.update(_collected("tests/a.py::one"))
+    worker.collected.update(_collected("tests/a.py::two"))
+    worker.xfail_meta["tests/a.py::one"] = {"strict_xfail": True, "issues": ["ISS-1"]}
+    payload = worker.export_collection()
+
+    controller = _recorder()
+    controller.merge_collection(payload)
+    controller.merge_collection(payload)
+
+    assert sorted(controller.collected) == ["tests/a.py::one", "tests/a.py::two"]
+    assert controller.xfail_meta["tests/a.py::one"]["issues"] == ["ISS-1"]
+
+
+def test_write_dedupes_collection_errors_when_every_worker_reports_them(
+    tmp_path,
+) -> None:
+    inventory = tmp_path / "inventory.json"
+    controller = _Recorder(inventory_path=str(inventory), execution_path=None)
+    payload = {"collection_errors": ["tests/broken.py"]}
+    controller.merge_collection(payload)
+    controller.merge_collection(payload)
+    controller.record_collection_error("tests/broken.py")
+
+    controller.write()
+
+    written = json.loads(inventory.read_text(encoding="utf-8"))
+    assert written["collection_errors"] == ["tests/broken.py"]
+
+
+def test_execution_record_counts_each_node_once_when_reports_come_from_workers(
+    tmp_path,
+) -> None:
+    execution = tmp_path / "execution.json"
+    controller = _Recorder(inventory_path=None, execution_path=str(execution))
+    controller.merge_collection(
+        {"collected": _collected("tests/a.py::one") | _collected("tests/a.py::two")}
+    )
+
+    controller.record_report(_report(nodeid="tests/a.py::one"))
+    controller.record_report(_report(nodeid="tests/a.py::two"))
+    controller.write()
+
+    nodes = json.loads(execution.read_text(encoding="utf-8"))["nodes"]
+    assert {n["nodeid"]: n["terminal_count"] for n in nodes} == {
+        "tests/a.py::one": 1,
+        "tests/a.py::two": 1,
+    }

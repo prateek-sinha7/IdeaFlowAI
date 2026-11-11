@@ -66,7 +66,7 @@ export type MockStage =
   | "applying"
   | "responding";
 export type MockToolKind = "read" | "write" | "script" | "lookup" | "propose";
-export type MockToolFinishStatus = "ok" | "error" | "refused" | "timed_out";
+export type MockToolFinishStatus = "ok" | "error" | "refused" | "timed_out" | "stopped";
 
 export interface MockToolActivity {
   call_id: string;
@@ -79,6 +79,12 @@ export interface MockToolActivity {
   exit_code: number | null;
   summary: string | null;
 }
+
+/** One stored step of a finished turn, as the server returns it. */
+export type MockStoredStep =
+  | { kind: "thinking"; text: string }
+  | { kind: "tools"; call_ids: string[] }
+  | { kind: "check"; check: MockCheck };
 
 export interface MockCheck {
   source: "skill_validator" | "platform_dry_run" | "server_gate";
@@ -121,6 +127,8 @@ export interface MockMessage {
   stop_reason: MockStopReason | null;
   content: string;
   thinking: string | null;
+  /** Assistant messages: thinking, tool-call groups and checks in order, or null. */
+  steps: MockStoredStep[] | null;
   model_id: string;
   effort: string | null;
   skill_hash: string | null;
@@ -355,6 +363,8 @@ export class ScriptedTurn {
   private stage: { stage: MockStage; label: string } = { stage: "starting", label: "Starting" };
   private activity: MockToolActivity[] = [];
   private checks: MockCheck[] = [];
+  /** The order thinking, tool calls and checks happened in, as the server stores it. */
+  private steps: MockStoredStep[] = [];
   private revision: number | null = null;
   private readonly startedAtMs = Date.now();
 
@@ -425,6 +435,12 @@ export class ScriptedTurn {
       exit_code: null,
       summary: null,
     });
+    const last = this.steps[this.steps.length - 1];
+    if (last !== undefined && last.kind === "tools") {
+      last.call_ids.push(call.callId);
+    } else {
+      this.steps.push({ kind: "tools", call_ids: [call.callId] });
+    }
     await this.emit("tool_started", {
       call_id: call.callId,
       tool: call.tool,
@@ -466,7 +482,19 @@ export class ScriptedTurn {
       ...result,
     };
     this.checks.push(check);
+    this.steps.push({ kind: "check", check });
     await this.emit("check_result", { ...check });
+  }
+
+  /** Reasoning text. Consecutive pieces join one stored step, as on the server. */
+  async thinking(text: string): Promise<void> {
+    const last = this.steps[this.steps.length - 1];
+    if (last !== undefined && last.kind === "thinking") {
+      last.text += text;
+    } else {
+      this.steps.push({ kind: "thinking", text });
+    }
+    await this.emit("thinking", { text });
   }
 
   async text(text: string): Promise<void> {
@@ -523,6 +551,7 @@ export class ScriptedTurn {
       stop_reason: stopReason,
       content: options.content,
       thinking: null,
+      steps: this.steps.length > 0 ? this.steps : null,
       model_id: session.model_id,
       effort: session.effort,
       skill_hash: session.skill_hash,
@@ -770,6 +799,7 @@ export class WorkflowBuilderMock {
       stop_reason: null,
       content,
       thinking: null,
+      steps: null,
       model_id: String(input.model_id ?? session.model_id),
       effort: typeof input.effort === "string" ? input.effort : null,
       skill_hash: null,

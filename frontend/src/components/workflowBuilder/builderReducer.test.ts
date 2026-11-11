@@ -48,10 +48,14 @@ describe("builderReducer", () => {
       ev(text("t1", 2, "ab")),
       ev(text("t1", 3, "cd")),
     ]);
-    expect(own.turn).toMatchObject({ kind: "running", origin: "this_tab", text: "abcd" });
+    expect(own.turn).toMatchObject({
+      kind: "running",
+      origin: "this_tab",
+      steps: [{ kind: "text", text: "abcd" }],
+    });
 
     const other = run([ev(started("t2")), ev(text("t2", 2, "ab"))]);
-    expect(other.turn).toMatchObject({ kind: "running", origin: "other_tab", text: "" });
+    expect(other.turn).toMatchObject({ kind: "running", origin: "other_tab", steps: [] });
   });
 
   it("ignores turn events at or below lastSeq", () => {
@@ -62,7 +66,7 @@ describe("builderReducer", () => {
       ev(text("t1", 2, "dup")),
       ev(text("t1", 1, "old")),
     ]);
-    expect(state.turn).toMatchObject({ lastSeq: 2, text: "a" });
+    expect(state.turn).toMatchObject({ lastSeq: 2, steps: [{ kind: "text", text: "a" }] });
   });
 
   it("applies draft_applied at once in the sending tab", () => {
@@ -105,7 +109,7 @@ describe("builderReducer", () => {
       }),
       ev(text("t9", 8, "mid-sentence")),
     ]);
-    expect(state.turn).toMatchObject({ kind: "running", origin: "rejoined", lastSeq: 8, text: "" });
+    expect(state.turn).toMatchObject({ kind: "running", origin: "rejoined", lastSeq: 8, steps: [] });
   });
 
   it("returns a 409 conflict to idle with a notice", () => {
@@ -288,7 +292,7 @@ describe("builderReducer send transitions", () => {
       ev(text("t7", 2, "not ours")),
       { type: "send_failed", reason: "conflict" },
     ]);
-    expect(state.turn).toMatchObject({ kind: "running", origin: "other_tab", text: "" });
+    expect(state.turn).toMatchObject({ kind: "running", origin: "other_tab", steps: [] });
     expect(state.notice.kind).toBe("reply_in_progress_elsewhere");
   });
 
@@ -300,7 +304,7 @@ describe("builderReducer send transitions", () => {
       ev(text("t7", 2, "ours")),
       { type: "send_failed", reason: "conflict" },
     ]);
-    expect(state.turn).toMatchObject({ origin: "this_tab", text: "ours" });
+    expect(state.turn).toMatchObject({ origin: "this_tab", steps: [{ kind: "text", text: "ours" }] });
   });
 });
 
@@ -387,8 +391,10 @@ describe("builderReducer turn events", () => {
     const thinking = (turn_id: string): BuilderEvent => ({
       type: "thinking", ts: TS, turn_id, seq: 2, text: "hm",
     });
-    expect(run([sending(), ev(started("t1")), ev(thinking("t1"))]).turn).toMatchObject({ thinking: "hm" });
-    expect(run([ev(started("t2")), ev(thinking("t2"))]).turn).toMatchObject({ thinking: "" });
+    expect(run([sending(), ev(started("t1")), ev(thinking("t1"))]).turn).toMatchObject({
+      steps: [{ kind: "thinking", text: "hm" }],
+    });
+    expect(run([ev(started("t2")), ev(thinking("t2"))]).turn).toMatchObject({ steps: [] });
   });
 
   it("tool_started adds one running line, tool_finished completes it", () => {
@@ -419,7 +425,12 @@ describe("builderReducer turn events", () => {
   it("check_result appends a check line", () => {
     const state = run([ev(started("t1")), ev(check("t1", 2))]);
     expect(state.turn).toMatchObject({
-      checks: [{ source: "skill_validator", verdict: "invalid", errors: 2, attempts_left: 1 }],
+      steps: [
+        {
+          kind: "check",
+          check: { source: "skill_validator", verdict: "invalid", errors: 2, attempts_left: 1 },
+        },
+      ],
     });
   });
 
@@ -439,6 +450,103 @@ describe("builderReducer turn events", () => {
     });
     expect(state.needsReload).toBe(true);
     expect(state.notice.kind).toBe("none");
+  });
+});
+
+describe("builderReducer ordered steps", () => {
+  const thinking = (turn_id: string, seq: number, t: string): BuilderEvent => ({
+    type: "thinking", ts: TS, turn_id, seq, text: t,
+  });
+  const kinds = (state: BuilderState) =>
+    state.turn.kind === "running" ? state.turn.steps.map((s) => s.kind) : [];
+
+  it("keeps thinking, tool calls, a check and text in arrival order", () => {
+    const state = run([
+      sending(),
+      ev(started("t1")),
+      ev(thinking("t1", 2, "one")),
+      ev(toolStarted("t1", 3, "c1")),
+      ev(toolFinished("t1", 4, "c1")),
+      ev(thinking("t1", 5, "two")),
+      ev(toolStarted("t1", 6, "c2")),
+      ev(check("t1", 7)),
+      ev(text("t1", 8, "answer")),
+    ]);
+    expect(kinds(state)).toEqual(["thinking", "tools", "thinking", "tools", "check", "text"]);
+  });
+
+  it("joins deltas of one kind and calls with no step between them", () => {
+    const state = run([
+      sending(),
+      ev(started("t1")),
+      ev(thinking("t1", 2, "a")),
+      ev(thinking("t1", 3, "b")),
+      ev(toolStarted("t1", 4, "c1")),
+      ev(toolStarted("t1", 5, "c2")),
+    ]);
+    expect(state.turn).toMatchObject({
+      steps: [
+        { kind: "thinking", text: "ab" },
+        { kind: "tools", callIds: ["c1", "c2"] },
+      ],
+    });
+  });
+
+  it("keeps tool calls and checks in a watching tab but drops thinking and text", () => {
+    const state = run([
+      ev(started("t2")),
+      ev(thinking("t2", 2, "hidden")),
+      ev(toolStarted("t2", 3, "c1")),
+      ev(text("t2", 4, "hidden")),
+      ev(check("t2", 5)),
+    ]);
+    expect(kinds(state)).toEqual(["tools", "check"]);
+  });
+
+  it("adds calls and checks a snapshot reports and keeps this tab's thinking", () => {
+    const withSnapshot = run([
+      sending(),
+      ev(started("t1")),
+      ev(thinking("t1", 2, "kept")),
+      ev(
+        snapshot({
+          state: "running",
+          running_turn: {
+            ...runningSnapshot("t1", 5),
+            activity: [
+              {
+                call_id: "c9", tool: "read_file", kind: "read", label: "Read", status: "ok",
+                duration_ms: 3, command: null, exit_code: null, summary: null,
+              },
+            ],
+          },
+        }),
+      ),
+    ]);
+    expect(kinds(withSnapshot)).toEqual(["thinking", "tools"]);
+  });
+
+  it("builds tool steps from the snapshot of a rejoined turn", () => {
+    const state = run([
+      ev(
+        snapshot({
+          state: "running",
+          running_turn: {
+            ...runningSnapshot("t9", 4),
+            activity: [
+              {
+                call_id: "c1", tool: "read_file", kind: "read", label: "Read", status: "ok",
+                duration_ms: 3, command: null, exit_code: null, summary: null,
+              },
+            ],
+            checks: [
+              { source: "skill_validator", verdict: "valid", errors: 0, warnings: 0, attempt: null, attempts_left: null },
+            ],
+          },
+        }),
+      ),
+    ]);
+    expect(kinds(state)).toEqual(["tools", "check"]);
   });
 });
 
@@ -499,7 +607,12 @@ describe("builderReducer snapshots", () => {
       ev(text("t1", 2, "abc")),
       ev(snapshot({ state: "running", running_turn: runningSnapshot("t1", 1) })),
     ]);
-    expect(state.turn).toMatchObject({ origin: "this_tab", text: "abc", lastSeq: 2, stage: "reading" });
+    expect(state.turn).toMatchObject({
+      origin: "this_tab",
+      steps: [{ kind: "text", text: "abc" }],
+      lastSeq: 2,
+      stage: "reading",
+    });
   });
 
   it("raises lastSeq to through_seq so covered events are not applied twice", () => {

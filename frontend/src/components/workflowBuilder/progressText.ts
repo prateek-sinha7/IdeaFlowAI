@@ -32,6 +32,7 @@ const STATUS_LABELS: Readonly<Record<ToolStatus, string>> = {
   error: "Failed",
   refused: "Refused",
   timed_out: "Timed out",
+  stopped: "Stopped",
 };
 
 function plural(count: number, noun: string): string {

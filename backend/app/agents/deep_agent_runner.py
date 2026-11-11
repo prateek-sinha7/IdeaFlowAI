@@ -1030,6 +1030,11 @@ class DeepAgentRunner:
         # P27 ``edit_only``: existing files matching these patterns may only be edited
         # (write_file on them is refused). None (every step without the key) = today.
         edit_only: list[str] | None = None,
+        # ``force_streaming``: forwarded to ``build_model`` so a Claude 5 model on
+        # Bedrock streams live (the pinned langchain-aws turns streaming off for
+        # it). The workflow builder sets it; every other caller keeps today's
+        # behaviour. Ignored when ``model`` is already a BaseChatModel instance.
+        force_streaming: bool = False,
     ) -> None:
         if backend is not None and run_sandbox is not None:
             raise ValueError("pass run_sandbox or backend, not both")
@@ -1047,7 +1052,14 @@ class DeepAgentRunner:
         # exactly one place. We avoid importing BaseChatModel at module top
         # (heavy) — duck-type on it instead via the factory boundary.
         if isinstance(model, str) or model is None:
-            self._model = build_model(model, max_tokens=max_tokens, effort=effort)
+            self._model = build_model(
+                model,
+                max_tokens=max_tokens,
+                effort=effort,
+                # Passed only when set, so every other caller's call (and any
+                # test double of build_model) is exactly as before.
+                **({"force_streaming": True} if force_streaming else {}),
+            )
         else:
             self._model = model
         # Prefer the model string we already know (the caller-supplied ``model``

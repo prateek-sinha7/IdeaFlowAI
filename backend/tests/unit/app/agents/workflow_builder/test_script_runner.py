@@ -173,7 +173,7 @@ async def test_run_command_returns_error_without_spawning_when_the_turn_is_stopp
 
     result = await run_command(CATALOG, h.ctx())
 
-    assert result.status == "error"
+    assert result.status == "stopped"
     assert result.summary == "stopped with the turn"
     assert result.exit_code is None
     assert h.factory.starts == []
@@ -211,7 +211,7 @@ async def test_run_command_kills_the_process_and_reraises_when_the_call_is_cance
     assert process.kill_count == 1
     assert process.wait_count >= 1
     assert not h.temp_dir.exists()
-    assert [(cid, r.status) for cid, r in h.finished] == [(CALL_ID, "error")]
+    assert [(cid, r.status) for cid, r in h.finished] == [(CALL_ID, "stopped")]
 
 
 # --- tool result header and output -----------------------------------------------

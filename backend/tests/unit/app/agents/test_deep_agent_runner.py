@@ -18,6 +18,7 @@ import struct
 import zlib
 from types import SimpleNamespace
 from typing import Any
+from unittest.mock import MagicMock, create_autospec
 
 import pytest
 from langchain.agents.middleware import AgentMiddleware
@@ -366,6 +367,52 @@ def test_init_raises_value_error_when_backend_and_run_sandbox_are_both_given(
         _build_runner(backend=object(), run_sandbox=SimpleNamespace(root="unused"))
 
     assert captured_graph_kwargs == {}  # nothing was built
+
+
+# --- force_streaming: forwarded to build_model only when set ------------------------
+
+
+@pytest.fixture
+def build_model_spy(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
+    """Replace the runner module's ``build_model`` with a spec'd spy (no real client)."""
+    spy = create_autospec(runner_module.build_model, return_value=_CapturingModel([]))
+    monkeypatch.setattr(runner_module, "build_model", spy)
+    return spy
+
+
+# Plan #6 | B4
+def test_init_forwards_force_streaming_to_build_model_when_model_is_an_id(
+    captured_graph_kwargs: dict[str, Any], build_model_spy: MagicMock
+):
+    # Act
+    DeepAgentRunner("sys", [], model="model-x", force_streaming=True)
+
+    # Assert
+    build_model_spy.assert_called_once_with(
+        "model-x", max_tokens=None, effort=None, force_streaming=True
+    )
+
+
+# Plan #7 | B4
+def test_init_omits_force_streaming_from_build_model_when_option_is_not_set(
+    captured_graph_kwargs: dict[str, Any], build_model_spy: MagicMock
+):
+    # Act
+    DeepAgentRunner("sys", [], model="model-x", effort="high")
+
+    # Assert: the call every existing caller makes is unchanged.
+    build_model_spy.assert_called_once_with("model-x", max_tokens=None, effort="high")
+
+
+# Plan #8 | B5
+def test_init_skips_build_model_when_model_instance_is_given_with_force_streaming(
+    captured_graph_kwargs: dict[str, Any], build_model_spy: MagicMock
+):
+    # Act
+    DeepAgentRunner("sys", [], model=_CapturingModel([]), force_streaming=True)
+
+    # Assert
+    build_model_spy.assert_not_called()
 
 
 async def _model_calls(history: list[BaseMessage] | None) -> list[list[BaseMessage]]:

@@ -19,6 +19,7 @@ import {
   INITIAL_BUILDER_STATE,
   type BuilderAction,
   type BuilderState,
+  type TurnStep,
 } from "./builderReducer";
 
 // Feature: ai-workflow-builder, Property 34: The panel reducer is consistent
@@ -261,6 +262,13 @@ function ev(event: BuilderEvent): BuilderAction {
   return { type: "stream_event", event, now: NOW };
 }
 
+/** The kind and text of each thinking and text step, in order. */
+function textSteps(steps: readonly TurnStep[]): { kind: "thinking" | "text"; text: string }[] {
+  return steps.flatMap((step) =>
+    step.kind === "thinking" || step.kind === "text" ? [{ kind: step.kind, text: step.text }] : [],
+  );
+}
+
 function run(actions: readonly BuilderAction[], from: BuilderState = INITIAL_BUILDER_STATE) {
   return actions.reduce(builderReducer, from);
 }
@@ -409,8 +417,7 @@ describe("builderReducer properties (Property 34)", () => {
                     ];
           let last = origin === "rejoined" ? throughSeq : 1;
           let cursor = last;
-          let expectedText = "";
-          let expectedThinking = "";
+          const expectedSteps: { kind: "thinking" | "text"; text: string }[] = [];
           const actions: BuilderAction[] = [];
           for (const item of deltas) {
             cursor = Math.max(0, cursor + item.step);
@@ -424,8 +431,14 @@ describe("builderReducer properties (Property 34)", () => {
             }
             if (cursor > last) {
               last = cursor;
-              if (item.kind === "text") expectedText += item.text;
-              if (item.kind === "thinking") expectedThinking += item.text;
+              if ((item.kind === "text" || item.kind === "thinking") && item.text !== "") {
+                const tail = expectedSteps[expectedSteps.length - 1];
+                if (tail !== undefined && tail.kind === item.kind) {
+                  tail.text += item.text;
+                } else {
+                  expectedSteps.push({ kind: item.kind, text: item.text });
+                }
+              }
             }
           }
 
@@ -436,8 +449,7 @@ describe("builderReducer properties (Property 34)", () => {
           expect(state.turn.origin).toBe(
             sendsHere ? "this_tab" : origin === "other_tab" ? "other_tab" : "rejoined",
           );
-          expect(state.turn.text).toBe(sendsHere ? expectedText : "");
-          expect(state.turn.thinking).toBe(sendsHere ? expectedThinking : "");
+          expect(textSteps(state.turn.steps)).toEqual(sendsHere ? expectedSteps : []);
           expect(state.turn.lastSeq).toBe(last);
         },
       ),
@@ -682,8 +694,9 @@ describe("builderReducer properties (Property 34)", () => {
           const ids = turn.activity.map((line) => line.call_id);
           expect(new Set(ids).size).toBe(ids.length);
           if (turn.origin !== "this_tab") {
-            expect(turn.text).toBe("");
-            expect(turn.thinking).toBe("");
+            expect(
+              turn.steps.filter((step) => step.kind === "thinking" || step.kind === "text"),
+            ).toEqual([]);
           }
           if (before.turn.kind === "running" && before.turn.turnId === turn.turnId) {
             expect(turn.lastSeq).toBeGreaterThanOrEqual(before.turn.lastSeq);

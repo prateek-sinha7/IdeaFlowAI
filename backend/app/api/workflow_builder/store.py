@@ -40,7 +40,7 @@ mirrors exactly this list; ``user_id`` is always the first argument unless noted
                       started_at=None, ended_at=None) -> WorkflowBuilderMessage
       finalize_assistant(user_id, turn_id, *, status, outcome=None,
                          stop_reason=None, error_code=None, content="",
-                         thinking=None, usage=None, adherence=None,
+                         thinking=None, steps=None, usage=None, adherence=None,
                          revision=None, ended_at=None)
                          -> WorkflowBuilderMessage | None
       get_message(user_id, message_id) -> WorkflowBuilderMessage | None
@@ -128,6 +128,7 @@ from app.models.workflow_builder import (
     MESSAGE_STATUS_TOOL_ERROR,
     MESSAGE_STATUS_TOOL_OK,
     MESSAGE_STATUS_TOOL_REFUSED,
+    MESSAGE_STATUS_TOOL_STOPPED,
     MESSAGE_STATUS_USER_ACCEPTED,
     SESSION_MODE_CREATE,
     SESSION_MODE_EDIT,
@@ -161,6 +162,7 @@ _TOOL_STATUSES = frozenset(
         MESSAGE_STATUS_TOOL_OK,
         MESSAGE_STATUS_TOOL_ERROR,
         MESSAGE_STATUS_TOOL_REFUSED,
+        MESSAGE_STATUS_TOOL_STOPPED,
         MESSAGE_STATUS_TIMED_OUT,
     }
 )
@@ -723,6 +725,7 @@ class BuilderStore:
         error_code: str | None = None,
         content: str = "",
         thinking: str | None = None,
+        steps: list[dict[str, Any]] | None = None,
         usage: dict[str, Any] | None = None,
         adherence: dict[str, Any] | None = None,
         revision: int | None = None,
@@ -731,6 +734,9 @@ class BuilderStore:
         ended_at: datetime | None = None,
     ) -> WorkflowBuilderMessage | None:
         """Write the final state of a running assistant row (Req 21.9).
+
+        `steps` is the ordered thinking, tool-call groups and checks of the turn,
+        or None for a turn that had none.
 
         `skill_hash` and `prompt_version` replace the stored values only when
         given, so the values written at admission stay when the caller has none.
@@ -760,6 +766,7 @@ class BuilderStore:
             row.error_code = error_code  # type: ignore[assignment]
             row.content = content  # type: ignore[assignment]
             row.thinking = thinking  # type: ignore[assignment]
+            row.steps = steps  # type: ignore[assignment]
             row.usage = usage  # type: ignore[assignment]
             row.adherence = adherence  # type: ignore[assignment]
             row.revision = revision  # type: ignore[assignment]
@@ -1163,6 +1170,7 @@ class BuilderStore:
                     func.sum(
                         size(msg.content)
                         + size(msg.thinking)
+                        + size(msg.steps)
                         + size(msg.canvas_state)
                         + size(msg.usage)
                         + size(msg.adherence)
