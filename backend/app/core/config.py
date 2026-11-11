@@ -24,11 +24,14 @@ pick the inference-profile ID that maps to your region.
 
 import logging
 import os
+from dataclasses import dataclass, field
 from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
 
-from pydantic import field_validator, model_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings
+
+from agents.capabilities.connector_catalog import CONNECTORS
 
 logger = logging.getLogger("app.core.config")
 
@@ -89,6 +92,42 @@ class SecretKeyMisconfigured(RuntimeError):
 class CognitoMisconfigured(RuntimeError):
     """Raised at boot when the Cognito pool/client settings are unset in a
     non-development environment. See _validate_cognito_config."""
+
+
+class ConnectorsMisconfigured(RuntimeError):
+    """Raised at boot when the connector settings are missing or invalid in a
+    non-development environment. The message names variables, never values.
+    See Settings._validate_connector_config."""
+
+
+# Bounds of the connector settings (design section 8.1).
+_MAX_TOKEN_ENCRYPTION_KEYS = 5
+_MAX_CLIENT_CREDENTIAL_LENGTH = 512
+_MAX_REDIRECT_PATH_LENGTH = 200
+
+
+@dataclass(frozen=True)
+class ConnectorConfigIssues:
+    """Problems found in the connector settings. Every entry names a variable and
+    never carries a value, so the entries are safe to log and to put in an exception.
+
+    ``shared`` problems (base URL, redirect path, encryption key) make every connector
+    unusable; ``by_connector`` problems (client credentials) affect only that connector.
+    """
+
+    shared: tuple[str, ...] = ()
+    by_connector: dict[str, tuple[str, ...]] = field(default_factory=dict)
+
+    def for_connector(self, key: str) -> tuple[str, ...]:
+        """Return the problems that stop connector ``key`` from working."""
+        return (*self.shared, *self.by_connector.get(key, ()))
+
+    def all(self) -> tuple[str, ...]:
+        """Return every problem once, shared first, then per connector in catalog order."""
+        return (
+            *self.shared,
+            *(issue for issues in self.by_connector.values() for issue in issues),
+        )
 
 
 class Settings(BaseSettings):
@@ -425,6 +464,56 @@ class Settings(BaseSettings):
     USER_SKILLS_ROOT: str = ""
     GLOBAL_HOOKS_ROOT: str = ""
     PPTX_SKILLS_ROOT: str = ""
+    # The AI Workflow Builder's skill is not configurable: it is always
+    # app/agents/workflow_builder/skills/velocity-workflow-creator, see
+    # app/agents/workflow_builder/skill_package.py.
+
+    # ── AI Workflow Builder: feature flag, sandbox, limits (design §4.8) ───────
+    # Root of the per-user/per-session builder sandboxes on the runs volume.
+    # "" (default) resolves to <RUNS_ROOT>/_builder. Any future sweep of RUNS_ROOT
+    # (retention, orphan cleanup, disk reclaim) MUST skip `_builder/`: builder
+    # sandboxes are kept until the user deletes the session or the account (Q-41).
+    BUILDER_SANDBOX_ROOT: str = ""
+    # Wall-clock cap of one turn, counted from task start after admission (Req
+    # 28.5). 900 s is decided until the Spike replaces it through this setting
+    # (Req 28.11). BUILDER_LIMIT_WARNING_FRACTION is where `limit_warning` fires
+    # (0.8 -> 720 s of 900 s).
+    BUILDER_TURN_TIMEOUT_SECONDS: int = Field(default=900, gt=0)
+    BUILDER_LIMIT_WARNING_FRACTION: float = Field(default=0.8, gt=0, lt=1)
+    # Per-turn agent limits. Placeholders (Q-51, Q-24) until the Spike: a turn
+    # that hits the tool-call cap ends `timed_out`; a third gate rejection of
+    # `propose_draft` (not counting dry runs) ends the turn.
+    BUILDER_MAX_TOOL_CALLS_PER_TURN: int = Field(default=60, gt=0)
+    BUILDER_MAX_GATE_REJECTIONS_PER_TURN: int = Field(default=2, gt=0)
+    # Send-message admission limits (Req 47.1, 47.2, 47.6, 47.10, 47.11).
+    # MAX_MESSAGE_CHARS counts code points; MESSAGES_PER_MINUTE is a rolling 60 s
+    # window per user; MAX_CANVAS_STATE_BYTES is the `canvas_state` JSON size.
+    BUILDER_MAX_MESSAGE_CHARS: int = Field(default=12000, gt=0)
+    BUILDER_MAX_TURNS_PER_SESSION: int = Field(default=100, gt=0)
+    BUILDER_MESSAGES_PER_MINUTE: int = Field(default=5, gt=0)
+    BUILDER_MAX_RUNNING_TURNS_PER_USER: int = Field(default=2, gt=0)
+    BUILDER_MAX_CANVAS_STATE_BYTES: int = Field(default=524288, gt=0)
+    # Token budgets (Req 47.9). None = UNSET = unenforced: the Spike measures real
+    # usage and sets them. Same dormant-seam pattern as WORKSPACE_BUDGET_MAX_*.
+    BUILDER_TOKEN_BUDGET_PER_TURN: int | None = Field(default=None, gt=0)
+    BUILDER_TOKEN_BUDGET_PER_SESSION: int | None = Field(default=None, gt=0)
+    BUILDER_TOKEN_BUDGET_PER_USER_DAY: int | None = Field(default=None, gt=0)
+    # Transcript replay (Req 47.12, 47.13): the budget is this fraction of the
+    # chosen model's context window; the latest N turns are replayed verbatim
+    # whatever their size, even beyond that budget.
+    BUILDER_REPLAY_BUDGET_FRACTION: float = Field(default=0.25, gt=0, le=1)
+    BUILDER_REPLAY_VERBATIM_TURNS: int = Field(default=4, ge=1)
+    # Completed turns without a Draft after which the next turn produces a Draft
+    # from defaults (Req 47.7, Q-22).
+    BUILDER_CLARIFY_TURNS_BEFORE_DRAFT: int = Field(default=2, ge=0)
+    # Script_Runner (Req 36.5, 36.6, 47.14, 47.15): per-call timeout, cap on the
+    # whole tool result in characters, and concurrent script processes per host.
+    BUILDER_SCRIPT_TIMEOUT_SECONDS: int = Field(default=30, gt=0)
+    BUILDER_SCRIPT_OUTPUT_CAP_CHARS: int = Field(default=80000, ge=20000)
+    BUILDER_MAX_CONCURRENT_SCRIPTS: int = Field(default=8, gt=0)
+    # Seconds the shutdown step waits for live turns to store `interrupted`
+    # before the app stops (design §3.1.6).
+    BUILDER_SHUTDOWN_PERSIST_SECONDS: float = Field(default=2.0, ge=0)
     # Safety ceiling on one agent graph's model<->tool recursion. We DROP the old
     # tight per-agent iteration caps (build 3 / validate 8 / …) in favour of letting
     # agents explore + self-validate; this is only a runaway-loop backstop, not a
@@ -500,6 +589,24 @@ class Settings(BaseSettings):
     # Flowin. Used to format the handoff URL returned by /api/handoff/receive.
     # Override in production to the public-facing URL (e.g. https://flowin.example).
     PUBLIC_BASE_URL: str = "http://localhost:3000"
+
+    # ---- Connectors (Jira and GitHub OAuth apps) ----------------------------
+    # Browser-visible origin of the app. Empty falls back to PUBLIC_BASE_URL (see
+    # effective_app_base_url). APP_BASE_URL + OAUTH_REDIRECT_PATH is the callback
+    # URL registered in both provider consoles, byte for byte.
+    APP_BASE_URL: str = ""
+    OAUTH_REDIRECT_PATH: str = "/api/connectors/oauth/callback"
+    # Fernet key(s) that encrypt stored provider tokens, comma-separated: the first
+    # encrypts, all decrypt (rotation). repr=False keeps secrets out of Settings reprs.
+    TOKEN_ENCRYPTION_KEY: str = Field(default="", repr=False)
+    # The env names below are the ones named by agents/capabilities/connector_catalog.py.
+    JIRA_OAUTH_CLIENT_ID: str = ""
+    JIRA_OAUTH_CLIENT_SECRET: str = Field(default="", repr=False)
+    GITHUB_OAUTH_CLIENT_ID: str = ""
+    GITHUB_OAUTH_CLIENT_SECRET: str = Field(default="", repr=False)
+    CONNECTOR_TOOL_SCHEMA_TTL_SECONDS: int = Field(default=600, ge=1)
+    CONNECTOR_REFRESH_SKEW_SECONDS: int = Field(default=300, ge=0)
+    CONNECTOR_HTTP_TIMEOUT_SECONDS: int = Field(default=10, ge=1)
 
     # Maximum bytes of transcript we'll accept on a /api/handoff/receive call.
     # 1 MiB is several long Claude Code sessions in JSONL form; anything more
@@ -604,6 +711,7 @@ class Settings(BaseSettings):
         "USER_SKILLS_ROOT",
         "GLOBAL_HOOKS_ROOT",
         "PPTX_SKILLS_ROOT",
+        "BUILDER_SANDBOX_ROOT",
         mode="before",
     )
     @classmethod
@@ -653,6 +761,140 @@ class Settings(BaseSettings):
                 raise CognitoMisconfigured(message)
 
         return self
+
+    @property
+    def effective_app_base_url(self) -> str:
+        """The browser-visible origin: ``APP_BASE_URL``, else ``PUBLIC_BASE_URL``.
+
+        Trailing slashes are removed. Deployed, both must equal the browser origin
+        and the host loader already defaults ``PUBLIC_BASE_URL`` to the domain, so an
+        explicit ``APP_BASE_URL`` is only needed to override it.
+        """
+        return (self.APP_BASE_URL.strip() or self.PUBLIC_BASE_URL.strip()).rstrip("/")
+
+    @property
+    def connector_redirect_uri(self) -> str:
+        """The OAuth redirect URI: effective base URL plus ``OAUTH_REDIRECT_PATH``."""
+        return f"{self.effective_app_base_url}{self.OAUTH_REDIRECT_PATH}"
+
+    def connector_config_issues(self) -> ConnectorConfigIssues:
+        """Check the connector settings and return every problem found.
+
+        Entries name variables only, never values. Pure: no logging, no raising.
+        ``_validate_connector_config`` decides what a problem means for boot; the
+        connector registry uses the same result to report ``not_configured``.
+        """
+        is_dev = self.ENV.lower() == "development"
+        shared = [
+            *self._base_url_issues(is_dev),
+            *self._redirect_path_issues(),
+            *self._token_key_issues(),
+        ]
+        by_connector: dict[str, tuple[str, ...]] = {}
+        for definition in CONNECTORS:
+            issues: list[str] = []
+            for env_name in (definition.client_id_env, definition.client_secret_env):
+                value = getattr(self, env_name, "")
+                if not isinstance(value, str) or not value:
+                    issues.append(f"{env_name} is not set")
+                elif len(value) > _MAX_CLIENT_CREDENTIAL_LENGTH:
+                    issues.append(
+                        f"{env_name} is longer than {_MAX_CLIENT_CREDENTIAL_LENGTH} characters"
+                    )
+                elif any(char.isspace() for char in value):
+                    issues.append(f"{env_name} contains whitespace")
+            if issues:
+                by_connector[definition.key] = tuple(issues)
+        return ConnectorConfigIssues(shared=tuple(shared), by_connector=by_connector)
+
+    def _base_url_issues(self, is_dev: bool) -> list[str]:
+        source = "APP_BASE_URL" if self.APP_BASE_URL.strip() else "PUBLIC_BASE_URL"
+        base_url = self.effective_app_base_url
+        if not base_url:
+            return ["APP_BASE_URL is not set and PUBLIC_BASE_URL is empty"]
+        if any(char.isspace() for char in base_url):
+            return [f"{source} contains whitespace"]
+        try:
+            parts = urlsplit(base_url)
+            _ = parts.port  # raises ValueError for a malformed port
+        except ValueError:
+            return [f"{source} is not a valid URL"]
+        issues: list[str] = []
+        if parts.scheme not in ("http", "https") or not parts.hostname:
+            issues.append(f"{source} must be an http(s) URL with a host")
+        elif parts.scheme == "http" and not is_dev:
+            issues.append(f"{source} must use https outside ENV=development")
+        if "@" in parts.netloc:
+            issues.append(f"{source} must not contain credentials")
+        if parts.path or parts.query or parts.fragment:
+            issues.append(
+                f"{source} must be an origin only (no path, query or fragment)"
+            )
+        return issues
+
+    def _redirect_path_issues(self) -> list[str]:
+        path = self.OAUTH_REDIRECT_PATH
+        if (
+            not path.startswith("/")
+            or len(path) > _MAX_REDIRECT_PATH_LENGTH
+            or any(token in path for token in ("?", "#", "..", "//"))
+            or any(char.isspace() for char in path)
+        ):
+            return [
+                "OAUTH_REDIRECT_PATH must start with '/', be at most "
+                f"{_MAX_REDIRECT_PATH_LENGTH} characters and contain no '?', '#', '..', "
+                "'//' or whitespace"
+            ]
+        return []
+
+    def _token_key_issues(self) -> list[str]:
+        raw = self.TOKEN_ENCRYPTION_KEY.strip()
+        if not raw:
+            return ["TOKEN_ENCRYPTION_KEY is not set"]
+        entries = [entry.strip() for entry in raw.split(",")]
+        if len(entries) > _MAX_TOKEN_ENCRYPTION_KEYS:
+            return [
+                f"TOKEN_ENCRYPTION_KEY has more than {_MAX_TOKEN_ENCRYPTION_KEYS} keys"
+            ]
+        if len(set(entries)) != len(entries):
+            return ["TOKEN_ENCRYPTION_KEY contains a duplicate key"]
+        # Imported here so a Settings() built where only the CI tool group is
+        # installed does not need `cryptography` unless a key is actually set.
+        from cryptography.fernet import Fernet
+
+        issues: list[str] = []
+        for position, entry in enumerate(entries, start=1):
+            try:
+                Fernet(entry.encode("ascii"))
+            except (ValueError, TypeError, UnicodeEncodeError):
+                issues.append(
+                    f"TOKEN_ENCRYPTION_KEY entry {position} is not a valid Fernet key"
+                )
+        return issues
+
+    @model_validator(mode="after")
+    def _validate_connector_config(self) -> "Settings":
+        """Refuse to boot with broken connector settings outside development.
+
+        Same shape as ``_validate_cognito_config``. In ``ENV=development`` each
+        problem logs one WARNING naming the variable and the affected connectors
+        report ``not_configured`` (cards show "Not configured"); elsewhere every
+        problem is listed, by variable name and never by value, in one
+        ``ConnectorsMisconfigured``.
+        """
+        issues = self.connector_config_issues().all()
+        if not issues:
+            return self
+        if self.ENV.lower() == "development":
+            for issue in issues:
+                logger.warning("connectors: %s", issue)
+            return self
+        raise ConnectorsMisconfigured(
+            "Connector settings are invalid in "
+            f"ENV={self.ENV!r}: {'; '.join(issues)}. Set them in the environment "
+            "(deploy: GitHub Environment secrets and variables, see deploy.yml and "
+            "infra/scripts/velocityai-load-secrets.sh)."
+        )
 
     @model_validator(mode="after")
     def _default_shutdown_stop_runs_from_env(self) -> "Settings":

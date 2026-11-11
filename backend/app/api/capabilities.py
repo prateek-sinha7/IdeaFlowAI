@@ -48,6 +48,7 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
 from agents.capabilities import registry as registry_mod
+from agents.capabilities.model_catalog import ModelEntry
 from agents.model_policy import selectable_models
 from agents.capabilities.registry import CapabilityRegistry
 from app.core.dependencies import get_current_user
@@ -138,6 +139,38 @@ class CapabilitiesPalette(BaseModel):
     model_catalog: list[ModelCatalogEntry]
 
 
+# --- Shared projection ---
+
+
+def project_model_entry(m: ModelEntry) -> ModelCatalogEntry:
+    """Project one catalog ``ModelEntry`` onto the picker's ``ModelCatalogEntry``.
+
+    Shared by ``GET /api/capabilities`` and any other surface that must show the
+    same model record (e.g. the workflow builder's model list), so both stay
+    identical. Adds no field beyond ``ModelCatalogEntry``.
+    """
+    return ModelCatalogEntry(
+        id=m.id,
+        label=m.label,
+        description=m.description,
+        tier=m.tier,
+        cost_class=m.cost_class,
+        provider=m.provider,
+        context_window=m.context_window,
+        user_allowed=m.user_allowed,
+        # RFN-002b — scale per-single-token rates → per-1M-token rates.
+        # The regional inference-profile +10 % premium is NOT applied here
+        # because the analytics page shows catalog base rates (operator info),
+        # not per-run billed amounts (which already live in token_usage.estimated_cost_usd).
+        input_rate_per_1m=round(m.pricing.input * 1_000_000, 4),
+        output_rate_per_1m=round(m.pricing.output * 1_000_000, 4),
+        cache_read_rate_per_1m=round(m.pricing.cache_read * 1_000_000, 4),
+        cache_write_5m_rate_per_1m=round(m.pricing.cache_write_5m * 1_000_000, 4),
+        reasoning_mode=m.reasoning.mode,
+        reasoning_levels=list(m.reasoning.levels),
+    )
+
+
 # --- Endpoint ---
 
 
@@ -179,29 +212,7 @@ def list_capabilities(
             )
         )
 
-    model_catalog = [
-        ModelCatalogEntry(
-            id=m.id,
-            label=m.label,
-            description=m.description,
-            tier=m.tier,
-            cost_class=m.cost_class,
-            provider=m.provider,
-            context_window=m.context_window,
-            user_allowed=m.user_allowed,
-            # RFN-002b — scale per-single-token rates → per-1M-token rates.
-            # The regional inference-profile +10 % premium is NOT applied here
-            # because the analytics page shows catalog base rates (operator info),
-            # not per-run billed amounts (which already live in token_usage.estimated_cost_usd).
-            input_rate_per_1m=round(m.pricing.input * 1_000_000, 4),
-            output_rate_per_1m=round(m.pricing.output * 1_000_000, 4),
-            cache_read_rate_per_1m=round(m.pricing.cache_read * 1_000_000, 4),
-            cache_write_5m_rate_per_1m=round(m.pricing.cache_write_5m * 1_000_000, 4),
-            reasoning_mode=m.reasoning.mode,
-            reasoning_levels=list(m.reasoning.levels),
-        )
-        # spec 020 — deduped picker projection; see settings.AVAILABLE_MODELS.
-        for m in selectable_models()
-    ]
+    # spec 020 — deduped picker projection; see settings.AVAILABLE_MODELS.
+    model_catalog = [project_model_entry(m) for m in selectable_models()]
 
     return CapabilitiesPalette(capabilities=capabilities, model_catalog=model_catalog)

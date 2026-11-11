@@ -829,6 +829,37 @@ def _split_into_ranges(page_numbers: list[int], worker_count: int) -> list[list[
     ]
 
 
+# Windows refuses to rename a directory while another process holds a handle to
+# a file inside it. Antivirus and search-indexer scans of freshly written page
+# files cause this for a moment, so a complete page can fail with WinError 5.
+_PUBLISH_ATTEMPTS = 5
+_PUBLISH_BACKOFF_SECONDS = 0.2
+
+
+def _publish_page_dir(tmp_dir: Path, final_dir: Path) -> None:
+    """Move a completed page's temp directory into its final place.
+
+    Retries a few times with a short backoff when the rename is refused. If
+    ``final_dir`` already exists, another writer published this page first, so
+    the temp copy is discarded and the call succeeds. Raises ``OSError`` only
+    when every attempt fails.
+    """
+    import shutil
+    import time
+
+    for attempt in range(1, _PUBLISH_ATTEMPTS + 1):
+        try:
+            os.rename(tmp_dir, final_dir)
+            return
+        except OSError:
+            if final_dir.exists():
+                shutil.rmtree(tmp_dir, ignore_errors=True)
+                return
+            if attempt == _PUBLISH_ATTEMPTS:
+                raise
+            time.sleep(_PUBLISH_BACKOFF_SECONDS * attempt)
+
+
 def _materialize_page_range(
     pdf_bytes: bytes, page_numbers: list[int], pages_dir: str
 ) -> dict[int, dict]:
@@ -859,7 +890,9 @@ def _materialize_page_range(
             tmp_dir.mkdir(parents=True)
             receipt = _materialize_page(page, render, tmp_dir)
             final_dir = pages_dir_path / f"{page_num:02d}"
-            os.rename(tmp_dir, final_dir)  # atomic: this dir exists iff complete
+            _publish_page_dir(
+                tmp_dir, final_dir
+            )  # atomic: this dir exists iff complete
             receipts[page_num] = receipt
     finally:
         fium_doc.close()
@@ -1295,7 +1328,14 @@ def _extract_text_sync(path: str, pages: str = "", file_type: str = "") -> str:
                 return f"failed to materialise page {page_num}: {e}"
 
             final_dir = pages_dir / f"{page_num:02d}"
-            os.rename(tmp_dir, final_dir)  # atomic: this dir exists iff complete
+            try:
+                _publish_page_dir(
+                    tmp_dir, final_dir
+                )  # atomic: this dir exists iff complete
+            except OSError as e:
+                shutil.rmtree(tmp_dir, ignore_errors=True)
+                pl_doc.close()
+                return f"failed to materialise page {page_num}: {e}"
             manifest_pages[str(page_num)] = {
                 "images": receipt["images"],
                 "chars": receipt["chars"],

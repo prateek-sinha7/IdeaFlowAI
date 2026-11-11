@@ -1,0 +1,31 @@
+{
+  "id": "pattern-10-human-review",
+  "name": "Human review checkpoint",
+  "description": "Fixture for patterns.md section 10: Human review checkpoint.",
+  "planner": "skip",
+  "clarify": {
+    "mode": "skip",
+    "defaults": []
+  },
+  "deliverable": {
+    "strategy": "single_file",
+    "name": "plan.md"
+  },
+  "steps": [
+    {
+      "agent": "custom-agent",
+      "instance_id": "plan",
+      "name": "Planner",
+      "gates": [
+        "human"
+      ],
+      "redoable": true,
+      "reply": "last_message",
+      "tools": {
+        "read_files": true,
+        "write_files": true
+      },
+      "prompt": "Write plan.md. Your last message calls no tool and is the plan's full text."
+    }
+  ]
+}

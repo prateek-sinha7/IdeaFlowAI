@@ -1,0 +1,71 @@
+{
+  "id": "pattern-18-integrations",
+  "name": "Integrations (read, then post after approval)",
+  "description": "Fixture for patterns.md section 18: Integrations (read, then post after approval).",
+  "planner": "skip",
+  "clarify": {
+    "mode": "skip",
+    "defaults": []
+  },
+  "deliverable": {
+    "strategy": "single_file",
+    "name": "out.md"
+  },
+  "steps": [
+    {
+      "agent": "custom-agent",
+      "instance_id": "collect",
+      "name": "Collector",
+      "gates": [],
+      "tools": {
+        "read_files": true,
+        "write_files": true,
+        "integrations": [
+          "jira_read",
+          "github_read"
+        ],
+        "mcp": [
+          "jira.search_issues",
+          "github.list_pull_requests"
+        ]
+      },
+      "prompt": "Search Jira for the issues the brief names and list the open pull requests of the repository it names. Write both lists to collected.md."
+    },
+    {
+      "agent": "custom-agent",
+      "instance_id": "digest",
+      "name": "Digest Writer",
+      "gates": [],
+      "depends_on": [
+        "custom-agent:collect"
+      ],
+      "tools": {
+        "read_files": true,
+        "write_files": true
+      },
+      "prompt": "Read collected.md and write digest.md, a short Slack-ready digest."
+    },
+    {
+      "agent": "custom-agent",
+      "instance_id": "post",
+      "name": "Post to Slack",
+      "gates": [
+        "before-human"
+      ],
+      "depends_on": [
+        "custom-agent:digest"
+      ],
+      "tools": {
+        "read_files": true,
+        "write_files": false,
+        "integrations": [
+          "slack_post"
+        ],
+        "mcp": [
+          "slack.post_message"
+        ]
+      },
+      "prompt": "Post the approved digest to the channel named in the brief."
+    }
+  ]
+}

@@ -57,15 +57,16 @@ import random
 import posixpath
 import re
 import time
-from typing import TYPE_CHECKING, Any, AsyncGenerator, Awaitable, Callable
+from typing import TYPE_CHECKING, Any, AsyncGenerator, Awaitable, Callable, Sequence
 
 from deepagents import create_deep_agent
 from langchain.agents.middleware import AgentMiddleware
-from langchain_core.messages import AIMessage, ToolMessage
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
 from agents.capabilities.model_catalog import ModelCatalog
 from agents.capabilities.token_usage import usage_from_metadata
 from app.agents.model_factory import build_model, model_identifier
+from app.agents.tool_recovery import ToolFailureRecoveryMiddleware
 from app.agents.validating_backend import ValidatingFilesystemBackend
 from app.agents.sandbox import AGENT_READABLE_RESERVED, RESERVED_PATHS
 from app.core.config import settings
@@ -78,7 +79,9 @@ if TYPE_CHECKING:
         # annotations``, and visible to vulture (no ignore_names entry needed).
         ToolCallRequest,
     )
+    from deepagents.backends.protocol import BackendProtocol
     from langchain_core.language_models import BaseChatModel
+    from langchain_core.messages import BaseMessage
 
     from app.agents.sandbox import RunSandbox
 
@@ -953,11 +956,20 @@ class DeepAgentRunner:
             ``configurable.thread_id`` (the engine uses the pipeline run id).
         interrupt_on: Optional ``{tool_name: True | InterruptOnConfig}`` mapping
             enabling HITL pauses (requires ``checkpointer``).
+        backend: Optional ready-made deepagents backend, used verbatim as the
+            graph backend. Mutually exclusive with ``run_sandbox`` (``ValueError``
+            if both are given); the reserved-path guard, keyed on ``run_sandbox``,
+            does not attach on this path unless the tool sentinel requests it.
+        extra_middleware: Middleware appended after the reserved-path guard. Empty
+            by default, which leaves the middleware list unchanged.
         exclude_builtin_tools: When ``True``, exclude the *entire* built-in tool
             suite (:data:`_BUILTIN_TOOLS`) so the agent streams pure text. This is
             the **Task #25 hook** for text-only (``tools == []``) agents. When
             ``False`` (default) only the ``task`` tool is excluded — library
             sub-agents are off but the file/todo tools remain available.
+        log_model_output: ``True`` (default) keeps the DEBUG ``thinking`` and
+            ``output:`` lines on the ``app.agents.model_output`` logger. ``False``
+            skips both, so no assistant text reaches the logs.
         skills_sources: POSIX directory sources (e.g. ``["/skills"]``) handed to
             deepagents' ``SkillsMiddleware`` as its ``sources``, resolved by the
             ``FilesystemBackend`` against the run sandbox root. ``None`` (the
@@ -992,6 +1004,22 @@ class DeepAgentRunner:
         # staging. Empty/None ⇒ nothing extra denied (every direct-construction
         # test path is unaffected).
         denied_tools: frozenset[str] | None = None,
+        # AI workflow builder (additive; both default to "today's graph").
+        # ``backend``: a ready-made deepagents backend used verbatim instead of the
+        # run-sandbox one. Mutually exclusive with ``run_sandbox``.
+        backend: "BackendProtocol | None" = None,
+        # ``extra_middleware``: appended LAST, after the reserved-path guard, so the
+        # tool filter still runs first.
+        extra_middleware: "Sequence[AgentMiddleware]" = (),
+        # ``log_model_output``: when False the model's reasoning and reply are never
+        # written to the ``app.agents.model_output`` logger. The workflow builder
+        # sets it to False (Req 42.4: no assistant text in logs).
+        log_model_output: bool = True,
+        # ``recover_tool_failures``: retry transient tool faults and tell the model how
+        # to recover from the rest (``app.agents.tool_recovery``). On for workflow
+        # agents. The workflow builder opts out: it has its own tool observer and
+        # refusal messages, and this keeps its tool results byte for byte as before.
+        recover_tool_failures: bool = True,
         # P27 E6: the workflow's ``resilience:`` block. None (every workflow without
         # one) keeps the fixed 3-attempt retry; set, a transient fault is retried
         # for ``retry_window_seconds``.
@@ -1003,6 +1031,9 @@ class DeepAgentRunner:
         # (write_file on them is refused). None (every step without the key) = today.
         edit_only: list[str] | None = None,
     ) -> None:
+        if backend is not None and run_sandbox is not None:
+            raise ValueError("pass run_sandbox or backend, not both")
+        self._log_model_output = log_model_output
         self.system_prompt = system_prompt
         self.resilience = resilience
         self.write_paths = list(write_paths) if write_paths else None
@@ -1093,9 +1124,9 @@ class DeepAgentRunner:
         )
 
         # ── Disk filesystem backend (per-run sandbox), when provided ──────
-        backend = None
+        graph_backend: "BackendProtocol | None" = backend
         if run_sandbox is not None:
-            backend = ValidatingFilesystemBackend(
+            graph_backend = ValidatingFilesystemBackend(
                 root_dir=str(run_sandbox.root), virtual_mode=True
             )
 
@@ -1166,6 +1197,16 @@ class DeepAgentRunner:
                 "reserved_path_guard ACTIVE for agent %s",
                 (thread_id or "?").split(":")[-1],
             )
+        # Tool-failure recovery sits AFTER the guards, so a refusal that says "stop" is
+        # never rewritten into "try again", and BEFORE ``extra_middleware``, so a caller's
+        # observer (the workflow builder's) is still inside it and sees the raw exception.
+        if recover_tool_failures:
+            _middleware.append(
+                ToolFailureRecoveryMiddleware(
+                    label=(thread_id or "").split(":")[-1] or "?"
+                )
+            )
+        _middleware.extend(extra_middleware)
 
         self._graph = create_deep_agent(
             model=self._model,
@@ -1173,7 +1214,7 @@ class DeepAgentRunner:
             system_prompt=system_prompt,
             subagents=None,
             middleware=_middleware,
-            backend=backend,
+            backend=graph_backend,
             checkpointer=checkpointer,
             interrupt_on=interrupt_on,
             skills=skills_sources,
@@ -1239,9 +1280,17 @@ class DeepAgentRunner:
     # -----------------------------------------------------------------------
 
     async def astream_events(
-        self, user_message: "str | list"
+        self,
+        user_message: "str | list | HumanMessage",
+        *,
+        history: "Sequence[BaseMessage] | None" = None,
     ) -> AsyncGenerator[dict[str, Any], None]:
         """Drive the graph, retrying a SAME-model transient throttle with backoff.
+
+        ``history`` (optional) is placed before the single ``HumanMessage`` in the
+        graph input; ``None`` keeps the input exactly ``[HumanMessage]``. A
+        ``HumanMessage`` passed as ``user_message`` is used as is (so a caller can
+        give it an id); a ``str`` or ``list`` is wrapped as before.
 
         Thin retry wrapper over :meth:`_astream_events_once` (the real
         event-mapping implementation below — see its docstring for the full
@@ -1292,7 +1341,9 @@ class DeepAgentRunner:
         while True:
             attempt += 1
             try:
-                async for event in self._astream_events_once(user_message):
+                async for event in self._astream_events_once(
+                    user_message, history=history
+                ):
                     if not yielded_any:
                         # This model just resolved and produced output — remember it,
                         # so a later "ARN not found" for it is read as a provider lie
@@ -1346,7 +1397,10 @@ class DeepAgentRunner:
                     yield {"type": "retry_wait", "attempt": attempt}
 
     async def _astream_events_once(
-        self, user_message: "str | list"
+        self,
+        user_message: "str | list | HumanMessage",
+        *,
+        history: "Sequence[BaseMessage] | None" = None,
     ) -> AsyncGenerator[dict[str, Any], None]:
         """Drive the graph and re-emit the engine's event vocabulary.
 
@@ -1396,10 +1450,6 @@ class DeepAgentRunner:
             legacy runtime used ``to_thread``) — verify the native async path,
             offload to a thread if needed.
         """
-        # Local import (matches the legacy module's import style; keeps the
-        # module top light and avoids importing message classes we don't use).
-        from langchain_core.messages import HumanMessage
-
         full_output = ""
         # Did the CURRENT model turn surface any ``on_chat_model_stream`` text?
         # Reset at ``on_chat_model_start``; set on the first streamed delta. When
@@ -1419,7 +1469,18 @@ class DeepAgentRunner:
             # *type*, which yields Phase-1 parity with the legacy single-loop
             # vocabulary (chunk / usage / tool_call / tool_result).
             async for event in self._graph.astream_events(
-                {"messages": [HumanMessage(content=user_message)]},
+                {
+                    "messages": [
+                        *(history or ()),
+                        # A ready ``HumanMessage`` is used as is (the builder pins
+                        # its turn message by id); str/list build one as before.
+                        (
+                            user_message
+                            if isinstance(user_message, HumanMessage)
+                            else HumanMessage(content=user_message)
+                        ),
+                    ]
+                },
                 config=self.config,
                 version="v2",
             ):
@@ -1509,18 +1570,19 @@ class DeepAgentRunner:
                     # back to the end message's own additional_kwargs (a
                     # non-streaming path only populates it there). Guarded so a
                     # missing/oddly-shaped additional_kwargs can never raise.
+                    # ``log_model_output=False`` (the workflow builder) skips both.
                     try:
                         reasoning = turn_reasoning
                         if not reasoning:
                             end_kwargs = getattr(msg, "additional_kwargs", {}) or {}
                             reasoning = end_kwargs.get("reasoning_content") or ""
-                        if reasoning:
+                        if reasoning and self._log_model_output:
                             model_logger.debug("thinking %s", _one_line(reasoning, 800))
                     except Exception:
                         pass
                     try:
                         end_msg_text = _extract_text(getattr(msg, "content", "") or "")
-                        if end_msg_text:
+                        if end_msg_text and self._log_model_output:
                             model_logger.debug(
                                 "output: %s", _one_line(end_msg_text, 400)
                             )

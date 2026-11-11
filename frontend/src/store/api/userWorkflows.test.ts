@@ -13,6 +13,7 @@
  */
 import { describe, it, expect } from "vitest";
 import {
+  addChildInTree,
   agentsToManifestSteps,
   buildWorkflowManifest,
   collectAgentIds,
@@ -187,6 +188,36 @@ describe("agentsToManifestSteps / manifestStepsToAgents — lossless round trip 
     });
     expect(step.subagents?.steps).toHaveLength(2);
     expect(step.subagents?.steps[0].instance_id).toBe("child-1");
+  });
+
+  it("a node with children and no maxParallel compiles without subagents.max_parallel", () => {
+    // Absent means the runtime cap (5), which is a different workflow from an explicit 3.
+    const parent = mkAgent({
+      id: "parent-1",
+      name: "Parent",
+      isCustom: true,
+      instance_id: "parent-1",
+      strategy: "sequential",
+      children: [mkAgent({ id: "child-1", name: "Child A", isCustom: true, instance_id: "child-1" })],
+    });
+    const [step] = agentsToManifestSteps([parent]);
+    expect(step.subagents).toBeDefined();
+    expect(step.subagents).not.toHaveProperty("max_parallel");
+  });
+
+  it("addChildInTree gives a childless node maxParallel 3 and leaves an existing group's value", () => {
+    const leaf = mkAgent({ id: "parent-1", name: "Parent" });
+    const child = mkAgent({ id: "child-1", name: "Child A" });
+
+    const [created] = addChildInTree([leaf], "parent-1", child);
+    expect(created.maxParallel).toBe(3);
+
+    const [grown] = addChildInTree([created], "parent-1", mkAgent({ id: "child-2", name: "Child B" }));
+    expect(grown.maxParallel).toBe(3);
+
+    const loaded = { ...created, maxParallel: undefined };
+    const [loadedGrown] = addChildInTree([loaded], "parent-1", mkAgent({ id: "child-3", name: "Child C" }));
+    expect(loadedGrown.maxParallel).toBeUndefined();
   });
 
   it("buildWorkflowManifest carries top-level capabilities (R-07)", () => {

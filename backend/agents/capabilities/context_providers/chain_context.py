@@ -20,9 +20,9 @@ one.
 Selection dispatch (task 6.5 / task 6.6)
 -----------------------------------------
 ``ctx.chain_selection`` carries a ``V2Selection`` or ``LegacySelection``
-pre-validated at admission time (task 6.3/6.5).  When it is ``None`` and the
-run was admitted under ``chain_policy: degrade``, ``emit_chain_context_unavailable``
-fires and the run continues without context.
+pre-validated at admission time (task 6.3/6.5).  When it is ``None``,
+``emit_chain_context_unavailable`` fires and the run is failed (admission refuses a
+missing payload, so ``None`` here means the wiring or the payload is gone).
 
 -  ``V2Selection`` (``is_legacy=False``): ``ref`` points at the snapshot commit
    containing the flat ``.chain/`` payload.  Three files are read via
@@ -45,11 +45,9 @@ immediately after.
 TOCTOU guard (departure N3 / Requirement 6 AC 16)
 --------------------------------------------------
 If the validated payload bytes vanish between admission and install
-(``chain_context_unavailable``), the provider emits the event and then:
-- Under ``chain_policy: degrade`` — the run continues without context (normal
-  AC 10 degrade path).
-- Under ``chain_policy: refuse`` — the run is failed via
-  ``ctx.runner.fail_run("chain_context_unavailable")``.  The edge
+(``chain_context_unavailable``), the provider emits the event and then fails the
+run via ``ctx.runner.fail_run("chain_context_unavailable")`` (the only chain
+policy is ``refuse``; ``degrade`` was removed).  The edge
   (``source_run_id``) is preserved and ``chain_context_installed = false``
   is the durable discriminator (departure N3).
 
@@ -120,7 +118,7 @@ class ChainContextProvider:
       * ``mark_chain_context_installed`` is the sole writer of
         ``chain_context_installed`` (Requirement 21 AC 8).
       * ``chain_payload_installed`` audit row written best-effort after install.
-      * TOCTOU guard: missing bytes → emit + degrade or refuse per policy.
+      * TOCTOU guard: missing bytes → emit + fail the run (the only policy is refuse).
     """
 
     name = "chain_context"
@@ -149,10 +147,6 @@ class ChainContextProvider:
         # cross-run reads for workflows that have not explicitly declared chaining).
         _chains_from_raw = getattr(deliverable, "chains_from", False)
         chains_from: bool = _chains_from_raw is True
-        chain_policy_raw = getattr(deliverable, "chain_policy", "refuse")
-        chain_policy: str = (
-            chain_policy_raw if isinstance(chain_policy_raw, str) else "refuse"
-        ) or "refuse"
 
         if not chains_from:
             return {}
@@ -165,16 +159,15 @@ class ChainContextProvider:
         # ── Selection gate ────────────────────────────────────────────────────
         # ``ctx.chain_selection`` is set by the launch path (task 6.5) once
         # ExecutionContext.chain_selection is wired.  Until then it falls back
-        # to None — treated as admitted-under-degrade (same as an explicit
-        # degrade admission with no payload).
+        # to None — handled as an unavailable payload (emit + fail the run).
         selection: Any = getattr(ctx, "chain_selection", None)
 
         if selection is None:
-            # Admitted under ``chain_policy: degrade`` with no payload, or the
-            # admission-wiring TODO has not yet landed.
+            # No validated selection reached the run (admission refuses a missing
+            # payload, so this is the admission-wiring gap or a vanished payload).
             logger.info(
                 "chain_context: chain_selection is None for source=%s "
-                "(admitted under degrade or pre-6.5 wiring) — emitting "
+                "(no validated selection) — emitting "
                 "chain_context_unavailable",
                 source_run_id,
             )
@@ -182,7 +175,6 @@ class ChainContextProvider:
                 ctx,
                 source_run_id=source_run_id,
                 reason="source_payload_missing",
-                chain_policy=chain_policy,
             )
             return {}
 
@@ -198,7 +190,6 @@ class ChainContextProvider:
                 ctx,
                 source_run_id=source_run_id,
                 reason="source_payload_missing",
-                chain_policy=chain_policy,
             )
             return {}
 
@@ -219,7 +210,6 @@ class ChainContextProvider:
                 ctx,
                 source_run_id=source_run_id,
                 reason="source_payload_missing",
-                chain_policy=chain_policy,
             )
             return {}
 
@@ -237,7 +227,6 @@ class ChainContextProvider:
                     selection=selection,
                     source_run_id=source_run_id,
                     dest_dir=dest_dir,
-                    chain_policy=chain_policy,
                 )
             else:
                 installed = _install_v2(
@@ -246,7 +235,6 @@ class ChainContextProvider:
                     selection=selection,
                     source_run_id=source_run_id,
                     dest_dir=dest_dir,
-                    chain_policy=chain_policy,
                 )
         except _TocTouError as toctou:
             # Bytes vanished between admission and install — departure N3.
@@ -261,7 +249,6 @@ class ChainContextProvider:
                 ctx,
                 source_run_id=source_run_id,
                 reason=_REASON_UNAVAILABLE,
-                chain_policy=chain_policy,
             )
             _mark_chain_context_installed(ctx, runner, installed=False)
             return {}
@@ -295,7 +282,6 @@ def _install_v2(
     selection: Any,
     source_run_id: str,
     dest_dir: _pathlib.Path,
-    chain_policy: str,
 ) -> bool:
     """Read three flat ``.chain/`` files from the exact ref and write to dest_dir.
 
@@ -322,7 +308,6 @@ def _install_v2(
             ctx,
             source_run_id=source_run_id,
             reason="source_provenance_conflict",
-            chain_policy=chain_policy,
         )
         return False
 
@@ -343,7 +328,6 @@ def _install_v2(
             ctx,
             source_run_id=source_run_id,
             reason="source_payload_missing",
-            chain_policy=chain_policy,
         )
         return False
 
@@ -381,7 +365,6 @@ def _install_legacy(
     selection: Any,
     source_run_id: str,
     dest_dir: _pathlib.Path,
-    chain_policy: str,
 ) -> bool:
     """Delegate to the kernel-supplied ``install_legacy_chain_context`` function.
 
@@ -406,7 +389,6 @@ def _install_legacy(
             ctx,
             source_run_id=source_run_id,
             reason="source_payload_missing",
-            chain_policy=chain_policy,
         )
         return False
 
@@ -424,7 +406,6 @@ def _install_legacy(
             ctx,
             source_run_id=source_run_id,
             reason="source_payload_missing",
-            chain_policy=chain_policy,
         )
         return False
 
@@ -446,7 +427,6 @@ def _install_legacy(
             ctx,
             source_run_id=source_run_id,
             reason="source_payload_missing",
-            chain_policy=chain_policy,
         )
         return False
 
@@ -628,13 +608,11 @@ def _emit_chain_context_unavailable(
     *,
     source_run_id: str,
     reason: str,
-    chain_policy: str,
 ) -> None:
-    """Emit a ``chain_context_unavailable`` event and optionally fail the run.
+    """Emit a ``chain_context_unavailable`` event and fail the run.
 
-    Under ``chain_policy: degrade``: emits the event, logs a warning, returns.
-    Under ``chain_policy: refuse``: emits the event, then calls
-    ``ctx.runner.fail_run`` if available — the run fails with the edge intact
+    Emits the event, then calls ``ctx.runner.fail_run`` if available — the run
+    fails with the edge intact
     and ``chain_context_installed = false`` as the durable discriminator
     (departure N3 / Requirement 6 AC 16).
 
@@ -669,52 +647,49 @@ def _emit_chain_context_unavailable(
             pass
 
     logger.warning(
-        "chain_context: %s for run=%s source=%s reason=%s policy=%s",
+        "chain_context: %s for run=%s source=%s reason=%s",
         _REASON_UNAVAILABLE,
         run_id,
         source_run_id,
         reason,
-        chain_policy,
     )
 
-    # Under refuse policy: fail the run so the edge is preserved but the run
-    # does not proceed without context (departure N3).
-    if chain_policy == "refuse":
-        fail_fn = getattr(runner, "fail_run", None) if runner is not None else None
-        if callable(fail_fn):
-            try:
-                fail_fn(
-                    _REASON_UNAVAILABLE,
-                    detail={"source_run_id": source_run_id, "reason": reason},
-                )
-            except Exception as exc:  # noqa: BLE001
-                logger.error(
-                    "chain_context: fail_run(%s) raised for run=%s: %s",
-                    _REASON_UNAVAILABLE,
-                    run_id,
-                    exc,
-                )
-        else:
-            logger.error(
-                "chain_context: chain_policy=refuse but ctx.runner.fail_run "
-                "is not available — run=%s will continue without chain context "
-                "(departure N3 enforcement point missing)",
-                run_id,
+    # Fail the run so the edge is preserved but the run does not proceed without
+    # context (departure N3).
+    fail_fn = getattr(runner, "fail_run", None) if runner is not None else None
+    if callable(fail_fn):
+        try:
+            fail_fn(
+                _REASON_UNAVAILABLE,
+                detail={"source_run_id": source_run_id, "reason": reason},
             )
+        except Exception as exc:  # noqa: BLE001
+            logger.error(
+                "chain_context: fail_run(%s) raised for run=%s: %s",
+                _REASON_UNAVAILABLE,
+                run_id,
+                exc,
+            )
+    else:
+        logger.error(
+            "chain_context: ctx.runner.fail_run is not available — run=%s "
+            "will continue without chain context "
+            "(departure N3 enforcement point missing)",
+            run_id,
+        )
 
 
 def _resolve_install_toctou(
     ctx: Any,
     *,
     source_run_id: str,
-    chain_policy: str,
     ref: str,
     path: str,
 ) -> None:
     """Handle the one remaining in-run failure: validated bytes vanished.
 
-    Logs, emits ``chain_context_unavailable``, and marks ``installed=False``.
-    The caller determines whether to fail or continue per policy.
+    Logs, emits ``chain_context_unavailable`` (which fails the run), and marks
+    ``installed=False``.
     """
     runner = getattr(ctx, "runner", None)
     logger.warning(
@@ -727,7 +702,6 @@ def _resolve_install_toctou(
         ctx,
         source_run_id=source_run_id,
         reason=_REASON_UNAVAILABLE,
-        chain_policy=chain_policy,
     )
     _mark_chain_context_installed(ctx, runner, installed=False)
 

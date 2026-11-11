@@ -234,6 +234,11 @@ omit = [
     "*/__pycache__/*",
     "*/site-packages/*",
     "alembic/versions/*",
+    # The builder skill's scripts are data the Builder runs as subprocesses, not
+    # app code: the app never imports them, and their own selftest.py covers them
+    # (tools/ci/builder_skill_checks.py --selftest). Counting them would add
+    # about 4,850 never-imported lines to the fail_under denominator.
+    "app/agents/workflow_builder/skills/*",
 ]
 
 [tool.coverage.report]
@@ -296,6 +301,10 @@ extend-exclude = [
     # harness that no CI checkout contains, so excluding it keeps local runs
     # identical to CI.
     "../tools/loadtest",
+    # The AI workflow builder's skill. Its scripts are standalone stdlib tools with
+    # their own style, tested by their own selftest.py
+    # (tools/ci/builder_skill_checks.py --selftest), not by the app's lint rules.
+    "app/agents/workflow_builder/skills",
 ]
 
 [tool.ruff.lint]
@@ -459,6 +468,36 @@ source_modules = ["app", "agents"]
 forbidden_modules = ["tools"]
 
 # ---------------------------------------------------------------------------
+# AI Workflow Builder: the agent layer reaches the API layer only through the
+# ports in app/agents/workflow_builder/ports.py (GatePort, TurnPort). Req 48.5,
+# 48.6, design 3.5.1. Direct imports only: shared modules such as app.core may
+# reach app.api on their own, which this contract does not judge.
+# ---------------------------------------------------------------------------
+[[tool.importlinter.contracts]]
+name = "workflow builder agent layer must not import the web layer"
+type = "forbidden"
+source_modules = ["app.agents.workflow_builder"]
+forbidden_modules = ["app.api"]
+allow_indirect_imports = true
+
+# ---------------------------------------------------------------------------
+# Connectors: the runtime (OAuth, token vault, tool providers) sits below the web
+# layer, and the kernel and declaration layers reach it only through the injected
+# RunToolBinder port (agents/execution_engine/run_tools.py).
+# ---------------------------------------------------------------------------
+[[tool.importlinter.contracts]]
+name = "connectors runtime must not import the web layer"
+type = "forbidden"
+source_modules = ["app.connectors"]
+forbidden_modules = ["app.api"]
+
+[[tool.importlinter.contracts]]
+name = "the kernel and declaration layers must not import the connectors runtime"
+type = "forbidden"
+source_modules = ["agents"]
+forbidden_modules = ["app.connectors"]
+
+# ---------------------------------------------------------------------------
 # vulture — dead-code / orphaned-symbol detection (D-13).
 #
 # Complements ruff (which only flags unused-WITHIN-a-file F401/F811) by finding
@@ -483,7 +522,9 @@ forbidden_modules = ["tools"]
 [tool.vulture]
 paths = ["app", "agents", "tools"]
 min_confidence = 80
-exclude = ["alembic/versions/", "*/migrations/*"]
+# app/agents/workflow_builder/skills/: the builder skill's standalone scripts,
+# run as subprocesses and covered by their own selftest.py.
+exclude = ["alembic/versions/", "*/migrations/*", "*/workflow_builder/skills/*"]
 ignore_decorators = ["@app.*", "@router.*", "@pytest.fixture", "@tool", "@field_validator", "@validator", "@property"]
 ignore_names = [
     # Pydantic dynamic config attrs.
@@ -494,6 +535,7 @@ ignore_names = [
     "ModelRequest",
     "ModelResponse",
     "BaseChatModel",
+    "BackendProtocol",
     # `@tool` stub-tool parameters: the LLM fills these; the signature is the
     # tool's input schema, so the params are "unused" only to static analysis
     # (agents/planner/tools.py infer_constraints / assess_readiness).
@@ -505,6 +547,10 @@ ignore_names = [
     # interface-only signatures (no bodies — impls are Phase 7), so the params
     # are "unused" only to static analysis. The signature IS the port contract.
     "step",
+    # Server_Gate Protocol-port method parameter
+    # (app/agents/workflow_builder/ports.py `GatePort.check` / `dry_run`):
+    # interface-only signatures, implemented by app.api.workflow_builder.gate.
+    "requested_trust",
     # Optional-dependency shim symbol (agents/capabilities/hooks/otel_tracing.py):
     # `from opentelemetry import trace` is paired with `trace = None` in the
     # ImportError branch so the module-level name exists either way. Nothing
@@ -540,7 +586,16 @@ ignore_names = [
 # ---------------------------------------------------------------------------
 [tool.bandit]
 level = "medium"
-exclude_dirs = ["tests", "alembic/versions", "*/__pycache__"]
+# workflow_builder/skills: the builder skill's standalone scripts. The Builder runs
+# them only through the allow-listed, sandboxed script runner (script_policy.py).
+# bandit matches excludes as substrings of the OS path, so both separators are listed.
+exclude_dirs = [
+    "tests",
+    "alembic/versions",
+    "*/__pycache__",
+    "workflow_builder/skills",
+    "workflow_builder\\skills",
+]
 skips = [
     # B602: shell=True in subprocess — false positive on LangChain provider
     # invocation (providers intentionally accept shell commands as strings from

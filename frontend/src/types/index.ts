@@ -397,7 +397,31 @@ export interface Story {
 // WORKFLOW / PIPELINE TYPES
 // ============================================================
 
-export type WorkflowType = "user_stories" | "user_stories_revision" | "ppt" | "ppt_v2" | "ppt_revision" | "prototype" | "prototype_v2" | "prototype_revision" | "prototype_large_revision" | "prototype_feature_revision" | "prototype_v2_revision" | "prototype_v2_feature_revision" | "prototype_from_template" | "prototype_from_template_revision" | "goal" | "app_builder" | "app_builder_revision" | "custom" | "custom_revision" | "backlog" | "backlog_revision" | "migration" | "mulesoft_to_springboot" | "dotnet_to_azure";
+/** Workflow identifiers the frontend has dedicated, exhaustive handling for
+ *  (icons, labels, revision mapping). Use this where a `Record<KnownWorkflowType, …>`
+ *  or a `switch` must cover every case. It is NOT the set of workflows that exist:
+ *  the backend discovers manifests at runtime (`backend/agents/workflows/<id>/workflow.yaml`). */
+export type KnownWorkflowType = "user_stories" | "user_stories_revision" | "ppt" | "ppt_v2" | "ppt_revision" | "prototype" | "prototype_v2" | "prototype_revision" | "prototype_large_revision" | "prototype_feature_revision" | "prototype_v2_revision" | "prototype_v2_feature_revision" | "goal_v2" | "prototype_from_template" | "prototype_from_template_revision" | "app_builder" | "app_builder_revision" | "custom" | "custom_revision" | "backlog" | "backlog_revision" | "migration" | "mulesoft_to_springboot" | "dotnet_to_azure";
+
+/** Any workflow identifier: a known one (kept for editor autocomplete and literal
+ *  narrowing) or any manifest id the catalog returns at runtime. A catalog id
+ *  needs no cast and a new manifest needs no edit to a union. The intersection
+ *  stops TypeScript collapsing the union to plain `string`. */
+export type WorkflowType = KnownWorkflowType | (string & Record<never, never>);
+
+/** Narrow a runtime workflow id to a {@link KnownWorkflowType}. */
+export function isKnownWorkflowType(value: string): value is KnownWorkflowType {
+  return KNOWN_WORKFLOW_TYPES.has(value);
+}
+
+const KNOWN_WORKFLOW_TYPES: ReadonlySet<string> = new Set<KnownWorkflowType>([
+  "user_stories", "user_stories_revision", "ppt", "ppt_v2", "ppt_revision",
+  "prototype", "prototype_v2", "prototype_revision", "prototype_large_revision",
+  "prototype_feature_revision", "prototype_v2_revision", "prototype_v2_feature_revision",
+  "goal_v2", "prototype_from_template", "prototype_from_template_revision",
+  "app_builder", "app_builder_revision", "custom", "custom_revision",
+  "backlog", "backlog_revision", "migration", "mulesoft_to_springboot", "dotnet_to_azure",
+]);
 
 // Phase 16 (WR-01): ISS-016 newly persists "degraded" for a partially-failed
 // run (websocket.py), and the revision drainer can persist "revising". The raw
@@ -636,6 +660,11 @@ export interface AgentToolGrants {
    *  Cap-intersected server-side: only packs on the untrusted cap's allow-list
    *  actually bind for a Composer workflow. */
   tool_sets?: string[];
+  /** Connected-app tool names this step may call, as `<connector>__<tool>`
+   *  (e.g. "jira__search_issues"). Omitted when none are on. Only db/user-trust
+   *  workflows may carry it; the server refuses it elsewhere with 422
+   *  `connector_grants_not_allowed`. */
+  connectors?: string[];
 }
 
 /** Top-level manifest capability switches (R-07). Only `internet` exists today
@@ -704,7 +733,9 @@ export interface ManifestStep {
    *  `"conditional"` is present in this step's `gates` list. */
   route?: {
     condition_agent?: string;
-    outcomes: Record<string, { trigger: "step" | "workflow"; target: string }>;
+    /** `end` finishes the run at this step on that decision and takes no target
+     *  (the draft keeps `target: ""`, which the compiler accepts for `end`). */
+    outcomes: Record<string, { trigger: "step" | "workflow" | "end"; target: string }>;
     default_next?: string;
     loop_max_iterations?: number;
     trigger_max_depth?: number;
@@ -843,7 +874,7 @@ export interface AgentDef {
    *  `backend/agents/workflows/plan.py` field-for-field. */
   route?: {
     condition_agent?: string;
-    outcomes: Record<string, { trigger: "step" | "workflow"; target: string }>;
+    outcomes: Record<string, { trigger: "step" | "workflow" | "end"; target: string }>;
     default_next?: string;
     loop_max_iterations?: number;
     trigger_max_depth?: number;

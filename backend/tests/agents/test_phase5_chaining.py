@@ -470,9 +470,8 @@ class TestGracefulDegradationV2:
 
     In v2, the provider handles missing sources via chain_selection gate:
     - If source is missing, chain_selection is None
-    - Provider emits chain_context_unavailable and continues
-    - Under chain_policy: degrade, the run continues normally
-    - Under chain_policy: refuse, the run is failed (but the edge is preserved)
+    - Provider emits chain_context_unavailable and fails the run (the edge is
+      preserved); ``chain_policy: degrade`` was removed, ``refuse`` is the only policy
 
     Requirement 22 FR-025 / graceful-degrade AC.
     """

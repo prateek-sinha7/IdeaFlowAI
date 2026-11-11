@@ -8,6 +8,7 @@ predicate is exercised on its declared-tool-set key alone (SC-001). No I/O.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from types import SimpleNamespace
 
@@ -254,6 +255,168 @@ def test_resolve_saved_trigger_target_stamps_manifest_for_durable_resume_when_ow
     assert resolved.attached_hooks == row.attached_hooks
     assert resolved.attached_skills == row.attached_skills
     assert resolved.model_overrides == row.model_overrides
+
+
+# ---------------------------------------------------------------------------
+# connector_grants_not_allowed at launch (design 5.5 layer 4)
+# ---------------------------------------------------------------------------
+# A FILE_PIPELINE or flat-row launch never admits connected-app grants: the 422
+# comes before any run row is minted, so the route never reaches the database.
+
+
+class _LaunchUser:
+    id = "owner"
+    tier = "enterprise"
+
+
+def _launch(monkeypatch, selections):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from app.core.dependencies import get_current_principal
+    from tests.fakes.principal import principal_for
+
+    class _StubSession:
+        """The override lookup is the only read before the grant check; it finds none."""
+
+        def close(self) -> None:
+            return None
+
+        def add(self, *_args, **_kwargs):
+            raise AssertionError("a refused connector launch must not write a row")
+
+    monkeypatch.setattr(run_commands, "_get_db", lambda: _StubSession(), raising=False)
+    monkeypatch.setattr(
+        "app.api._workflow_override.resolve_override", lambda *_a, **_k: None
+    )
+    user = _LaunchUser()
+    app = FastAPI()
+    app.include_router(run_commands.router)
+    app.dependency_overrides[get_current_principal] = lambda: (
+        user,
+        principal_for(user),
+    )
+    return TestClient(app).post(
+        "/api/runs",
+        json={
+            "message": "go",
+            "pipeline_type": "custom",
+            "agent_ids": ["market-research-agent", "swot-analyst"],
+            "selections": selections,
+        },
+    )
+
+
+class TestLaunchConnectorGrantsNotAllowed:
+    def test_launch_run_returns_422_envelope_when_file_pipeline_selections_name_connectors(
+        self, monkeypatch
+    ):
+        response = _launch(
+            monkeypatch,
+            {"market-research-agent": {"tools": {"connectors": ["jira__get_issue"]}}},
+        )
+
+        assert response.status_code == 422, response.text
+        detail = response.json()["detail"]
+        assert detail["code"] == "connector_grants_not_allowed"
+        assert detail["recoverable"] is False
+        assert "Predefined workflows cannot use connected apps" in detail["error"]
+
+
+class _RecordingEngine:
+    """Stub for ExecutionEngine.execute: records the kwargs and ends the run at once."""
+
+    def __init__(self) -> None:
+        self.kwargs: dict = {}
+
+    async def execute(self, **kwargs):
+        self.kwargs = kwargs
+        yield {"type": "pipeline_complete", "data": {"status": "completed"}}
+
+
+async def _drive_launch(user) -> None:
+    """Run the launch driver with no workflow row, so it writes nothing to the database."""
+    await run_commands._drive_launch_to_queue(
+        workflow_run_id=None,
+        pipeline_run_id="run-1",
+        agents=[],
+        content="go",
+        pipeline_type="custom",
+        cancel_event=asyncio.Event(),
+        user=user,
+        attached_skills=[],
+        attached_hooks=[],
+        od_context=None,
+        validated_images=[],
+        gate_agent_ids=None,
+        parent_run_id=None,
+        model_overrides={},
+        selections=None,
+        event_queue=asyncio.Queue(),
+    )
+
+
+class TestDriveLaunchRunToolBinder:
+    @pytest.mark.asyncio
+    async def test_drive_launch_to_queue_passes_services_binder_when_services_available(
+        self, monkeypatch
+    ):
+        engine = _RecordingEngine()
+        binder = object()
+        monkeypatch.setattr(
+            "agents.execution_engine.engine.get_execution_engine", lambda: engine
+        )
+        monkeypatch.setattr(
+            "app.connectors.services.get_connector_services",
+            lambda: SimpleNamespace(binder=binder),
+        )
+
+        await _drive_launch(_LaunchUser())
+
+        assert engine.kwargs["run_tool_binder"] is binder
+        assert engine.kwargs["user_id"] == "owner"
+
+    @pytest.mark.asyncio
+    async def test_drive_launch_to_queue_passes_none_binder_when_services_lookup_raises(
+        self, monkeypatch, caplog
+    ):
+        caplog.set_level(logging.ERROR, logger="app.api.run_commands")
+        engine = _RecordingEngine()
+        monkeypatch.setattr(
+            "agents.execution_engine.engine.get_execution_engine", lambda: engine
+        )
+
+        def _services_down():
+            raise RuntimeError("services down")
+
+        monkeypatch.setattr(
+            "app.connectors.services.get_connector_services", _services_down
+        )
+
+        await _drive_launch(_LaunchUser())
+
+        assert engine.kwargs["pipeline_run_id"] == "run-1"
+        assert engine.kwargs["run_tool_binder"] is None
+        assert any("connected tools off" in r.getMessage() for r in caplog.records)
+
+    @pytest.mark.asyncio
+    async def test_drive_launch_to_queue_passes_owner_user_id_when_trigger_stand_in_used(
+        self, monkeypatch
+    ):
+        engine = _RecordingEngine()
+        binder = object()
+        monkeypatch.setattr(
+            "agents.execution_engine.engine.get_execution_engine", lambda: engine
+        )
+        monkeypatch.setattr(
+            "app.connectors.services.get_connector_services",
+            lambda: SimpleNamespace(binder=binder),
+        )
+
+        await _drive_launch(SimpleNamespace(id="owner-7"))
+
+        assert engine.kwargs["user_id"] == "owner-7"
+        assert engine.kwargs["run_tool_binder"] is binder
 
 
 # ---------------------------------------------------------------------------

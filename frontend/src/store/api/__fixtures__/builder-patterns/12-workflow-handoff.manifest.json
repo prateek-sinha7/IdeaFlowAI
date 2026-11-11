@@ -1,0 +1,55 @@
+{
+  "id": "pattern-12-workflow-handoff",
+  "name": "Hand-off to another workflow",
+  "description": "Fixture for patterns.md section 12: Hand-off to another workflow.",
+  "planner": "skip",
+  "clarify": {
+    "mode": "skip",
+    "defaults": []
+  },
+  "deliverable": {
+    "strategy": "single_file",
+    "name": "out.md"
+  },
+  "steps": [
+    {
+      "agent": "custom-agent",
+      "instance_id": "triage",
+      "name": "Triage",
+      "gates": [
+        "conditional"
+      ],
+      "produces": [
+        "route_decision"
+      ],
+      "tools": {
+        "read_files": false,
+        "write_files": false
+      },
+      "prompt": "Decide whether the brief needs a prototype. Reply with exactly one line: {\"decision\": \"build\"}, {\"decision\": \"done\"}.",
+      "route": {
+        "outcomes": {
+          "build": {
+            "trigger": "workflow",
+            "target": "prototype",
+            "feedback": "Build an interactive prototype of the product described in this request."
+          },
+          "done": {
+            "trigger": "step",
+            "target": "summary"
+          }
+        }
+      }
+    },
+    {
+      "agent": "custom-agent",
+      "instance_id": "summary",
+      "name": "Summary",
+      "gates": [],
+      "depends_on": [
+        "custom-agent:triage"
+      ],
+      "prompt": "Summarise the brief in three sentences."
+    }
+  ]
+}

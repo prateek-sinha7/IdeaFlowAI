@@ -231,6 +231,41 @@ class TestHtmlHtmUploadToRun:
 
 
 @pytest.mark.allow_io(
+    "tests require in-memory SQLite database and file I/O for upload endpoint"
+)
+class TestXmlUploadToRun:
+    """Test POST a .xml to the run upload endpoint (raw upload, no text sidecar)."""
+
+    @pytest.mark.parametrize("mime", ["text/xml", "application/xml"])
+    def test_xml_upload_succeeds_with_has_text_false(self, env, mime):
+        """POST a .xml file (either browser MIME) → 200, has_text: false."""
+        user = _seed_user(env)
+        env["state"]["user"] = user
+        run_id = _seed_run(env, user_id=user.id)
+
+        xml_content = b'<?xml version="1.0"?><root><item id="1"/></root>'
+
+        resp = env["client"].post(
+            f"/api/runs/{run_id}/files",
+            files={"files": ("data.xml", xml_content, mime)},
+        )
+
+        assert (
+            resp.status_code == 200
+        ), f"Expected 200, got {resp.status_code}: {resp.text}"
+        data = resp.json()
+        assert data["files"][0]["name"] == "data.xml"
+        assert data["files"][0]["bytes"] == len(xml_content)
+
+        sandbox_dir = Path(env["runs_root"]) / user.id / run_id / ".uploads"
+        assert (sandbox_dir / "data.xml").read_bytes() == xml_content
+
+        manifest = json.loads((sandbox_dir / "manifest.json").read_text())
+        assert manifest[0]["name"] == "data.xml"
+        assert manifest[0]["has_text"] is False
+
+
+@pytest.mark.allow_io(
     "tests require in-memory SQLite database for extract-text endpoint"
 )
 class TestHtmlExtractTextEndpoint:

@@ -35,9 +35,17 @@ Ordering within the transaction
    the same owner, but nulling costs nothing and avoids relying on that).
 3. The user's own ``workflow_runs`` rows.
 4. ``workflow_memory``, ``user_agents`` (independent of runs).
-5. ``workflows`` (saved workflows — ``WorkflowDefinition``).
+5. ``workflow_builder_messages``, ``workflow_builder_drafts``, then
+   ``workflow_builder_sessions``, then ``workflows`` (saved workflows —
+   ``WorkflowDefinition``). The builder sandbox folder on disk is removed by
+   the caller after its commit, not here.
 6. ``messages`` then ``chat_sessions`` (messages FK into chat_sessions, no
    cascade — must go first).
+7. ``connector_audit_log``, ``oauth_states`` and ``connector_connections``
+   (connectors). They are dependent rows that would cascade anyway, but they are
+   deleted and counted here so the audit event records them. The caller reads the
+   connections' tokens first (``AccountDeletion.collect``) and revokes the provider
+   grants after the commit (``AccountDeletion.revoke``).
 
 ``revoked_tokens``, ``user_api_keys``, ``user_github_credentials`` and
 ``handoff_sessions`` are deliberately NOT touched here: they cascade
@@ -52,6 +60,7 @@ from sqlalchemy.orm import Session
 
 from app.models.artifact_ref import ArtifactRef
 from app.models.chat import ChatSession, Message
+from app.models.connector import ConnectorAuditLog, ConnectorConnection, OAuthState
 from app.models.exec_runs import ExecRun
 from app.models.gate_events import GateEvent
 from app.models.hook_runs import HookRun
@@ -63,6 +72,11 @@ from app.models.validation_results import ValidationResult
 from app.models.wave_run import WaveRun
 from app.models.workflow import WorkflowRun
 from app.models.workflow_clarification import WorkflowClarification
+from app.models.workflow_builder import (
+    WorkflowBuilderDraft,
+    WorkflowBuilderMessage,
+    WorkflowBuilderSession,
+)
 from app.models.workflow_definition import WorkflowDefinition
 from app.models.workflow_memory import WorkflowMemory
 
@@ -182,6 +196,27 @@ def delete_user_dependents(db: Session, user_id: str) -> dict[str, int]:
         .filter(UserAgent.user_id == user_id)
         .delete(synchronize_session=False),
     )
+    # Workflow Builder rows (Req 31.7): messages and drafts reference the
+    # session, so they go first. Done before ``workflows`` because sessions
+    # link to a saved workflow.
+    _record(
+        "workflow_builder_messages",
+        db.query(WorkflowBuilderMessage)
+        .filter(WorkflowBuilderMessage.user_id == user_id)
+        .delete(synchronize_session=False),
+    )
+    _record(
+        "workflow_builder_drafts",
+        db.query(WorkflowBuilderDraft)
+        .filter(WorkflowBuilderDraft.user_id == user_id)
+        .delete(synchronize_session=False),
+    )
+    _record(
+        "workflow_builder_sessions",
+        db.query(WorkflowBuilderSession)
+        .filter(WorkflowBuilderSession.user_id == user_id)
+        .delete(synchronize_session=False),
+    )
     _record(
         "workflows",
         db.query(WorkflowDefinition)
@@ -206,5 +241,29 @@ def delete_user_dependents(db: Session, user_id: str) -> dict[str, int]:
             .filter(ChatSession.id.in_(chat_session_ids))
             .delete(synchronize_session=False),
         )
+
+    # Connector rows (last step): audit entries, pending OAuth states, then the
+    # connections themselves. The provider grants behind them are revoked by the
+    # caller, from tokens it collected BEFORE this runs
+    # (``connectors.account_deletion``). The ON DELETE CASCADE foreign keys stay as a
+    # backstop; the explicit delete is what puts the counts in the audit event.
+    _record(
+        "connector_audit_log",
+        db.query(ConnectorAuditLog)
+        .filter(ConnectorAuditLog.user_id == user_id)
+        .delete(synchronize_session=False),
+    )
+    _record(
+        "oauth_states",
+        db.query(OAuthState)
+        .filter(OAuthState.user_id == user_id)
+        .delete(synchronize_session=False),
+    )
+    _record(
+        "connector_connections",
+        db.query(ConnectorConnection)
+        .filter(ConnectorConnection.user_id == user_id)
+        .delete(synchronize_session=False),
+    )
 
     return counts

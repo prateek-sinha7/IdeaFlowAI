@@ -21,6 +21,12 @@ describe("upload types", () => {
     );
   });
 
+  it("reads xml in the browser and offers it in the picker", () => {
+    expect(isTextUpload("config.xml")).toBe(true);
+    expect(isBinaryUpload("config.xml")).toBe(false);
+    expect(DOCUMENT_ACCEPT).toContain(".xml");
+  });
+
   it("every offered extension is handled by exactly one branch", () => {
     for (const ext of DOCUMENT_EXTS) {
       const name = `doc.${ext}`;

@@ -775,6 +775,30 @@ class TestDeleteUserAuthorization:
         finally:
             session.close()
 
+    def test_delete_user_removes_builder_sandbox_folder_when_admin_deletes(
+        self, admin_api_client, admin_user, regular_user, tmp_path, monkeypatch
+    ):
+        """Account deletion also removes the user's builder sandbox (Req 31.7)."""
+        from app.agents.workflow_builder.sandbox import BuilderSandbox
+        from app.core.config import settings
+
+        monkeypatch.setattr(settings, "BUILDER_SANDBOX_ROOT", str(tmp_path))
+        _, admin_token = admin_user
+        user_id, _ = regular_user
+        other = BuilderSandbox("someone-else", "s1")
+        other.ensure()
+        sandbox = BuilderSandbox(user_id, "s1")
+        sandbox.ensure()
+
+        resp = admin_api_client.delete(
+            f"/api/admin/users/{user_id}",
+            headers={"Authorization": f"Bearer {admin_token}"},
+        )
+
+        assert resp.status_code == 204
+        assert not sandbox.exists()
+        assert other.exists()
+
     def test_delete_user_admin_cannot_delete_self_self_action_policy(
         self, admin_api_client, admin_user
     ):

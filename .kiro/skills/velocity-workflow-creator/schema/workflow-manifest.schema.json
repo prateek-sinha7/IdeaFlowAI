@@ -1,0 +1,1065 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://velocity.local/schemas/workflow-manifest.schema.json",
+  "title": "Velocity workflow manifest (workflow.yaml)",
+  "description": "Declarative definition of one Velocity workflow. The same shape is used by predefined workflows (backend/agents/workflows/<id>/workflow.yaml, trust=file) and by saved Composer workflows (workflows.manifest_json, trust=db or user). The manifest is pure data: it names registered capabilities and never contains control flow. WorkflowCompiler turns it into the typed CompiledWorkflow that ExecutionEngine runs.",
+  "$comment": "JSON has no comment syntax, so every field explains itself through its 'description' (why the field exists and what uses it) and, where useful, '$comment' (where it is validated or consumed). Sources: backend/agents/workflows/manifest.py (_ALLOWED_TOP_KEYS, _REQUIRED_KEYS), compiler.py (_ALLOWED_STEP_KEYS and the nested allow-lists), plan.py (typed dataclasses), capabilities/registry.py (registered names), permission_caps.py (tool caps). Not authorable: 'repo' (there is no repo field on CompiledWorkflow and it is not an allowed manifest key; brownfield repo binding happens at run time). Not part of the authored manifest: the '_trust' and '_overrides' keys that launch adds to workflow_runs.manifest_json and resume removes before parsing. Saved Composer rows usually store only {steps, ...}; launch synthesizes id, deliverable, planner and clarify when they are absent. COMPILER PIPELINE (no DSL): yaml.safe_load -> reject unknown top-level and step keys -> validate instance_id shape and uniqueness across the whole nested tree -> allow 'prompt' only on custom-agent -> flatten subagents groups, derive depends_on edges and synthesize ids such as 'custom-agent:page' -> resolve every capability name against the registry -> apply source trust and permission caps -> validate task_source, fanout, route, model, retry, fix, tools, MCP and deliverable blocks -> Kahn cycle check over depends_on -> validate route targets and the route_decision producer -> compute leaf steps -> CompiledWorkflow (14 fields) with runtime Step objects (36 fields). TRUST: 'file', 'builtin' and 'db' (saved rows, ADR-0039) are trusted and may use every registered name; 'user' (inline Composer launches and override rows) may use only user_allowed names, which each enum's $comment lists. CAPABILITY REGISTRY: the catalog snapshot lists 92 capability coordinates in 24 kinds; GET /api/capabilities returns 91 rows because model_catalog:default is expanded into model records. Kinds a manifest can name: strategy, deliverable, validator, gate, context_provider, input_provider, task_parser, tool (tool_sets), hook, mechanical, compaction, post_step, mcp_server (tools.mcp), integration_provider (tools.integrations). Kinds a manifest cannot name: merge (copy_disjoint, git_3way, json, html_fragment; the engine picks one from the worker isolation scope), prompt (default, body_only, governance; set by AGENT.md prompt_policy), skill (ui, disk, template, repo providers), runtime (langchain_deepagents), runtime_env (local), chat (concierge), repo_index, repo_inventory, context_pack and the model_catalog marker. Synced with the catalog snapshot (feature/ai-workflow @ e2479f8e9).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "steps", "deliverable", "planner", "clarify"],
+  "properties": {
+    "id": {
+      "description": "Stable workflow identifier. Needed because the run label (pipeline_type), the catalog row, entitlements, chaining (chained_from), override rows (overrides_pipeline_type) and workflow-trigger route targets all refer to a workflow by this id. For predefined workflows it matches the folder name under backend/agents/workflows/.",
+      "$comment": "Required. manifest._require_str: must be a non-empty string.",
+      "type": "string",
+      "minLength": 1,
+      "pattern": "\\S",
+      "examples": ["prototype", "backlog", "ex_A1_loop", "sc001-test-fixture"]
+    },
+    "version": {
+      "description": "Revision number of this manifest. Needed so a user's override of a predefined workflow can record which version it was copied from (workflows.base_version) and later detect that the original changed.",
+      "$comment": "manifest._optional_int: integer, booleans rejected. Default 1. base_version is currently written but not read.",
+      "type": "integer",
+      "default": 1
+    },
+    "name": {
+      "description": "Primary display name (1-3 words). Needed by GET /api/workflows as the workflow's main label and as the fallback when display_name is absent.",
+      "$comment": "Presentation only; the compiler and kernel never read it.",
+      "type": "string",
+      "examples": ["Prototype", "Backlog", "App Builder"]
+    },
+    "display_name": {
+      "description": "Action-oriented catalog title shown on the home launch card. Needed so the catalog can say what the workflow does ('Build an interactive prototype (Fast)') instead of showing a title-cased raw id.",
+      "$comment": "Presentation only. When absent the frontend falls back to its own label map, never to the raw id.",
+      "type": "string",
+      "examples": [
+        "Build an interactive prototype (Fast)", "Write backlog from prototype and documents"
+      ]
+    },
+    "short_name": {
+      "description": "Concise noun-phrase label for tight UI surfaces such as chain-suggestion chips ('chain into X'), where the display_name sentence is too long.",
+      "$comment": "Presentation only.",
+      "type": "string",
+      "examples": ["Prototype", "Backlog", "Retry Loop"]
+    },
+    "description": {
+      "description": "One-sentence catalog subtitle. Needed so the launch card and the workflow detail view explain the workflow; without it the API generates an 'N-step workflow: A -> B' summary.",
+      "$comment": "Presentation only.",
+      "type": "string"
+    },
+    "icon": {
+      "description": "Name of the Lucide icon component the frontend renders on the catalog card (for example 'Layout', 'Rocket', 'GitBranch').",
+      "$comment": "Presentation only. Unknown names fall back to a default icon in frontend/src/lib/workflowIcons.ts.",
+      "type": "string",
+      "examples": ["Layout", "Rocket", "FileText", "Puzzle", "GitBranch", "Network"]
+    },
+    "user_launchable": {
+      "description": "Whether the workflow appears in the user-facing catalog. Needed to keep revision, internal and fixture workflows compiled and runnable without showing them as launch cards. It does not authorize a run: launch is still checked against tier entitlements server-side.",
+      "$comment": "manifest._optional_bool: must be a real boolean (1/0 rejected). Default false.",
+      "type": "boolean",
+      "default": false
+    },
+    "is_beta": {
+      "description": "Marks a launchable workflow as 'Coming Soon': the catalog shows it greyed out and non-interactive in a separate section.",
+      "$comment": "Strict boolean. Default false. The frontend is the only enforcement point; the backend does not block a beta launch.",
+      "type": "boolean",
+      "default": false
+    },
+    "launch_surface": {
+      "description": "Which launch screen the frontend opens for this workflow. Needed so template-driven workflows can open the template/design-system wizard instead of the plain brief page.",
+      "$comment": "Presentation only. The only value used today is 'wizard'.",
+      "type": "string",
+      "examples": ["wizard"]
+    },
+    "design_mode": {
+      "description": "Which OpenDesign template family the design picker lists: page templates ('web') or slide templates ('deck'). Needed for workflows that declare the opendesign context provider.",
+      "$comment": "Presentation only. The loader profile is derived from the chosen template's own mode, never from this field.",
+      "type": "string",
+      "enum": ["web", "deck"]
+    },
+    "chained_from": {
+      "description": "Consent list owned by the TARGET workflow: the source workflows allowed to offer 'chain into me' after their run finishes. Needed so chaining is declared by the backend (one source of truth) instead of a hard-coded frontend list, and so a source cannot invent a chain the target did not accept.",
+      "$comment": "manifest._optional_chained_from. Each entry is either the legacy string form or the object form. Parsed into ChainEntry objects.",
+      "type": "array",
+      "default": [],
+      "items": { "$ref": "#/$defs/chainEntry" }
+    },
+    "planner": {
+      "description": "Whether the Smart Planner pre-pass runs before the steps. 'run' turns the brief into a planning context (missing information, constraints, personas) and can trigger clarification; 'skip' starts the steps directly from the brief. 'run' asks questions only where clarify can fire (see clarify.mode: never on a Composer launch).",
+      "$comment": "Required. manifest._require_str only checks for a non-empty string; the engine treats 'skip' specially. Revision workflows must use 'skip' because a planner: run revision waits on a clarify gate nobody answers.",
+      "type": "string",
+      "enum": ["run", "skip"]
+    },
+    "clarify": {
+      "description": "Clarification policy for the run. Needed because the 'ask the user before building' behavior is declared per workflow instead of being hard-coded in the engine.",
+      "$comment": "Required mapping. Carried onto CompiledWorkflow.clarify as ClarifySpec(mode, defaults, rounds). Unknown keys are ignored, not rejected.",
+      "$ref": "#/$defs/clarify"
+    },
+    "deliverable": {
+      "description": "How the run's final output is produced, named and typed. Needed so each workflow declares its output shape (one HTML file, a zipped workspace, streamed text, a deck, a repository diff) instead of the engine branching on the workflow name.",
+      "$comment": "Required mapping. Compiled by WorkflowCompiler._compile_deliverable into DeliverableSpec. Unknown keys are tolerated.",
+      "$ref": "#/$defs/deliverable"
+    },
+    "context_providers": {
+      "description": "Run-wide context loaders invoked once at run entry (before step 1). Needed to give agents the template/design system, a previous run's files, uploaded documents, a chained run's payload, repository context or chat history without engine branches.",
+      "$comment": "Registry kind 'context_provider' (6 names). User trust may not use: conversation, previous_run, repo, uploaded_files. Saved workflows may still use: previous_run, uploaded_files. Run-wide: becomes ectx.compiled_context_providers. The Composer UI offers only opendesign.",
+      "type": "array",
+      "default": [],
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "enum": [
+          "opendesign", "previous_run", "uploaded_files", "chain_context", "repo", "conversation"
+        ]
+      }
+    },
+    "input_providers": {
+      "description": "Binary/multimodal input providers. Needed so image or PDF-page input reaches the model as content blocks only for workflows that opt in.",
+      "$comment": "Registry kind 'input_provider' (2 names). All names are allowed at user trust. Only prototype declares run_images today.",
+      "type": "array",
+      "default": [],
+      "uniqueItems": true,
+      "items": { "type": "string", "enum": ["run_images", "pdf_pages"] }
+    },
+    "seed_files": {
+      "description": "Declares reference files carried into this run from another run. Needed so revision and task-loop steps can read declared files (for example spec/design/tasks) instead of a hard-coded list.",
+      "$comment": "Optional mapping, default {}. Compiler rejects any from_run entry naming a reserved sandbox path. All shipped manifests use {}.",
+      "$ref": "#/$defs/seedFiles"
+    },
+    "allowed_workers": {
+      "description": "Workflow-level allow-list of named worker agents a fan-out step may spawn. Needed as a security boundary: run_fanout rejects any named worker not in this list (plus the compiler-derived parallel sub-agent children) before spawning anything.",
+      "$comment": "Pure data. Self x N fan-out (agent: self) needs no entry. Children of subagents.mode: parallel are added automatically by the compiler.",
+      "type": "array",
+      "default": [],
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "limits": {
+      "description": "Per-run budget caps enforced by the BudgetManager: total spawned sub-agents, nesting depth, wall-clock time and tokens. Needed so fan-out-heavy workflows can raise caps they genuinely need and so cost and runaway loops stay bounded.",
+      "$comment": "Strict keys (compiler._compile_limits). Absent caps use defaults: max_subagents 8, max_depth 2, wall_clock_seconds 900, tokens uncapped. Trusted manifests (file, builtin, db) may raise caps; user-trust manifests may only lower them.",
+      "$ref": "#/$defs/limits"
+    },
+    "capabilities": {
+      "description": "Workflow-level capability switches. Needed to opt a whole workflow into capabilities such as web access instead of granting them per step.",
+      "$comment": "Strict: only 'internet' (boolean) is accepted. WorkflowCompiler.compile() copies this block onto CompiledWorkflow.capabilities; the engine threads it into AgentContext and the factory binds the internet tools from it.",
+      "$ref": "#/$defs/capabilities"
+    },
+    "model": {
+      "description": "Workflow-default model policy (model resolution tier 4). Needed so a whole workflow can choose a default model without editing every step or AGENT.md.",
+      "$comment": "Strict ModelPolicy keys. Precedence: user override > step.model > AGENT.md model > workflow model > session model > global default.",
+      "$ref": "#/$defs/modelPolicy"
+    },
+    "chat": {
+      "description": "Free-form data for the run Concierge (chat lane), such as suggested topics. Needed so a workflow can guide its chat assistant without code changes.",
+      "$comment": "Carried verbatim onto CompiledWorkflow.chat. Concierge reads 'suggestions' (falling back to 'notes'). No manifest declares it today.",
+      "$ref": "#/$defs/chat"
+    },
+    "steps": {
+      "description": "Ordered list of workflow steps. Needed because it is the orchestration itself: which agent or code step runs, how, with which tools, gates, data and routing. An empty list is valid (an agents-to-be-decided placeholder such as reverse_engineer).",
+      "$comment": "Required list. Every step and nested sub-step is strict-key validated and compiled into a flat, topologically validated Step list. Saved Composer manifests must have at least one step.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/step" }
+    }
+  },
+  "$defs": {
+    "chainEntry": {
+      "description": "One source workflow allowed to chain into this workflow.",
+      "oneOf": [
+        {
+          "description": "Legacy string form: a source workflow id, optionally suffixed with ':beta' to mark this edge 'Coming Soon'.",
+          "type": "string",
+          "pattern": "^[^:\\s][^:]*(:beta)?$",
+          "examples": ["prototype", "prototype:beta"]
+        },
+        {
+          "description": "Object form with an action label for the chain-suggestion UI.",
+          "type": "object",
+          "required": ["id"],
+          "$comment": "Extra keys are ignored by the parser.",
+          "properties": {
+            "id": {
+              "description": "Source workflow id that may offer 'chain into this workflow' after its run completes.",
+              "type": "string",
+              "minLength": 1,
+              "pattern": "\\S"
+            },
+            "beta": {
+              "description": "Marks only this source-to-target edge as 'Coming Soon', even when the target workflow itself is launchable.",
+              "type": "boolean",
+              "default": false
+            },
+            "text": {
+              "description": "Action label on the chain-suggestion chip (for example 'Ship the code', 'Write the backlog').",
+              "type": "string",
+              "default": ""
+            }
+          }
+        }
+      ]
+    },
+    "clarify": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "mode": {
+          "description": "Clarification behavior. It takes effect only with planner 'run': with planner 'skip' the engine skips the planner and the clarifier together, so nothing is asked. 'auto' lets the clarifier ask when the planner reports missing information, using 'defaults' only when it reports none. A run started from the Composer (Run once or a saved workflow) always selects an output type, and that forces 'skip'. Unanswered questions are filled with the recommended answer. 'skip' never clarifies even if the planner asks (used when a wizard already collected the context). Other values leave the planner's own verdict in charge. The answers are written to PLANNER.md, not into any step's message.",
+          "$comment": "Read as compiled.clarify.mode. Only 'auto' and 'skip' change behavior; 'disabled' and 'off' appear in manifests/tests and behave as 'no override'. Default 'auto' when the key is missing.",
+          "type": "string",
+          "enum": ["auto", "skip", "disabled", "off"],
+          "default": "auto"
+        },
+        "defaults": {
+          "description": "Topic ids the clarifier asks about when mode is 'auto' (for example target_audience, scope, style). Needed so each workflow asks about what matters for its deliverable. They are a fallback, not a guarantee: the engine uses them only when the planner reports no missing information.",
+          "type": "array",
+          "default": [],
+          "items": { "type": "string", "minLength": 1 },
+          "examples": [
+            [
+              "target_audience", "scope", "priority", "style", "user_journeys", "key_screens",
+              "interactions", "personas"
+            ]
+          ]
+        },
+        "rounds": {
+          "description": "Maximum clarification rounds. Needed so a workflow with many topics can ask a second round for what the first round did not resolve.",
+          "$comment": "Default 1. Clamped to the ClarifyEngine MAX_CLARIFICATION_ROUNDS safety ceiling.",
+          "type": "integer",
+          "minimum": 1,
+          "default": 1
+        }
+      }
+    },
+    "deliverable": {
+      "type": "object",
+      "additionalProperties": true,
+      "$comment": "Unknown keys are tolerated (additive-only contract). If chains_from is true, name must be present.",
+      "properties": {
+        "strategy": {
+          "description": "Registered deliverable resolver that produces the final output. single_file reads one named file; serialized_sandbox bundles the workspace; streamed_text uses the final agent's text; ppt builds a deck; repo_diff returns a brownfield diff.",
+          "$comment": "Registry kind 'deliverable' (5 names). User trust may not use: ppt, repo_diff. Saved workflows may still use: ppt.",
+          "type": "string",
+          "enum": ["single_file", "serialized_sandbox", "streamed_text", "ppt", "repo_diff"]
+        },
+        "name": {
+          "description": "Output filename (or bundle name). Needed so the resolver knows which file is the answer, the Files tab can label it and chaining can find it.",
+          "$comment": "Plain basename only: no '/', '\\\\' or ':', not '.' or '..', and not 'logs.jsonl' or 'summary.md' (reserved .chain/ names, case-insensitive).",
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^(?!\\.{1,2}$)(?![Ll][Oo][Gg][Ss]\\.[Jj][Ss][Oo][Nn][Ll]$)(?![Ss][Uu][Mm][Mm][Aa][Rr][Yy]\\.[Mm][Dd]$)[^/\\\\:]+$",
+          "examples": ["prototype.html", "output.md", "app", "Backlog.pdf"]
+        },
+        "revises_existing": {
+          "description": "Declares that this workflow edits an existing artifact in place (a revision). Needed so the engine seeds the parent's artifact and uses revision behavior from a declared flag rather than the workflow name.",
+          "type": "boolean",
+          "default": false
+        },
+        "chains_from": {
+          "description": "Declares that this workflow can consume a previous run's chain payload. When true, the source run's .chain/ payload is copied into .context/ before step 1.",
+          "$comment": "Requires a non-empty 'name'. Gated on this flag, never on the mere presence of a source run id.",
+          "type": "boolean",
+          "default": false
+        },
+        "chain_policy": {
+          "description": "What happens when a chained source payload is unavailable: 'refuse' rejects the launch. It is the only value; 'degrade' was removed.",
+          "$comment": "Compiler accepts only 'refuse' (a CompilerError names any other value). Launch admission refuses every missing payload (owner decision B5).",
+          "type": "string",
+          "enum": ["refuse"],
+          "default": "refuse"
+        },
+        "mimetype": {
+          "description": "Declared MIME type of the deliverable. Needed so the frontend renderer chooses a viewer by type (HTML iframe, markdown, bundle) instead of by workflow name.",
+          "$comment": "Free string; when absent the resolver computes its default at emission time.",
+          "type": "string",
+          "examples": ["text/html", "text/markdown", "application/zip", "application/pdf"]
+        },
+        "publish_from_glob": {
+          "description": "For single_file: a glob with exactly one '*' naming a numbered draft chain (for example draft.v*.html). The highest-numbered match is copied to 'name' mechanically, so no model has to publish the final file.",
+          "type": "string",
+          "pattern": "^[^*]*\\*[^*]*$",
+          "examples": ["draft.v*.html"]
+        },
+        "text_name": {
+          "description": "Text form of a binary deliverable (for example name 'Backlog.pdf', text_name 'backlog.md'). Steps read and write the text file and the run output carries its text, so binary content is never inlined; if 'name' is missing at the end, text_name becomes the deliverable.",
+          "type": "string",
+          "minLength": 1,
+          "examples": ["backlog.md"]
+        },
+        "revision_context": {
+          "description": "How a revision message gets the parent's work: 'artifact' pastes the parent's deliverable into the message; 'workspace' sends only the instruction and points at the shared revision workspace, and also enables the step's declared human gates during a revision.",
+          "type": "string",
+          "enum": ["artifact", "workspace"],
+          "default": "artifact"
+        }
+      }
+    },
+    "seedFiles": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "from_run": {
+          "description": "Files to take from a prior run. Used by the previous_run provider and the task_loop reference-file writer (a three-item list maps to spec, design and tasks file names).",
+          "$comment": "Each entry is rejected at compile time if it names a reserved path: .uploads, .logs, .verify, .browser, .agents, .chain, .context, skills, conversation_history, .chain-legacy, .extract (with or without a trailing slash, after normalization).",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "not": {
+              "pattern": "^(\\./)?(\\.uploads|\\.logs|\\.verify|\\.browser|\\.agents|\\.chain|\\.context|skills|conversation_history|\\.extract)"
+            }
+          },
+          "examples": [["spec.md", "design.md", "tasks.md"]]
+        },
+        "run_id": {
+          "description": "Local-development shortcut: the prior run whose 'from_run' files are copied into a new saved-workflow run so an expensive phase runs once. Not a product feature.",
+          "$comment": "Read only by run_commands._seed_from_prior_run for saved manifests; same owner only. Marked for removal in the code.",
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "max_tokens": {
+          "description": "Run-wide token budget checked as fan-out workers report usage. Needed to cap cost; tokens are uncapped when absent.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "max_subagents": {
+          "description": "Total sub-agents the run may spawn through fan-out, waves or parallel groups. Needed because wave builds spawn one worker per task and would otherwise stop at the default 8.",
+          "$comment": "Default 8. User-trust manifests may not raise it above 8.",
+          "type": "integer",
+          "minimum": 0,
+          "examples": [8, 200]
+        },
+        "max_depth": {
+          "description": "Maximum fan-out nesting depth (a worker spawning workers). Needed to stop recursive fan-out.",
+          "$comment": "Default 2. User-trust manifests may not raise it above 2.",
+          "type": "integer",
+          "minimum": 0,
+          "default": 2
+        },
+        "wall_clock_seconds": {
+          "description": "Wall-clock deadline for fan-out work, armed at the first fan-out. Needed so long document workflows get enough time and runaway runs stop.",
+          "$comment": "Default 900. User-trust manifests may not raise it above 900. Built-ins use up to 10800.",
+          "type": "integer",
+          "minimum": 0,
+          "examples": [300, 600, 900, 10800]
+        }
+      }
+    },
+    "capabilities": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "internet": {
+          "description": "Enables the web_search and web_fetch tools for every agent in the workflow. Needed so internet access is an explicit, workflow-level opt-in.",
+          "$comment": "Strict boolean. The registered tools are currently stubs with no network egress. The compiler carries this flag onto CompiledWorkflow.capabilities (see top-level 'capabilities').",
+          "type": "boolean",
+          "default": false
+        }
+      }
+    },
+    "chat": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "suggestions": {
+          "description": "Suggested topics injected into the Concierge system prompt and surfaced as chat suggestions.",
+          "type": ["string", "array", "object"]
+        },
+        "notes": {
+          "description": "Fallback concierge guidance used when 'suggestions' is absent.",
+          "type": ["string", "array", "object"]
+        }
+      }
+    },
+    "modelPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "$comment": "Strict keys (compiler._compile_model_policy). Model ids are also checked against ModelCatalog and the caller's tier at save/launch for user-authored manifests.",
+      "properties": {
+        "model": {
+          "description": "Model catalog id (Bedrock inference-profile id) for this scope. Needed so a step or workflow can use a stronger, cheaper or vision-capable model.",
+          "$comment": "Not an enum because the catalog grows; must be an id from backend/agents/capabilities/model_catalog.py. The geo prefix is normalized to AWS_REGION at resolve time.",
+          "type": "string",
+          "minLength": 1,
+          "examples": [
+            "eu.anthropic.claude-sonnet-5-5", "eu.anthropic.claude-haiku-5-5",
+            "eu.anthropic.claude-opus-4-6-v1", "global.openai.gpt-5.6-sol",
+            "global.openai.gpt-5.6-luna"
+          ]
+        },
+        "max_tokens": {
+          "description": "Output-token limit for this scope's model calls.",
+          "type": "integer",
+          "minimum": 1
+        },
+        "cost_class": {
+          "description": "Cost class label used for tier-descent fallback ordering (premium > standard > cheap).",
+          "type": "string",
+          "enum": ["premium", "standard", "cheap"],
+          "default": "standard"
+        },
+        "fallback": {
+          "description": "Ordered model ids to try when the primary model is throttled. When empty, a fallback chain is derived from cost_class.",
+          "type": "array",
+          "default": [],
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "effort": {
+          "description": "Reasoning effort for this scope's model. Needed so expensive reasoning can be raised only where it helps. Absent means 'send nothing'; it is different from the level 'none', which turns reasoning off.",
+          "$comment": "Validated against the declared model's own levels: GPT-5.6 accepts none/low/medium/high/xhigh/max; adaptive/budget Claude models also accept 'on'.",
+          "type": "string",
+          "enum": ["none", "low", "medium", "high", "xhigh", "max", "on"]
+        }
+      }
+    },
+    "toolPermissions": {
+      "type": "object",
+      "additionalProperties": false,
+      "$comment": "Strict keys (permission_caps.ALLOWED_GRANT_KEYS). The effective grant is step request AND trust cap: trusted cap allows read/write/exec/git/spawn and all tool sets; user cap allows read/write and tool sets file_extract and playwright only. network is off under every cap.",
+      "properties": {
+        "read_files": {
+          "description": "Allows read_file, ls, glob and grep in the run workspace. Needed for any step that reads earlier outputs, uploads, context or its staged skills.",
+          "type": "boolean",
+          "default": true
+        },
+        "write_files": {
+          "description": "Allows write_file and edit_file in the run workspace (sandboxed). Needed for any step that must create or edit files rather than only reply.",
+          "type": "boolean",
+          "default": false
+        },
+        "exec": {
+          "description": "Allows command execution in the workspace. Needed for code validation (compile, test, lint).",
+          "$comment": "Engineer-only: rejected for user-trust manifests. A step granting exec must also declare gates 'security' and 'approval'.",
+          "type": "boolean",
+          "default": false
+        },
+        "git": {
+          "description": "Git permission slot for agent git operations. The engine's own step-boundary commits do not depend on it.",
+          "$comment": "Allowed only by the trusted cap. No agent-callable git tool exists today.",
+          "type": "boolean",
+          "default": false
+        },
+        "network": {
+          "description": "Network-egress permission slot reserved for future network tools.",
+          "$comment": "Rejected for user-trust manifests and off under every cap today.",
+          "type": "boolean",
+          "default": false
+        },
+        "secrets": {
+          "description": "Names of secrets the step may use. Needed by powerful MCP servers, which require a secrets grant plus the security gate.",
+          "$comment": "Rejected for user-trust manifests.",
+          "type": "array",
+          "default": [],
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "mcp": {
+          "description": "MCP tools the step may call, written as 'server.tool'. Needed to bind external read/post tools (GitHub, GitLab, Jira, Slack) with an explicit allow-list.",
+          "$comment": "Registry kind 'mcp_server' (6 servers). Powerful servers (filesystem, postgres) need gate 'security' plus a 'secrets' grant and are not user_allowed. The tool must be in that server's exposed-tool list (the enum below, from mcp_servers/catalog.py).",
+          "type": "array",
+          "default": [],
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "enum": [
+              "github.get_issue", "github.get_repository", "github.list_issues",
+              "github.list_pull_requests", "gitlab.get_issue", "gitlab.get_project",
+              "gitlab.list_issues", "gitlab.list_merge_requests", "jira.get_issue",
+              "jira.list_projects", "jira.search_issues", "slack.list_channels",
+              "slack.post_message", "filesystem.list_directory", "filesystem.read_file",
+              "filesystem.write_file", "postgres.execute", "postgres.query"
+            ]
+          }
+        },
+        "integrations": {
+          "description": "Integration scopes bridged onto MCP servers (github_read -> github, gitlab_read -> gitlab, jira_read -> jira, slack_post -> slack). Needed so integrations reuse the MCP path with scope-level permissions.",
+          "$comment": "Registry kind 'integration_provider' (4 providers). All names are allowed at user trust. Scopes are host-activated per run; none is granted by default.",
+          "type": "array",
+          "default": [],
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "enum": ["github_read", "gitlab_read", "jira_read", "slack_post"]
+          }
+        },
+        "spawn_subagents": {
+          "description": "Binds the spawn_subagents request tool so the agent can ask the engine to fan out work. The engine, not the model, performs the spawn and enforces budgets.",
+          "$comment": "Allowed for trusted and saved (db) manifests; rejected for user-trust manifests.",
+          "type": "boolean",
+          "default": false
+        },
+        "tool_sets": {
+          "description": "Named tool packs to bind in addition to the agent's own AGENT.md tools. Needed for capabilities such as document extraction, a headless browser, PPTX building or asking the user mid-step.",
+          "$comment": "Registry kind 'tool' (10 sets). Trust caps decide here instead of user_allowed: file/builtin/db trust keeps every set; user trust keeps only file_extract, playwright. Any other set silently resolves away.",
+          "type": "array",
+          "default": [],
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "enum": [
+              "workspace", "prototype", "prototype_emit_only", "planning", "internet", "pptx",
+              "playwright", "file_extract", "spawn_subagents", "ask_user"
+            ]
+          }
+        }
+      }
+    },
+    "taskSource": {
+      "type": "object",
+      "additionalProperties": false,
+      "$comment": "Strict keys (compiler._ALLOWED_TASK_SOURCE_KEYS). The parser is registry-validated (kind 'task_parser', 3 names, all user_allowed).",
+      "properties": {
+        "kind": {
+          "description": "Where tasks come from. 'parsed' runs a parser over a producer's output or target file; 'custom_path' reads one named JSON file with no fallback; 'none', 'inline' and 'file' are declared forward values.",
+          "type": "string",
+          "enum": ["none", "inline", "parsed", "file", "custom_path"],
+          "default": "none"
+        },
+        "parser": {
+          "description": "Registered task parser that turns the source into canonical tasks: heading_tasks ('## Task N:' headings), json_tasks (tasks JSON with dependencies) or screen_plan (one task per screen from build/screens.json).",
+          "type": ["string", "null"],
+          "enum": ["heading_tasks", "json_tasks", "screen_plan", null]
+        },
+        "target": {
+          "description": "File the parsed task list is read from or written to (for example tasks.md, build/tasks.json).",
+          "type": ["string", "null"],
+          "examples": ["tasks.md", "build/tasks.json", "build/screens.json"]
+        },
+        "path": {
+          "description": "For kind 'custom_path': the one file tasks are read from. May contain {revision_n}, the current revision number.",
+          "type": ["string", "null"],
+          "examples": ["revisions/{revision_n}/tasks.json"]
+        },
+        "source_step": {
+          "description": "Compiled id of the upstream step that produces the task list. Needed so the loop strategy reads tasks from a declared producer instead of a hard-coded agent id.",
+          "$comment": "For fanout_batch the step must appear earlier in the compiled plan. Composed steps use 'custom-agent:<instance_id>'.",
+          "type": ["string", "null"],
+          "examples": ["prototype-plan", "custom-agent:us-planner"]
+        },
+        "spec_step": {
+          "description": "Compiled id of the upstream step whose output is written as the specification reference file for each task.",
+          "type": ["string", "null"],
+          "examples": ["prototype-specify"]
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "kind": { "const": "custom_path" } }, "required": ["kind"] },
+          "then": {
+            "required": ["path"],
+            "properties": { "path": { "type": "string", "pattern": "\\S" } }
+          }
+        }
+      ]
+    },
+    "fanout": {
+      "type": "object",
+      "additionalProperties": false,
+      "$comment": "Strict keys (compiler._ALLOWED_FANOUT_KEYS). run_fanout is the only spawn path. The engine, never the manifest, chooses worker isolation (shared_read, sub_sandbox, worktree) and the merge strategy that goes with it (copy_disjoint, git_3way, json, html_fragment).",
+      "properties": {
+        "mode": {
+          "description": "Whether fan-out workers run in parallel or one after another.",
+          "type": ["string", "null"],
+          "enum": ["parallel", "sequential", null]
+        },
+        "max_parallel": {
+          "description": "Requested worker concurrency. Needed to balance speed against rate limits.",
+          "$comment": "Clamped to the engine's DEFAULT_MAX_CONCURRENCY (5).",
+          "type": ["integer", "null"],
+          "minimum": 1
+        },
+        "agent": {
+          "description": "Worker agent for requests without an explicit agent. 'self' (or absent) clones the step's own agent.",
+          "type": ["string", "null"],
+          "examples": ["self"]
+        },
+        "count": {
+          "description": "Declared fan-out width; a longer request list is clamped to this count.",
+          "type": ["integer", "null"],
+          "minimum": 1
+        },
+        "workers": {
+          "description": "Named worker ids for a heterogeneous fan-out (request i uses workers[i]). Each must be in allowed_workers and the agent registry.",
+          "type": "array",
+          "default": [],
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "merge_agent": {
+          "description": "Worker that resolves merge conflicts when on_conflict is 'merge_agent'. Bounded attempts, then falls back to a human gate.",
+          "type": ["string", "null"]
+        }
+      }
+    },
+    "routeOutcome": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["trigger"],
+      "$comment": "target is required for 'step' and 'workflow', and must be absent for 'end' (compiler._compile_route).",
+      "if": { "properties": { "trigger": { "const": "end" } }, "required": ["trigger"] },
+      "then": { "not": { "anyOf": [{ "required": ["target"] }, { "required": ["feedback"] }] } },
+      "else": { "required": ["target"] },
+      "properties": {
+        "trigger": {
+          "description": "'step' jumps inside this run (forward to branch, backward to loop); 'workflow' starts a separate child run and ends this run as 'diverted'; 'end' finishes this run successfully at the gating step (the decision that leaves a loop, for example 'pass'). A decision that matches no outcome fails the run, so a loop's exit decision must be declared.",
+          "type": "string",
+          "enum": ["step", "workflow", "end"]
+        },
+        "target": {
+          "description": "For trigger 'step': a step's compiled agent id or bare instance_id in this workflow. For trigger 'workflow': 'self', a predefined workflow id, or a saved workflow UUID.",
+          "$comment": "Step targets are validated at compile time; workflow targets are resolved and tier-checked at launch/trigger time.",
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "feedback": {
+          "description": "Authored guidance delivered with the jump. On a backward step jump it is injected under the automatic RETRY block so the next pass can differ; on a workflow trigger it becomes the child run's message.",
+          "type": "string"
+        }
+      }
+    },
+    "route": {
+      "type": "object",
+      "additionalProperties": false,
+      "$comment": "Strict keys (compiler._ALLOWED_ROUTE_KEYS). Only valid when the step's gates include 'conditional', and that gate requires non-empty outcomes. The decision-source step must declare produces: ['route_decision']. A route can jump forward (branch), jump backward (loop, bounded by loop_max_iterations, then continue or fail per on_loop_exhausted), or trigger another file-backed or saved workflow as an independent child run (depth fixed at 5); any outcome can carry feedback. Route edges are excluded from the Kahn cycle check.",
+      "properties": {
+        "condition_agent": {
+          "description": "Step whose route_decision artifact is read as the decision. Absent means this step's own output. Pointing it at an earlier before-human step makes the user's answer the decision.",
+          "type": ["string", "null"]
+        },
+        "outcomes": {
+          "description": "Map from decision value (for example 'ok', 'retry', 'english') to the destination for that value.",
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/routeOutcome" }
+        },
+        "default_next": {
+          "description": "Step to run when the decision matches no outcome. Absent means a decision that matches no outcome FAILS the run (it does not end it quietly). To finish the run on a decision, declare an outcome with trigger 'end'.",
+          "type": ["string", "null"]
+        },
+        "loop_max_iterations": {
+          "description": "Maximum revisits of any one backward-jump target. Needed so a loop that never converges stops.",
+          "type": "integer",
+          "minimum": 1,
+          "default": 5
+        },
+        "trigger_max_depth": {
+          "description": "Maximum parent-run chain depth for workflow triggers. Needed to stop trigger chains from recursing indefinitely.",
+          "$comment": "Fixed at 5 in v1; any other value is rejected.",
+          "type": "integer",
+          "const": 5,
+          "default": 5
+        },
+        "on_loop_exhausted": {
+          "description": "What happens when loop_max_iterations is reached: 'continue' suppresses the jump and moves on (run may end degraded); 'fail' ends the run with a loop-budget failure.",
+          "type": "string",
+          "enum": ["continue", "fail"],
+          "default": "continue"
+        }
+      }
+    },
+    "retryPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "max_attempts": {
+          "description": "Extra attempts for this step on a classified error. 0 or absent leaves the retry wrapper dormant.",
+          "type": "integer",
+          "minimum": 0,
+          "default": 0
+        },
+        "backoff_seconds": {
+          "description": "Delay between retry attempts.",
+          "type": "number",
+          "minimum": 0,
+          "default": 0
+        },
+        "on": {
+          "description": "Error classes that trigger a retry. Only 'transient' (throttling) is wired today.",
+          "type": "array",
+          "default": ["transient"],
+          "items": { "type": "string", "enum": ["transient"] }
+        }
+      }
+    },
+    "fixPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "mode": {
+          "description": "Declared fix-loop mode. The engine does not read it today: max_attempts alone turns the fix loop on, so leave mode out.",
+          "$comment": "Recorded by compiler._compile_fix_policy; ExecutionEngine and task_loop read only fix.max_attempts.",
+          "type": "string",
+          "enum": ["off", "internal", "gated"],
+          "default": "off"
+        },
+        "max_attempts": {
+          "description": "How many times the engine re-runs this step after a critical validation finding, sending the findings to it as USER GUIDANCE. When the attempts are used up, or none are declared (0), the run fails at this step.",
+          "$comment": "Read by ExecutionEngine's validation retry for every strategy, and by task_loop's own fix loop (which defaults to 2 when no fix is declared). Use 2.",
+          "type": "integer",
+          "minimum": 0,
+          "default": 0
+        }
+      }
+    },
+    "subagentsBase": {
+      "type": "object",
+      "required": ["mode", "steps"],
+      "$comment": "Strict keys (compiler._ALLOWED_SUBAGENTS_KEYS). Two nested blocks are allowed (root, child, grandchild). Children are flattened into the plan before the parent, and the parent depends on every direct child. 'sequential': each child also depends on the previous child. 'parallel': no sibling edges; the parent becomes strategy parallel_group with fanout.workers = the children, the children are marked dispatched_by and added to allowed_workers, and run_fanout runs them concurrently. 'fanout': the single child becomes strategy fanout_batch with this task_source and fanout {mode: parallel, agent: self, max_parallel}.",
+      "properties": {
+        "mode": {
+          "description": "How the child steps run: 'sequential' chains them in order, 'parallel' runs them concurrently through run_fanout, 'fanout' clones the single child once per task from task_source.",
+          "type": "string",
+          "enum": ["parallel", "sequential", "fanout"]
+        },
+        "max_parallel": {
+          "description": "Concurrency bound for 'parallel' and 'fanout' groups.",
+          "$comment": "Must be an integer >= 1 for parallel; clamped by the engine concurrency cap.",
+          "type": "integer",
+          "minimum": 1
+        },
+        "task_source": {
+          "description": "Task list for a 'fanout' group: each task spawns one copy of the child template.",
+          "$comment": "Required for mode 'fanout' and rejected for other modes.",
+          "$ref": "#/$defs/taskSource"
+        },
+        "steps": {
+          "description": "Child step declarations.",
+          "type": "array",
+          "minItems": 1
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "mode": { "const": "fanout" } }, "required": ["mode"] },
+          "then": { "required": ["task_source"], "properties": { "steps": { "maxItems": 1 } } },
+          "else": { "not": { "required": ["task_source"] } }
+        }
+      ]
+    },
+    "subagentsLevel1": {
+      "description": "Sub-agent group of a top-level step (children may have their own group).",
+      "allOf": [{ "$ref": "#/$defs/subagentsBase" }],
+      "properties": { "steps": { "items": { "$ref": "#/$defs/stepLevel1" } } },
+      "unevaluatedProperties": false
+    },
+    "subagentsLevel2": {
+      "description": "Sub-agent group of a child step (grandchildren may not nest further).",
+      "allOf": [{ "$ref": "#/$defs/subagentsBase" }],
+      "properties": { "steps": { "items": { "$ref": "#/$defs/stepLevel2" } } },
+      "unevaluatedProperties": false
+    },
+    "step": {
+      "description": "Top-level workflow step.",
+      "allOf": [{ "$ref": "#/$defs/stepBase" }],
+      "properties": {
+        "subagents": {
+          "description": "Declarative child-step group under this step. Needed to compose nested agents (run before this step) sequentially, in parallel or as a task fan-out.",
+          "$ref": "#/$defs/subagentsLevel1"
+        }
+      },
+      "unevaluatedProperties": false
+    },
+    "stepLevel1": {
+      "description": "Child step inside a top-level step's subagents group.",
+      "allOf": [{ "$ref": "#/$defs/stepBase" }],
+      "properties": {
+        "subagents": {
+          "description": "Grandchild group. This is the deepest nesting level allowed.",
+          "$ref": "#/$defs/subagentsLevel2"
+        }
+      },
+      "unevaluatedProperties": false
+    },
+    "stepLevel2": {
+      "description": "Grandchild step. A third subagents level is rejected by the compiler.",
+      "allOf": [{ "$ref": "#/$defs/stepBase" }],
+      "properties": { "subagents": false },
+      "unevaluatedProperties": false
+    },
+    "stepBase": {
+      "type": "object",
+      "required": ["agent"],
+      "$comment": "Shared fields of every step at any nesting level (compiler._ALLOWED_STEP_KEYS, 32 keys including 'subagents', which is declared per level). Unknown keys are rejected. Not checkable in JSON Schema: instance_id uniqueness across the whole flattened tree, a fanout_batch source_step that names an earlier step, depends_on cycles, and route targets that name real steps. The compiled Step adds compiler-derived fields an author cannot set: display_name (from name), conflict_keys, targets, dispatched_by, trust and is_leaf.",
+      "properties": {
+        "agent": {
+          "description": "Agent to run: an AGENT.md id under backend/agents/prompts/, or 'custom-agent' for a composed step defined by its own prompt. Needed because it decides the system prompt, default tools and contracts.",
+          "$comment": "A custom-agent step with instance_id compiles to agent_id 'custom-agent:<instance_id>'.",
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S",
+          "examples": ["prototype-specify", "custom-agent"]
+        },
+        "instance_id": {
+          "description": "Stable, immutable slug for one step instance. Needed so several custom-agent steps can coexist, and used for artifact file names, route targets, depends_on ids and wave conflict keys.",
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]*$",
+          "examples": ["us-planner", "greet"]
+        },
+        "name": {
+          "description": "Editable display label for the step. Needed so composed steps show a human name instead of 'Custom Agent'; renaming never changes instance_id.",
+          "$comment": "Compiled as Step.display_name.",
+          "type": "string"
+        },
+        "prompt": {
+          "description": "Step-specific instructions appended to the custom-agent template. Needed because a custom-agent step has no AGENT.md of its own. Write it with the prompt standard in docs/quick-reference.md §8.",
+          "$comment": "Only allowed when agent is 'custom-agent'; built-in agents use per-user prompt overrides instead.",
+          "type": "string"
+        },
+        "strategy": {
+          "description": "Registered execution strategy: single_shot (one call), task_loop (one worker walks tasks in order), fanout_batch (parallel workers per task), wave_scheduler (dependency-ordered waves), parallel_group (runs parallel sub-agent children).",
+          "$comment": "Registry kind 'strategy' (5 names). All names are allowed at user trust. Default single_shot. parallel_group is normally set by the compiler for subagents.mode: parallel and needs fanout.workers to do anything.",
+          "type": "string",
+          "enum": ["single_shot", "task_loop", "fanout_batch", "wave_scheduler", "parallel_group"],
+          "default": "single_shot"
+        },
+        "mechanical": {
+          "description": "Runs deterministic code instead of a model: publish (copy the latest draft to the deliverable), assemble_prototype (parts into prototype.html with validation), assemble_backlog (backlog files and coverage), extract_prototype_ui (prototype look-and-feel into build/ui/). Needed for repeatable, zero-model steps.",
+          "$comment": "Closed set in compiler._ALLOWED_MECHANICAL_KINDS, validated without a registry lookup; the same four are also registered as kind 'mechanical' (2 static, 2 added at discovery) for palette metadata. A mechanical step may not declare 'tools'.",
+          "type": ["string", "null"],
+          "enum": [
+            "publish", "assemble_prototype", "assemble_backlog", "extract_prototype_ui", null
+          ]
+        },
+        "condition": {
+          "description": "Run-condition expression evaluated at dispatch against the run's source_type (catalog, html or figma). Needed so steps such as the design ingestor run only for matching inputs. Empty means always run.",
+          "type": "string",
+          "default": "",
+          "examples": ["source_type in ['html', 'figma']"]
+        },
+        "reply": {
+          "description": "What counts as the step's output: 'all' (every streamed word) or 'last_message' (only the final message after the last tool call), so tool-call chatter does not reach reviewers or downstream steps.",
+          "type": "string",
+          "enum": ["all", "last_message"],
+          "default": "all"
+        },
+        "gates": {
+          "description": "Gates evaluated around the step: human (review after), before-human (ask before), validation (run validators), approval and security (privileged review), conditional (route on a decision).",
+          "$comment": "Registry kind 'gate' (6 names). User trust may not use: approval, security. At most one of human, before-human and approval per step. 'conditional' requires 'route'.",
+          "type": "array",
+          "default": [],
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "enum": ["human", "before-human", "validation", "approval", "security", "conditional"]
+          }
+        },
+        "validators": {
+          "description": "Registered validators run on the step's output (HTML structure/render, coverage checks, code compile/test/lint). Needed for deterministic quality checks.",
+          "$comment": "Registry kind 'validator' (14 names). All names are allowed at user trust. A validator selected in the Composer automatically adds the 'validation' gate. code_compile, code_test and code_lint run commands through the workspace exec handle.",
+          "type": "array",
+          "default": [],
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "enum": [
+              "html_static", "html_render", "spec_plan_coverage", "api_prefix", "task_done_when",
+              "design_quality", "code_compile", "code_test", "code_lint", "journeys_coverage",
+              "html_element_floor", "fragment_field_coverage", "screens_plan_coverage",
+              "backlog_plan_coverage"
+            ]
+          }
+        },
+        "fix": {
+          "description": "Validation fix-loop policy for this step.",
+          "$ref": "#/$defs/fixPolicy"
+        },
+        "require_render": {
+          "description": "When true, an unavailable browser render fails validation closed instead of counting as a pass. Absent uses the PROTOTYPE_REQUIRE_RENDER setting.",
+          "type": ["boolean", "null"]
+        },
+        "redoable": {
+          "description": "Lets a 'redo' action at this step's declared human gate re-run the step in place with the reviewer's instructions. With gates [human], the reviewer's Request changes text reaches the re-run as === USER GUIDANCE ===; the first step also gets the request again.",
+          "type": "boolean",
+          "default": false
+        },
+        "hooks": {
+          "description": "Executable lifecycle hooks for the step: audit_logger, secret_scan, otel_tracing, provenance_audit, behavioral. Absent injects audit_logger and secret_scan by default; an explicit [] disables hooks.",
+          "$comment": "Registry kind 'hook' (5 names). User trust may not use: provenance_audit.",
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "enum": [
+              "audit_logger", "secret_scan", "otel_tracing", "provenance_audit", "behavioral"
+            ]
+          }
+        },
+        "compaction": {
+          "description": "Context-compaction strategy that shrinks large context: html_skeleton (outline of the current HTML) or chat_history (bounded chat history). Needed to control token use.",
+          "$comment": "Registry kind 'compaction' (2 names). User trust may not use: chat_history, html_skeleton. Saved workflows may still use: html_skeleton. An override row keeps a compaction its target built-in declares on the same step.",
+          "type": ["string", "null"],
+          "enum": ["html_skeleton", "chat_history", null]
+        },
+        "post_step": {
+          "description": "Capability run after the step completes: revision_validation (checks a revision for regressions) or api_prefix_audit (event-free /api prefix audit).",
+          "$comment": "Registry kind 'post_step' (2 names). User trust may not use: api_prefix_audit, revision_validation. Saved workflows may still use: api_prefix_audit, revision_validation. An override row keeps a post_step its target built-in declares on the same step.",
+          "type": ["string", "null"],
+          "enum": ["revision_validation", "api_prefix_audit", null]
+        },
+        "produces_solution_plan": {
+          "description": "When true, the engine extracts the '## Solution Plan' section from this step's output and gives it to later revision steps.",
+          "type": "boolean",
+          "default": false
+        },
+        "produces": {
+          "description": "Labels or files this step's output supplies. A later step whose 'consumes' matches receives this output. 'route_decision' marks the step as a conditional route's decision source.",
+          "type": "array",
+          "default": [],
+          "items": { "type": "string", "minLength": 1 },
+          "examples": [["route_decision"], ["build/tasks.json", ".extract/"]]
+        },
+        "consumes": {
+          "description": "Labels or files this step reads from earlier steps. Needed to route upstream output to this step; it is pasted inline when the step cannot read files.",
+          "type": "array",
+          "default": [],
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "outputs": {
+          "description": "Files this step owns in the shared workspace. Used with 'replaces' to remove stale files from earlier passes.",
+          "type": "array",
+          "default": [],
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "replaces": {
+          "description": "When true, the step-boundary commit removes tracked files under 'outputs' that this pass did not write.",
+          "type": "boolean",
+          "default": false
+        },
+        "depends_on": {
+          "description": "Explicit upstream step ids. Needed to declare the real DAG, keep conditional branch targets from running as linear neighbours, and order steps the resolver would otherwise sort differently.",
+          "$comment": "Use compiled ids such as 'custom-agent:<instance_id>'; bare instance_ids are not resolved here. Cycles are rejected.",
+          "type": "array",
+          "default": [],
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "route": {
+          "description": "Conditional-gate routing table: where the run goes for each decision value.",
+          "$ref": "#/$defs/route"
+        },
+        "fanout": {
+          "description": "Fan-out worker selection and concurrency for fanout_batch and wave_scheduler steps.",
+          "$ref": "#/$defs/fanout"
+        },
+        "on_conflict": {
+          "description": "What happens when fan-out workers produce conflicting writes: human_gate (pause for review), merge_agent (let fanout.merge_agent resolve it, then fall back to human_gate), partial (keep what merged cleanly) or abort (stop the run).",
+          "type": "string",
+          "enum": ["human_gate", "merge_agent", "partial", "abort"],
+          "default": "human_gate"
+        },
+        "retry": {
+          "description": "Per-step retry on classified (transient) errors.",
+          "$ref": "#/$defs/retryPolicy"
+        },
+        "tools": {
+          "description": "Requested tool permissions for this step, capped by the manifest's trust level.",
+          "$ref": "#/$defs/toolPermissions"
+        },
+        "model": {
+          "description": "Per-step model policy (model resolution tier 2).",
+          "$ref": "#/$defs/modelPolicy"
+        },
+        "skills": {
+          "description": "Skill ids staged into this step's workspace and advertised in its prompt. Needed to give one step specialist instructions without changing the agent.",
+          "$comment": "Ids from the global skills catalog; unknown user-supplied ids are dropped at run time.",
+          "type": "array",
+          "default": [],
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 },
+          "examples": [["velocity-design"], ["joke"]]
+        },
+        "injects": {
+          "description": "OpenDesign context blocks to add to this step's prompt (design_system, template, template_example, craft), merged with the agent's own injects. Needed when the workflow declares the opendesign provider.",
+          "type": "array",
+          "default": [],
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "enum": ["design_system", "template", "template_example", "craft"]
+          }
+        },
+        "task_source": {
+          "description": "Task list for task_loop, fanout_batch and wave_scheduler steps.",
+          "$ref": "#/$defs/taskSource"
+        }
+      },
+      "allOf": [
+        {
+          "$comment": "prompt is valid only on custom-agent steps.",
+          "if": { "required": ["prompt"], "properties": { "prompt": { "minLength": 1 } } },
+          "then": { "properties": { "agent": { "const": "custom-agent" } } }
+        },
+        {
+          "$comment": "A mechanical step runs no agent, so it cannot declare tools.",
+          "if": { "required": ["mechanical"], "properties": { "mechanical": { "type": "string" } } },
+          "then": { "not": { "required": ["tools"] } }
+        },
+        {
+          "$comment": "At most one human-review gate per step (they share one durable gate key).",
+          "properties": {
+            "gates": {
+              "not": {
+                "contains": { "enum": ["human", "before-human", "approval"] },
+                "minContains": 2
+              }
+            }
+          }
+        },
+        {
+          "$comment": "gates: [conditional] requires a route with at least one outcome.",
+          "if": {
+            "required": ["gates"],
+            "properties": { "gates": { "contains": { "const": "conditional" } } }
+          },
+          "then": {
+            "required": ["route"],
+            "properties": {
+              "route": {
+                "required": ["outcomes"],
+                "properties": { "outcomes": { "minProperties": 1 } }
+              }
+            }
+          }
+        },
+        {
+          "$comment": "A route with outcomes requires gates: [conditional].",
+          "if": {
+            "required": ["route"],
+            "properties": {
+              "route": {
+                "required": ["outcomes"],
+                "properties": { "outcomes": { "minProperties": 1 } }
+              }
+            }
+          },
+          "then": {
+            "required": ["gates"],
+            "properties": { "gates": { "contains": { "const": "conditional" } } }
+          }
+        },
+        {
+          "$comment": "An exec grant requires both the security and approval gates.",
+          "if": {
+            "required": ["tools"],
+            "properties": {
+              "tools": { "required": ["exec"], "properties": { "exec": { "const": true } } }
+            }
+          },
+          "then": {
+            "required": ["gates"],
+            "properties": {
+              "gates": {
+                "allOf": [
+                  { "contains": { "const": "security" } },
+                  { "contains": { "const": "approval" } }
+                ]
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

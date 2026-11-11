@@ -873,6 +873,48 @@ describe("CanvasConfigRail", () => {
 
       expect(screen.queryByRole("spinbutton", { name: "Max loop count" })).not.toBeInTheDocument();
     });
+
+    // A decision that matches no outcome fails the run, so the decision that LEAVES a
+    // loop ("pass" on a tester whose only other outcome loops back) has to be declared.
+    it("offers End run as an outcome type", async () => {
+      renderRail({
+        selection: CONDITIONAL,
+        allSteps: ALL,
+        agent: route({ pass: { trigger: "step", target: "reviewer" } }),
+      });
+      await openConfig();
+
+      expect(screen.getByRole("option", { name: "End run" })).toBeInTheDocument();
+    });
+
+    it("switches an outcome to End run and clears its target", async () => {
+      const user = userEvent.setup();
+      const { onRouteChange } = renderRail({
+        selection: CONDITIONAL,
+        allSteps: ALL,
+        agent: route({ pass: { trigger: "step", target: "reviewer" } }),
+      });
+      await openConfig();
+
+      await user.selectOptions(screen.getByRole("combobox", { name: "Type" }), "end");
+
+      expect(onRouteChange).toHaveBeenLastCalledWith("writer", {
+        outcomes: { pass: { trigger: "end", target: "" } },
+      });
+    });
+
+    it("shows no target picker or loop cap for an End run outcome", async () => {
+      renderRail({
+        selection: CONDITIONAL,
+        allSteps: ALL,
+        agent: route({ pass: { trigger: "end", target: "" } }),
+      });
+      await openConfig();
+
+      expect(screen.getByText("Finishes the run here. Steps after this one are skipped.")).toBeInTheDocument();
+      expect(screen.queryByRole("combobox", { name: "Target" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("spinbutton", { name: "Max loop count" })).not.toBeInTheDocument();
+    });
   });
 
   describe("config tab: fan-out", () => {
@@ -1198,11 +1240,12 @@ describe("CanvasConfigRail", () => {
       expect(screen.getByRole("button", { name: "Decrease max parallel" })).toBeDisabled();
     });
 
-    it("assumes a limit of three when none is set", async () => {
+    it("shows the runtime cap of five when no limit is set", async () => {
       renderRail({ agent: { ...withChildren, strategy: "parallel" } });
       await openConfig();
 
-      expect(screen.getByText("3")).toBeInTheDocument();
+      // A group without max_parallel runs at DEFAULT_MAX_CONCURRENCY (5).
+      expect(screen.getByText("5")).toBeInTheDocument();
     });
   });
 });

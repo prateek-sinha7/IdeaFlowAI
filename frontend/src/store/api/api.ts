@@ -22,6 +22,7 @@ import { userWorkflowsApi } from "./userWorkflows";
 import { runsApi } from "./runs";
 import { adminApi } from "./admin";
 import { healthApi } from "./health";
+import { connectorsApi } from "./connectors";
 
 export const api = {
   auth: authApi,
@@ -40,6 +41,7 @@ export const api = {
   runs: runsApi,
   admin: adminApi,
   health: healthApi,
+  connectors: connectorsApi,
 };
 
 export {
@@ -59,6 +61,7 @@ export {
   runsApi,
   adminApi,
   healthApi,
+  connectorsApi,
 };
 
 export { http } from "./http";

@@ -48,6 +48,7 @@ from sqlalchemy.orm import Session
 from app.api.run_engine import (
     _model_entitlement_error,
     _own_plan_roster,
+    _reject_connector_selections,
     _saved_row_trust,
     _trigger_entitlement_error,
 )
@@ -82,6 +83,18 @@ def _reject_both(body):
 _INSTANCE_ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 
 
+def _connector_grants_refused(message: str) -> HTTPException:
+    """422 ``connector_grants_not_allowed`` (design 5.5 layer 4), in the run envelope."""
+    return HTTPException(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        detail={
+            "error": message,
+            "code": "connector_grants_not_allowed",
+            "recoverable": False,
+        },
+    )
+
+
 def _compile_check_manifest(manifest: dict, source_label: str, trust: str) -> None:
     """Compile the manifest the way the ENGINE will — reject it here if it won't.
 
@@ -104,7 +117,7 @@ def _compile_check_manifest(manifest: dict, source_label: str, trust: str) -> No
         _CAPABILITY_REGISTRY,
         _WORKFLOW_COMPILER,
     )
-    from agents.workflows.compiler import CompilerError
+    from agents.workflows.compiler import CompilerError, ConnectorGrantsNotAllowed
     from agents.workflows.manifest import (
         ManifestValidationError,
         build_manifest_from_dict,
@@ -121,6 +134,8 @@ def _compile_check_manifest(manifest: dict, source_label: str, trust: str) -> No
     try:
         parsed = build_manifest_from_dict(raw, source_label)
         _WORKFLOW_COMPILER.compile(parsed, _CAPABILITY_REGISTRY, trust=trust)
+    except ConnectorGrantsNotAllowed as exc:
+        raise _connector_grants_refused(str(exc)) from exc
     except (ManifestValidationError, CompilerError) as exc:
         # WARNING, not exception(): a refused save is the gate working, not a
         # crash — the user gets the same message in the 422. Log the compiler's
@@ -155,11 +170,13 @@ def _compile_check_override_steps(
     """
     from agents.execution_engine.engine import _CAPABILITY_REGISTRY
     from agents.execution_engine.overrides import compile_override_steps
-    from agents.workflows.compiler import CompilerError
+    from agents.workflows.compiler import CompilerError, ConnectorGrantsNotAllowed
     from agents.workflows.manifest import ManifestValidationError
 
     try:
         compile_override_steps(override_of, steps, _CAPABILITY_REGISTRY)
+    except ConnectorGrantsNotAllowed as exc:
+        raise _connector_grants_refused(str(exc)) from exc
     except (ManifestValidationError, CompilerError) as exc:
         logger.warning(
             "override rejected at save: source=%s overrides=%s reason=%s: %s",
@@ -452,6 +469,12 @@ def _compile_selections_trust_user(
     # This key is written by the PPT/Prototype wizard "Save workflow" button
     # and must round-trip untouched — it is NOT a capability reference.
     compile_selections = {k: v for k, v in selections.items() if k != "_wizard"}
+
+    # A flat selection map never admits connected-app grants (design 5.5 layer 4):
+    # refuse it before any compile so no row is stored.
+    _connector_error = _reject_connector_selections(compile_selections)
+    if _connector_error is not None:
+        raise _connector_grants_refused(_connector_error)
 
     from agents.capabilities.registry import CapabilityRegistry
     from agents.workflows.compiler import CompilerError, WorkflowCompiler

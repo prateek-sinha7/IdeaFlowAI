@@ -9,6 +9,7 @@ import {
   useWorkflowPickerOptions,
 } from "./CanvasNode";
 import { CanvasConfigRail } from "./CanvasConfigRail";
+import type { ConnectedAppsAvailability } from "./ConnectedAppsSection";
 import {
   CHILD_W,
   CHILD_H_EST,
@@ -321,6 +322,7 @@ export function CanvasView({
   briefLeftExtra,
   briefBelowExtra,
   designSummary,
+  connectedAppsAvailability,
 }: {
   pipelineAgents: AgentDef[];
   selections: SelectionsMap;
@@ -376,6 +378,9 @@ export function CanvasView({
    *  or undefined when nothing is picked yet. Composed by ComposerPage, which
    *  owns the selection and the catalog names. */
   designSummary?: string;
+  /** Whether this canvas can use connected apps; passed to the config rail's
+   *  Tools tab. Absent means the Connected Apps block is not offered. */
+  connectedAppsAvailability?: ConnectedAppsAvailability;
 }) {
   // The Brief is selected by default — including the moment an EXISTING
   // workflow's canvas mounts — so opening a saved workflow always starts by
@@ -2723,6 +2728,7 @@ export function CanvasView({
             onDataFlowChange={handleDataFlowChange}
             openConfigSignal={openConfigSignal}
             allSteps={[...pipelineAgents, ...allDescendants]}
+            connectedAppsAvailability={connectedAppsAvailability}
           />
         )}
 

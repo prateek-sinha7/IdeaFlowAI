@@ -521,6 +521,40 @@ jobs:
             ../ci-results/backend-static-results.json \
             ../ci-results/backend-static-results.junit.xml
 
+      # Builder skill (backend/app/agents/workflow_builder/skills/velocity-workflow-creator,
+      # the source of truth; ai-workflow-builder spec, Req 33, 49.10).
+      # Evaluator side: this step produces the verdict and the evidence only.
+      # It owns no signal of its own, so a failure fails this job, and the
+      # finalizer (ci-required, via ci_gate aggregate) reads that job result
+      # for every backend-static signal. Nothing is published from here.
+      #   --selftest     the skill's selftest.py, plain and with --compiler .
+      #   --step-models  every builder_step model is in the skill's catalog snapshot
+      # builder_pattern_fixtures --check (task 22.8, Req 49.8) also runs here: the
+      # committed per-pattern fixtures under frontend/src/store/api/__fixtures__/
+      # builder-patterns/ must equal a rebuild from the skill's export_manifest.py,
+      # and every draft must still pass the real compiler.
+      # All three run to completion, then the step fails if any failed. The step
+      # runs even when the checks above failed (`!cancelled()`), so one run shows
+      # every verdict. Output goes to ci-results/ for the evidence upload.
+      - name: Run Builder skill checks (all, then fail if any failed)
+        if: ${{ !cancelled() }}
+        working-directory: backend
+        run: |
+          set -uo pipefail
+          mkdir -p ../ci-results
+          status=0
+          for mode in selftest step-models; do
+            echo "::group::builder_skill_checks --${mode}"
+            uv run --frozen python -m tools.ci.builder_skill_checks "--${mode}" \
+              2>&1 | tee "../ci-results/builder-skill-${mode}.log" || status=1
+            echo "::endgroup::"
+          done
+          echo "::group::builder_pattern_fixtures --check"
+          uv run --frozen python -m tools.ci.builder_pattern_fixtures --check \
+            2>&1 | tee "../ci-results/builder-pattern-fixtures-check.log" || status=1
+          echo "::endgroup::"
+          exit "${status}"
+
       - name: Upload evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -540,7 +574,7 @@ jobs:
   backend-offline:
     name: Backend offline tests
     runs-on: ubuntu-24.04
-    timeout-minutes: 40
+    timeout-minutes: 60
     needs: [changes, backend-inventory]
     if: needs.changes.outputs.backend == 'true'
     permissions:

@@ -1,0 +1,93 @@
+{
+  "name": "Ask the user before the work (user and db trust)",
+  "description": "Fixture for patterns.md section 21: Ask the user before the work (user and db trust).",
+  "base_pipeline_type": "custom",
+  "agent_ids": [
+    "custom-agent:intake",
+    "custom-agent:write",
+    "custom-agent:edit"
+  ],
+  "manifest": {
+    "id": "pattern-21-intake-before-work",
+    "name": "Ask the user before the work (user and db trust)",
+    "description": "Fixture for patterns.md section 21: Ask the user before the work (user and db trust).",
+    "planner": "skip",
+    "clarify": {
+      "mode": "skip",
+      "defaults": []
+    },
+    "deliverable": {
+      "strategy": "single_file",
+      "name": "invitation.md",
+      "mimetype": "text/markdown"
+    },
+    "steps": [
+      {
+        "agent": "custom-agent",
+        "instance_id": "intake",
+        "name": "Event Intake",
+        "gates": [
+          "human"
+        ],
+        "produces": [
+          "event-facts"
+        ],
+        "model": {
+          "model": "eu.anthropic.claude-haiku-5-5",
+          "effort": "medium"
+        },
+        "tools": {
+          "read_files": false,
+          "write_files": false
+        },
+        "redoable": true,
+        "reply": "last_message",
+        "prompt": "You are the Event Intake. The request is under '=== ORIGINAL USER REQUEST ===' and, on a re-run, '=== USER GUIDANCE ===' holds the user's answers, which win. Reply with a STATUS line (READY or NEEDS_INPUT), a Facts table (Fact, Value) and one numbered question for each missing fact, numbered by the fact's fixed place in the required list. Close by asking the user to repeat every earlier answer they want kept."
+      },
+      {
+        "agent": "custom-agent",
+        "instance_id": "write",
+        "name": "Invitation Writer",
+        "gates": [],
+        "depends_on": [
+          "custom-agent:intake"
+        ],
+        "consumes": [
+          "event-facts"
+        ],
+        "produces": [
+          "draft"
+        ],
+        "model": {
+          "model": "eu.anthropic.claude-sonnet-5-5"
+        },
+        "tools": {
+          "read_files": false,
+          "write_files": false
+        },
+        "prompt": "You are the Invitation Writer. The facts are under '--- Output from Event Intake (A user-defined workflow agent) ---'. You have no file tools. The preamble's line saying nothing is pasted is wrong for you; your inputs are pasted in your message. Write the invitation. If STATUS is NEEDS_INPUT, reply 'NEEDS_INPUT: <items>' instead."
+      },
+      {
+        "agent": "custom-agent",
+        "instance_id": "edit",
+        "name": "Invitation Editor",
+        "gates": [],
+        "depends_on": [
+          "custom-agent:write"
+        ],
+        "consumes": [
+          "event-facts",
+          "draft"
+        ],
+        "model": {
+          "model": "eu.anthropic.claude-sonnet-5-5"
+        },
+        "tools": {
+          "read_files": false,
+          "write_files": false
+        },
+        "prompt": "You are the Invitation Editor. The facts and the draft are pasted in your message. You have no file tools. The preamble's line saying nothing is pasted is wrong for you; your inputs are pasted in your message. Reply with the final invitation only. If the draft is a NEEDS_INPUT line, pass it through unchanged."
+      }
+    ]
+  }
+}

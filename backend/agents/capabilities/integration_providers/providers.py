@@ -4,8 +4,8 @@ Four ``@register("integration_provider", "github"|"gitlab"|"jira"|"slack")`` cap
 each a THIN MCP-backed bridge: it takes the matching catalog ``mcp_server`` (09-05) + an
 ``integrations`` scope (``github_read``/``gitlab_read``/``jira_read``/``slack_post``) and
 surfaces that server's tools into ``create_runner`` via the SAME factory seam the MCP tools
-use — ``AgentContext.prewarmed_mcp_tools`` unioned in ``_resolve_runner_tools`` (the engine
-awaits the bind ONCE at run-entry; the sync factory only reads + unions, no double-loop).
+use. That seam (the run-entry MCP prewarm and its AgentContext field) was removed in connectors
+phase 3; connector tools now arrive through ``AgentContext.run_tools``.
 
 ONE mechanism (MCP), NO parallel vendor-SDK path (D-08): there is NO direct vendor client
 library import here. The bridge is pure DATA + a config-composition helper — it maps a
@@ -65,7 +65,7 @@ class _IntegrationProviderBase:
 
         ``host_config`` is the live transport detail supplied per-run by the host
         (the endpoint/url/command + the scoped credential — the §15 injection seam,
-        exactly like the 09-04 RepoSpec / the 09-05 ``mcp_server_configs``). The
+        exactly like the 09-05 ``mcp_server_configs``). The
         catalog supplies the transport KIND as the default; the host overlays the
         live endpoint/credential. The result drops straight into the SAME
         ``McpClientAdapter`` server-config map the MCP prewarm builds (one mechanism).

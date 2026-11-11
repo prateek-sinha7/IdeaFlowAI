@@ -10,6 +10,7 @@ from __future__ import annotations
 import importlib
 
 import pytest
+from cryptography.fernet import Fernet
 
 
 class _Module:
@@ -68,6 +69,14 @@ def _build_cognito_configured_settings(
     overrides.setdefault("COGNITO_USER_POOL_ID", "eu-central-1_testpool")
     overrides.setdefault("COGNITO_CLIENT_ID", "test-client-id")
     overrides.setdefault("COGNITO_CLIENT_SECRET", "test-client-secret")
+    # Connector settings are required outside development too
+    # (_validate_connector_config); a key generated here is never a real secret.
+    overrides.setdefault("APP_BASE_URL", "https://app.example.test")
+    overrides.setdefault("TOKEN_ENCRYPTION_KEY", Fernet.generate_key().decode())
+    overrides.setdefault("JIRA_OAUTH_CLIENT_ID", "test-jira-client-id")
+    overrides.setdefault("JIRA_OAUTH_CLIENT_SECRET", "test-jira-client-secret")
+    overrides.setdefault("GITHUB_OAUTH_CLIENT_ID", "test-github-client-id")
+    overrides.setdefault("GITHUB_OAUTH_CLIENT_SECRET", "test-github-client-secret")
     return _build_settings(monkeypatch, **overrides)
 
 

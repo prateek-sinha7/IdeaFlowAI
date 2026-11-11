@@ -1,0 +1,86 @@
+{
+  "id": "pattern-11-person-chooses",
+  "name": "Person chooses the path",
+  "description": "Fixture for patterns.md section 11. The person must approve with an edit whose text is {\"decision\": \"fast\"} or {\"decision\": \"thorough\"}.",
+  "planner": "skip",
+  "clarify": {
+    "mode": "skip",
+    "defaults": []
+  },
+  "deliverable": {
+    "strategy": "single_file",
+    "name": "out.md"
+  },
+  "steps": [
+    {
+      "agent": "custom-agent",
+      "instance_id": "ask",
+      "name": "Choose a path",
+      "gates": [],
+      "produces": [
+        "route_decision"
+      ],
+      "tools": {
+        "read_files": false,
+        "write_files": false
+      },
+      "prompt": "Respond with exactly: \"(awaiting choice: fast or thorough)\""
+    },
+    {
+      "agent": "custom-agent",
+      "instance_id": "pick",
+      "name": "Apply choice",
+      "gates": [
+        "before-human",
+        "conditional"
+      ],
+      "depends_on": [
+        "custom-agent:ask"
+      ],
+      "produces": [
+        "route_decision"
+      ],
+      "consumes": [
+        "route_decision"
+      ],
+      "tools": {
+        "read_files": false,
+        "write_files": false
+      },
+      "prompt": "Reply with exactly one line: {\"decision\": \"fast\"}, {\"decision\": \"thorough\"}.",
+      "route": {
+        "condition_agent": "ask",
+        "outcomes": {
+          "fast": {
+            "trigger": "step",
+            "target": "quick-draft"
+          },
+          "thorough": {
+            "trigger": "step",
+            "target": "deep-draft"
+          }
+        }
+      }
+    },
+    {
+      "agent": "custom-agent",
+      "instance_id": "quick-draft",
+      "name": "Quick Draft",
+      "gates": [],
+      "depends_on": [
+        "custom-agent:pick"
+      ],
+      "prompt": "Write a quick draft of the document the brief asks for."
+    },
+    {
+      "agent": "custom-agent",
+      "instance_id": "deep-draft",
+      "name": "Deep Draft",
+      "gates": [],
+      "depends_on": [
+        "custom-agent:pick"
+      ],
+      "prompt": "Write a thorough, sourced draft of the document the brief asks for."
+    }
+  ]
+}

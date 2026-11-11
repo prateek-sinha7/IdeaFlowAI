@@ -37,7 +37,12 @@ const { router, probe } = vi.hoisted(() => ({
   },
 }));
 
-vi.mock("next/navigation", () => ({ useRouter: () => router }));
+vi.mock("next/navigation", () => ({
+  useRouter: () => router,
+  // BuilderComposerHost (AI builder) reads the path and the ?ai= parameter.
+  usePathname: () => "/workflows/new",
+  useSearchParams: () => new URLSearchParams(),
+}));
 
 const STRIPPED_MOTION_PROPS = new Set([
   "initial", "animate", "exit", "transition", "whileHover",

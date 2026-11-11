@@ -11,7 +11,7 @@ Each provider is a THIN MCP-backed bridge onto the 09-05 ``mcp_server`` catalog 
 mechanism (MCP), NO parallel SDK path (D-08). It maps a granted ``integrations`` scope onto
 the matching catalog server's transport config + exposed-tool allow-list, which the engine
 run-entry hands to the SAME ``McpClientAdapter`` the MCP prewarm uses, surfacing the tools
-into ``create_runner`` via the ``prewarmed_mcp_tools`` seam.
+into ``create_runner`` through a seam that was removed with the MCP prewarm (connectors phase 3).
 
 NO ``app.*`` / engine import (the import-linter pins the kernel→ports direction; this package
 is data, reached at compile time via the registry trust read and at run-entry via

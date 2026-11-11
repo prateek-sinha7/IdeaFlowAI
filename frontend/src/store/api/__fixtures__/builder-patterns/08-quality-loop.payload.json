@@ -1,0 +1,101 @@
+{
+  "name": "Quality loop (critic routes back)",
+  "description": "Fixture for patterns.md section 8: Quality loop (critic routes back).",
+  "base_pipeline_type": "custom",
+  "agent_ids": [
+    "custom-agent:requirements",
+    "custom-agent:draft",
+    "custom-agent:review",
+    "custom-agent:finalize"
+  ],
+  "manifest": {
+    "id": "pattern-08-quality-loop",
+    "name": "Quality loop (critic routes back)",
+    "description": "Fixture for patterns.md section 8: Quality loop (critic routes back).",
+    "planner": "skip",
+    "clarify": {
+      "mode": "skip",
+      "defaults": []
+    },
+    "deliverable": {
+      "strategy": "streamed_text",
+      "name": "document.md"
+    },
+    "steps": [
+      {
+        "agent": "custom-agent",
+        "instance_id": "requirements",
+        "name": "Requirements",
+        "gates": [],
+        "tools": {
+          "read_files": true,
+          "write_files": true
+        },
+        "prompt": "Write requirements.md: the numbered requirements the brief implies."
+      },
+      {
+        "agent": "custom-agent",
+        "instance_id": "draft",
+        "name": "Drafter",
+        "gates": [],
+        "depends_on": [
+          "custom-agent:requirements"
+        ],
+        "tools": {
+          "read_files": true,
+          "write_files": true
+        },
+        "prompt": "Write the draft to draft.md. If review-notes.md exists, revise draft.md to address every point in it."
+      },
+      {
+        "agent": "custom-agent",
+        "instance_id": "review",
+        "name": "Reviewer",
+        "gates": [
+          "conditional"
+        ],
+        "depends_on": [
+          "custom-agent:draft"
+        ],
+        "produces": [
+          "route_decision"
+        ],
+        "reply": "last_message",
+        "tools": {
+          "read_files": true,
+          "write_files": true
+        },
+        "prompt": "Read draft.md and requirements.md. Write review-notes.md. Then reply with exactly one line: {\"decision\": \"pass\"} if every requirement is met, otherwise {\"decision\": \"revise\"}.",
+        "route": {
+          "outcomes": {
+            "pass": {
+              "trigger": "step",
+              "target": "finalize"
+            },
+            "revise": {
+              "trigger": "step",
+              "target": "draft",
+              "feedback": "Revise draft.md to address every point in review-notes.md."
+            }
+          },
+          "loop_max_iterations": 3,
+          "on_loop_exhausted": "continue"
+        }
+      },
+      {
+        "agent": "custom-agent",
+        "instance_id": "finalize",
+        "name": "Finalizer",
+        "gates": [],
+        "depends_on": [
+          "custom-agent:review"
+        ],
+        "tools": {
+          "read_files": true,
+          "write_files": false
+        },
+        "prompt": "Read draft.md and reply with the final document only."
+      }
+    ]
+  }
+}

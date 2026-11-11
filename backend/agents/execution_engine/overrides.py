@@ -112,13 +112,28 @@ def compile_with_baseline(manifest, registry, *, trust: str, overrides: str | No
     comes through here: the writers and the merge (``compile_override_steps``),
     launch by id, the route trigger, and resume.
     """
-    from agents.workflows.compiler import WorkflowCompiler
+    from agents.workflows.compiler import (
+        CONNECTOR_PREDEFINED_MESSAGE,
+        ConnectorGrantsNotAllowed,
+        WorkflowCompiler,
+    )
 
     admitted: dict = {}
     if overrides:
         steps, admitted = _split_inherited(overrides, manifest.steps)
         manifest = dataclasses.replace(manifest, steps=steps)
     compiled = WorkflowCompiler().compile(manifest, registry, trust=trust)
+    if overrides:
+        # An override row is the "my version" of a built-in, so it is predefined for
+        # connected apps (design 5.5, OQ4): no step may carry a grant and the plan
+        # never admits one, whatever trust the row compiled at.
+        for step in compiled.steps:
+            if step.tools.connectors:
+                raise ConnectorGrantsNotAllowed(
+                    f"{CONNECTOR_PREDEFINED_MESSAGE} (step '{step.agent_id}' of "
+                    f"override '{overrides}')"
+                )
+        compiled = dataclasses.replace(compiled, admits_connector_grants=False)
     if not admitted:
         return compiled
     return dataclasses.replace(
@@ -222,4 +237,6 @@ def merge_override_steps(compiled, steps: list, registry):
     )
     # ONLY .steps is taken. deliverable / context_providers / clarify / planner /
     # seed_files / limits all stay as the file manifest compiled them.
-    return dataclasses.replace(compiled, steps=list(user_compiled.steps))
+    return dataclasses.replace(
+        compiled, steps=list(user_compiled.steps), admits_connector_grants=False
+    )

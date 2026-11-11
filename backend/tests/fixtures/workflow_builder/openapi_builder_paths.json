@@ -1,0 +1,1816 @@
+{
+  "components": {
+    "schemas": {
+      "ActivitySummary": {
+        "additionalProperties": false,
+        "description": "Totals behind \"14 actions, 2 checks, 1 min 40 s\" on a finished turn.",
+        "properties": {
+          "actions": {
+            "minimum": 0.0,
+            "title": "Actions",
+            "type": "integer"
+          },
+          "checks": {
+            "minimum": 0.0,
+            "title": "Checks",
+            "type": "integer"
+          },
+          "duration_ms": {
+            "minimum": 0.0,
+            "title": "Duration Ms",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "actions",
+          "checks",
+          "duration_ms"
+        ],
+        "title": "ActivitySummary",
+        "type": "object"
+      },
+      "BuilderModelsResponse": {
+        "additionalProperties": false,
+        "description": "The builder's Chat_List for this user (design 3.2.1, 3.2.2).",
+        "properties": {
+          "default_efforts": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "title": "Default Efforts",
+            "type": "object"
+          },
+          "default_model_id": {
+            "title": "Default Model Id",
+            "type": "string"
+          },
+          "models": {
+            "items": {
+              "$ref": "#/components/schemas/ModelCatalogEntry"
+            },
+            "title": "Models",
+            "type": "array"
+          }
+        },
+        "required": [
+          "models",
+          "default_model_id",
+          "default_efforts"
+        ],
+        "title": "BuilderModelsResponse",
+        "type": "object"
+      },
+      "ChangeSummary": {
+        "additionalProperties": false,
+        "description": "What a Draft changed compared with the Canvas state it was based on.",
+        "properties": {
+          "added": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Added",
+            "type": "array"
+          },
+          "gates_changed": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Gates Changed",
+            "type": "array"
+          },
+          "models_changed": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Models Changed",
+            "type": "array"
+          },
+          "prompts_changed": {
+            "title": "Prompts Changed",
+            "type": "integer"
+          },
+          "removed": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Removed",
+            "type": "array"
+          },
+          "reordered": {
+            "title": "Reordered",
+            "type": "boolean"
+          },
+          "validators_changed": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Validators Changed",
+            "type": "array"
+          }
+        },
+        "required": [
+          "added",
+          "removed",
+          "reordered",
+          "gates_changed",
+          "validators_changed",
+          "models_changed",
+          "prompts_changed"
+        ],
+        "title": "ChangeSummary",
+        "type": "object"
+      },
+      "CheckResult": {
+        "additionalProperties": false,
+        "description": "The verdict of one validator run, dry run or Server_Gate check.",
+        "properties": {
+          "attempt": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Attempt"
+          },
+          "attempts_left": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Attempts Left"
+          },
+          "errors": {
+            "title": "Errors",
+            "type": "integer"
+          },
+          "source": {
+            "enum": [
+              "skill_validator",
+              "platform_dry_run",
+              "server_gate"
+            ],
+            "title": "Source",
+            "type": "string"
+          },
+          "verdict": {
+            "enum": [
+              "valid",
+              "invalid",
+              "unknown"
+            ],
+            "title": "Verdict",
+            "type": "string"
+          },
+          "warnings": {
+            "title": "Warnings",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "source",
+          "verdict",
+          "errors",
+          "warnings"
+        ],
+        "title": "CheckResult",
+        "type": "object"
+      },
+      "CreateSessionRequest": {
+        "additionalProperties": false,
+        "description": "Body of ``POST /sessions``. Edit mode names the saved workflow.",
+        "properties": {
+          "effort": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Effort"
+          },
+          "mode": {
+            "enum": [
+              "create",
+              "edit"
+            ],
+            "title": "Mode",
+            "type": "string"
+          },
+          "model_id": {
+            "maxLength": 200,
+            "title": "Model Id",
+            "type": "string"
+          },
+          "workflow_id": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Workflow Id"
+          }
+        },
+        "required": [
+          "mode",
+          "model_id"
+        ],
+        "title": "CreateSessionRequest",
+        "type": "object"
+      },
+      "DraftRevisionOut": {
+        "additionalProperties": false,
+        "description": "One stored revision of the session's draft.",
+        "properties": {
+          "change_summary": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ChangeSummary"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "seed",
+              "accepted",
+              "undo",
+              "unproposed"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "launch_needs": {
+            "items": {
+              "$ref": "#/components/schemas/LaunchNeed"
+            },
+            "title": "Launch Needs",
+            "type": "array"
+          },
+          "manifest": {
+            "additionalProperties": true,
+            "title": "Manifest",
+            "type": "object"
+          },
+          "revision": {
+            "title": "Revision",
+            "type": "integer"
+          },
+          "source_turn_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Turn Id"
+          },
+          "target_trust": {
+            "anyOf": [
+              {
+                "enum": [
+                  "user",
+                  "db"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Trust"
+          }
+        },
+        "required": [
+          "revision",
+          "kind",
+          "manifest",
+          "target_trust",
+          "change_summary",
+          "launch_needs",
+          "source_turn_id",
+          "created_at"
+        ],
+        "title": "DraftRevisionOut",
+        "type": "object"
+      },
+      "ErrorOut": {
+        "additionalProperties": false,
+        "description": "A stored turn error as the transcript shows it. Generic text only.",
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "retryable": {
+            "title": "Retryable",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "code",
+          "message",
+          "retryable"
+        ],
+        "title": "ErrorOut",
+        "type": "object"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "LaunchNeed": {
+        "additionalProperties": false,
+        "description": "Something the user must provide before the workflow can launch.",
+        "properties": {
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detail"
+          },
+          "kind": {
+            "enum": [
+              "uploads",
+              "design",
+              "connector",
+              "source_run"
+            ],
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind"
+        ],
+        "title": "LaunchNeed",
+        "type": "object"
+      },
+      "LinkRequest": {
+        "additionalProperties": false,
+        "description": "Body of ``POST /sessions/{id}/link``.",
+        "properties": {
+          "workflow_id": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Workflow Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "workflow_id"
+        ],
+        "title": "LinkRequest",
+        "type": "object"
+      },
+      "ModelCatalogEntry": {
+        "description": "One model-picker entry, projected from ``ModelCatalog`` (MODEL-04).\n\nRFN-002b: pricing rates added (USD per 1 M tokens, scaled from the catalog's\nper-single-token ``Pricing`` dataclass × 1 000 000) so the Analytics page can\nbuild a fully dynamic model-details panel without a hardcoded rate table.\n``reasoning_mode``/``reasoning_levels`` are projected off the catalog's\n``Reasoning`` capability (spec 020) — they replace a ``thinking_supported``\nbool derived from an id-substring tuple.\nAll new fields have safe defaults so existing callers that don't read them\nare unaffected (purely additive).",
+        "properties": {
+          "cache_read_rate_per_1m": {
+            "default": 0.0,
+            "title": "Cache Read Rate Per 1M",
+            "type": "number"
+          },
+          "cache_write_5m_rate_per_1m": {
+            "default": 0.0,
+            "title": "Cache Write 5M Rate Per 1M",
+            "type": "number"
+          },
+          "context_window": {
+            "title": "Context Window",
+            "type": "integer"
+          },
+          "cost_class": {
+            "title": "Cost Class",
+            "type": "string"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "input_rate_per_1m": {
+            "default": 0.0,
+            "title": "Input Rate Per 1M",
+            "type": "number"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "output_rate_per_1m": {
+            "default": 0.0,
+            "title": "Output Rate Per 1M",
+            "type": "number"
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          },
+          "reasoning_levels": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Reasoning Levels",
+            "type": "array"
+          },
+          "reasoning_mode": {
+            "default": "none",
+            "title": "Reasoning Mode",
+            "type": "string"
+          },
+          "tier": {
+            "title": "Tier",
+            "type": "string"
+          },
+          "user_allowed": {
+            "title": "User Allowed",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "description",
+          "tier",
+          "cost_class",
+          "provider",
+          "context_window",
+          "user_allowed"
+        ],
+        "title": "ModelCatalogEntry",
+        "type": "object"
+      },
+      "RunningTurnSnapshot": {
+        "additionalProperties": false,
+        "description": "The running Turn as a connecting client needs to see it (Req 38.3).\n\n``through_seq`` is the ``seq`` of the last event this snapshot already\nreflects, so a client drops turn events with ``seq <= through_seq``\n[pending G-14].",
+        "properties": {
+          "activity": {
+            "items": {
+              "$ref": "#/components/schemas/ToolActivity"
+            },
+            "title": "Activity",
+            "type": "array"
+          },
+          "checks": {
+            "items": {
+              "$ref": "#/components/schemas/CheckResult"
+            },
+            "title": "Checks",
+            "type": "array"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "message_id": {
+            "title": "Message Id",
+            "type": "string"
+          },
+          "stage": {
+            "$ref": "#/components/schemas/Stage"
+          },
+          "started_at": {
+            "format": "date-time",
+            "title": "Started At",
+            "type": "string"
+          },
+          "through_seq": {
+            "minimum": 0.0,
+            "title": "Through Seq",
+            "type": "integer"
+          },
+          "turn_id": {
+            "title": "Turn Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "turn_id",
+          "message_id",
+          "stage",
+          "label",
+          "started_at",
+          "through_seq",
+          "activity",
+          "checks"
+        ],
+        "title": "RunningTurnSnapshot",
+        "type": "object"
+      },
+      "SendMessageRequest": {
+        "additionalProperties": false,
+        "description": "Body of ``POST /sessions/{id}/messages`` (check 5 of design 3.1.2).",
+        "properties": {
+          "canvas_state": {
+            "additionalProperties": true,
+            "title": "Canvas State",
+            "type": "object"
+          },
+          "client_message_id": {
+            "pattern": "^[A-Za-z0-9_-]{8,64}$",
+            "title": "Client Message Id",
+            "type": "string"
+          },
+          "content": {
+            "title": "Content",
+            "type": "string"
+          },
+          "effort": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Effort"
+          },
+          "model_id": {
+            "maxLength": 200,
+            "title": "Model Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "content",
+          "model_id",
+          "effort",
+          "canvas_state",
+          "client_message_id"
+        ],
+        "title": "SendMessageRequest",
+        "type": "object"
+      },
+      "SessionDetail": {
+        "additionalProperties": false,
+        "description": "A session with its transcript, drafts and running-turn snapshot.",
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "effort": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Effort"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "latest_draft": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DraftRevisionOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "latest_unproposed": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DraftRevisionOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "linked_row_changed": {
+            "title": "Linked Row Changed",
+            "type": "boolean"
+          },
+          "messages": {
+            "items": {
+              "$ref": "#/components/schemas/TranscriptMessage"
+            },
+            "title": "Messages",
+            "type": "array"
+          },
+          "mode": {
+            "enum": [
+              "create",
+              "edit"
+            ],
+            "title": "Mode",
+            "type": "string"
+          },
+          "model_id": {
+            "title": "Model Id",
+            "type": "string"
+          },
+          "running": {
+            "title": "Running",
+            "type": "boolean"
+          },
+          "running_turn": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RunningTurnSnapshot"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "skill_hash": {
+            "title": "Skill Hash",
+            "type": "string"
+          },
+          "target_trust": {
+            "enum": [
+              "user",
+              "db"
+            ],
+            "title": "Target Trust",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "workflow_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Workflow Id"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "mode",
+          "workflow_id",
+          "model_id",
+          "effort",
+          "running",
+          "created_at",
+          "updated_at",
+          "target_trust",
+          "skill_hash",
+          "messages",
+          "latest_draft",
+          "latest_unproposed",
+          "running_turn",
+          "linked_row_changed"
+        ],
+        "title": "SessionDetail",
+        "type": "object"
+      },
+      "SessionPage": {
+        "additionalProperties": false,
+        "description": "One keyset page of the session list.",
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/SessionSummary"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "SessionPage",
+        "type": "object"
+      },
+      "SessionSummary": {
+        "additionalProperties": false,
+        "description": "A session as the list and the popup show it.",
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "effort": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Effort"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "mode": {
+            "enum": [
+              "create",
+              "edit"
+            ],
+            "title": "Mode",
+            "type": "string"
+          },
+          "model_id": {
+            "title": "Model Id",
+            "type": "string"
+          },
+          "running": {
+            "title": "Running",
+            "type": "boolean"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "workflow_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Workflow Id"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "mode",
+          "workflow_id",
+          "model_id",
+          "effort",
+          "running",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "SessionSummary",
+        "type": "object"
+      },
+      "Stage": {
+        "description": "What the Builder_Agent is doing, as shown to the user.",
+        "enum": [
+          "starting",
+          "thinking",
+          "reading",
+          "looking_up",
+          "writing",
+          "checking",
+          "platform_check",
+          "applying",
+          "responding"
+        ],
+        "title": "Stage",
+        "type": "string"
+      },
+      "ToolActivity": {
+        "additionalProperties": false,
+        "description": "One tool call as the transcript and the live panel show it.",
+        "properties": {
+          "call_id": {
+            "title": "Call Id",
+            "type": "string"
+          },
+          "command": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Command"
+          },
+          "duration_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration Ms"
+          },
+          "exit_code": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exit Code"
+          },
+          "kind": {
+            "enum": [
+              "read",
+              "write",
+              "script",
+              "lookup",
+              "propose"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "running",
+              "ok",
+              "error",
+              "refused",
+              "timed_out"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "summary": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Summary"
+          },
+          "tool": {
+            "title": "Tool",
+            "type": "string"
+          }
+        },
+        "required": [
+          "call_id",
+          "tool",
+          "kind",
+          "label",
+          "status"
+        ],
+        "title": "ToolActivity",
+        "type": "object"
+      },
+      "TranscriptMessage": {
+        "additionalProperties": false,
+        "description": "One user or assistant message of the transcript.",
+        "properties": {
+          "activity": {
+            "items": {
+              "$ref": "#/components/schemas/ToolActivity"
+            },
+            "title": "Activity",
+            "type": "array"
+          },
+          "activity_summary": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ActivitySummary"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "content": {
+            "title": "Content",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "effort": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Effort"
+          },
+          "ended_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ended At"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ErrorOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "model_id": {
+            "title": "Model Id",
+            "type": "string"
+          },
+          "outcome": {
+            "anyOf": [
+              {
+                "enum": [
+                  "draft",
+                  "reply",
+                  "unfinished"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Outcome"
+          },
+          "reply_to_message_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reply To Message Id"
+          },
+          "revision": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revision"
+          },
+          "role": {
+            "enum": [
+              "user",
+              "assistant"
+            ],
+            "title": "Role",
+            "type": "string"
+          },
+          "seq": {
+            "title": "Seq",
+            "type": "integer"
+          },
+          "skill_hash": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Skill Hash"
+          },
+          "skill_updated": {
+            "title": "Skill Updated",
+            "type": "boolean"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "enum": [
+                  "running",
+                  "completed",
+                  "failed",
+                  "cancelled",
+                  "timed_out",
+                  "interrupted"
+                ],
+                "type": "string"
+              },
+              {
+                "const": "accepted",
+                "type": "string"
+              }
+            ],
+            "title": "Status"
+          },
+          "stop_reason": {
+            "anyOf": [
+              {
+                "enum": [
+                  "time",
+                  "tool_calls",
+                  "tokens",
+                  "recursion",
+                  "gate_rejections",
+                  "cancelled",
+                  "deleted",
+                  "shutdown",
+                  "restart",
+                  "error"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stop Reason"
+          },
+          "thinking": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Thinking"
+          },
+          "turn_id": {
+            "title": "Turn Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "seq",
+          "role",
+          "turn_id",
+          "reply_to_message_id",
+          "status",
+          "outcome",
+          "stop_reason",
+          "content",
+          "thinking",
+          "model_id",
+          "effort",
+          "skill_hash",
+          "skill_updated",
+          "error",
+          "revision",
+          "activity",
+          "activity_summary",
+          "created_at",
+          "ended_at"
+        ],
+        "title": "TranscriptMessage",
+        "type": "object"
+      },
+      "TurnAccepted": {
+        "additionalProperties": false,
+        "description": "Answer to an admitted message or retry (202).",
+        "properties": {
+          "message_id": {
+            "title": "Message Id",
+            "type": "string"
+          },
+          "replayed": {
+            "default": false,
+            "title": "Replayed",
+            "type": "boolean"
+          },
+          "turn_id": {
+            "title": "Turn Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "turn_id",
+          "message_id"
+        ],
+        "title": "TurnAccepted",
+        "type": "object"
+      },
+      "UndoRequest": {
+        "additionalProperties": false,
+        "description": "Body of ``POST /sessions/{id}/undo``.",
+        "properties": {
+          "expected_revision": {
+            "minimum": 0.0,
+            "title": "Expected Revision",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "expected_revision"
+        ],
+        "title": "UndoRequest",
+        "type": "object"
+      },
+      "ValidationError": {
+        "properties": {
+          "ctx": {
+            "title": "Context",
+            "type": "object"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError",
+        "type": "object"
+      }
+    }
+  },
+  "paths": {
+    "/api/workflow-builder/models": {
+      "get": {
+        "description": "The Chat_List for this user, the default model and each default effort.",
+        "operationId": "list_models_api_workflow_builder_models_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BuilderModelsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "_BearerScheme": []
+          }
+        ],
+        "summary": "List Models",
+        "tags": [
+          "workflow-builder"
+        ]
+      }
+    },
+    "/api/workflow-builder/sessions": {
+      "get": {
+        "description": "The caller's sessions, newest activity first (keyset pagination).",
+        "operationId": "list_sessions_api_workflow_builder_sessions_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 512,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionPage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "_BearerScheme": []
+          }
+        ],
+        "summary": "List Sessions",
+        "tags": [
+          "workflow-builder"
+        ]
+      },
+      "post": {
+        "description": "Create a session. Edit mode checks ownership and stores revision 0.",
+        "operationId": "create_session_api_workflow_builder_sessions_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateSessionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "_BearerScheme": []
+          }
+        ],
+        "summary": "Create Session",
+        "tags": [
+          "workflow-builder"
+        ]
+      }
+    },
+    "/api/workflow-builder/sessions/{session_id}": {
+      "delete": {
+        "description": "Stop any running turn, delete the rows and the sandbox, close the streams.",
+        "operationId": "delete_session_api_workflow_builder_sessions__session_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "_BearerScheme": []
+          }
+        ],
+        "summary": "Delete Session",
+        "tags": [
+          "workflow-builder"
+        ]
+      },
+      "get": {
+        "description": "Metadata, transcript, drafts, the running-turn snapshot and the link note.",
+        "operationId": "get_session_api_workflow_builder_sessions__session_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "_BearerScheme": []
+          }
+        ],
+        "summary": "Get Session",
+        "tags": [
+          "workflow-builder"
+        ]
+      }
+    },
+    "/api/workflow-builder/sessions/{session_id}/events": {
+      "get": {
+        "description": "Stream a Session's events as SSE (Req 2.7, 21.4, 38, 40).\n\n``require_builder_access`` authenticates the caller and runs the\nentitlement and readiness checks. The raw credential is captured here so the\nperiodic re-check can run the full verifier. A missing or foreign Session is\n404, never 403.",
+        "operationId": "stream_session_events_api_workflow_builder_sessions__session_id__events_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "_BearerScheme": []
+          }
+        ],
+        "summary": "Stream Session Events",
+        "tags": [
+          "workflow-builder-stream"
+        ]
+      }
+    },
+    "/api/workflow-builder/sessions/{session_id}/link": {
+      "post": {
+        "description": "Link the session to a saved workflow the caller owns (Req 2.9, 2.10).",
+        "operationId": "link_session_api_workflow_builder_sessions__session_id__link_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LinkRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionSummary"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "_BearerScheme": []
+          }
+        ],
+        "summary": "Link Session",
+        "tags": [
+          "workflow-builder"
+        ]
+      }
+    },
+    "/api/workflow-builder/sessions/{session_id}/messages": {
+      "post": {
+        "description": "Send a message: checks 6 to 16 of design 3.1.2, then start the turn.",
+        "operationId": "send_message_api_workflow_builder_sessions__session_id__messages_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SendMessageRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TurnAccepted"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "_BearerScheme": []
+          }
+        ],
+        "summary": "Send Message",
+        "tags": [
+          "workflow-builder"
+        ]
+      }
+    },
+    "/api/workflow-builder/sessions/{session_id}/turns/{turn_id}/cancel": {
+      "post": {
+        "description": "Cancel the running turn: 202 ``cancelling``, or 200 ``not_running`` [G-35].",
+        "operationId": "cancel_turn_route_api_workflow_builder_sessions__session_id__turns__turn_id__cancel_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "turn_id",
+            "required": true,
+            "schema": {
+              "title": "Turn Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "_BearerScheme": []
+          }
+        ],
+        "summary": "Cancel Turn Route",
+        "tags": [
+          "workflow-builder"
+        ]
+      }
+    },
+    "/api/workflow-builder/sessions/{session_id}/turns/{turn_id}/retry": {
+      "post": {
+        "description": "Retry the latest failed turn on its stored user message [pending G-01].",
+        "operationId": "retry_turn_api_workflow_builder_sessions__session_id__turns__turn_id__retry_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "turn_id",
+            "required": true,
+            "schema": {
+              "title": "Turn Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TurnAccepted"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "_BearerScheme": []
+          }
+        ],
+        "summary": "Retry Turn",
+        "tags": [
+          "workflow-builder"
+        ]
+      }
+    },
+    "/api/workflow-builder/sessions/{session_id}/undo": {
+      "post": {
+        "description": "Restore the canvas state that started the latest AI change [pending G-16].",
+        "operationId": "undo_api_workflow_builder_sessions__session_id__undo_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UndoRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DraftRevisionOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "_BearerScheme": []
+          }
+        ],
+        "summary": "Undo",
+        "tags": [
+          "workflow-builder"
+        ]
+      }
+    }
+  }
+}

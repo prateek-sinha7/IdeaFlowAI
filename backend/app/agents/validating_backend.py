@@ -22,6 +22,21 @@ from deepagents.backends.protocol import EditResult, WriteResult
 
 _O_NOFOLLOW = getattr(os, "O_NOFOLLOW", 0)
 
+# Windows rejects ``:`` in a file name (it is the NTFS stream separator), so a write
+# to ``.../<run>:custom-agent:e2e-tester.md`` fails with ``[Errno 22] Invalid
+# argument``. The engine names every agent thread ``<run_id>:<agent_id>[:...]`` and
+# deepagents' summarization uses that thread id verbatim as the file name of the
+# conversation-history offload (``/conversation_history/<thread_id>.md``), so on
+# Windows every long-running step silently lost the messages it evicted. The thread id
+# itself cannot change: the checkpointer keys saved state on it.
+#
+# The escape is applied to the DISK side only, in one place (``_resolve_path``, which
+# every read, write, edit, ls, glob, grep, upload and download goes through), so the
+# virtual path the model sees and re-opens is unchanged and still resolves to the same
+# file. POSIX hosts keep their existing file names byte for byte.
+_COLON_UNSAFE_PLATFORM = os.name == "nt"
+_COLON_ESCAPE = "%3A"
+
 
 def _sanitize_path_for_os(file_path: str) -> str:
     """Replace Windows-illegal characters in sandbox-relative path components.
@@ -72,7 +87,22 @@ def _restore(path: Path, content: str) -> bool:
 
 
 class ValidatingFilesystemBackend(FilesystemBackend):
-    """FilesystemBackend that validates JSON files on write and edit."""
+    """FilesystemBackend that validates JSON files on write and edit.
+
+    On Windows it also escapes ``:`` in virtual paths (see ``_COLON_UNSAFE_PLATFORM``)
+    so thread-id-named files, such as the conversation-history offload, can be written.
+    """
+
+    def _resolve_path(self, key: str) -> Path:
+        """Resolve ``key`` to a disk path, escaping ``:`` where the OS forbids it.
+
+        Only virtual mode is rewritten: every sandbox backend in this app is
+        virtual, and in non-virtual mode ``key`` may legitimately be a host path
+        such as ``C:\\...``.
+        """
+        if self.virtual_mode and _COLON_UNSAFE_PLATFORM:
+            key = key.replace(":", _COLON_ESCAPE)
+        return super()._resolve_path(key)
 
     def write(
         self,

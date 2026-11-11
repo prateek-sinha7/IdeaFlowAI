@@ -200,6 +200,15 @@ class ModelEntry:
     # No default: a new entry must state it, or it silently inherits a wire shape
     # its provider may not accept.
     reasoning: Reasoning
+    # AI Workflow Builder flags (design §3.9, D-14). Keyword fields with defaults,
+    # last, so no existing constructor changes. They are NOT projected into
+    # /api/settings or /api/capabilities model rows (those project field by field).
+    # `builder_chat`: on the builder's Chat_List. `builder_step`: on its Step_List.
+    # `builder_default_chat`: the ONE default chat model (must also be builder_chat).
+    # No `global.openai.*` entry may carry any of them (Req 45.1).
+    builder_chat: bool = False
+    builder_step: bool = False
+    builder_default_chat: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -253,6 +262,8 @@ _ENTRIES: tuple[ModelEntry, ...] = (
             default_effort="xhigh",
             display="summarized",
         ),
+        builder_chat=True,
+        builder_step=True,
     ),
     ModelEntry(
         id="eu.anthropic.claude-haiku-4-5-20251001-v1:0",
@@ -451,6 +462,9 @@ _ENTRIES: tuple[ModelEntry, ...] = (
             default_effort="high",
             display="summarized",
         ),
+        builder_chat=True,
+        builder_step=True,
+        builder_default_chat=True,
     ),
     ModelEntry(
         # Deprecated (not retired) per AWS's Bedrock lifecycle table — prefer

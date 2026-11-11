@@ -36,7 +36,9 @@ def test_no_line_number_cites_in_shutdown_path_files():
     hits = []
     for path in _SCANNED:
         assert path.exists(), f"scanned file moved or deleted: {path}"
-        text = path.read_text()  # whole text, so a cite wrapped across lines is seen
+        text = path.read_text(
+            encoding="utf-8"
+        )  # whole text, so a cite wrapped across lines is seen
         for m in _LINE_CITE.finditer(text):
             n = text.count("\n", 0, m.start()) + 1
             hits.append(f"{path.name}:{n}: {m.group(0)}")
@@ -48,11 +50,16 @@ def test_shutdown_comment_read_timeout_matches_model_factory():
     """ISS-888 — comments restating ``read_timeout=N`` must match model_factory."""
     real = re.search(
         r"read_timeout=(\d+)",
-        (_ROOT / "backend" / "app" / "agents" / "model_factory.py").read_text(),
+        (_ROOT / "backend" / "app" / "agents" / "model_factory.py").read_text(
+            encoding="utf-8"
+        ),
     )
     assert real, "model_factory sets no read_timeout literal"
     stated = set(
-        re.findall(r"read_timeout=(\d+)", (_API / "run_shutdown.py").read_text())
+        re.findall(
+            r"read_timeout=(\d+)",
+            (_API / "run_shutdown.py").read_text(encoding="utf-8"),
+        )
     )
     assert stated <= {
         real.group(1)
@@ -92,7 +99,7 @@ def test_shutdown_reachability_has_no_line_cites():
     path = _ROOT / "backend/tests/unit/services/test_shutdown_reachability.py"
     hits = [
         f"{n}: {m.group(0)}"
-        for n, line in enumerate(path.read_text().splitlines(), 1)
+        for n, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1)
         for m in wide.finditer(line)
     ]
     assert not hits, "line cites remain:\n" + "\n".join(hits)
@@ -141,7 +148,7 @@ def test_symbols_named_by_shutdown_path_comments_still_exist():
         f"{rel}: {anchor!r}"
         for rel, anchors in _ANCHORS.items()
         for anchor in anchors
-        if anchor not in (_ROOT / rel).read_text()
+        if anchor not in (_ROOT / rel).read_text(encoding="utf-8")
     ]
     assert not missing, "anchors the comments name are gone:\n" + "\n".join(missing)
 
@@ -170,7 +177,7 @@ def test_no_line_number_cites_into_shutdown_path_files_from_elsewhere():
             continue
         if not path.is_file():
             continue
-        text = path.read_text(errors="ignore")
+        text = path.read_text(encoding="utf-8", errors="ignore")
         for m in _INBOUND_CITE.finditer(text):
             n = text.count("\n", 0, m.start()) + 1
             hits.append(f"{path.relative_to(backend)}:{n}: {m.group(0)}")

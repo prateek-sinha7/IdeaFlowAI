@@ -9,6 +9,8 @@ audit event can report what was actually removed.
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -16,6 +18,7 @@ from sqlalchemy.orm import sessionmaker
 from app.core.user_deletion import delete_user_dependents
 from app.models.artifact_ref import ArtifactRef
 from app.models.chat import ChatSession, Message
+from app.models.connector import ConnectorAuditLog, ConnectorConnection, OAuthState
 from app.models.database import Base
 from app.models.exec_runs import ExecRun
 from app.models.gate_events import GateEvent
@@ -25,6 +28,10 @@ from app.models.user_agent import UserAgent
 from app.models.workflow import WorkflowRun
 from app.models.workflow_definition import WorkflowDefinition
 from app.models.workflow_memory import WorkflowMemory
+from tests.factories.connector_factory import (
+    ConnectorConnectionFactory,
+    OAuthStateFactory,
+)
 
 
 @pytest.fixture()
@@ -273,3 +280,79 @@ class TestScoping:
         counts = delete_user_dependents(session, user.id)
 
         assert counts == {"chat_sessions": 1}
+
+
+class TestConnectorRows:
+    """The connector step: three tables deleted, counted and scoped to the user."""
+
+    @staticmethod
+    def _seed(session, user_id: str) -> None:
+        session.add(
+            ConnectorConnectionFactory.build(user_id=user_id, connector_key="github")
+        )
+        session.add(
+            ConnectorConnectionFactory.build(user_id=user_id, connector_key="jira")
+        )
+        session.add(OAuthStateFactory.build(user_id=user_id))
+        session.add(
+            ConnectorAuditLog(
+                user_id=user_id,
+                connector_key="jira",
+                action="connected",
+                outcome="ok",
+                created_at=datetime.now(timezone.utc),
+            )
+        )
+        session.commit()
+
+    def test_delete_user_dependents_deletes_and_counts_connector_rows_when_user_owns_them(
+        self, session
+    ):
+        user = _user(session)
+        self._seed(session, user.id)
+
+        counts = delete_user_dependents(session, user.id)
+        session.delete(user)
+        session.commit()
+
+        assert counts == {
+            "connector_audit_log": 1,
+            "oauth_states": 1,
+            "connector_connections": 2,
+        }
+        assert session.query(ConnectorConnection).count() == 0
+        assert session.query(OAuthState).count() == 0
+        assert session.query(ConnectorAuditLog).count() == 0
+
+    def test_delete_user_dependents_keeps_bystander_connector_rows_when_deleting_user(
+        self, session
+    ):
+        user = _user(session, "u1")
+        bystander = _user(session, "bystander")
+        self._seed(session, user.id)
+        self._seed(session, bystander.id)
+
+        delete_user_dependents(session, user.id)
+        session.delete(user)
+        session.commit()
+
+        remaining = session.query(ConnectorConnection).all()
+        assert {c.user_id for c in remaining} == {bystander.id}
+        assert session.query(OAuthState).filter_by(user_id=bystander.id).count() == 1
+        assert (
+            session.query(ConnectorAuditLog).filter_by(user_id=bystander.id).count()
+            == 1
+        )
+
+    def test_delete_user_dependents_omits_connector_tables_when_user_has_no_connector_rows(
+        self, session
+    ):
+        user = _user(session)
+
+        counts = delete_user_dependents(session, user.id)
+
+        assert not {
+            "connector_audit_log",
+            "oauth_states",
+            "connector_connections",
+        } & set(counts)

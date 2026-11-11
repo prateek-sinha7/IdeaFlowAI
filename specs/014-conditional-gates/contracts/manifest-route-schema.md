@@ -63,8 +63,10 @@ target: analyse}}`:
 4. **Match found** → `GateOutcome(GATE_ROUTE, detail={"trigger": ..., "target": ...})`.
 5. **No match, `default_next` set** → engine advances to `default_next` (same as a normal
    forward step, no special routing).
-6. **No match, `default_next` unset** → the run terminates at this step (same "nowhere to go"
-   shape as R-13's stop-and-hand-off).
+6. **No match, `default_next` unset** → the run FAILS CLOSED at this step: the gate returns
+   `GATE_BLOCK` and the engine emits `pipeline_failed` (ISS-170; same "nowhere to go" shape as
+   R-13's stop-and-hand-off). It is a refusal, never a quiet success. To finish the run
+   successfully on a given decision, declare it as a `trigger: end` outcome (below).
 7. Malformed JSON, or JSON with no `"decision"` key → treated identically to "no match" (step
    5/6 above) — never a crash, never silently ignored (an observable event/log line should
    record this, exact mechanism confirmed during Phase 1 implementation).
@@ -82,5 +84,30 @@ target: analyse}}`:
     outcomes:
       english: {trigger: step, target: say_hello}
       spanish: {trigger: step, target: say_hola}
-    # no default_next — unrecognised decision terminates here
+    # no default_next — an unrecognised decision FAILS the run here (ISS-170)
 ```
+
+## `trigger: end` — the decision that finishes the run
+
+A loop-back route (`revise -> earlier step`) on the LAST step has no later step to route
+`pass` to, and "no match" fails the run, so the passing decision must be declared:
+
+```yaml
+route:
+  outcomes:
+    pass:   {trigger: end}                                  # no target, no feedback
+    revise: {trigger: step, target: draft, feedback: "..."}
+  loop_max_iterations: 2
+```
+
+- `trigger` is exactly `step`, `workflow` or `end`. `end` takes no `target` and no `feedback`
+  (the compiler rejects either; an empty `target: ""`, as the composer canvas keeps, is
+  accepted).
+- At runtime a matched `end` returns `GATE_ROUTE` with `detail.trigger == "end"`. The dispatch
+  loop reports every not-yet-run later step `agent_skipped`, ends the walk, and the run
+  completes normally (`pipeline_complete`).
+- `default_next` and `end` are different tools: `default_next` sends an UNRECOGNISED decision
+  to a step; `end` finishes the run on a NAMED decision. Typos still fail closed.
+- A route whose outcomes all loop back, with no `end`, no forward outcome, no workflow hand-off
+  and no `default_next`, can never succeed on its "done" decision. The workflow-builder
+  validator rejects that shape (`route-no-exit`).

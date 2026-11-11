@@ -27,6 +27,8 @@ import { renderToolBlock } from "./runtime/tool-renderers";
 import { ThinkingBlock } from "./blocks/ThinkingBlock";
 import { FileOpsSummary } from "./blocks/FileOpsSummary";
 import { ResultCard } from "./ResultCard";
+import { AssistantMark } from "./AssistantMark";
+import { USER_BUBBLE_CLASS, USER_BUBBLE_TEXT_CLASS } from "./chatStyles";
 
 /** Convert a raw Bedrock/Anthropic/OpenAI model ID into a short human-readable
  *  label for the concierge reply footer.
@@ -238,9 +240,7 @@ export function MessageBubble({
         className="flex w-full mb-6"
       >
         <div className="mr-[9px] flex-shrink-0 pt-px">
-          <div className="grid h-[22px] w-[22px] place-items-center rounded-[6px] bg-surface-near-black">
-            <span className="h-[7px] w-[7px] rotate-45 rounded-[1px] bg-brand" />
-          </div>
+          <AssistantMark />
         </div>
         <div className="flex-1 min-w-0">
           {/* ISS-607/ISS-612 — bind the card to the run that MINTED it. The
@@ -349,7 +349,7 @@ export function MessageBubble({
               }
 
               return (
-                <div className="rounded-[14px_14px_4px_14px] border border-brand-border bg-brand-fill px-[13px] py-[10px]">
+                <div className={USER_BUBBLE_CLASS}>
                   {isEditing ? (
                     <div className="flex flex-col gap-2">
                       <textarea
@@ -381,7 +381,7 @@ export function MessageBubble({
                       {imageChips}
                       {fileChips}
                       {displayContent && (
-                        <p className="font-serif text-[13.5px] leading-[1.5] text-ink-800 whitespace-pre-wrap">
+                        <p className={USER_BUBBLE_TEXT_CLASS}>
                           {displayContent}
                         </p>
                       )}
@@ -440,9 +440,7 @@ export function MessageBubble({
       {/* AI Avatar — the mock's 22px near-black square with a rotated brand
           diamond (Phase 39, RUNUI-06). */}
       <div className="mr-[9px] flex-shrink-0 pt-px">
-        <div className="grid h-[22px] w-[22px] place-items-center rounded-[6px] bg-surface-near-black">
-          <span className="h-[7px] w-[7px] rotate-45 rounded-[1px] bg-brand" />
-        </div>
+        <AssistantMark />
       </div>
 
       <div className="relative flex-1 min-w-0 font-serif text-[13.5px] leading-[1.55] text-ink-700">

@@ -1,0 +1,156 @@
+{
+  "fixtures": [
+    {
+      "pattern": 1,
+      "slug": "linear-chain",
+      "title": "Linear chain (roster hand-off)",
+      "trust": "user",
+      "manifest": "01-linear-chain.manifest.json",
+      "payload": "01-linear-chain.payload.json"
+    },
+    {
+      "pattern": 2,
+      "slug": "paste-chain",
+      "title": "Paste chain (zero tool calls)",
+      "trust": "user",
+      "manifest": "02-paste-chain.manifest.json",
+      "payload": "02-paste-chain.payload.json"
+    },
+    {
+      "pattern": 3,
+      "slug": "parallel-specialists",
+      "title": "Parallel specialists -> aggregator",
+      "trust": "user",
+      "manifest": "03-parallel-specialists.manifest.json",
+      "payload": "03-parallel-specialists.payload.json"
+    },
+    {
+      "pattern": 4,
+      "slug": "sequential-substeps",
+      "title": "Sequential sub-steps (grouped chain)",
+      "trust": "user",
+      "manifest": "04-sequential-substeps.manifest.json",
+      "payload": "04-sequential-substeps.payload.json"
+    },
+    {
+      "pattern": 5,
+      "slug": "fanout-per-item",
+      "title": "Plan -> fan-out per item -> aggregate",
+      "trust": "user",
+      "manifest": "05-fanout-per-item.manifest.json",
+      "payload": "05-fanout-per-item.payload.json"
+    },
+    {
+      "pattern": 6,
+      "slug": "dependency-waves",
+      "title": "Dependency waves",
+      "trust": "user",
+      "manifest": "06-dependency-waves.manifest.json",
+      "payload": "06-dependency-waves.payload.json"
+    },
+    {
+      "pattern": 7,
+      "slug": "task-loop",
+      "title": "Sequential task loop",
+      "trust": "user",
+      "manifest": "07-task-loop.manifest.json",
+      "payload": "07-task-loop.payload.json"
+    },
+    {
+      "pattern": 8,
+      "slug": "quality-loop",
+      "title": "Quality loop (critic routes back)",
+      "trust": "user",
+      "manifest": "08-quality-loop.manifest.json",
+      "payload": "08-quality-loop.payload.json"
+    },
+    {
+      "pattern": 9,
+      "slug": "forward-branch",
+      "title": "Forward branch (classifier)",
+      "trust": "user",
+      "manifest": "09-forward-branch.manifest.json",
+      "payload": "09-forward-branch.payload.json"
+    },
+    {
+      "pattern": 10,
+      "slug": "human-review",
+      "title": "Human review checkpoint",
+      "trust": "user",
+      "manifest": "10-human-review.manifest.json",
+      "payload": "10-human-review.payload.json"
+    },
+    {
+      "pattern": 11,
+      "slug": "person-chooses",
+      "title": "Person chooses the path",
+      "trust": "user",
+      "manifest": "11-person-chooses.manifest.json",
+      "payload": "11-person-chooses.payload.json"
+    },
+    {
+      "pattern": 12,
+      "slug": "workflow-handoff",
+      "title": "Hand-off to another workflow",
+      "trust": "user",
+      "manifest": "12-workflow-handoff.manifest.json",
+      "payload": "12-workflow-handoff.payload.json"
+    },
+    {
+      "pattern": 13,
+      "slug": "html-deliverable",
+      "title": "Validated HTML deliverable",
+      "trust": "user",
+      "manifest": "13-html-deliverable.manifest.json",
+      "payload": "13-html-deliverable.payload.json"
+    },
+    {
+      "pattern": 14,
+      "slug": "uploaded-documents",
+      "title": "Uploaded documents",
+      "trust": "user",
+      "manifest": "14-uploaded-documents.manifest.json",
+      "payload": "14-uploaded-documents.payload.json"
+    },
+    {
+      "pattern": 15,
+      "slug": "design-driven",
+      "title": "Design-driven output (OpenDesign)",
+      "trust": "user",
+      "manifest": "15-design-driven.manifest.json",
+      "payload": "15-design-driven.payload.json"
+    },
+    {
+      "pattern": 16,
+      "slug": "chainable",
+      "title": "Chainable workflow",
+      "trust": "user",
+      "manifest": "16-chainable.manifest.json",
+      "payload": "16-chainable.payload.json"
+    },
+    {
+      "pattern": 17,
+      "slug": "draft-publish",
+      "title": "Draft + mechanical publish",
+      "trust": "user",
+      "manifest": "17-draft-publish.manifest.json",
+      "payload": "17-draft-publish.payload.json"
+    },
+    {
+      "pattern": 18,
+      "slug": "integrations",
+      "title": "Integrations (read, then post after approval)",
+      "trust": "user",
+      "manifest": "18-integrations.manifest.json",
+      "payload": "18-integrations.payload.json"
+    },
+    {
+      "pattern": 21,
+      "slug": "intake-before-work",
+      "title": "Ask the user before the work (user and db trust)",
+      "trust": "user",
+      "manifest": "21-intake-before-work.manifest.json",
+      "payload": "21-intake-before-work.payload.json"
+    }
+  ]
+}

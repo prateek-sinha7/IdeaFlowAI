@@ -26,7 +26,7 @@ import { renderWithProviders, screen, waitFor } from "@/test/renderWithProviders
 import userEvent from "@testing-library/user-event";
 import type { CapabilitiesPalette } from "@/lib/api";
 import type { WorkflowType } from "@/types/index";
-import type { ManifestStep } from "@/store/api/userWorkflows";
+import { builtinAuthoringSeed, type ManifestStep } from "@/store/api/userWorkflows";
 
 const mockGetCapabilities = vi.fn();
 const mockSaveUserWorkflow = vi.fn();
@@ -154,6 +154,54 @@ describe("ComposerPage — manifest/deliverable persistence (BUG-20260828-005700
       { manifest?: { deliverable?: { strategy: string; name: string } } },
     ];
     expect(payload.manifest?.deliverable?.strategy).toBe("ppt");
+  });
+
+  // ISS-876 — the built-in's top-level manifest arrives after mount (a built-in has
+  // no row id, so there is no remount). Save as copy must still carry limits,
+  // input_providers, seed_files, allowed_workers and capabilities, and must create a
+  // NEW workflow (no id), never edit the file manifest.
+  it("ISS-876: Save as copy on a built-in carries its top-level manifest keys into the new workflow", async () => {
+    const authoring = builtinAuthoringSeed({
+      limits: { max_subagents: 200, max_depth: 2, wall_clock_seconds: 10800 },
+      input_providers: ["run_images"],
+      seed_files: { "README.md": "seed" },
+      allowed_workers: ["prototype-build"],
+      capabilities: { internet: true },
+    });
+    const { rerender } = renderComposer({
+      builtinCanvasType: "prototype_v2",
+      initialManifestSteps: PPT_STEPS,
+      initialName: "Prototype copy",
+    });
+    rerender(
+      <SkillsHooksProvider>
+        <ComposerPage
+          workflowType={"custom" as WorkflowType}
+          onBack={() => {}}
+          builtinCanvasType="prototype_v2"
+          initialManifestSteps={PPT_STEPS}
+          initialManifest={authoring.manifest}
+          initialName="Prototype copy"
+        />
+      </SkillsHooksProvider>,
+    );
+
+    mockSaveUserWorkflow.mockResolvedValue({ id: "wf-copy" });
+    await userEvent.click(screen.getByRole("button", { name: /Save as copy/i }));
+    await waitFor(() => expect(mockSaveUserWorkflow).toHaveBeenCalled());
+
+    const [, userWorkflowId, payload] = mockSaveUserWorkflow.mock.calls[0] as [
+      string,
+      string | undefined,
+      { manifest?: Record<string, unknown> },
+    ];
+    expect(userWorkflowId).toBeUndefined();
+    expect(payload.manifest?.limits).toEqual({ max_subagents: 200, max_depth: 2, wall_clock_seconds: 10800 });
+    expect(payload.manifest?.input_providers).toEqual(["run_images"]);
+    expect(payload.manifest?.seed_files).toEqual({ "README.md": "seed" });
+    expect(payload.manifest?.allowed_workers).toEqual(["prototype-build"]);
+    expect(payload.manifest?.capabilities).toEqual({ internet: true });
+    expect(payload.manifest).not.toHaveProperty("id");
   });
 
   // ISS-203 — same loss, a different built-in with a non-default deliverable

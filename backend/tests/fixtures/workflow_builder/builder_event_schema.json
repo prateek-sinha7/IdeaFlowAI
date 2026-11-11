@@ -1,0 +1,1305 @@
+{
+  "$defs": {
+    "ChangeSummary": {
+      "additionalProperties": false,
+      "description": "What a Draft changed compared with the Canvas state it was based on.",
+      "properties": {
+        "added": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Added",
+          "type": "array"
+        },
+        "gates_changed": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Gates Changed",
+          "type": "array"
+        },
+        "models_changed": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Models Changed",
+          "type": "array"
+        },
+        "prompts_changed": {
+          "title": "Prompts Changed",
+          "type": "integer"
+        },
+        "removed": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Removed",
+          "type": "array"
+        },
+        "reordered": {
+          "title": "Reordered",
+          "type": "boolean"
+        },
+        "validators_changed": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Validators Changed",
+          "type": "array"
+        }
+      },
+      "required": [
+        "added",
+        "removed",
+        "reordered",
+        "gates_changed",
+        "validators_changed",
+        "models_changed",
+        "prompts_changed"
+      ],
+      "title": "ChangeSummary",
+      "type": "object"
+    },
+    "CheckResult": {
+      "additionalProperties": false,
+      "description": "The verdict of one validator run, dry run or Server_Gate check.",
+      "properties": {
+        "attempt": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Attempt"
+        },
+        "attempts_left": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Attempts Left"
+        },
+        "errors": {
+          "title": "Errors",
+          "type": "integer"
+        },
+        "source": {
+          "enum": [
+            "skill_validator",
+            "platform_dry_run",
+            "server_gate"
+          ],
+          "title": "Source",
+          "type": "string"
+        },
+        "verdict": {
+          "enum": [
+            "valid",
+            "invalid",
+            "unknown"
+          ],
+          "title": "Verdict",
+          "type": "string"
+        },
+        "warnings": {
+          "title": "Warnings",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "source",
+        "verdict",
+        "errors",
+        "warnings"
+      ],
+      "title": "CheckResult",
+      "type": "object"
+    },
+    "CheckResultEvent": {
+      "additionalProperties": false,
+      "description": "One validator, dry-run or gate check returned (Req 38.10).",
+      "properties": {
+        "attempt": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Attempt"
+        },
+        "attempts_left": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Attempts Left"
+        },
+        "errors": {
+          "title": "Errors",
+          "type": "integer"
+        },
+        "seq": {
+          "minimum": 1,
+          "title": "Seq",
+          "type": "integer"
+        },
+        "source": {
+          "enum": [
+            "skill_validator",
+            "platform_dry_run",
+            "server_gate"
+          ],
+          "title": "Source",
+          "type": "string"
+        },
+        "ts": {
+          "format": "date-time",
+          "title": "Ts",
+          "type": "string"
+        },
+        "turn_id": {
+          "title": "Turn Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "check_result",
+          "default": "check_result",
+          "title": "Type",
+          "type": "string"
+        },
+        "verdict": {
+          "enum": [
+            "valid",
+            "invalid",
+            "unknown"
+          ],
+          "title": "Verdict",
+          "type": "string"
+        },
+        "warnings": {
+          "title": "Warnings",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "ts",
+        "turn_id",
+        "seq",
+        "source",
+        "verdict",
+        "errors",
+        "warnings",
+        "attempt",
+        "attempts_left"
+      ],
+      "title": "CheckResultEvent",
+      "type": "object"
+    },
+    "DraftApplied": {
+      "additionalProperties": false,
+      "description": "The Server_Gate accepted a Draft (Req 38.11).",
+      "properties": {
+        "change_summary": {
+          "$ref": "#/$defs/ChangeSummary"
+        },
+        "launch_needs": {
+          "items": {
+            "$ref": "#/$defs/LaunchNeed"
+          },
+          "title": "Launch Needs",
+          "type": "array"
+        },
+        "manifest": {
+          "additionalProperties": true,
+          "title": "Manifest",
+          "type": "object"
+        },
+        "revision": {
+          "title": "Revision",
+          "type": "integer"
+        },
+        "seq": {
+          "minimum": 1,
+          "title": "Seq",
+          "type": "integer"
+        },
+        "target_trust": {
+          "enum": [
+            "user",
+            "db"
+          ],
+          "title": "Target Trust",
+          "type": "string"
+        },
+        "ts": {
+          "format": "date-time",
+          "title": "Ts",
+          "type": "string"
+        },
+        "turn_id": {
+          "title": "Turn Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "draft_applied",
+          "default": "draft_applied",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "ts",
+        "turn_id",
+        "seq",
+        "revision",
+        "target_trust",
+        "change_summary",
+        "launch_needs",
+        "manifest"
+      ],
+      "title": "DraftApplied",
+      "type": "object"
+    },
+    "DraftRestored": {
+      "additionalProperties": false,
+      "description": "An Undo stored a restored Canvas state as a new revision [pending G-16].",
+      "properties": {
+        "manifest": {
+          "additionalProperties": true,
+          "title": "Manifest",
+          "type": "object"
+        },
+        "revision": {
+          "title": "Revision",
+          "type": "integer"
+        },
+        "ts": {
+          "format": "date-time",
+          "title": "Ts",
+          "type": "string"
+        },
+        "type": {
+          "const": "draft_restored",
+          "default": "draft_restored",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "ts",
+        "revision",
+        "manifest"
+      ],
+      "title": "DraftRestored",
+      "type": "object"
+    },
+    "ErrorEvent": {
+      "additionalProperties": false,
+      "description": "A failure the user should see (Req 38.15).\n\n``turn_id`` and ``seq`` are set when the error belongs to a Turn.\n``message`` is generic: never a stack trace, SQL text or path.",
+      "properties": {
+        "code": {
+          "title": "Code",
+          "type": "string"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        },
+        "retryable": {
+          "title": "Retryable",
+          "type": "boolean"
+        },
+        "seq": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Seq"
+        },
+        "ts": {
+          "format": "date-time",
+          "title": "Ts",
+          "type": "string"
+        },
+        "turn_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Turn Id"
+        },
+        "type": {
+          "const": "error",
+          "default": "error",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "ts",
+        "turn_id",
+        "seq",
+        "code",
+        "message",
+        "retryable"
+      ],
+      "title": "ErrorEvent",
+      "type": "object"
+    },
+    "LaunchNeed": {
+      "additionalProperties": false,
+      "description": "Something the user must provide before the workflow can launch.",
+      "properties": {
+        "detail": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Detail"
+        },
+        "kind": {
+          "enum": [
+            "uploads",
+            "design",
+            "connector",
+            "source_run"
+          ],
+          "title": "Kind",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "title": "LaunchNeed",
+      "type": "object"
+    },
+    "LimitWarning": {
+      "additionalProperties": false,
+      "description": "A Turn reached 80 % of a limit (Req 38.13).",
+      "properties": {
+        "kind": {
+          "enum": [
+            "time",
+            "tool_calls",
+            "tokens"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "limit": {
+          "title": "Limit",
+          "type": "integer"
+        },
+        "seq": {
+          "minimum": 1,
+          "title": "Seq",
+          "type": "integer"
+        },
+        "ts": {
+          "format": "date-time",
+          "title": "Ts",
+          "type": "string"
+        },
+        "turn_id": {
+          "title": "Turn Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "limit_warning",
+          "default": "limit_warning",
+          "title": "Type",
+          "type": "string"
+        },
+        "used": {
+          "title": "Used",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "ts",
+        "turn_id",
+        "seq",
+        "kind",
+        "used",
+        "limit"
+      ],
+      "title": "LimitWarning",
+      "type": "object"
+    },
+    "RunningTurnSnapshot": {
+      "additionalProperties": false,
+      "description": "The running Turn as a connecting client needs to see it (Req 38.3).\n\n``through_seq`` is the ``seq`` of the last event this snapshot already\nreflects, so a client drops turn events with ``seq <= through_seq``\n[pending G-14].",
+      "properties": {
+        "activity": {
+          "items": {
+            "$ref": "#/$defs/ToolActivity"
+          },
+          "title": "Activity",
+          "type": "array"
+        },
+        "checks": {
+          "items": {
+            "$ref": "#/$defs/CheckResult"
+          },
+          "title": "Checks",
+          "type": "array"
+        },
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "message_id": {
+          "title": "Message Id",
+          "type": "string"
+        },
+        "stage": {
+          "$ref": "#/$defs/Stage"
+        },
+        "started_at": {
+          "format": "date-time",
+          "title": "Started At",
+          "type": "string"
+        },
+        "through_seq": {
+          "minimum": 0,
+          "title": "Through Seq",
+          "type": "integer"
+        },
+        "turn_id": {
+          "title": "Turn Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "turn_id",
+        "message_id",
+        "stage",
+        "label",
+        "started_at",
+        "through_seq",
+        "activity",
+        "checks"
+      ],
+      "title": "RunningTurnSnapshot",
+      "type": "object"
+    },
+    "SessionDeleted": {
+      "additionalProperties": false,
+      "description": "The Session was deleted; the stream closes after this event.",
+      "properties": {
+        "ts": {
+          "format": "date-time",
+          "title": "Ts",
+          "type": "string"
+        },
+        "type": {
+          "const": "session_deleted",
+          "default": "session_deleted",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "ts"
+      ],
+      "title": "SessionDeleted",
+      "type": "object"
+    },
+    "SessionRevoked": {
+      "additionalProperties": false,
+      "description": "The caller's token was revoked (existing run-stream name and shape).",
+      "properties": {
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        },
+        "session_id": {
+          "title": "Session Id",
+          "type": "string"
+        },
+        "ts": {
+          "format": "date-time",
+          "title": "Ts",
+          "type": "string"
+        },
+        "type": {
+          "const": "session_revoked",
+          "default": "session_revoked",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "ts",
+        "session_id",
+        "reason"
+      ],
+      "title": "SessionRevoked",
+      "type": "object"
+    },
+    "Snapshot": {
+      "additionalProperties": false,
+      "description": "Sent first on every connection (Req 38.3, pending G-14).",
+      "properties": {
+        "latest_message_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Latest Message Id"
+        },
+        "latest_revision": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Latest Revision"
+        },
+        "latest_unproposed_revision": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Latest Unproposed Revision"
+        },
+        "running_turn": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RunningTurnSnapshot"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "state": {
+          "enum": [
+            "idle",
+            "running"
+          ],
+          "title": "State",
+          "type": "string"
+        },
+        "ts": {
+          "format": "date-time",
+          "title": "Ts",
+          "type": "string"
+        },
+        "type": {
+          "const": "snapshot",
+          "default": "snapshot",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "ts",
+        "state",
+        "running_turn",
+        "latest_message_id",
+        "latest_revision",
+        "latest_unproposed_revision"
+      ],
+      "title": "Snapshot",
+      "type": "object"
+    },
+    "Stage": {
+      "description": "What the Builder_Agent is doing, as shown to the user.",
+      "enum": [
+        "starting",
+        "thinking",
+        "reading",
+        "looking_up",
+        "writing",
+        "checking",
+        "platform_check",
+        "applying",
+        "responding"
+      ],
+      "title": "Stage",
+      "type": "string"
+    },
+    "StageChanged": {
+      "additionalProperties": false,
+      "description": "The Turn moved to another stage (Req 38.5).",
+      "properties": {
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "seq": {
+          "minimum": 1,
+          "title": "Seq",
+          "type": "integer"
+        },
+        "stage": {
+          "$ref": "#/$defs/Stage"
+        },
+        "ts": {
+          "format": "date-time",
+          "title": "Ts",
+          "type": "string"
+        },
+        "turn_id": {
+          "title": "Turn Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "stage",
+          "default": "stage",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "ts",
+        "turn_id",
+        "seq",
+        "stage",
+        "label"
+      ],
+      "title": "StageChanged",
+      "type": "object"
+    },
+    "Text": {
+      "additionalProperties": false,
+      "description": "Assistant text (Req 38.12).",
+      "properties": {
+        "seq": {
+          "minimum": 1,
+          "title": "Seq",
+          "type": "integer"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        },
+        "ts": {
+          "format": "date-time",
+          "title": "Ts",
+          "type": "string"
+        },
+        "turn_id": {
+          "title": "Turn Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "text",
+          "default": "text",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "ts",
+        "turn_id",
+        "seq",
+        "text"
+      ],
+      "title": "Text",
+      "type": "object"
+    },
+    "Thinking": {
+      "additionalProperties": false,
+      "description": "Reasoning text (Req 38.6).",
+      "properties": {
+        "seq": {
+          "minimum": 1,
+          "title": "Seq",
+          "type": "integer"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        },
+        "ts": {
+          "format": "date-time",
+          "title": "Ts",
+          "type": "string"
+        },
+        "turn_id": {
+          "title": "Turn Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "thinking",
+          "default": "thinking",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "ts",
+        "turn_id",
+        "seq",
+        "text"
+      ],
+      "title": "Thinking",
+      "type": "object"
+    },
+    "TokenUsage": {
+      "additionalProperties": false,
+      "description": "Token usage of a Turn, with the transcript-summary call counted apart.",
+      "properties": {
+        "cache_read": {
+          "default": 0,
+          "title": "Cache Read",
+          "type": "integer"
+        },
+        "cache_write": {
+          "default": 0,
+          "title": "Cache Write",
+          "type": "integer"
+        },
+        "input": {
+          "default": 0,
+          "title": "Input",
+          "type": "integer"
+        },
+        "output": {
+          "default": 0,
+          "title": "Output",
+          "type": "integer"
+        },
+        "summary": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/UsageCounts"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "title": "TokenUsage",
+      "type": "object"
+    },
+    "ToolActivity": {
+      "additionalProperties": false,
+      "description": "One tool call as the transcript and the live panel show it.",
+      "properties": {
+        "call_id": {
+          "title": "Call Id",
+          "type": "string"
+        },
+        "command": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Command"
+        },
+        "duration_ms": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Duration Ms"
+        },
+        "exit_code": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Exit Code"
+        },
+        "kind": {
+          "enum": [
+            "read",
+            "write",
+            "script",
+            "lookup",
+            "propose"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "running",
+            "ok",
+            "error",
+            "refused",
+            "timed_out"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "summary": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Summary"
+        },
+        "tool": {
+          "title": "Tool",
+          "type": "string"
+        }
+      },
+      "required": [
+        "call_id",
+        "tool",
+        "kind",
+        "label",
+        "status"
+      ],
+      "title": "ToolActivity",
+      "type": "object"
+    },
+    "ToolFinished": {
+      "additionalProperties": false,
+      "description": "A tool call ended; exactly one per ``tool_started`` (Req 38.8, 38.9).",
+      "properties": {
+        "call_id": {
+          "title": "Call Id",
+          "type": "string"
+        },
+        "duration_ms": {
+          "title": "Duration Ms",
+          "type": "integer"
+        },
+        "seq": {
+          "minimum": 1,
+          "title": "Seq",
+          "type": "integer"
+        },
+        "status": {
+          "enum": [
+            "ok",
+            "error",
+            "refused",
+            "timed_out"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "summary": {
+          "title": "Summary",
+          "type": "string"
+        },
+        "ts": {
+          "format": "date-time",
+          "title": "Ts",
+          "type": "string"
+        },
+        "turn_id": {
+          "title": "Turn Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "tool_finished",
+          "default": "tool_finished",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "ts",
+        "turn_id",
+        "seq",
+        "call_id",
+        "status",
+        "duration_ms",
+        "summary"
+      ],
+      "title": "ToolFinished",
+      "type": "object"
+    },
+    "ToolStarted": {
+      "additionalProperties": false,
+      "description": "A tool call started (Req 38.7).",
+      "properties": {
+        "call_id": {
+          "title": "Call Id",
+          "type": "string"
+        },
+        "command": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Command"
+        },
+        "kind": {
+          "enum": [
+            "read",
+            "write",
+            "script",
+            "lookup",
+            "propose"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "seq": {
+          "minimum": 1,
+          "title": "Seq",
+          "type": "integer"
+        },
+        "tool": {
+          "title": "Tool",
+          "type": "string"
+        },
+        "ts": {
+          "format": "date-time",
+          "title": "Ts",
+          "type": "string"
+        },
+        "turn_id": {
+          "title": "Turn Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "tool_started",
+          "default": "tool_started",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "ts",
+        "turn_id",
+        "seq",
+        "call_id",
+        "tool",
+        "kind",
+        "label",
+        "command"
+      ],
+      "title": "ToolStarted",
+      "type": "object"
+    },
+    "TurnCompleted": {
+      "additionalProperties": false,
+      "description": "A Turn ended with any status (Req 38.14).",
+      "properties": {
+        "message_id": {
+          "title": "Message Id",
+          "type": "string"
+        },
+        "outcome": {
+          "enum": [
+            "draft",
+            "reply",
+            "unfinished"
+          ],
+          "title": "Outcome",
+          "type": "string"
+        },
+        "revision": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Revision"
+        },
+        "seq": {
+          "minimum": 1,
+          "title": "Seq",
+          "type": "integer"
+        },
+        "status": {
+          "enum": [
+            "completed",
+            "failed",
+            "cancelled",
+            "timed_out",
+            "interrupted"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "stop_reason": {
+          "anyOf": [
+            {
+              "enum": [
+                "time",
+                "tool_calls",
+                "tokens",
+                "recursion",
+                "gate_rejections",
+                "cancelled",
+                "deleted",
+                "shutdown",
+                "restart",
+                "error"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Stop Reason"
+        },
+        "ts": {
+          "format": "date-time",
+          "title": "Ts",
+          "type": "string"
+        },
+        "turn_id": {
+          "title": "Turn Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "turn_completed",
+          "default": "turn_completed",
+          "title": "Type",
+          "type": "string"
+        },
+        "usage": {
+          "$ref": "#/$defs/TokenUsage"
+        }
+      },
+      "required": [
+        "ts",
+        "turn_id",
+        "seq",
+        "status",
+        "outcome",
+        "stop_reason",
+        "message_id",
+        "revision",
+        "usage"
+      ],
+      "title": "TurnCompleted",
+      "type": "object"
+    },
+    "TurnStarted": {
+      "additionalProperties": false,
+      "description": "A Turn was admitted (Req 38.4).",
+      "properties": {
+        "effort": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Effort"
+        },
+        "message_id": {
+          "title": "Message Id",
+          "type": "string"
+        },
+        "model_id": {
+          "title": "Model Id",
+          "type": "string"
+        },
+        "seq": {
+          "minimum": 1,
+          "title": "Seq",
+          "type": "integer"
+        },
+        "skill_hash": {
+          "title": "Skill Hash",
+          "type": "string"
+        },
+        "ts": {
+          "format": "date-time",
+          "title": "Ts",
+          "type": "string"
+        },
+        "turn_id": {
+          "title": "Turn Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "turn_started",
+          "default": "turn_started",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "ts",
+        "turn_id",
+        "seq",
+        "message_id",
+        "model_id",
+        "effort",
+        "skill_hash"
+      ],
+      "title": "TurnStarted",
+      "type": "object"
+    },
+    "UsageCounts": {
+      "additionalProperties": false,
+      "description": "Token counts for one group of model calls.",
+      "properties": {
+        "cache_read": {
+          "default": 0,
+          "title": "Cache Read",
+          "type": "integer"
+        },
+        "cache_write": {
+          "default": 0,
+          "title": "Cache Write",
+          "type": "integer"
+        },
+        "input": {
+          "default": 0,
+          "title": "Input",
+          "type": "integer"
+        },
+        "output": {
+          "default": 0,
+          "title": "Output",
+          "type": "integer"
+        }
+      },
+      "title": "UsageCounts",
+      "type": "object"
+    }
+  },
+  "discriminator": {
+    "mapping": {
+      "check_result": "#/$defs/CheckResultEvent",
+      "draft_applied": "#/$defs/DraftApplied",
+      "draft_restored": "#/$defs/DraftRestored",
+      "error": "#/$defs/ErrorEvent",
+      "limit_warning": "#/$defs/LimitWarning",
+      "session_deleted": "#/$defs/SessionDeleted",
+      "session_revoked": "#/$defs/SessionRevoked",
+      "snapshot": "#/$defs/Snapshot",
+      "stage": "#/$defs/StageChanged",
+      "text": "#/$defs/Text",
+      "thinking": "#/$defs/Thinking",
+      "tool_finished": "#/$defs/ToolFinished",
+      "tool_started": "#/$defs/ToolStarted",
+      "turn_completed": "#/$defs/TurnCompleted",
+      "turn_started": "#/$defs/TurnStarted"
+    },
+    "propertyName": "type"
+  },
+  "oneOf": [
+    {
+      "$ref": "#/$defs/Snapshot"
+    },
+    {
+      "$ref": "#/$defs/TurnStarted"
+    },
+    {
+      "$ref": "#/$defs/StageChanged"
+    },
+    {
+      "$ref": "#/$defs/Thinking"
+    },
+    {
+      "$ref": "#/$defs/ToolStarted"
+    },
+    {
+      "$ref": "#/$defs/ToolFinished"
+    },
+    {
+      "$ref": "#/$defs/CheckResultEvent"
+    },
+    {
+      "$ref": "#/$defs/DraftApplied"
+    },
+    {
+      "$ref": "#/$defs/Text"
+    },
+    {
+      "$ref": "#/$defs/LimitWarning"
+    },
+    {
+      "$ref": "#/$defs/TurnCompleted"
+    },
+    {
+      "$ref": "#/$defs/ErrorEvent"
+    },
+    {
+      "$ref": "#/$defs/DraftRestored"
+    },
+    {
+      "$ref": "#/$defs/SessionDeleted"
+    },
+    {
+      "$ref": "#/$defs/SessionRevoked"
+    }
+  ]
+}

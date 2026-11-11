@@ -25,6 +25,7 @@ from app.api.analytics import router as analytics_router
 from app.api.auth import router as auth_router
 from app.api.capabilities import router as capabilities_router
 from app.api.chats import router as chats_router
+from app.api.connectors import router as connectors_router
 from app.api.file_extract import router as file_extract_router
 from app.api.handoff import router as handoff_router
 from app.api.hooks import router as hooks_router
@@ -43,6 +44,7 @@ from app.api.skills import router as skills_router
 from app.api.user_agents import router as user_agents_router
 from app.api.user_workflows import router as user_workflows_router
 from app.api.websocket_handoff import router as websocket_handoff_router
+from app.api.workflow_builder import router as workflow_builder_router
 from app.api.workflows import router as workflows_router
 from app.core.config import settings
 from app.core.logging import configure_logging, _request_id_var
@@ -157,6 +159,20 @@ async def lifespan(app: FastAPI):
                 row[0] if row else "unknown",
             )
 
+    # Connectors: one INFO line per connector so an operator can compare the redirect
+    # URI with the provider console (nothing secret is logged).
+    from app.connectors.services import get_connector_services
+
+    get_connector_services().registry.log_status()
+
+    # AI Workflow Builder: verify the skill package and model catalog, sweep Turns
+    # a restart left running, set readiness. A bad model catalog raises here and
+    # stops the process (Req 41.8); a bad skill package or sweep only marks the
+    # builder unavailable. Runs after the database checks, before serving.
+    from app.api.workflow_builder.lifecycle import builder_startup
+
+    await builder_startup()
+
     logger.info("🟢 Backend ready — accepting connections")
 
     # Phase 3 (T070): restore non-terminal WorkflowRuns on startup.
@@ -199,6 +215,9 @@ async def lifespan(app: FastAPI):
         engine_instance._resume_live_ectx_register = register_live_ectx
         engine_instance._resume_live_ectx_unregister = unregister_live_ectx
         engine_instance._resume_milestone_sink = persist_milestone_card
+        # ── Connectors phase 3 (8b): resumed runs bind their connector tools through this
+        # binder, for the user id stored on the WorkflowRun row (wr.user_id), never a request.
+        engine_instance._resume_run_tool_binder = get_connector_services().binder
         # ── BUG-R03: arm the resume output-column persister on the SAME engine instance so an
         # AUTO-RESUMED run (restore_non_terminal_runs branch b) persists its output-bearing
         # WorkflowRun columns (output/agent_outputs/token_usage/duration/deliverable_*) on
@@ -492,9 +511,13 @@ app.include_router(run_stream_router)
 # (44-07). Thin over the SAME store/cancel seams. Shares the /api/runs prefix.
 app.include_router(run_commands_router)
 app.include_router(user_workflows_router)
+app.include_router(workflow_builder_router)
 app.include_router(user_agents_router)
 app.include_router(handoff_router)
 app.include_router(settings_router)
+# Connectors (GitHub, Jira): per-user OAuth connections. Its OAuth callback is the
+# only public route (see tests/security/public_routes_allowlist.txt).
+app.include_router(connectors_router)
 app.include_router(mcp_router)
 app.include_router(install_router)
 app.include_router(websocket_handoff_router)

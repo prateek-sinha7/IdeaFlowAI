@@ -1,0 +1,76 @@
+{
+  "id": "ppt",
+  "version": 1,
+  "user_launchable": true,
+  "is_beta": false,
+  "name": "PPT",
+  "display_name": "Pitch an idea (Fast)",
+  "short_name": "PPT",
+  "icon": "Presentation",
+  "description": "Executive-grade deck with charts, data, and a clear narrative.",
+  "launch_surface": "wizard",
+  "chained_from": [
+    {
+      "id": "prototype",
+      "beta": false,
+      "text": "Sell this design"
+    },
+    {
+      "id": "user_stories",
+      "beta": false,
+      "text": "Pitch the requirements"
+    }
+  ],
+  "planner": "run",
+  "clarify": {
+    "mode": "auto",
+    "rounds": 2,
+    "defaults": [
+      "target_audience",
+      "tone_and_style",
+      "key_objectives",
+      "slide_count",
+      "content_depth",
+      "data_availability",
+      "visual_style",
+      "key_sections"
+    ]
+  },
+  "deliverable": {
+    "strategy": "ppt",
+    "name": "presentation.pptx"
+  },
+  "context_providers": [
+    "opendesign"
+  ],
+  "seed_files": {},
+  "steps": [
+    {
+      "agent": "ppt-brief-analyst",
+      "tools": {
+        "read_files": true,
+        "write_files": true
+      },
+      "strategy": "single_shot",
+      "gates": []
+    },
+    {
+      "agent": "ppt-composer",
+      "tools": {
+        "read_files": true,
+        "write_files": true
+      },
+      "strategy": "single_shot",
+      "gates": []
+    },
+    {
+      "agent": "ppt-validator",
+      "tools": {
+        "read_files": true,
+        "write_files": true
+      },
+      "strategy": "single_shot",
+      "gates": []
+    }
+  ]
+}

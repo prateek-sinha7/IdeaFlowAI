@@ -18,7 +18,8 @@ import {
   Loader2,
   Clock,
 } from "lucide-react";
-import type { ChatSession, WorkflowRun, WorkflowStatus, WorkflowType } from "@/types/index";
+import { isKnownWorkflowType } from "@/types/index";
+import type { ChatSession, KnownWorkflowType, WorkflowRun, WorkflowStatus } from "@/types/index";
 // KAN-116 (Bug 3): safety net for titles stored in DB with === markers.
 import { parseRunInput } from "@/lib/runInput";
 
@@ -35,7 +36,9 @@ interface SidebarProps {
   onSelectRun?: (run: WorkflowRun) => void;
 }
 
-const TYPE_CONFIG: Record<WorkflowType, { icon: typeof FileText; color: string; label: string }> = {
+type TypeConfig = { icon: typeof FileText; color: string; label: string };
+
+const TYPE_CONFIG: Record<KnownWorkflowType, TypeConfig> = {
   user_stories: { icon: FileText, color: "text-blue-400", label: "User Stories" },
   user_stories_revision: { icon: FileText, color: "text-blue-400", label: "User Stories (revision)" },
   ppt: { icon: Presentation, color: "text-amber-400", label: "Presentation" },
@@ -43,7 +46,7 @@ const TYPE_CONFIG: Record<WorkflowType, { icon: typeof FileText; color: string; 
   ppt_revision: { icon: Presentation, color: "text-amber-400", label: "Presentation (revision)" },
   prototype: { icon: Layout, color: "text-emerald-400", label: "Prototype" },
   prototype_v2: { icon: Layout, color: "text-emerald-400", label: "Prototype v2" },
-  goal: { icon: Layout, color: "text-emerald-400", label: "Goal" },
+  goal_v2: { icon: Layout, color: "text-emerald-400", label: "Goal" },
   prototype_revision: { icon: Layout, color: "text-emerald-400", label: "Prototype (revision)" },
   prototype_large_revision: { icon: Layout, color: "text-emerald-400", label: "Prototype (large revision)" },
   prototype_feature_revision: { icon: Layout, color: "text-emerald-400", label: "Prototype (feature revision)" },
@@ -61,6 +64,14 @@ const TYPE_CONFIG: Record<WorkflowType, { icon: typeof FileText; color: string; 
   mulesoft_to_springboot: { icon: GitBranch, color: "text-teal-400", label: "Mulesoft → Spring Boot" },
   dotnet_to_azure: { icon: GitBranch, color: "text-indigo-400", label: ".NET → Azure" },
 };
+
+// Manifest-discovered workflows (e.g. Engine examples) have no entry above;
+// they render with the neutral "Custom" styling and their own id as the label.
+function typeConfigFor(type: string): TypeConfig {
+  return isKnownWorkflowType(type)
+    ? TYPE_CONFIG[type]
+    : { ...TYPE_CONFIG.custom, label: type };
+}
 
 const STATUS_ICON: Record<WorkflowStatus, typeof Loader2> = {
   running: Loader2,
@@ -202,7 +213,7 @@ export function Sidebar({
             </p>
             <div className="space-y-1">
               {runs.map((run) => {
-                const typeConf = TYPE_CONFIG[run.type];
+                const typeConf = typeConfigFor(run.type);
                 const TypeIcon = typeConf.icon;
                 const StatusIcon = STATUS_ICON[run.status];
                 const statusColor = STATUS_COLOR[run.status];

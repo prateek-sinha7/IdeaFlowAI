@@ -27,12 +27,15 @@ import {
   KNOWN_PRODUCERS,
   TOOL_GRANT_LEVERS,
   withToolGrant,
+  withToolSets,
   type StepSelection,
   type SelectionsMap,
   type MechanicalOption,
 } from "../AgentsPopup";
-import { resolveRouteTargetId } from "@/store/api/userWorkflows";
+import { RUNTIME_DEFAULT_MAX_PARALLEL, resolveRouteTargetId } from "@/store/api/userWorkflows";
 import { AgentSkillsPicker } from "./AgentSkillsPicker";
+import { ConnectedAppsSection, type ConnectedAppsAvailability } from "./ConnectedAppsSection";
+import { Toggle } from "./Toggle";
 import { stepKind } from "./stepKind";
 import {
   applyRoutePatch,
@@ -118,40 +121,6 @@ function InfoHint({ children, wide = false }: { children: ReactNode; wide?: bool
   );
 }
 
-function Toggle({
-  on,
-  amber = false,
-  label,
-  disabled = false,
-  onToggle,
-}: {
-  on: boolean;
-  amber?: boolean;
-  label: string;
-  disabled?: boolean;
-  onToggle: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={on}
-      aria-label={label}
-      disabled={disabled}
-      onClick={onToggle}
-      className={`relative h-5 w-[34px] flex-none rounded-full transition-colors disabled:opacity-40 ${
-        on ? (amber ? "bg-status-amber" : "bg-brand") : "bg-line-faint"
-      }`}
-    >
-      <span
-        className={`absolute top-0.5 h-4 w-4 rounded-full bg-surface-white shadow-sm transition-all ${
-          on ? "left-[16px]" : "left-0.5"
-        }`}
-      />
-    </button>
-  );
-}
-
 export function CanvasConfigRail({
   agent,
   index,
@@ -169,6 +138,7 @@ export function CanvasConfigRail({
   onDataFlowChange,
   allSteps = [],
   openConfigSignal,
+  connectedAppsAvailability,
 }: {
   /** The selected node's agent, or null when nothing is selected. */
   agent: AgentDef | null;
@@ -210,6 +180,10 @@ export function CanvasConfigRail({
   /** Bumped by CanvasView when a node's Gate/Route badge is clicked — jumps
    *  this rail to the Config tab where the gate + route controls live. */
   openConfigSignal?: number;
+  /** Whether this canvas can use connected apps (design 4.4). The Tools tab
+   *  shows the Connected Apps block only when the host passes a value, so a
+   *  rail rendered without one makes no connectors request. */
+  connectedAppsAvailability?: ConnectedAppsAvailability;
   /** Every step in the workflow (root + nested), for the step-target picker —
    *  a route can target any step, not just an earlier one (backward/loop
    *  targets are valid, R-23), so this is the full flat list, not just
@@ -488,19 +462,17 @@ export function CanvasConfigRail({
     const next = toolPacks.includes(pack)
       ? toolPacks.filter((p) => p !== pack)
       : [...toolPacks, pack];
-    patch({
-      tools: {
-        ...toolGrants,
-        ...(next.length > 0 ? { tool_sets: next } : {}),
-      },
-    });
+    // `withToolSets` spreads the step's other grant keys first, so a pack
+    // toggle never drops the step's `connectors` (ISS-912 class).
+    patch({ tools: withToolSets(sel, next) });
   };
 
   // Spec 012 (R-04/R-36) — the child-group strategy selector, shown only when
   // this node has children.
   const hasChildren = (agent.children?.length ?? 0) > 0;
   const childStrategy = agent.strategy ?? "sequential";
-  const maxParallel = agent.maxParallel ?? 3;
+  // A group without the key runs at the runtime cap, so show that, not a guess.
+  const maxParallel = agent.maxParallel ?? RUNTIME_DEFAULT_MAX_PARALLEL;
 
   const commitRename = () => {
     const next = (nameDraft ?? "").trim();
@@ -996,6 +968,14 @@ export function CanvasConfigRail({
               </div>
             ))}
           </div>
+
+          {connectedAppsAvailability && (
+            <ConnectedAppsSection
+              sel={sel}
+              availability={connectedAppsAvailability}
+              onToolsChange={(tools) => patch({ tools })}
+            />
+          )}
         </div>
       )}
 
@@ -1333,9 +1313,18 @@ Higher effort costs more and takes longer.`}</InfoHint>
                     >
                       <option value="step">Step</option>
                       <option value="workflow">Workflow</option>
+                      <option value="end">End run</option>
                     </select>
                   </label>
                 </div>
+                {outcome.trigger === "end" ? (
+                  /* `end` is the decision that LEAVES a loop (e.g. "pass" on a tester
+                     whose only other outcome is "revise"). A decision that matches no
+                     outcome fails the run closed, so "pass" has to be declared. */
+                  <p className="mt-1.5 font-serif text-[9.5px] leading-snug text-ink-300">
+                    Finishes the run here. Steps after this one are skipped.
+                  </p>
+                ) : (
                 <label className="mt-1.5 block font-sans text-[9px] text-ink-500">
                   Target
                   {outcome.trigger === "workflow" ? (
@@ -1370,6 +1359,7 @@ Higher effort costs more and takes longer.`}</InfoHint>
                     </select>
                   )}
                 </label>
+                )}
                 {outcome.trigger === "step" && isLoopTarget(outcome.target) && (
                   <label className="mt-1.5 block font-sans text-[9px] text-ink-500">
                     Max loop count

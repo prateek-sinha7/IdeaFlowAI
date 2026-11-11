@@ -21,7 +21,7 @@ Design constraints honoured:
     the nullable ``owner_id``) is the principal (P13/P25 precedent). Owner +
     workspace is thereby stamped on everything persisted.
   * **Caps (T-30-02) — enforced BEFORE any sandbox write**: an ext allow-list
-    ({pdf,docx,xlsx,pptx,txt,md,csv,json,html,htm}) → 415 on miss; the per-file byte cap
+    ({pdf,docx,xlsx,pptx,txt,md,csv,json,xml,html,htm}) → 415 on miss; the per-file byte cap
     (``file_extract._MAX_FILE_BYTES``, the single source, imported not
     re-declared) → 413; a document-count cap (≤20) and an aggregate byte cap →
     413. Every file is read + validated first; a single rejection writes nothing.

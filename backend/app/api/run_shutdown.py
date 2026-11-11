@@ -94,8 +94,25 @@ async def shutdown_run_infrastructure() -> dict[str, Any]:
         "pump_tasks_drained": 0,
         "pump_tasks_cancelled": 0,
         "checkpointer_closed": False,
+        "builder_turns_stopped": False,
         "errors": [],
     }
+
+    # ── 0. Workflow Builder turns: FIRST, before the Concierge drain. ───────────
+    # uvicorn allows only 5 s, so the builder's 2 s persist window must not queue
+    # behind the drains below. Stops every live builder Turn (they store
+    # ``interrupted``), then closes the builder Session streams. Anything not stored
+    # in time is caught by the next startup sweep (design 3.1.6, G-17).
+    try:
+        from app.api.workflow_builder.lifecycle import stop_builder_turns
+
+        await stop_builder_turns()
+        summary["builder_turns_stopped"] = True
+    except Exception as exc:  # noqa: BLE001
+        summary["errors"].append(f"builder_turns: {type(exc).__name__}")
+        logger.warning(
+            "shutdown: stopping builder turns failed: %s", type(exc).__name__
+        )
 
     # ── 1. Concierge turns: AWAIT, never cancel-first. ──────────────────────────
     # run_commands.py's post_message holds these deliberately ("NEVER cancel it on

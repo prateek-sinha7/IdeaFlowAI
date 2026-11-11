@@ -15,6 +15,7 @@ import {
 import { NameWorkflowModal } from "@/components/catalog/NameWorkflowModal";
 import { useEscapeToClose } from "@/hooks/useEscapeToClose";
 import { routes } from "@/lib/routes";
+import { BuildWithAiButton } from "@/components/workflowBuilder/BuildWithAiButton";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -79,6 +80,9 @@ interface SavedWorkflowsPageProps {
    *  Dashboard's "Compose a custom workflow" card (HomeLaunchGrid → the
    *  `custom` catalog card → handleSelectFeature). */
   onCreateNew?: () => void;
+  /** Opens the AI Workflow Builder popup. Absent while the builder is unavailable
+   *  (no Custom_Entitlement, or `GET /models` did not answer 200), so no button shows. */
+  onBuildWithAi?: () => void;
 }
 
 // ── Kebab dropdown (module-level for a STABLE element identity) ──────────────
@@ -150,7 +154,7 @@ function KebabMenu({
   );
 }
 
-export function SavedWorkflowsPage({ onLaunchSaved, onCreateNew }: SavedWorkflowsPageProps) {
+export function SavedWorkflowsPage({ onLaunchSaved, onCreateNew, onBuildWithAi }: SavedWorkflowsPageProps) {
   const router = useRouter();
   const [userWorkflows, setUserWorkflows] = useState<UserWorkflowSummary[]>([]);
   const [loading, setLoading] = useState(true);
@@ -267,6 +271,7 @@ export function SavedWorkflowsPage({ onLaunchSaved, onCreateNew }: SavedWorkflow
                   <div className="w-px h-8 bg-line-divider" />
                 </>
               )}
+              {onBuildWithAi && <BuildWithAiButton onClick={onBuildWithAi} />}
               {onCreateNew && (
                 <button onClick={onCreateNew}
                   className="flex items-center gap-1.5 rounded-[10px] bg-brand px-3.5 py-2.5 text-[12px] font-semibold text-white hover:bg-brand-pressed transition-colors">

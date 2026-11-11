@@ -1,0 +1,67 @@
+{
+  "id": "pattern-05-fanout-per-item",
+  "name": "Plan -> fan-out per item -> aggregate",
+  "description": "Fixture for patterns.md section 5: Plan -> fan-out per item -> aggregate.",
+  "planner": "skip",
+  "clarify": {
+    "mode": "skip",
+    "defaults": []
+  },
+  "deliverable": {
+    "strategy": "single_file",
+    "name": "out.md"
+  },
+  "steps": [
+    {
+      "agent": "custom-agent",
+      "instance_id": "plan",
+      "name": "Planner",
+      "gates": [],
+      "tools": {
+        "read_files": true,
+        "write_files": true
+      },
+      "prompt": "Write build/tasks.json: {\"tasks\": [{\"id\": \"t1\", \"title\": \"...\", \"targets\": [\"notes/t1.md\"], \"depends_on\": [], \"body\": \"...\"}], \"contract\": {\"task_count\": N}}. At most 6 tasks."
+    },
+    {
+      "agent": "custom-agent",
+      "instance_id": "worker",
+      "name": "Section Writer",
+      "gates": [],
+      "strategy": "fanout_batch",
+      "depends_on": [
+        "custom-agent:plan"
+      ],
+      "task_source": {
+        "kind": "parsed",
+        "parser": "json_tasks",
+        "target": "build/tasks.json",
+        "source_step": "custom-agent:plan"
+      },
+      "fanout": {
+        "mode": "parallel",
+        "max_parallel": 4,
+        "agent": "self"
+      },
+      "tools": {
+        "read_files": true,
+        "write_files": true
+      },
+      "prompt": "Your task is in your message. Write only the file named in its targets."
+    },
+    {
+      "agent": "custom-agent",
+      "instance_id": "merge",
+      "name": "Editor",
+      "gates": [],
+      "depends_on": [
+        "custom-agent:worker"
+      ],
+      "tools": {
+        "read_files": true,
+        "write_files": false
+      },
+      "prompt": "Read every file under notes/ (glob notes/*.md) and assemble the final document."
+    }
+  ]
+}

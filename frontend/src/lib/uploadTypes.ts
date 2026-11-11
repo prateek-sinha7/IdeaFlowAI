@@ -23,9 +23,9 @@ export const DOCUMENT_EXTS = [
   "md",
   "csv",
   "json",
+  "xml",
   "html",
   "htm",
-  "xml",
   "yaml",
   "yml",
 ] as const;

@@ -1,0 +1,97 @@
+{
+  "id": "user_stories",
+  "version": 1,
+  "user_launchable": true,
+  "is_beta": false,
+  "display_name": "Generate product requirements",
+  "short_name": "User Stories",
+  "icon": "FileText",
+  "description": "Epics, user stories, and Gherkin acceptance criteria — ready for Jira.",
+  "chained_from": [
+    {
+      "id": "prototype",
+      "beta": false,
+      "text": "Document the features"
+    },
+    {
+      "id": "ppt",
+      "beta": false,
+      "text": "Define what to build"
+    }
+  ],
+  "planner": "run",
+  "clarify": {
+    "mode": "auto",
+    "rounds": 2,
+    "defaults": [
+      "target_audience",
+      "scope",
+      "priority",
+      "technology",
+      "personas",
+      "user_journeys",
+      "business_rules",
+      "compliance_security"
+    ]
+  },
+  "deliverable": {
+    "strategy": "streamed_text",
+    "name": "user_stories.md",
+    "chains_from": true
+  },
+  "context_providers": [
+    "chain_context"
+  ],
+  "seed_files": {},
+  "steps": [
+    {
+      "agent": "domain-analyst",
+      "tools": {
+        "read_files": true
+      },
+      "strategy": "single_shot",
+      "gates": []
+    },
+    {
+      "agent": "epic-architect",
+      "tools": {
+        "read_files": true
+      },
+      "strategy": "single_shot",
+      "gates": []
+    },
+    {
+      "agent": "story-estimator",
+      "tools": {
+        "read_files": true
+      },
+      "strategy": "single_shot",
+      "gates": []
+    },
+    {
+      "agent": "nfr-specialist",
+      "tools": {
+        "read_files": true
+      },
+      "strategy": "single_shot",
+      "gates": []
+    },
+    {
+      "agent": "backlog-reviewer",
+      "tools": {
+        "read_files": true
+      },
+      "strategy": "single_shot",
+      "gates": []
+    },
+    {
+      "agent": "backlog-compiler",
+      "tools": {
+        "read_files": true
+      },
+      "strategy": "single_shot",
+      "gates": []
+    }
+  ],
+  "name": "User Stories"
+}

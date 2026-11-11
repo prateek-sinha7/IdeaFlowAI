@@ -1,0 +1,42 @@
+{
+  "id": "pattern-04-sequential-substeps",
+  "name": "Sequential sub-steps (grouped chain)",
+  "description": "Fixture for patterns.md section 4: Sequential sub-steps (grouped chain).",
+  "planner": "skip",
+  "clarify": {
+    "mode": "skip",
+    "defaults": []
+  },
+  "deliverable": {
+    "strategy": "single_file",
+    "name": "out.md"
+  },
+  "steps": [
+    {
+      "agent": "custom-agent",
+      "instance_id": "spec",
+      "name": "Spec Writer",
+      "gates": [],
+      "prompt": "Combine the interview notes and the risk list into the spec.",
+      "subagents": {
+        "mode": "sequential",
+        "steps": [
+          {
+            "agent": "custom-agent",
+            "instance_id": "interview-notes",
+            "name": "Interview Notes",
+            "gates": [],
+            "prompt": "Write interview notes for the brief's stakeholders."
+          },
+          {
+            "agent": "custom-agent",
+            "instance_id": "risk-list",
+            "name": "Risk List",
+            "gates": [],
+            "prompt": "List the risks of the brief's product, most severe first."
+          }
+        ]
+      }
+    }
+  ]
+}

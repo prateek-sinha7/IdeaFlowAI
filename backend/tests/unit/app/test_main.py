@@ -15,7 +15,9 @@ lifespan never runs.
 
 from __future__ import annotations
 
+import asyncio
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 from fastapi.testclient import TestClient
@@ -48,3 +50,67 @@ def test_validation_error_handler_omits_rejected_value_when_credential_too_short
     assert (
         rejected not in resp.text
     ), f"the rejected PAT was echoed back in the 422 body: {resp.text[:300]!r}"
+
+
+class _SchemaRow:
+    def first(self) -> tuple[str]:
+        return ("0053",)
+
+
+class _SchemaConnection:
+    def __enter__(self) -> _SchemaConnection:
+        return self
+
+    def __exit__(self, *_exc_info: object) -> None:
+        return None
+
+    def execute(self, *_args: object, **_kwargs: object) -> _SchemaRow:
+        return _SchemaRow()
+
+
+class _SchemaEngine:
+    def connect(self) -> _SchemaConnection:
+        return _SchemaConnection()
+
+
+class TestLifespanArmsResumeRunToolBinder:
+    @pytest.mark.asyncio
+    async def test_lifespan_arms_resume_run_tool_binder_when_engine_starts(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import app.main as main_module
+
+        binder = object()
+        engine_stub = SimpleNamespace(restore_non_terminal_runs=AsyncMock())
+
+        async def _never_ends() -> None:
+            await asyncio.sleep(3600)
+
+        monkeypatch.setattr(main_module, "engine", _SchemaEngine())
+        monkeypatch.setattr(
+            main_module,
+            "inspect",
+            lambda _engine: SimpleNamespace(has_table=lambda _name: True),
+        )
+        monkeypatch.setattr(main_module.settings, "HOST_CAPACITY_ENABLED", False)
+        monkeypatch.setattr(
+            "app.api.workflow_builder.lifecycle.builder_startup", AsyncMock()
+        )
+        monkeypatch.setattr(
+            "app.api.run_shutdown.shutdown_run_infrastructure",
+            AsyncMock(return_value={}),
+        )
+        monkeypatch.setattr("app.core.watchdog.watch_event_loop_lag", _never_ends)
+        monkeypatch.setattr(
+            "app.connectors.services.get_connector_services",
+            lambda: SimpleNamespace(
+                registry=SimpleNamespace(log_status=lambda: None), binder=binder
+            ),
+        )
+        monkeypatch.setattr(
+            "agents.execution_engine.engine.get_execution_engine",
+            lambda: engine_stub,
+        )
+
+        async with main_module.lifespan(main_module.app):
+            assert engine_stub._resume_run_tool_binder is binder

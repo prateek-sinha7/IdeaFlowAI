@@ -1,8 +1,15 @@
+import path from "node:path";
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   devIndicators: false,
   output: "standalone",
+  // Pin the roots to this folder. Without this Next infers the root from the
+  // nearest lockfile; a lockfile higher up the tree (the repo root) moves
+  // `server.js` to `.next/standalone/frontend/server.js`, which breaks the CI
+  // bundle step, the e2e server command, and the Docker CMD.
+  outputFileTracingRoot: path.resolve(__dirname),
+  turbopack: { root: path.resolve(__dirname) },
   // Build type-checks app code only; tests are gated once by `npm run typecheck`.
   typescript: { tsconfigPath: "tsconfig.build.json" },
   rewrites: async () => [
@@ -15,6 +22,17 @@ const nextConfig: NextConfig = {
     {
       source: "/s/:token",
       destination: `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/s/:token`,
+    },
+    // OAuth redirect target for Connectors. The providers redirect the popup to
+    // APP_BASE_URL + /api/connectors/oauth/callback, which locally is the Next
+    // server on :3000. The backend handles it and answers 303 to the relative
+    // /connectors/oauth-complete. Rewrites in the array form run after the
+    // filesystem and before dynamic routes, so the [...view] catch-all cannot
+    // shadow this path. Query strings are forwarded automatically. Deployed,
+    // nginx sends /api/ to the backend before Next sees it, so this is inert.
+    {
+      source: "/api/connectors/oauth/callback",
+      destination: `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/api/connectors/oauth/callback`,
     },
   ],
   redirects: async () => [

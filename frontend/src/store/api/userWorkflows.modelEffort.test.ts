@@ -96,4 +96,37 @@ describe("agentsToManifestSteps — per-step model + effort (spec 020)", () => {
       effort: "high",
     });
   });
+
+  it("drops the draft's old effort — keeping hand-authored keys — when the rail changed the model", () => {
+    // The draft step carried {GPT, xhigh}; the user switched to Haiku and the rail
+    // cleared the effort. The inherited effort must not come back on save.
+    const steps = agentsToManifestSteps(
+      [
+        agent("a", {
+          extra: { model: { model: "global.openai.gpt-5.6-sol", effort: "xhigh", max_tokens: 4096 } },
+        }),
+      ],
+      { a: { model: "eu.anthropic.claude-haiku-4-5-20251001-v1:0" } },
+    );
+    expect(steps[0].model).toEqual({
+      model: "eu.anthropic.claude-haiku-4-5-20251001-v1:0",
+      max_tokens: 4096,
+    });
+  });
+
+  it("keeps the rail's effort over the inherited one when both are present", () => {
+    const steps = agentsToManifestSteps(
+      [agent("a", { extra: { model: { model: "global.openai.gpt-5.6-sol", effort: "xhigh" } } })],
+      { a: { model: "global.openai.gpt-5.6-sol", effort: "low" } },
+    );
+    expect(steps[0].model).toEqual({ model: "global.openai.gpt-5.6-sol", effort: "low" });
+  });
+
+  it("leaves the inherited policy untouched when the step has no selection", () => {
+    const steps = agentsToManifestSteps(
+      [agent("a", { extra: { model: { model: "global.openai.gpt-5.6-sol", effort: "xhigh" } } })],
+      {},
+    );
+    expect(steps[0].model).toEqual({ model: "global.openai.gpt-5.6-sol", effort: "xhigh" });
+  });
 });

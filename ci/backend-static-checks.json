@@ -17,6 +17,11 @@
       "path": "tools/, scripts/",
       "tools": ["python-compile", "vulture", "bandit"],
       "reason": "F-18 scope is lint, format and import resolution only. These checks stay on app agents tools."
+    },
+    {
+      "path": "app/agents/workflow_builder/skills/",
+      "tools": ["ruff", "pyright", "python-compile", "vulture", "bandit"],
+      "reason": "The AI workflow builder's skill: standalone stdlib scripts the Builder runs as sandboxed subprocesses, never imported by the app. Covered by their own selftest.py (tools/ci/builder_skill_checks.py --selftest in ci.yml). Excluded in pyproject.toml (ruff extend-exclude, coverage omit, vulture exclude, bandit exclude_dirs), pyrightconfig.json exclude and compileall -x, so CI never writes __pycache__ into the skill."
     }
   ],
   "checks": [
@@ -34,7 +39,7 @@
     },
     {
       "check_id": "python-compile",
-      "command": ["uv", "run", "--frozen", "python", "-m", "compileall", "-q", "app", "agents", "tools"],
+      "command": ["uv", "run", "--frozen", "python", "-m", "compileall", "-q", "-x", "workflow_builder[/\\\\]skills[/\\\\]", "app", "agents", "tools"],
       "timeout_seconds": 300,
       "mandatory": true
     },

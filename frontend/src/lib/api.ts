@@ -1135,7 +1135,7 @@ function normalizeWorkflowRun(raw: RawWorkflowRun): WorkflowRun {
   return {
     id: raw.id,
     title: raw.title,
-    type: raw.type as WorkflowType,
+    type: raw.type,
     status: raw.status as WorkflowRun["status"],
     input: raw.input ?? "",
     output: raw.output ?? undefined,
@@ -2542,6 +2542,26 @@ export interface WorkflowDeliverable {
 }
 
 /**
+ * The built-in's top-level manifest keys that `WorkflowDetail` has no dedicated
+ * field for (BE `WorkflowAuthoringManifest`, backend/app/api/workflows.py).
+ * Present so the built-in canvas can carry them into a "Save as copy". Only keys
+ * the manifest actually declares appear; identity (`id`, `name`, ...) and the keys
+ * already exposed as `steps` / `deliverable` / `planner` / `clarify_*` are never
+ * included. Always read from the file manifest, even when an override is in force.
+ */
+export interface WorkflowAuthoringManifest {
+  capabilities?: import("@/types/index").WorkflowCapabilities;
+  limits?: Record<string, unknown>;
+  input_providers?: string[];
+  seed_files?: Record<string, unknown>;
+  allowed_workers?: string[];
+  model?: Record<string, unknown>;
+  chat?: Record<string, unknown>;
+  design_mode?: import("@/types/index").DesignMode;
+  context_providers?: string[];
+}
+
+/**
  * The full compiled definition for one known workflow id from
  * `GET /api/workflows/{id}` (API-01 / SURF-03). Mirrors the BE `WorkflowDetail`
  * (backend/app/api/workflows.py:108). Auth-gated (JWT); the composer fetches
@@ -2566,6 +2586,10 @@ export interface WorkflowDetail {
    *  to) and reconstruct an editable composition. Null when the manifest could
    *  not be read. */
   manifest_steps?: import("@/types/index").ManifestStep[] | null;
+  /** The file manifest's other top-level keys (limits, input_providers,
+   *  seed_files, capabilities, ...). Null when the manifest could not be read;
+   *  absent on an older backend. */
+  manifest?: WorkflowAuthoringManifest | null;
   /** Spec 016 — this caller's override of this built-in.
    *  `is_overridden`: an override exists AND is switched on, so `steps` /
    *    `manifest_steps` above are ITS steps and a run will execute them.
@@ -2675,6 +2699,10 @@ export interface UserWorkflowSummary {
   base_pipeline_type: string;
   agent_ids: string[];
   model_overrides?: Record<string, string> | null;
+  // Spec 016 — the built-in this row overrides for its owner; absent/null on an
+  // ordinary saved workflow. The Composer uses it to keep connected apps (which
+  // the server refuses on override rows) switched off.
+  overrides_pipeline_type?: string | null;
   // WR-01 (EMP-03) — the persisted compact per-step Advanced-lever selections map
   // (the `manifest_json` shape the backend `_project` round-trips). Carried so a
   // launched saved workflow can re-load AND re-send its composed levers. NULL/absent

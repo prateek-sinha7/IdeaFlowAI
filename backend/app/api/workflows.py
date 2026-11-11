@@ -12,7 +12,9 @@ Endpoints:
     (id, name, description, step summary), derived from the compiled manifests.
   * ``GET /api/workflows/{id}``   — the full compiled step configs (per-step
     agent_id, strategy, gates, validators, task_source; deliverable; declared
-    context_providers) for a known workflow; 404 on an unknown id.
+    context_providers) for a known workflow, plus ``manifest`` (the authored
+    workflow-level keys such as limits / input_providers, without identity);
+    404 on an unknown id.
 
 Source of truth is the **compiled manifests** (``compile_for_run`` +
 ``get_pipeline_agents``), never run-history DB rows.
@@ -33,11 +35,12 @@ Security:
     itself resolves a closed id-alias set before touching the filesystem.
 """
 
+import copy
 import logging
-from typing import Optional
+from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_serializer
 from sqlalchemy.orm import Session
 
 from agents.execution_engine.engine import (
@@ -223,6 +226,45 @@ class WorkflowDeliverable(BaseModel):
     name: Optional[str] = None
 
 
+class WorkflowAuthoringManifest(BaseModel):
+    """The manifest's authored top-level keys that the compiled projection drops.
+
+    ``WorkflowDetail.steps`` is the compiled view and ``manifest_steps`` the raw
+    steps; neither carries the workflow-level configuration a built-in declares
+    beside its steps. A canvas that saves a built-in as a user-owned copy needs
+    those keys back, or the copy silently loses them (ISS-876): ``limits`` (the
+    fan-out ceilings of prototype_v2 / backlog), ``input_providers`` (prototype's
+    image input), ``seed_files``, ``capabilities`` and the other pass-through keys.
+
+    Identity is deliberately NOT here: no ``id``, ``name``, ``display_name``,
+    ``short_name``, ``icon``, ``version``, ``user_launchable``, ``is_beta``,
+    ``launch_surface`` or ``chained_from``. Those make a manifest "the built-in",
+    so a copy that inherited them would pose as the built-in in the catalog. Save
+    still creates a new user-owned row; the file manifest is never edited.
+
+    Only keys the manifest actually declares (non-empty) are serialized, so the
+    payload can be spread into a saved manifest unchanged. Values come from
+    ``load_manifest`` (already validated, repo-authored config); nothing here is
+    a secret or per-user data.
+    """
+
+    capabilities: Optional[dict[str, Any]] = None
+    limits: Optional[dict[str, Any]] = None
+    input_providers: Optional[list[str]] = None
+    seed_files: Optional[dict[str, Any]] = None
+    allowed_workers: Optional[list[str]] = None
+    model: Optional[dict[str, Any]] = None
+    chat: Optional[dict[str, Any]] = None
+    design_mode: Optional[str] = None
+    context_providers: Optional[list[str]] = None
+
+    @model_serializer(mode="wrap")
+    def _drop_undeclared(self, handler: Any) -> dict[str, Any]:
+        """Serialize declared keys only: ``None`` means the manifest has no such key."""
+        data = handler(self)
+        return {key: value for key, value in data.items() if value is not None}
+
+
 class WorkflowDetail(BaseModel):
     """Full compiled definition for one workflow (GET /api/workflows/{id})."""
 
@@ -244,6 +286,12 @@ class WorkflowDetail(BaseModel):
     # already parsed and validated by load_manifest — no new derivation.
     # None when the manifest could not be read (the compiled view still returns).
     manifest_steps: list[dict] | None = None
+    # The manifest's workflow-level authoring keys (limits, input_providers,
+    # seed_files, capabilities, ...), minus identity — see
+    # WorkflowAuthoringManifest. Always the FILE manifest's values: a per-user
+    # override only replaces `steps`. Additive; None when the manifest could not
+    # be read. The composer spreads this into the copy a Save creates.
+    manifest: WorkflowAuthoringManifest | None = None
     # Spec 016 — see WorkflowSummary for the flag semantics. `showing_original`
     # says WHICH plan this payload carries: true when the caller asked for
     # ?original=true, so the UI knows the steps below are the system version
@@ -255,6 +303,29 @@ class WorkflowDetail(BaseModel):
 
 
 # --- Derivation helpers ---
+
+
+def _authoring_manifest(manifest) -> WorkflowAuthoringManifest:
+    """Project a validated ``WorkflowManifest`` onto its authoring pass-through keys.
+
+    An empty value (``{}`` / ``[]`` / ``None``) is the same as an undeclared key, so
+    it is mapped to ``None`` and dropped by the model's serializer.
+    """
+
+    def _declared(value):
+        return copy.deepcopy(value) if value else None
+
+    return WorkflowAuthoringManifest(
+        capabilities=_declared(manifest.capabilities),
+        limits=_declared(manifest.limits),
+        input_providers=_declared(manifest.input_providers),
+        seed_files=_declared(manifest.seed_files),
+        allowed_workers=_declared(manifest.allowed_workers),
+        model=_declared(manifest.model),
+        chat=_declared(manifest.chat),
+        design_mode=manifest.design_mode or None,
+        context_providers=_declared(manifest.context_providers),
+    )
 
 
 def _display_name(workflow_id: str) -> str:
@@ -542,6 +613,7 @@ def get_workflow(
             if (_ov_enabled and not original)
             else (list(manifest.steps) if manifest else None)
         ),
+        manifest=_authoring_manifest(manifest) if manifest else None,
         is_overridden=_ov_enabled,
         has_override=_ov_row is not None,
         override_id=(_ov_row.id if _ov_row is not None else None),

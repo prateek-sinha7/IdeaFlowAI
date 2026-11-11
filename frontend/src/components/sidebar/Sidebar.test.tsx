@@ -89,6 +89,11 @@ describe("Sidebar", () => {
     expect(btn).not.toHaveTextContent("•");
   });
 
+  it("renders a run of a manifest-discovered type with its id as the label instead of crashing", () => {
+    render(<Sidebar recentRuns={[makeRun({ type: "ex_A1_loop" })]} />);
+    expect(screen.getByRole("button", { name: /Run One/ })).toHaveTextContent("ex_A1_loop");
+  });
+
   it("calls onSelectRun with the clicked run", async () => {
     const user = userEvent.setup();
     const onSelectRun = vi.fn();

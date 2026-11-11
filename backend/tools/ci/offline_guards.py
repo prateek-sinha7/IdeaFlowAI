@@ -57,6 +57,12 @@ CREDENTIAL_ENV_PATTERNS = {
     "AWS_SECRET_ACCESS_KEY",
     "AWS_SESSION_TOKEN",
     "AWS_BEARER_TOKEN_BEDROCK",
+    # Connectors: OAuth client secrets and the token-vault key. The offline job
+    # fails if a real value appears there (tests generate their own keys).
+    "JIRA_OAUTH_CLIENT_SECRET",
+    "GITHUB_OAUTH_CLIENT_SECRET",
+    "GH_OAUTH_CLIENT_SECRET",
+    "TOKEN_ENCRYPTION_KEY",
 }
 
 # Network-related modules that should not be used for provider calls

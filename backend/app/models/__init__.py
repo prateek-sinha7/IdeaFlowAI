@@ -37,7 +37,6 @@ from app.models.hook_runs import HookRun  # noqa: F401
 # Phase 9 repo-workflow model (0017) — imported here so Base.metadata sees it for
 # Alembic autogenerate/check (Pitfall 5).
 from app.models.repository import Repository  # noqa: F401
-from app.models.mcp_credential import McpCredential  # noqa: F401
 
 # Phase 10 exec-audit model (0018) — imported here so Base.metadata sees it for
 # Alembic autogenerate/check (Pitfall 5).
@@ -59,6 +58,22 @@ from app.models.run_provenance_audit import RunProvenanceAudit  # noqa: F401
 # Cognito-only auth migration (0038) — imported here so Base.metadata sees it
 # for Alembic autogenerate/check (Pitfall 5).
 from app.models.pending_cognito_deletion import PendingCognitoDeletion  # noqa: F401
+
+# AI Workflow Builder (0051) — imported here so Base.metadata sees the tables
+# for Alembic autogenerate/check (Pitfall 5).
+from app.models.workflow_builder import (  # noqa: F401
+    WorkflowBuilderDraft,
+    WorkflowBuilderMessage,
+    WorkflowBuilderSession,
+)
+
+# Connectors (0053) — imported here so Base.metadata sees the tables for Alembic
+# autogenerate/check (Pitfall 5).
+from app.models.connector import (  # noqa: F401
+    ConnectorAuditLog,
+    ConnectorConnection,
+    OAuthState,
+)
 from app.models.handoff import (
     HandoffSession,
     UserApiKey,
@@ -97,12 +112,17 @@ __all__ = [
     "RunEvent",
     "RunCapabilities",
     "Repository",
-    "McpCredential",
     "ExecRun",
     "SubagentRun",
     "RevokedToken",
     "cleanup_expired_revocations",
     "PendingCognitoDeletion",
+    "WorkflowBuilderSession",
+    "WorkflowBuilderMessage",
+    "WorkflowBuilderDraft",
+    "ConnectorConnection",
+    "OAuthState",
+    "ConnectorAuditLog",
     "HandoffSession",
     "UserApiKey",
     "UserGithubCredential",

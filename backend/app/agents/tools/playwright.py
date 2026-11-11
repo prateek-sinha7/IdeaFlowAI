@@ -28,6 +28,7 @@ from __future__ import annotations
 import asyncio
 import contextvars
 import logging
+import re
 from typing import Any
 
 from langchain_core.tools import tool
@@ -37,6 +38,41 @@ logger = logging.getLogger(__name__)
 # Reserved prefix for browser output (screenshots, etc.). Written to the run
 # sandbox, visible in the workspace, excluded from the deliverable.
 _BROWSER_DIR = ".browser"
+
+# The leading text of every FAILURE these tools return. The tools never raise
+# (ADR-0036), so a failed call looks like any other string result to the framework:
+# nothing retries it and nothing tells the model it failed. The tool-failure
+# recovery middleware (``app.agents.tool_recovery``) reads this list to tell a
+# failure from a result. It sits beside the tools so a new failure message is added
+# where it is written; ``test_every_failure_return_is_recognised`` fails when a
+# ``return f"..."`` here is missing from it.
+#
+# Anchored at the start of the text, so a page value that merely CONTAINS one of
+# these words (``playwright_evaluate`` returns arbitrary page data) is not a failure.
+_FAILURE_PATTERNS: tuple[re.Pattern[str], ...] = tuple(
+    re.compile(pattern, re.IGNORECASE)
+    for pattern in (
+        r"no run sandbox is bound",
+        r"cannot extract run_id",
+        r"browser unavailable",
+        r"refused:",
+        r"no page loaded",
+        r"failed to (create page|get page|query elements|create screenshot directory)",
+        r"navigation (timeout or )?failed",
+        r"(snapshot|click|type|evaluate|console messages|wait|wait_for|close|screenshot) (failed|error)",
+        r"(element|page) screenshot failed",
+        r"reference \S+ is (stale|invalid)",
+        r"text not found within",
+        r"specify either text to wait for",
+        r"filename escapes sandbox",
+    )
+)
+
+
+def is_failure(text: str) -> bool:
+    """True when ``text`` is one of this module's failure messages, not a result."""
+    return any(p.match(text.lstrip()) for p in _FAILURE_PATTERNS)
+
 
 # ContextVars for per-task isolation: concurrent wave workers in one process
 # share the same agent_id ("custom-agent:pb-build"), so module globals get

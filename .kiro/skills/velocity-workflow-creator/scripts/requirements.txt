@@ -1,0 +1,5 @@
+# Optional. Every script runs on the Python 3.10+ standard library alone.
+# jsonschema adds full JSON Schema validation to validate_manifest.py;
+# PyYAML lets the scripts read workflow.yaml files and export pretty YAML.
+jsonschema==4.26.0
+PyYAML==6.0.3

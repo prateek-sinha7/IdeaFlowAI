@@ -11,14 +11,59 @@ them onto ``alembic_config_for`` the next time one is touched.
 
 from __future__ import annotations
 
+import os
+import uuid
+from collections.abc import Generator
+from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
 from alembic.config import Config
+from sqlalchemy import create_engine, text
+from sqlalchemy.engine import make_url
 
 # tests/integration/db/<file> -> backend/
 _BACKEND_DIR = Path(__file__).resolve().parents[3]
 _ALEMBIC_INI = _BACKEND_DIR / "alembic.ini"
+
+
+def postgres_admin_url(request: pytest.FixtureRequest) -> str:
+    """Server-level PostgreSQL URL: the env override, else the testcontainers server.
+
+    ``PYTEST_POSTGRES_ADMIN_URL`` wins when set. Otherwise the shared
+    ``database_url`` fixture from ``tests/integration/conftest.py`` is used, which
+    needs Docker and errors at setup without it.
+    """
+    override = os.environ.get("PYTEST_POSTGRES_ADMIN_URL")
+    if override:
+        return override
+    return str(request.getfixturevalue("database_url"))
+
+
+@contextmanager
+def throwaway_database(
+    admin_url: str, prefix: str = "tmp"
+) -> Generator[str, None, None]:
+    """Create an empty, uniquely named PostgreSQL database; drop it afterwards.
+
+    Yields the new database's URL (password included, for the engine to use).
+    """
+    db_name = f"{prefix}_{uuid.uuid4().hex[:12]}"
+    admin_engine = create_engine(admin_url, isolation_level="AUTOCOMMIT")
+    try:
+        with admin_engine.connect() as conn:
+            conn.execute(text(f'CREATE DATABASE "{db_name}"'))
+        try:
+            yield (
+                make_url(admin_url)
+                .set(database=db_name)
+                .render_as_string(hide_password=False)
+            )
+        finally:
+            with admin_engine.connect() as conn:
+                conn.execute(text(f'DROP DATABASE IF EXISTS "{db_name}" WITH (FORCE)'))
+    finally:
+        admin_engine.dispose()
 
 
 def alembic_config_for(db_url: str) -> Config:

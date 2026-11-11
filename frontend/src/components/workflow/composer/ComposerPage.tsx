@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { motion } from "motion/react";
 import { ArrowLeft, Save, Play, Plus, GitBranch, LayoutList, Sparkles, Loader2, Check, Paperclip, Palette, Layout, X, AlertCircle } from "lucide-react";
 import { IdentityCard } from "./IdentityCard";
@@ -31,11 +31,14 @@ import {
 } from "../IdeaInputPage";
 import { saveUserWorkflow, getToken, getWorkflowDetail } from "@/lib/api";
 import { uploadGateMessage } from "@/hooks/useStagedDocuments";
+import { saveErrorMessage } from "@/lib/saveError";
+import type { ConnectedAppsAvailability } from "./ConnectedAppsSection";
 import { useSkillsHooks } from "@/context/SkillsHooksContext";
 import {
   addChildInTree,
   buildWorkflowManifest,
   collectAgentIds,
+  compiledRootIds,
   findAgentInTree,
   instantiateIfTemplate,
   agentsToManifestSteps,
@@ -43,7 +46,29 @@ import {
   manifestStepsToGateSelections,
   type ManifestStep,
 } from "@/store/api/userWorkflows";
-import type { AgentDef, DesignMode, WorkflowCapabilities, WorkflowRunConfig, WorkflowType } from "@/types/index";
+import type {
+  AgentDef,
+  DesignMode,
+  WorkflowCapabilities,
+  WorkflowManifest,
+  WorkflowRunConfig,
+  WorkflowType,
+} from "@/types/index";
+import type { ComposerBuilderBinding, TargetTrust } from "@/types/workflowBuilder";
+import {
+  aiCopyName,
+  BUILDER_DB_TRUST_RUN_NOTE,
+  BUILDER_UPDATING_MESSAGE,
+  builderRunBlock,
+  computeDraftState,
+  draftApplyAction,
+  draftSaveDefaults,
+  isConflictError,
+  isUnsaved,
+  manifestAsPassthrough,
+  nextAiCopyName,
+  rebuildDraftAgents,
+} from "@/lib/builderDraft";
 
 // Spec 012 (R-27/T30): once a node carries a per-node skill, a custom prompt,
 // or a sub-agent tree, Save must persist the FULL `{"steps": [...]}` manifest
@@ -67,6 +92,13 @@ function needsFullManifest(agents: AgentDef[], runConfig?: WorkflowRunConfig): b
       (a.children?.length ?? 0) > 0 ||
       Object.keys(a.route?.outcomes ?? {}).length > 0,
   );
+}
+
+// A connected-app grant (`tools.connectors`) on any step. The flat selections map
+// has no field for it and the server refuses it there with 422, so a composition
+// that carries one must persist and launch as the full manifest.
+function selectionsHaveConnectorGrant(selections: SelectionsMap): boolean {
+  return Object.values(selections).some((sel) => (sel.tools?.connectors?.length ?? 0) > 0);
 }
 
 // The composer's from-scratch Workflow-tab settings. Module-level so the state
@@ -100,19 +132,29 @@ function runConfigIsFromScratchDefault(runConfig: WorkflowRunConfig): boolean {
 // So also persist the full manifest whenever this canvas was seeded from a real
 // manifest (a built-in via `/workflows/{type}/canvas`, or a saved row's steps),
 // or the Workflow tab holds anything other than the from-scratch default.
+//
+// An AI builder draft is also a full manifest (its top-level keys are carried
+// through Save, Req 7.4), so a composer showing one always persists the manifest.
 function needsFullManifestOnSave(
   agents: AgentDef[],
   runConfig: WorkflowRunConfig,
+  selections: SelectionsMap,
   builtinCanvasType?: string,
   initialManifestSteps?: ManifestStep[],
+  draftSource?: WorkflowManifest | null,
 ): boolean {
   return (
     needsFullManifest(agents) ||
+    selectionsHaveConnectorGrant(selections) ||
     !!builtinCanvasType ||
     (initialManifestSteps?.length ?? 0) > 0 ||
-    !runConfigIsFromScratchDefault(runConfig)
+    !runConfigIsFromScratchDefault(runConfig) ||
+    !!draftSource
   );
 }
+
+/** "save" updates the linked row, or creates one when unlinked. "save_as_new" always creates a row. */
+type ComposerSaveMode = "save" | "save_as_new";
 
 interface ComposerPageProps {
   /** DashboardLayout's shared, mutable workflowType ("user_stories" on /workflows/new). Read only
@@ -161,6 +203,10 @@ interface ComposerPageProps {
    *  is explore-and-copy: edits Run fine, but Save creates a NEW workflow the user owns
    *  rather than overwriting anything. Undefined for a saved workflow. */
   builtinCanvasType?: string;
+  /** Set when the saved row this canvas edits overrides a built-in (spec 016).
+   *  The server refuses connected-app grants on such a row, so the Tools tab
+   *  shows the Connected Apps block as unavailable. */
+  overridesPipelineType?: string | null;
   /** ISS-923: the saved row `/workflows/{id}/edit` names. Save is held until that row
    *  has loaded, so a failed or pending fetch cannot POST a new workflow instead. */
   expectedUserWorkflowId?: string;
@@ -193,6 +239,18 @@ interface ComposerPageProps {
    * instead of sprinkling a `confirm()` into each `onClick`.
    */
   onUnsavedChange?: (dirty: boolean) => void;
+  /**
+   * AI Workflow Builder binding (design §3.10.7). Absent on every non-builder
+   * path, where the composer behaves exactly as before. The composer opens no
+   * stream: the host owns the session and passes drafts down through this prop.
+   */
+  builder?: ComposerBuilderBinding;
+  /**
+   * The Builder_Panel element, rendered by the host (design §3.10.5). The
+   * composer only places it: under the header, left of the canvas, and outside
+   * the body's `inert` wrapper so Stop stays usable while a turn runs.
+   */
+  builderPanel?: ReactNode;
 }
 
 // Root-chain cap for a custom composition. Raised from 8 to 16 (spec 019): a
@@ -223,6 +281,7 @@ export function ComposerPage({
   initialManifestSteps,
   initialManifest,
   builtinCanvasType,
+  overridesPipelineType,
   expectedUserWorkflowId,
   initialSelections,
   initialName,
@@ -231,6 +290,8 @@ export function ComposerPage({
   initialRunConfig,
   workflowId,
   onUnsavedChange,
+  builder,
+  builderPanel,
 }: ComposerPageProps) {
   const { libraryAgents: LIBRARY_AGENTS, allAgents: ALL_LIBRARY_AGENTS } = useAgentLibrary();
   const { attachedHooks } = useSkillsHooks();
@@ -244,7 +305,31 @@ export function ComposerPage({
   const [userWorkflowId, setUserWorkflowId] = useState<string | undefined>(
     initialUserWorkflowId,
   );
-  const [name, setName] = useState(initialName ?? "");
+  // Builder, Req 10.10 and G-34: a linked row whose base is not `custom` is never
+  // updated. Save becomes "Save as new", and its name starts as "<name> (AI)" so the
+  // copy does not collide with the row it came from. `linkedRowIsCustom` turns on
+  // after a save, because every save from this composer writes a `custom` base.
+  const aiCopyStem = aiCopyName(initialName ?? "");
+  const [linkedRowIsCustom, setLinkedRowIsCustom] = useState(false);
+  const linkedBaseIsCustom = linkedRowIsCustom || builder?.linkedBaseIsCustom !== false;
+  // Req 10.10: a linked row with a non-custom base gets only "Save as new". Req 10.6: a
+  // linked custom row keeps Save (PATCH) and shows "Save as new" beside it (POST).
+  const builderSaveAsNewOnly = !!builder && !!userWorkflowId && !linkedBaseIsCustom;
+  const builderSaveAsNewBeside = !!builder && !!userWorkflowId && linkedBaseIsCustom;
+  const [name, setName] = useState(() =>
+    builder?.linkedBaseIsCustom === false && initialUserWorkflowId ? aiCopyStem : (initialName ?? ""),
+  );
+  // The host's binding arrives after the first render (it waits for `GET /models`
+  // and for the linked row's base), so the initializer above misses the common case.
+  // The first time the binding says the row is not `custom`, move an untouched name
+  // to the copy name once (task 20.9). A name the user already changed stays.
+  const [aiCopyNameSettled, setAiCopyNameSettled] = useState(
+    builder?.linkedBaseIsCustom === false,
+  );
+  if (!aiCopyNameSettled && builder?.linkedBaseIsCustom === false && initialUserWorkflowId) {
+    setAiCopyNameSettled(true);
+    if (name === (initialName ?? "")) setName(aiCopyStem);
+  }
   const [description, setDescription] = useState(initialDescription ?? "");
   const [saving, setSaving] = useState(false);
   // Save button feedback: idle -> saving (spinner) -> justSaved ("Saved" ✓,
@@ -377,12 +462,65 @@ export function ComposerPage({
   // ISS-275 — report unsaved work to the parent's shared Back guard. Covers the
   // name and the roster (add/remove/reorder/rename), which is what a discard
   // actually costs; per-node skill/prompt edits do not move it on their own.
+  //
+  // Builder drafts (Req 7.8): a draft that changes neither the name nor the roster
+  // still leaves unsaved work, so `draftDirty` joins the rule. It is set when a
+  // draft is applied and cleared by a successful save. Applying a draft never
+  // resets `unsavedBaseline`.
+  const [draftDirty, setDraftDirty] = useState(false);
+  // The last applied draft manifest (the passthrough source) and the trust it was
+  // checked at. `draftTrust` is read by the Run-once gate (task 20.4).
+  const [draftSource, setDraftSource] = useState<WorkflowManifest | null>(null);
+  const [draftTrust, setDraftTrust] = useState<TargetTrust | null>(null);
   const unsavedSnapshot = `${name}\u0000${pipelineAgents.map((a) => `${a.id}:${a.name}`).join(",")}`;
   useEffect(() => {
     if (unsavedBaseline.current === null) unsavedBaseline.current = unsavedSnapshot;
-    onUnsavedChange?.(unsavedSnapshot !== unsavedBaseline.current);
+    onUnsavedChange?.(
+      isUnsaved({ snapshot: unsavedSnapshot, baseline: unsavedBaseline.current, draftDirty }),
+    );
     return () => onUnsavedChange?.(false);
-  }, [unsavedSnapshot, onUnsavedChange]);
+  }, [unsavedSnapshot, draftDirty, onUnsavedChange]);
+
+  // AI Workflow Builder gates on Save and Run once (design §3.10.7 items 4 and 5).
+  // A turn that is running in any tab makes the canvas read-only and disables both
+  // (Req 9.3, 9.4). A draft checked at `db` trust runs at `user` trust until it is
+  // saved, so Run once is also held back while the canvas is dirty (Req 7.12).
+  // The baseline is a ref that only changes together with state (Save clears
+  // `draftDirty` and sets `justSaved`), so reading it during render stays current.
+  const builderTurnRunning = builder?.turnRunning ?? false;
+  const canvasDirty = isUnsaved({
+    snapshot: unsavedSnapshot,
+    // eslint-disable-next-line react-hooks/refs -- see the note above
+    baseline: unsavedBaseline.current,
+    draftDirty,
+  });
+  const builderBlock = builderRunBlock({
+    turnRunning: builderTurnRunning,
+    draftTrust,
+    dirty: canvasDirty,
+  });
+
+  // Req 3.4: when the panel opens, show Canvas view whichever view was showing.
+  // Only the closed -> open change switches, so Simple view keeps working while
+  // the panel stays open (Req 3.5). Adjusted during render, not in an effect.
+  const builderPanelOpen = builder?.panelOpen ?? false;
+  const [panelWasOpen, setPanelWasOpen] = useState(builderPanelOpen);
+  if (panelWasOpen !== builderPanelOpen) {
+    setPanelWasOpen(builderPanelOpen);
+    if (builderPanelOpen) setView("canvas");
+  }
+
+  // A turn that starts while the agent library is open closes it, so it is not
+  // left open behind the inert wrapper and does not reappear when the turn ends.
+  const [turnWasRunning, setTurnWasRunning] = useState(builderTurnRunning);
+  if (turnWasRunning !== builderTurnRunning) {
+    setTurnWasRunning(builderTurnRunning);
+    if (builderTurnRunning) {
+      setAddOpen(false);
+      setSubAgentParentId(null);
+      setInsertBeforeId(null);
+    }
+  }
 
   const [selections, setSelections] = useState<SelectionsMap>(() => {
     // `gates` lives on `selections`, not on the reconstructed AgentDef, so a
@@ -450,6 +588,17 @@ export function ComposerPage({
   const [capabilities, setCapabilities] = useState<WorkflowCapabilities>(
     (initialManifest?.capabilities as WorkflowCapabilities | undefined) ?? {},
   );
+  // ISS-876: a BUILT-IN canvas gets `initialManifest` after mount (page.tsx fetches
+  // GET /api/workflows/<type>; a built-in has no row id, so DashboardLayout's
+  // remount-by-key never fires), so the initializer above sees nothing. Adopt the
+  // first real `capabilities` that arrives, once; the user's toggle owns it after.
+  const seededCapabilities = useRef(initialManifest?.capabilities !== undefined);
+  useEffect(() => {
+    const declared = initialManifest?.capabilities;
+    if (seededCapabilities.current || declared === undefined) return;
+    seededCapabilities.current = true;
+    setCapabilities(declared as WorkflowCapabilities);
+  }, [initialManifest]);
   // Workflow-level run settings (deliverable/planner/clarify) — previously
   // hardcoded server-side defaults at launch (run_commands.py's Case 3
   // manifest synthesis); now UI-editable, persisted into manifest_json.
@@ -597,6 +746,86 @@ export function ComposerPage({
     seededRunConfig.current = true;
     setRunConfig(initialRunConfig);
   }, [initialRunConfig]);
+
+  // AI Workflow Builder apply-draft path (design §3.10.7, R-02). Separate from
+  // the one-shot seeding refs above, which stay as they are: a draft arrives at
+  // any time, so it is keyed on its revision and applied once per revision. It
+  // is declared AFTER those effects so that, in a commit where both fire (the
+  // library just loaded), the draft's state is the last write and wins.
+  //
+  // A draft is a full replacement (Req 7.5): agents, selections, capabilities,
+  // run config and the passthrough source. The unsaved-work baseline is left
+  // alone, and `draftDirty` keeps the page reporting unsaved work until Save.
+  // When the draft landed before the agent library did, the agents are rebuilt
+  // once through the same lookup so built-in steps get their full definitions.
+  // That rebuild re-captures the baseline when nothing was unsaved before it.
+  const builderDraft = builder?.draft ?? null;
+  const appliedDraftRevision = useRef<number | null>(null);
+  const draftAgentsBuiltWithLibrary = useRef(false);
+  useEffect(() => {
+    const libraryLoaded = ALL_LIBRARY_AGENTS.length > 0;
+    const action = draftApplyAction({
+      lastAppliedRevision: appliedDraftRevision.current,
+      draftRevision: builderDraft?.revision ?? null,
+      libraryLoaded,
+      agentsBuiltWithLibrary: draftAgentsBuiltWithLibrary.current,
+    });
+    if (action === "none" || !builderDraft) return;
+    const lookup = (id: string) => ALL_LIBRARY_AGENTS.find((a) => a.id === id);
+    if (action === "apply") {
+      const next = computeDraftState(builderDraft.manifest, lookup);
+      setPipelineAgents(next.pipelineAgents);
+      setSelections(next.selections);
+      setCapabilities(next.capabilities);
+      setRunConfig(next.runConfig);
+      setDraftSource(builderDraft.manifest);
+      setDraftTrust(builderDraft.targetTrust);
+      setDraftDirty(true);
+      appliedDraftRevision.current = builderDraft.revision;
+      // Req 10.2: while the session is not linked to a saved row, the Save fields
+      // take the draft's name (or id) and description.
+      if (!userWorkflowId) {
+        const saveDefaults = draftSaveDefaults(manifestAsPassthrough(builderDraft.manifest));
+        // The draft is the external source this effect syncs, the same as the agents
+        // and selections set above, so the setState here is the intended sync.
+        // eslint-disable-next-line react-hooks/set-state-in-effect
+        if (saveDefaults.name !== undefined) setName(saveDefaults.name);
+        setDescription(saveDefaults.description);
+      }
+    } else {
+      // The rebuild only fills in library definitions; it changes nothing the user
+      // did. When the page reports no unsaved work now, re-capture the baseline from
+      // the rebuilt roster so the new names do not read as an edit.
+      if (!isUnsaved({ snapshot: unsavedSnapshot, baseline: unsavedBaseline.current, draftDirty })) {
+        unsavedBaseline.current = null;
+      }
+      setPipelineAgents(rebuildDraftAgents(builderDraft.manifest, lookup));
+    }
+    draftAgentsBuiltWithLibrary.current = libraryLoaded;
+  }, [builderDraft, ALL_LIBRARY_AGENTS, userWorkflowId, unsavedSnapshot, draftDirty]);
+
+  // Hand the host a getter for the current canvas and its unsaved state, which it
+  // uses for `canvas_state` and its fingerprints. Re-registered when the state the
+  // getters close over changes, so the host always holds current ones.
+  const registerCanvasApi = builder?.registerCanvasApi;
+  // The passthrough source of every manifest this composer builds: `draftSource ??
+  // initialManifest` (Req 7.4). A draft's top-level keys survive a save.
+  const passthroughSource = useMemo(
+    () => (draftSource ? manifestAsPassthrough(draftSource) : initialManifest),
+    [draftSource, initialManifest],
+  );
+  const getManifest = useCallback(
+    (): WorkflowManifest =>
+      buildWorkflowManifest(pipelineAgents, capabilities, selections, runConfig, passthroughSource),
+    [pipelineAgents, capabilities, selections, runConfig, passthroughSource],
+  );
+  const isDirty = useCallback(
+    () => isUnsaved({ snapshot: unsavedSnapshot, baseline: unsavedBaseline.current, draftDirty }),
+    [unsavedSnapshot, draftDirty],
+  );
+  useEffect(() => {
+    registerCanvasApi?.({ getManifest, isDirty });
+  }, [registerCanvasApi, getManifest, isDirty]);
   const [_draggedIdx, setDraggedIdx] = useState<number | null>(null);
   const [dragOverIdx, setDragOverIdx] = useState<number | null>(null);
 
@@ -657,7 +886,14 @@ export function ComposerPage({
   // "custom" unless this canvas shows a built-in's own manifest. `workflowType`
   // is DashboardLayout's shared mutable state ("user_stories" by default on
   // /workflows/new, /edit and /run) and is never the composer's identity.
-  const canvasPipelineType = (builtinCanvasType || "custom") as WorkflowType;
+  const canvasPipelineType = builtinCanvasType || "custom";
+  // Connected apps are for the user's own workflows only; the server refuses
+  // their grants on built-ins and override rows (design 4.4, 5.5 layer 5).
+  const connectedAppsAvailability: ConnectedAppsAvailability = builtinCanvasType
+    ? "builtin"
+    : overridesPipelineType
+      ? "override"
+      : "available";
 
   const defaultAgentIds = new Set(
     LIBRARY_AGENTS.filter((a) => agentMatchesPipelineType(a.pipeline_type, canvasPipelineType)).map((a) => a.id),
@@ -841,8 +1077,9 @@ export function ComposerPage({
   const declaredChips = Array.from(declaredSet);
 
   // ── Save-to-catalogue (owner-scoped, via the shared saveUserWorkflow dispatch) ──
+  const onBuilderSaved = builder?.onSaved;
   const handleSave = useCallback(
-    async (wfName: string, wfDescription: string) => {
+    async (wfName: string, wfDescription: string, mode: ComposerSaveMode = "save") => {
       // ISS-353 — synchronous re-entrancy guard. React state (`saving`) updates
       // asynchronously, so a second rapid click before the first re-render sees
       // the disabled button can invoke this handler a second time. The ref is set
@@ -910,13 +1147,22 @@ export function ComposerPage({
         // LIST, so packing it into `selections` is rejected by pydantic before
         // any handler runs. The two fields are mutually exclusive (a 422 names
         // both) precisely because they write the same column.
+        const saveManifest = buildWorkflowManifest(
+          pipelineAgents,
+          capabilities,
+          selections,
+          runConfig,
+          passthroughSource,
+        );
         const selectionsBody = needsFullManifestOnSave(
           pipelineAgents,
           runConfig,
+          selections,
           builtinCanvasType,
           initialManifestSteps,
+          draftSource,
         )
-          ? { manifest: buildWorkflowManifest(pipelineAgents, capabilities, selections, runConfig, initialManifest) }
+          ? { manifest: saveManifest }
           : Object.keys(selections).length > 0
             ? { selections }
             : {};
@@ -928,12 +1174,15 @@ export function ComposerPage({
         // only name/description/selections/hooks round-trip on update —
         // saveUserWorkflow (ISS-167, lib/api.ts) owns that split so this isn't
         // hand-rolled per caller.
-        const resp = await saveUserWorkflow(token, userWorkflowId, {
+        // Save as new (Req 10.10) always creates a row, so it passes no id and the
+        // linked row is never sent a PATCH.
+        const targetWorkflowId = mode === "save_as_new" ? undefined : userWorkflowId;
+        const resp = await saveUserWorkflow(token, targetWorkflowId, {
           name: wfName,
           // Update always sends description (so clearing it in the UI actually
           // clears the stored value); create omits an empty one rather than
           // persisting an explicit empty string — preserved exactly as before.
-          ...(userWorkflowId || wfDescription ? { description: wfDescription } : {}),
+          ...(targetWorkflowId || wfDescription ? { description: wfDescription } : {}),
           // Hardcoded, not `workflowType`: ComposerPage only ever legitimately
           // represents "custom" (DashboardLayout's COMPOSER_ENABLED_TYPES), but
           // `workflowType` is a shared mutable variable other screens (viewing
@@ -941,11 +1190,17 @@ export function ComposerPage({
           // let a stale value from one of those flows get persisted as this
           // saved workflow's permanent base_pipeline_type.
           base_pipeline_type: "custom",
-          agent_ids: pipelineAgents.map((a) => a.id),
+          // A draft is the source: its agent_ids are the compiled roots of the
+          // manifest being saved, as `export_manifest.py --save-payload` writes them
+          // (Req 10.9). Otherwise the canvas order, as before.
+          agent_ids: draftSource ? compiledRootIds(saveManifest) : pipelineAgents.map((a) => a.id),
           ...selectionsBody,
           ...hooksBody,
         });
         setUserWorkflowId(resp.id);
+        // Every save from this composer writes a `custom` base, so the linked row is
+        // custom from now on (Req 10.5).
+        setLinkedRowIsCustom(true);
         setName(wfName);
         setDescription(wfDescription);
         // CWF-001 D1: surface the backend's producer-first pre-sort — reorder the
@@ -980,9 +1235,19 @@ export function ComposerPage({
         // ISS-275 — everything on screen is now persisted: rebaseline so Back
         // stops warning about work that just went to the server.
         unsavedBaseline.current = null;
+        // Builder drafts: the applied draft is now persisted too.
+        setDraftDirty(false);
+        // Builder (Req 10.7): the host links the session to the saved row.
+        onBuilderSaved?.({ id: resp.id, baseIsCustom: true });
         setTimeout(() => setJustSaved(false), 1800);
       } catch (e) {
-        setSaveError((e as Error)?.message ?? "Failed to save workflow.");
+        // A 422 refusal carries its text in `detail.error` (connector grants).
+        setSaveError(saveErrorMessage(e, "Failed to save workflow."));
+        // G-34: a 409 on "Save as new" moves the pre-filled name to the next free
+        // copy ("<name> (AI) 2", then " 3"). A name the user typed is left alone.
+        if (mode === "save_as_new" && isConflictError(e)) {
+          setName((current) => nextAiCopyName(current, aiCopyStem) ?? current);
+        }
       } finally {
         isSavingRef.current = false;
         setSaving(false);
@@ -997,8 +1262,27 @@ export function ComposerPage({
       userWorkflowId,
       builtinCanvasType,
       initialManifestSteps,
+      draftSource,
+      passthroughSource,
+      aiCopyStem,
+      onBuilderSaved,
     ],
   );
+
+  // Save and "Save as new" share the name guard and the layout reset.
+  const submitSave = (mode: ComposerSaveMode) => {
+    if (!name.trim()) {
+      // The title tooltip is hover-only, so a click on an unnamed
+      // workflow used to be a silent no-op. Report it through the same
+      // saveError banner the detached-step / not-authenticated guards
+      // in handleSave already use.
+      setSaveError("Name the workflow first, then save.");
+      nameInputRef.current?.focus();
+      return;
+    }
+    setCanvasResetLayoutSignal((n) => n + 1);
+    handleSave(name.trim(), description.trim(), mode);
+  };
 
   // ── Run-once (D-05 / D-CMP-RUN — through the EXISTING launch seam, ND-AG) ─────
   // Assemble the composed run and fire it through the parent `onRun` (which maps
@@ -1014,6 +1298,9 @@ export function ComposerPage({
   // receives no override and uses the custom manifest default (streamed_text/output.md).
   const handleRunOnce = useCallback((instruction: string) => {
     if (!onRun) return;
+    // The builder gate lives here too: Cmd/Ctrl+Enter in the brief reaches this
+    // handler without going through the disabled button (Req 7.12, 9.4).
+    if (builderBlock) return;
     const trimmed = instruction.trim();
     if (!trimmed) return;
     // ISS-333 — a brand-new "Compose a custom workflow" canvas starts with
@@ -1150,7 +1437,10 @@ export function ComposerPage({
       // Workflow tab has no bearing on it. Widening it here would make a reopened
       // saved workflow launch from its stored manifest (`user_workflow_id`,
       // trust="db") and silently ignore roster edits the user had not saved yet.
-      ...(needsFullManifest(pipelineAgents, runConfig)
+      // A connector grant is the one Workflow-tab-independent reason to widen it:
+      // the flat selections map refuses it (422), so the steps must come from the
+      // manifest (`selectionsHaveConnectorGrant`).
+      ...(needsFullManifest(pipelineAgents, runConfig) || selectionsHaveConnectorGrant(selections)
         ? userWorkflowId
           // Saved: the row IS the source of truth; the backend compiles its
           // manifest_json (trust="db") and ignores agent_ids.
@@ -1240,6 +1530,7 @@ export function ComposerPage({
     ));
   }, [
     onRun,
+    builderBlock,
     pipelineAgents,
     selections,
     userWorkflowId,
@@ -1284,7 +1575,7 @@ export function ComposerPage({
   return (
     <div className="flex h-full flex-col overflow-hidden bg-surface-paper text-ink-900">
       {/* Header */}
-      <div className="flex flex-none items-center gap-3.5 border-b border-line-divider bg-surface-warm px-[34px] py-[15px]">
+      <div className="flex flex-none flex-wrap items-center gap-x-3.5 gap-y-3 border-b border-line-divider bg-surface-warm px-[34px] py-[15px]">
         <button
           type="button"
           onClick={onBack}
@@ -1293,7 +1584,7 @@ export function ComposerPage({
         >
           <ArrowLeft className="h-4 w-4" />
         </button>
-        <div className="min-w-0 flex-1">
+        <div className="min-w-[200px] flex-1">
           <p className="mb-0.5 font-sans text-[10px] font-semibold uppercase tracking-[0.15em] text-ink-300">
             {builtinCanvasType ? `${initialName || builtinCanvasType} · copy` : `${pipelineLabel} · Composer`}
           </p>
@@ -1345,6 +1636,27 @@ export function ComposerPage({
           {segBtn("canvas", "Canvas", GitBranch)}
         </div>
 
+        {/* AI Workflow Builder entry (Req 1.2). Rendered only when the host says
+            the feature is available; it stays usable while a turn runs so the
+            panel can always be reopened. */}
+        {builder?.aiButtonVisible && (
+          <button
+            type="button"
+            onClick={builder.onAiButton}
+            // A disclosure: it opens and closes the panel, which is not a dialog.
+            aria-expanded={builder.panelOpen}
+            aria-controls={builder.panelOpen ? builder.panelId : undefined}
+            className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-[10px] border px-3.5 py-2.5 font-sans text-[12.5px] font-semibold text-brand transition-colors active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand ${
+              builder.panelOpen
+                ? "border-brand bg-brand-fill"
+                : "border-brand/30 bg-brand/[0.06] hover:border-brand hover:bg-brand/10"
+            }`}
+          >
+            <Sparkles className="h-3.5 w-3.5" />
+            Build with AI
+          </button>
+        )}
+
         {/* Run + Save — the SINGLE pair of actions for the whole composer.
             Previously there were three save entry points across the header
             ("Save draft"/"Save workflow", identical no-op-different labels)
@@ -1385,12 +1697,28 @@ export function ComposerPage({
             }
             handleRunOnce(briefText);
           }}
-          disabled={!onRun || isSubmitting || briefAttachments.uploadGate.kind !== "ready"}
-          aria-describedby={briefAttachments.uploadGate.kind !== "ready" ? "composer-upload-gate" : undefined}
+          disabled={
+            !onRun ||
+            isSubmitting ||
+            builderBlock !== null ||
+            briefAttachments.uploadGate.kind !== "ready"
+          }
+          aria-describedby={
+            [
+              briefAttachments.uploadGate.kind !== "ready" ? "composer-upload-gate" : null,
+              builderBlock ? "composer-builder-note" : null,
+            ]
+              .filter(Boolean)
+              .join(" ") || undefined
+          }
           title={
             !onRun
               ? "Run wiring lands in 41-06"
-              : pipelineAgents.length === 0
+              : builderBlock === "turn_running"
+                ? BUILDER_UPDATING_MESSAGE
+                : builderBlock === "db_trust_unsaved"
+                  ? BUILDER_DB_TRUST_RUN_NOTE
+                  : pipelineAgents.length === 0
                 ? "Add at least one agent first"
                 : briefText.trim().length < 3
                   ? "Add a brief first"
@@ -1407,28 +1735,31 @@ export function ComposerPage({
           <Play className="h-3.5 w-3.5" />
           Run once
         </button>
+        {builderSaveAsNewBeside && (
+          <button
+            type="button"
+            onClick={() => submitSave("save_as_new")}
+            disabled={saving || seedUnresolved || builderTurnRunning}
+            aria-describedby={builderTurnRunning ? "composer-builder-note" : undefined}
+            className="inline-flex items-center gap-1.5 rounded-[10px] border border-line-control bg-surface-card px-3.5 py-2.5 font-sans text-[12.5px] font-semibold text-ink-700 transition-colors enabled:hover:border-line-faint enabled:hover:bg-surface-warm enabled:active:scale-[0.97] disabled:opacity-40"
+          >
+            <Save className="h-3.5 w-3.5" />
+            Save as new
+          </button>
+        )}
         <button
           type="button"
-          onClick={() => {
-            if (!name.trim()) {
-              // The title tooltip is hover-only, so a click on an unnamed
-              // workflow used to be a silent no-op. Report it through the same
-              // saveError banner the detached-step / not-authenticated guards
-              // in handleSave already use.
-              setSaveError("Name the workflow first, then save.");
-              nameInputRef.current?.focus();
-              return;
-            }
-            setCanvasResetLayoutSignal((n) => n + 1);
-            handleSave(name.trim(), description.trim());
-          }}
-          disabled={saving || seedUnresolved}
+          onClick={() => submitSave(builderSaveAsNewOnly ? "save_as_new" : "save")}
+          disabled={saving || seedUnresolved || builderTurnRunning}
+          aria-describedby={builderTurnRunning ? "composer-builder-note" : undefined}
           title={
-            !name.trim()
-              ? "Name the workflow first"
-              : seedUnresolved
-                ? "This workflow has not loaded. Reload the page to retry."
-                : undefined
+            builderTurnRunning
+              ? BUILDER_UPDATING_MESSAGE
+              : !name.trim()
+                ? "Name the workflow first"
+                : seedUnresolved
+                  ? "This workflow has not loaded. Reload the page to retry."
+                  : undefined
           }
           className={`inline-flex w-[148px] items-center justify-center gap-2 rounded-[10px] px-[18px] py-2.5 font-sans text-[12.5px] font-semibold text-surface-white transition-colors enabled:active:scale-[0.97] disabled:cursor-not-allowed ${
             justSaved ? "bg-status-done" : "bg-brand enabled:hover:bg-brand-pressed disabled:opacity-50"
@@ -1447,11 +1778,20 @@ export function ComposerPage({
           ) : (
             <>
               <Save className="h-3.5 w-3.5" />
-              {builtinCanvasType ? "Save as copy" : "Save workflow"}
+              {builderSaveAsNewOnly ? "Save as new" : builtinCanvasType ? "Save as copy" : "Save workflow"}
             </>
           )}
         </button>
       </div>
+
+      {/* Below the header: the AI Workflow Builder panel when the host passes one
+          (design §3.10.5), then the notes, the body and the save error. The panel
+          sits left of the canvas and outside the body's `inert` wrapper, so its
+          Stop control works while a builder turn runs. Without a panel the column
+          fills the row, exactly as the composer laid out before. */}
+      <div className="flex min-h-0 flex-1">
+      {builderPanel}
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
 
       {/* Why Run once is blocked by the uploads — always mounted so the live
           region announces changes; collapses to nothing while ready. */}
@@ -1463,8 +1803,22 @@ export function ComposerPage({
         {uploadGateMessage(briefAttachments.uploadGate)}
       </p>
 
-      {/* Body */}
-      <div className="min-h-0 flex-1">
+      {/* Builder notes (Req 7.12, 9.3). Mounted only while one applies; the
+          Run once and Save buttons point at it through aria-describedby. */}
+      {builderBlock && (
+        <p
+          id="composer-builder-note"
+          role="status"
+          className="flex-none px-[34px] pt-2 font-sans text-[11px] text-ink-500"
+        >
+          {builderBlock === "turn_running" ? BUILDER_UPDATING_MESSAGE : BUILDER_DB_TRUST_RUN_NOTE}
+        </p>
+      )}
+
+      {/* Body. `inert` makes the canvas, the rails and the Simple view read-only
+          while a builder turn runs: it blocks pointer and keyboard input and
+          removes focus (React 19 supports the attribute). */}
+      <div className="min-h-0 flex-1" inert={builderTurnRunning}>
         {view === "canvas" ? (
           <CanvasView
             pipelineAgents={pipelineAgents}
@@ -1501,6 +1855,7 @@ export function ComposerPage({
             briefLeftExtra={designAttachSlot}
             briefBelowExtra={designChips}
             designSummary={designSummary}
+            connectedAppsAvailability={connectedAppsAvailability}
           />
         ) : (
           <div className="h-full overflow-y-auto">
@@ -1726,8 +2081,12 @@ export function ComposerPage({
           {saveError}
         </div>
       )}
+      </div>
+      </div>
 
-      {/* Add agent (REUSE AgentLibrary) */}
+      {/* Add agent (REUSE AgentLibrary). Inert while a builder turn runs, and
+          closed so it cannot be left open and untouchable. */}
+      <div className="contents" inert={builderTurnRunning}>
       <AgentLibrary
         isOpen={addOpen}
         onClose={() => {
@@ -1752,6 +2111,7 @@ export function ComposerPage({
         // the same built-in agent be picked twice (once nested, once root).
         existingAgentIds={collectAgentIds(pipelineAgents)}
       />
+      </div>
 
       {/* Design picker — ONE surface, opened from both the Canvas Brief node
           and the Simple view's Design card. Only mounted when the workflow

@@ -508,42 +508,42 @@ flowchart LR
 
 <!-- MODULE-MAP -->
 
-37 logical modules over 1119 tracked source files. Each entry links to its
+37 logical modules over 1150 tracked source files. Each entry links to its
 architecture card, which carries an auto-generated file and import rollup. Module
 cards describe FOLDERS and carry no diagrams — for how a concern actually works,
 read the domains above.
 
-### Backend — Python (392 files)
+### Backend — Python (398 files)
 
 | Module | Path | Files |
 |---|---|---|
 | [MOD-backend-agents](architecture/MOD-backend-agents.md) | `backend/agents` | 151 |
 | [MOD-backend-alembic-versions](architecture/MOD-backend-alembic-versions.md) | `backend/alembic/versions` | 49 |
 | [MOD-backend-app-agents](architecture/MOD-backend-app-agents.md) | `backend/app/agents` | 46 |
-| [MOD-backend-app-api](architecture/MOD-backend-app-api.md) | `backend/app/api` | 34 |
-| [MOD-backend](architecture/MOD-backend.md) | `backend` | 30 |
+| [MOD-backend-app-api](architecture/MOD-backend-app-api.md) | `backend/app/api` | 35 |
+| [MOD-backend](architecture/MOD-backend.md) | `backend` | 34 |
 | [MOD-backend-app-models](architecture/MOD-backend-app-models.md) | `backend/app/models` | 27 |
 | [MOD-backend-app-core](architecture/MOD-backend-app-core.md) | `backend/app/core` | 17 |
-| [MOD-backend-scripts](architecture/MOD-backend-scripts.md) | `backend/scripts` | 12 |
+| [MOD-backend-scripts](architecture/MOD-backend-scripts.md) | `backend/scripts` | 13 |
 | [MOD-backend-app-services](architecture/MOD-backend-app-services.md) | `backend/app/services` | 10 |
 | [MOD-backend-evals](architecture/MOD-backend-evals.md) | `backend/evals` | 9 |
 | [MOD-backend-app-scripts](architecture/MOD-backend-app-scripts.md) | `backend/app/scripts` | 3 |
 | [MOD-backend-alembic](architecture/MOD-backend-alembic.md) | `backend/alembic` | 2 |
 | [MOD-backend-app](architecture/MOD-backend-app.md) | `backend/app` | 2 |
 
-### Frontend — TypeScript (727 files)
+### Frontend — TypeScript (752 files)
 
 | Module | Path | Files |
 |---|---|---|
-| [MOD-frontend-src-components-workflow](architecture/MOD-frontend-src-components-workflow.md) | `frontend/src/components/workflow` | 135 |
-| [MOD-frontend-src-lib](architecture/MOD-frontend-src-lib.md) | `frontend/src/lib` | 90 |
-| [MOD-frontend-src-app](architecture/MOD-frontend-src-app.md) | `frontend/src/app` | 76 |
-| [MOD-frontend-src-components-results](architecture/MOD-frontend-src-components-results.md) | `frontend/src/components/results` | 72 |
-| [MOD-frontend-src-components-preview](architecture/MOD-frontend-src-components-preview.md) | `frontend/src/components/preview` | 54 |
-| [MOD-frontend-src-hooks](architecture/MOD-frontend-src-hooks.md) | `frontend/src/hooks` | 54 |
-| [MOD-frontend-src](architecture/MOD-frontend-src.md) | `frontend/src` | 47 |
+| [MOD-frontend-src-components-workflow](architecture/MOD-frontend-src-components-workflow.md) | `frontend/src/components/workflow` | 139 |
+| [MOD-frontend-src-lib](architecture/MOD-frontend-src-lib.md) | `frontend/src/lib` | 98 |
+| [MOD-frontend-src-app](architecture/MOD-frontend-src-app.md) | `frontend/src/app` | 77 |
+| [MOD-frontend-src-components-results](architecture/MOD-frontend-src-components-results.md) | `frontend/src/components/results` | 73 |
+| [MOD-frontend-src-hooks](architecture/MOD-frontend-src-hooks.md) | `frontend/src/hooks` | 57 |
+| [MOD-frontend-src-components-preview](architecture/MOD-frontend-src-components-preview.md) | `frontend/src/components/preview` | 56 |
+| [MOD-frontend-src](architecture/MOD-frontend-src.md) | `frontend/src` | 49 |
 | [MOD-frontend-src-components-chat](architecture/MOD-frontend-src-components-chat.md) | `frontend/src/components/chat` | 40 |
-| [MOD-frontend-src-components-layout](architecture/MOD-frontend-src-components-layout.md) | `frontend/src/components/layout` | 27 |
+| [MOD-frontend-src-components-layout](architecture/MOD-frontend-src-components-layout.md) | `frontend/src/components/layout` | 30 |
 | [MOD-frontend-src-components-history](architecture/MOD-frontend-src-components-history.md) | `frontend/src/components/history` | 24 |
 | [MOD-frontend-src-components-ui](architecture/MOD-frontend-src-components-ui.md) | `frontend/src/components/ui` | 19 |
 | [MOD-frontend-src-components-settings](architecture/MOD-frontend-src-components-settings.md) | `frontend/src/components/settings` | 15 |
@@ -556,8 +556,8 @@ read the domains above.
 | [MOD-frontend-src-providers](architecture/MOD-frontend-src-providers.md) | `frontend/src/providers` | 5 |
 | [MOD-frontend-src-components-sidebar](architecture/MOD-frontend-src-components-sidebar.md) | `frontend/src/components/sidebar` | 4 |
 | [MOD-frontend-src-styles](architecture/MOD-frontend-src-styles.md) | `frontend/src/styles` | 3 |
+| [MOD-frontend-src-types](architecture/MOD-frontend-src-types.md) | `frontend/src/types` | 3 |
 | [MOD-frontend-src-components-home](architecture/MOD-frontend-src-components-home.md) | `frontend/src/components/home` | 2 |
-| [MOD-frontend-src-types](architecture/MOD-frontend-src-types.md) | `frontend/src/types` | 2 |
 | [MOD-frontend-src-context](architecture/MOD-frontend-src-context.md) | `frontend/src/context` | 1 |
 
 <!-- /MODULE-MAP -->

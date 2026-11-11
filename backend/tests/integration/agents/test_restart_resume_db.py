@@ -4660,6 +4660,89 @@ async def test_restart_resume_fires_output_persist_hook(monkeypatch):
     session.close()
 
 
+async def _leave_run_in_flight(session, db_engine, run_id, owner):
+    """Seed a ``generating`` run and let instance A die partway (its second fan-out raises)."""
+    _seed_workflow_run(session, run_id, owner=owner, status="generating")
+    with _ResumeHarness(
+        session, {}, fail_on=set(), db_engine=db_engine, raise_on_fanout_call=2
+    ) as h:
+        engine_a = h.make_engine()
+        try:
+            async for _ev in engine_a._execute_impl(
+                agents=list(h.specs),
+                user_message="Run the wave workflow.",
+                pipeline_run_id=run_id,
+                pipeline_type=_FIXTURE_ID,
+                user_id=owner,
+                gate_agent_ids=[],
+            ):
+                pass
+        except Exception:
+            pass
+
+
+async def _resume_capturing_execute_impl(session, db_engine, run_id, *, armed_binder):
+    """Resume ``run_id`` on a fresh engine and return the kwargs ``_execute_impl`` received."""
+    captured: list[dict] = []
+
+    async def _capture_execute_impl(**kwargs):
+        captured.append(kwargs)
+        for _ in ():
+            yield {}
+
+    with _ResumeHarness(session, {}, fail_on=set(), db_engine=db_engine) as h:
+        engine_b = h.make_engine()
+        engine_b._resume_run_tool_binder = armed_binder
+        engine_b._execute_impl = _capture_execute_impl  # type: ignore[assignment]
+        await engine_b.resume_run(run_id)
+    return captured
+
+
+@pytest.mark.asyncio
+async def test_resume_run_passes_armed_run_tool_binder_when_resumed():
+    """Connectors 8b-2: a restart auto-resume binds connector tools through the binder the app
+    arms on the restore engine, for the WorkflowRun row's ``user_id``. The row's ``owner_id``
+    is set to a different id, so the test also pins that ``user_id`` (the authz key) is the
+    value handed to the binder."""
+    from app.models.workflow import WorkflowRun
+
+    session, db_engine = _make_session()
+    run_id = f"rtb-{uuid.uuid4().hex[:8]}"
+    owner = "rtb-user"
+    await _leave_run_in_flight(session, db_engine, run_id, owner)
+    session.query(WorkflowRun).filter(WorkflowRun.id == run_id).update(
+        {"owner_id": "rtb-other-owner"}
+    )
+    session.commit()
+    binder = object()
+
+    captured = await _resume_capturing_execute_impl(
+        session, db_engine, run_id, armed_binder=binder
+    )
+
+    assert len(captured) == 1, f"resume must reach _execute_impl once: {captured}"
+    assert captured[0]["run_tool_binder"] is binder
+    assert captured[0]["user_id"] == owner
+    session.close()
+
+
+@pytest.mark.asyncio
+async def test_resume_run_passes_none_binder_when_not_armed():
+    """Connectors 8b-2: a restore engine that was never armed resumes the run with no
+    binder, so the resumed run has no connector tools (the engine default)."""
+    session, db_engine = _make_session()
+    run_id = f"rtn-{uuid.uuid4().hex[:8]}"
+    await _leave_run_in_flight(session, db_engine, run_id, "rtn-user")
+
+    captured = await _resume_capturing_execute_impl(
+        session, db_engine, run_id, armed_binder=None
+    )
+
+    assert len(captured) == 1, f"resume must reach _execute_impl once: {captured}"
+    assert captured[0]["run_tool_binder"] is None
+    session.close()
+
+
 # ===========================================================================
 # BUG-2 Cond A (quick-260720-ec4) — Stop cancels a run parked at CLARIFY
 # ===========================================================================

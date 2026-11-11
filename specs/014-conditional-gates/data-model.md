@@ -10,8 +10,8 @@ One possible destination a conditional gate can send execution to, for one condi
 
 | Field | Type | Notes |
 |---|---|---|
-| `trigger` | `str` | `"step"` (in-workflow cursor jump) or `"workflow"` (cross-workflow trigger) — R-05b |
-| `target` | `str` | `trigger="step"`: a step id in the SAME compiled workflow, compile-time validated (R-10). `trigger="workflow"`: a saved `user_workflow_id`, or the literal `"self"`, compile-time validated (R-10) |
+| `trigger` | `str` | `"step"` (in-workflow cursor jump), `"workflow"` (cross-workflow trigger) or `"end"` (finish this run successfully at the gating step) — R-05b |
+| `target` | `str` | `trigger="step"`: a step id in the SAME compiled workflow, compile-time validated (R-10). `trigger="workflow"`: a saved `user_workflow_id`, or the literal `"self"`, compile-time validated (R-10). `trigger="end"`: none (`""`); the compiler rejects a non-empty target or a `feedback` |
 
 **v1 constraint (R-04)**: single target only — not yet `list[str]`. Widening later is additive,
 not a breaking migration (the field stays named `target`, the type widens).
@@ -26,7 +26,7 @@ either direction).
 |---|---|---|---|
 | `condition_agent` | `str \| None` | `None` | `None` = this step's own artifact (R-05). May name an EARLIER step, including one whose gate is `human` — reads that gate's captured response the same way. |
 | `outcomes` | `dict[str, RouteOutcome]` | `{}` | condition value → destination. Compile-time validated: every value must declare a valid `trigger`/`target` pair (R-10), and the decision source must declare `produces: ["route_decision"]` (R-27). |
-| `default_next` | `str \| None` | `None` | Step id fallback when no `outcomes` key matches the resolved decision value. `None` = the run terminates at this step (Option 2 shape, R-13 — applies identically whether the "no match" case or an explicit `trigger: "workflow"` outcome is what stops the run). |
+| `default_next` | `str \| None` | `None` | Step id fallback when no `outcomes` key matches the resolved decision value. `None` = the "no match" case FAILS the run closed (`pipeline_failed`, ISS-170; R-13 stop-and-hand-off shape). An explicit `trigger: "workflow"` outcome stops the run as `diverted`; an explicit `trigger: "end"` outcome finishes it successfully. |
 | `loop_max_iterations` | `int` | `5` | Cap on revisits to any ONE `trigger: "step"` target reached via a backward jump (R-07). Enforced per-run via `ExecutionContext.step_visit_counts`. |
 | `trigger_max_depth` | `int` | `5` | Cap on `parent_run_id` chain depth for `trigger: "workflow"` outcomes (R-18). **Fixed at exactly 5 in v1** (R-19, clarified) — the compiler REJECTS any other declared value; the field exists so a future spec can widen the ceiling without a schema/dataclass change. |
 

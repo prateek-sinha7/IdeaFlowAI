@@ -1,7 +1,7 @@
 {
   "lock_format_version": 1,
   "_comment": "Fingerprints of released Alembic revisions. A mismatch means an already-applied migration was edited, which can never reach a database that is already stamped past it. Regenerate ONLY when adding a new revision: python scripts/migration_guard.py --update",
-  "generated_at": "2026-09-23T10:34:57Z",
+  "generated_at": "2026-11-08T17:40:23Z",
   "revisions": {
     "0001": {
       "file": "0001_initial_schema.py",
@@ -198,6 +198,18 @@
     "0050": {
       "file": "0050_run_manifest_json.py",
       "logic_sha256": "53dd21a202e7bf16799b822945957530e2002517bea894158cf885605beee124"
+    },
+    "0051": {
+      "file": "0051_workflow_builder.py",
+      "logic_sha256": "7f76eaa0828661337e0b234e10edaa33908f79ddfc31d767a84b345e51162976"
+    },
+    "0052": {
+      "file": "0052_drop_mcp_credentials.py",
+      "logic_sha256": "3943c39e389c26981515330525588c0b63555d72ade60b413f5e240254b5ae96"
+    },
+    "0053": {
+      "file": "0053_connectors.py",
+      "logic_sha256": "99c5c7d717d79d58d4ba02a8e14f7ea0b8c7ff3ab3ac896e97d32181261f8cd1"
     }
   },
   "last_override_reason": "Revisions 0041-0050 shipped unguarded DDL and failed the idempotency ratchet (test_migration_idempotency.py::test_new_migrations_are_reappliable), which installs at 0038. Re-applying any of them against a database holding their objects raised DuplicateColumn/DuplicateTable (0042: CircularDependencyError, from three adds in one batch_alter_table forcing a SQLite table rebuild); docker-entrypoint.sh runs `alembic upgrade head` under `set -eu`, so that crash-loops the container instead of failing a deploy step. upgrade() now routes through migration_helpers add_column_if_missing / create_table_if_missing / create_index_if_missing. Re-pinning rather than adding a forward revision because a forward revision cannot make 0041-0050 themselves re-appliable. The edit is semantics-preserving and cannot cause the divergence this guard exists to prevent: a database stamped at or past a revision never executes it again, and for one stamped below, the guarded form produces an identical end schema (same column order, same indexes) in every case where the original succeeded - only the branch that previously raised changed. downgrade() left untouched."

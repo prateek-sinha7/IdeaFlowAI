@@ -122,14 +122,14 @@ describe("AppHeader — profile menu a11y", () => {
     await user.click(screen.getByRole("button", { name: /account menu/i }));
     const menu = screen.getByRole("menu");
     const items = within(menu).getAllByRole("menuitem");
-    // Account Settings / Analytics / Run History / Dark mode / Log out — for a
-    // NON-admin user (Admin Dashboard is isAdmin-gated and has its own cases
-    // above).
-    // "Dark mode" is the theme toggle; it lives in this menu as a menuitem too.
-    // The standalone "Security" item was removed from this menu; the MFA
-    // controls remain reachable as a tab inside Account Settings.
-    // Account Settings / Analytics / Run History / Dark mode / Log out
-    expect(items).toHaveLength(5);
+    // Account Settings / Analytics / Connectors / Run History (non-admin only;
+    // Admin Dashboard is isAdmin-gated and has its own cases above), then the
+    // Dark mode toggle and Log out. The standalone "Security" item is not in
+    // this menu; MFA controls live in Account Settings.
+    expect(items).toHaveLength(6);
+    expect(
+      within(menu).getByRole("menuitem", { name: /connectors/i }),
+    ).toBeInTheDocument();
     expect(
       within(menu).getByRole("menuitem", { name: /account settings/i }),
     ).toBeInTheDocument();

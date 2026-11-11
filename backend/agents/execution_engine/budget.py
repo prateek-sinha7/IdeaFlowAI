@@ -111,8 +111,8 @@ class BudgetManager:
             if limits is not None and limits.max_tokens is not None
             else None
         )
-        # Concurrency is not a Limits field (it is engine-enforced at min(declared, 4));
-        # the manager carries the default cap so run_fanout can read + enforce it uniformly.
+        # Concurrency is not a Limits field (it is engine-enforced at
+        # min(declared, DEFAULT_MAX_CONCURRENCY)); the manager carries the default cap so run_fanout can read + enforce it uniformly.
         self.max_concurrency = DEFAULT_MAX_CONCURRENCY
         # The per-workspace aggregate ceiling (OBS-01). None ⇒ unset (no UI; the
         # WORKSPACE_BUDGET settings seam supplies it). When set, reserve refuses once

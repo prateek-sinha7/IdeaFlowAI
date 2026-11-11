@@ -18,6 +18,8 @@ POST /api/auth/login  # issues the first credential; nothing to authenticate wit
 POST /api/auth/login/challenge  # continues an in-flight login, authorised by the Cognito-issued session token in the body
 POST /api/auth/forgot-password  # pre-credential recovery start; answers uniformly to avoid account enumeration
 POST /api/auth/forgot-password/confirm  # completes recovery; the emailed code is the proof of possession
+# --- Connectors OAuth redirect target -----------------------------------------
+GET /api/connectors/oauth/callback  # OAuth redirect target: a provider's browser redirect cannot carry the bearer; the single-use, hashed, 10-minute state row bound to the initiating user_id is the credential, and it can only link the initiator's own account; responds 303 with no-store and no-referrer
 
 # --- Public share link (ADR-0035) -------------------------------------------
 GET /s/{token}  # ADR-0035 share link: the opaque 30-day token is the credential; serves the deliverable only, 404 on a missing or expired token

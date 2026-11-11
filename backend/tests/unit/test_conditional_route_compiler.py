@@ -131,3 +131,75 @@ def test_route_trigger_max_depth_10_raises_compiler_error():
 
     msg = str(exc.value)
     assert "trigger_max_depth" in msg
+
+
+# ── trigger: end — the explicit "finish the run here" outcome ─────────────────
+
+
+def _loop_manifest_with_outcomes(outcomes: dict) -> WorkflowManifest:
+    """A draft → review loop whose review route carries ``outcomes``."""
+    draft: dict = {"agent": "draft-agent", "strategy": "single_shot"}
+    review: dict = {
+        "agent": "review-agent",
+        "strategy": "single_shot",
+        "produces": ["route_decision"],
+        "gates": ["conditional"],
+        "route": {"outcomes": outcomes},
+    }
+    return WorkflowManifest(
+        id="conditional-end-test",
+        steps=[draft, review],
+        deliverable={},
+        planner="run",
+        clarify={"mode": "auto", "defaults": []},
+        context_providers=[],
+        seed_files={},
+        version=1,
+    )
+
+
+def test_route_end_outcome_compiles_with_no_target():
+    """A loop's exit decision is declared as ``{"trigger": "end"}`` — no target needed."""
+    manifest = _loop_manifest_with_outcomes(
+        {
+            "pass": {"trigger": "end"},
+            "revise": {"trigger": "step", "target": "draft-agent"},
+        }
+    )
+    compiled = WorkflowCompiler().compile(manifest, CapabilityRegistry())
+    outcomes = compiled.steps[1].route.outcomes
+    assert outcomes["pass"].trigger == "end"
+    assert outcomes["pass"].target == ""
+    assert outcomes["revise"].trigger == "step"
+
+
+def test_route_end_outcome_accepts_the_empty_target_the_canvas_draft_carries():
+    """The composer canvas keeps ``target: ""`` on a draft outcome; ``end`` must accept it."""
+    manifest = _loop_manifest_with_outcomes(
+        {
+            "pass": {"trigger": "end", "target": ""},
+            "revise": {"trigger": "step", "target": "draft-agent"},
+        }
+    )
+    compiled = WorkflowCompiler().compile(manifest, CapabilityRegistry())
+    assert compiled.steps[1].route.outcomes["pass"].trigger == "end"
+
+
+@pytest.mark.parametrize("inert_key", ["target", "feedback"])
+def test_route_end_outcome_rejects_target_and_feedback(inert_key):
+    """``end`` finishes the run: a target or feedback would silently do nothing."""
+    manifest = _loop_manifest_with_outcomes(
+        {"pass": {"trigger": "end", inert_key: "draft-agent"}}
+    )
+    with pytest.raises(CompilerError) as exc:
+        WorkflowCompiler().compile(manifest, CapabilityRegistry())
+    assert "'end'" in str(exc.value)
+    assert inert_key in str(exc.value)
+
+
+def test_route_unknown_trigger_names_all_three_valid_triggers():
+    manifest = _loop_manifest_with_outcomes({"pass": {"trigger": "stop"}})
+    with pytest.raises(CompilerError) as exc:
+        WorkflowCompiler().compile(manifest, CapabilityRegistry())
+    message = str(exc.value)
+    assert "'step'" in message and "'workflow'" in message and "'end'" in message

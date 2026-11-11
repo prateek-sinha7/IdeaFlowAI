@@ -328,14 +328,15 @@ describe("CanvasConfigRail — sub-agent strategy selector (R-04/R-36)", () => {
     expect(onStrategyChange).toHaveBeenCalledWith("parent-1", "parallel", undefined);
   });
 
-  it("max-parallel stepper increments via onStrategyChange, defaulting the base to 3", async () => {
+  it("max-parallel stepper increments via onStrategyChange, defaulting the base to the runtime cap", async () => {
     const onStrategyChange = vi.fn();
     const parallelParent = { ...withChildren, strategy: "parallel" as const };
     renderRail({ agent: parallelParent, index: 0, priorAgents: [], onStrategyChange });
     await openTab(/config/i);
     await screen.findByLabelText(/^Model$/i);
     await userEvent.click(screen.getByRole("button", { name: /increase max parallel/i }));
-    expect(onStrategyChange).toHaveBeenCalledWith("parent-1", "parallel", 4);
+    // A group without max_parallel runs at the runtime cap of 5 (DEFAULT_MAX_CONCURRENCY).
+    expect(onStrategyChange).toHaveBeenCalledWith("parent-1", "parallel", 6);
   });
 });
 

@@ -335,6 +335,20 @@ COPY skills/global/ ./builtin-skills/global/
 COPY hooks/global/ ./hooks/global/
 # Shipped PPT reference docs (app/agents/skills.py PPTX_SKILLS_DIR = <backend>/pptx).
 COPY pptx/ ./pptx/
+# AI workflow builder skill: app/agents/workflow_builder/skills/velocity-workflow-creator/
+# (the source of truth) arrives with `COPY app/` above, so it needs no COPY of its
+# own and no ENV (app/agents/workflow_builder/skill_package.py finds it next to
+# itself). It is deliberately NOT under GLOBAL_SKILLS_ROOT, so the Skills library
+# never lists it as a step skill.
+# Fail the BUILD when the skill's Markdown or the builder's system prompt did not
+# reach the image: the .dockerignore `*.md` rule drops them unless the re-includes
+# for app/agents/workflow_builder/skills/** and .../prompts/*.md work.
+RUN for f in SKILL.md docs/problem-decomposition.md docs/quick-reference.md \
+        docs/prompt-writing.md scripts/validate_manifest.py; do \
+        test -f "/app/app/agents/workflow_builder/skills/velocity-workflow-creator/$f" \
+            || exit 1; \
+    done \
+    && test -f /app/app/agents/workflow_builder/prompts/system_prompt.v1.md
 # Fail the BUILD, not a user's run, if any tree the runtime reads is missing,
 # including the OpenDesign files the pptx tools resolve under OD_ROOT.
 RUN test -n "$(find "$GLOBAL_SKILLS_ROOT" -mindepth 2 -maxdepth 2 -name SKILL.md -print -quit)" \

@@ -447,8 +447,8 @@ class TestV2EventTypesAreEmittedByTheirProducers:
         """``ChainContextProvider`` emits it when an admitted chain has no payload.
 
         Drives the real provider: ``chains_from`` declared, a source run id set,
-        ``chain_selection`` None (admitted under ``chain_policy: degrade`` with no
-        payload) — the branch at ``chain_context.py:176-189``.
+        ``chain_selection`` None (no validated payload reached the run) — the
+        ``selection is None`` branch of ``ChainContextProvider.load``.
         """
         from agents.capabilities.context_providers.chain_context import (
             ChainContextProvider,
@@ -462,7 +462,7 @@ class TestV2EventTypesAreEmittedByTheirProducers:
             compiled_plan=_types.SimpleNamespace(
                 deliverable=_types.SimpleNamespace(
                     chains_from=True,
-                    chain_policy="degrade",
+                    chain_policy="refuse",
                 ),
             ),
             chain_source_run_id=source_run_id,

@@ -9,8 +9,11 @@ single-source-grep (INV-12) assertions.
 from __future__ import annotations
 
 import re
+import subprocess
 import sys
 from pathlib import Path
+
+import pytest
 
 from agents.capabilities.model_catalog import (
     REASONING_EFFORT_LEVELS,
@@ -153,19 +156,32 @@ def test_all_entries_user_allowed() -> None:
 # --- Test 6: kernel purity (no app.* import) --------------------------------
 
 
+@pytest.mark.allow_io(
+    "the assertion IS what a fresh interpreter loads on `import agents.capabilities."
+    "model_catalog`; this process already holds app.* modules from other tests"
+)
 def test_catalog_is_kernel_pure() -> None:
     import agents.capabilities.model_catalog as module
 
     src = Path(module.__file__).read_text(encoding="utf-8")
     # No app.* import anywhere in the module source.
     assert not re.search(r"^\s*(from|import)\s+app(\.|\s|$)", src, re.MULTILINE)
-    # And the imported module graph carries no app.* dependency pulled by it.
-    assert "app" not in {
-        name.split(".")[0]
-        for name in sys.modules
-        if name.startswith("app.")
-        and "model_catalog" in repr(sys.modules.get(name, ""))
-    }
+    # And importing it in a fresh interpreter loads no app.* module. A subprocess is
+    # used because this process may already hold app.* modules from other tests.
+    probe = (
+        "import sys, agents.capabilities.model_catalog; "
+        "print([m for m in sys.modules if m == 'app' or m.startswith('app.')])"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", probe],
+        cwd=Path(module.__file__).resolve().parents[2],
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "[]"
 
 
 # --- Task 2: AVAILABLE_MODELS is a projection over the catalog (INV-12) ------

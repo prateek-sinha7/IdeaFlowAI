@@ -53,10 +53,23 @@ from agents.workflows.plan import (
 from agents.workflows.permission_caps import (
     ALLOWED_GRANT_KEYS,
     apply_cap,
+    connector_grants_permitted,
     parse_grant,
 )
 
 logger = logging.getLogger(__name__)
+
+#: Connected-app grant rules (design 5.5). The bound-name shape mirrors
+#: ``app.connectors.tools.names``, which the kernel layers may not import.
+_MAX_CONNECTOR_GRANTS = 64
+_MAX_CONNECTOR_TOOL_NAME = 64
+_CONNECTOR_TOOL_NAME_RE = re.compile(
+    r"^([a-z][a-z0-9]{1,31})__([A-Za-z0-9][A-Za-z0-9_-]*)$"
+)
+CONNECTOR_PREDEFINED_MESSAGE = (
+    "predefined workflows cannot use connected apps; "
+    "save the workflow as your own to use them"
+)
 
 
 class CompilerError(Exception):
@@ -68,6 +81,12 @@ class CompilerError(Exception):
     """
 
 
+class ConnectorGrantsNotAllowed(CompilerError):
+    """A predefined workflow (``file``/``builtin`` manifest or an override row) names
+    ``tools.connectors``. A subclass so the save/launch doors can answer with the
+    stable ``connector_grants_not_allowed`` code instead of a generic compile error."""
+
+
 # ---------------------------------------------------------------------------
 # Strict step-level key allow-list (D-08 / INV-5)
 # ---------------------------------------------------------------------------
@@ -77,11 +96,11 @@ class CompilerError(Exception):
 # must hold at EVERY level, not just the top (D-08). A control-flow / DSL field
 # (``when:`` / ``if:`` / ``for:`` / ``${...}`` …) at step level has nowhere to
 # live and is rejected by name. The first six keys are the ones authored across
-# the 15 in-repo workflow.yaml manifests today; the remainder is the inert
+# the 39 in-repo workflow.yaml manifests today; the remainder is the inert
 # forward surface (declared now, consumed Phase 6/7).
 _ALLOWED_STEP_KEYS: frozenset[str] = frozenset(
     {
-        # consumed in Phase 4 (authored in the 15 manifests)
+        # consumed in Phase 4 (authored across the in-repo manifests)
         "agent",
         "strategy",
         "mechanical",  # A10 — the no-model step kind (plan.py:Step.mechanical)
@@ -196,6 +215,11 @@ _ALLOWED_ROUTE_KEYS: frozenset[str] = frozenset(
 # kernel decides when it applies.
 _ALLOWED_OUTCOME_KEYS: frozenset[str] = frozenset({"trigger", "target", "feedback"})
 
+# The ``trigger`` values an outcome may declare. ``step`` jumps inside this run,
+# ``workflow`` hands off to a child run, ``end`` finishes this run successfully at the
+# gating step (a decision that leaves a loop). Pure data (INV-5).
+_ALLOWED_OUTCOME_TRIGGERS: tuple[str, ...] = ("step", "workflow", "end")
+
 # EXACTLY the §13 on_conflict policy set a step may declare (FANOUT-08). The kernel
 # ``_resolve_conflict`` dispatches on these four; an unknown policy is rejected at
 # compile time (fail-loud) rather than silently falling back to human_gate.
@@ -228,26 +252,22 @@ _ALLOWED_TOOLS_KEYS: frozenset[str] = ALLOWED_GRANT_KEYS
 # Manifest trust context (CAP-03 / D-02)
 # ---------------------------------------------------------------------------
 
-# The trust levels a manifest source carries (ADR-0054, narrowing ADR-0039):
+# The trust levels a manifest source carries (ADR-0039; ADR-0054's narrowing of
+# ``db`` is superseded):
 #
-#   * ``file`` / ``builtin`` — FULLY TRUSTED (engineer-authored, version-
-#     controlled): may reference any registered capability and grant exec.
-#   * ``db`` — a SAVED workflow (Composer row / saved step override). Gets the
-#     BUDGET half of trust only: it may raise ``limits`` up to
-#     ``_LIMITS_SAVED_CEILING`` and grant ``spawn_subagents``. It may NOT grant
-#     exec/network/secrets, declare the security/approval gates, bind the
-#     powerful MCP servers, or reference any ``user_allowed=False`` capability
-#     unless that capability opted in with ``saved_workflow_allowed=True``.
-#   * ``user`` (or anything unknown) — UNTRUSTED: ``user_allowed`` only.
+#   * ``file`` / ``builtin`` / ``db`` — FULLY TRUSTED: may reference any registered
+#     capability, grant exec, raise ``limits`` and declare the engineer-only gates.
+#     ``file``/``builtin`` are the shipped, version-controlled manifests. ``db`` is a
+#     saved Composer row; the caller's tier decides who gets it, see below.
+#   * ``user`` (or anything unknown) — UNTRUSTED: ``user_allowed`` only. Inline launch
+#     manifests and step overrides compile at ``user``.
 #
-# ADR-0039 had put ``db`` in the fully-trusted set to unblock Limits; because
-# budget and permissions shared one flag that also handed saved rows exec.
-# ADR-0039 is kept (owner decision 2026-10-12): "db" is fully trusted, so file-based
-# and saved (Composer / override) workflows get equal access. Who may SAVE a db-trust
-# row is gated by tier (QA-KB-126 _saved_row_trust / _parent_run_trust; override rows
-# compile at "user", ISS-1113). ADR-0054's saved-trust narrowing (75c58275c, status
-# "proposed") is superseded: its _SAVED_TRUST branches below only apply if "db" is
-# ever removed from this set again.
+# Who gets ``db``: ``app.api.run_engine._saved_row_trust`` returns ``db`` for a saved
+# row only when the caller's tier may run the enterprise ``custom`` (Composer) pipeline,
+# else ``user``; ``_parent_run_trust`` applies the same rule on resume (QA-KB-126,
+# ISS-1114). Override rows compile at ``user`` (ISS-1113). ADR-0054's saved-trust
+# narrowing (status "proposed") is superseded: the ``_SAVED_TRUST`` branches below only
+# apply if ``db`` is ever removed from ``_TRUSTED_SOURCES`` again.
 _TRUSTED_SOURCES: frozenset[str] = frozenset({"file", "builtin", "db"})
 _SAVED_TRUST: str = "db"
 
@@ -264,8 +284,9 @@ _SAVED_TRUST: str = "db"
 # the STATIC compile-time gate — a file/builtin manifest may RAISE a Limits cap above the
 # ceiling (engineer-authored, trusted), but a user/db manifest may only LOWER (it may not
 # raise a cap above the default ceiling — the 08-03 AGENT.md-only-lowers + 10-02 ceiling
-# precedent). The runtime concurrency clamp (min(declared, 4) in run_fanout) is the
-# backstop; THIS is the static gate.
+# precedent). The runtime concurrency clamp (min(declared, DEFAULT_MAX_CONCURRENCY=5)
+# in run_fanout) is the backstop; THIS is the static gate. Note that ``db`` is a
+# trusted source today (see ``_TRUSTED_SOURCES``), so this gate binds ``user`` only.
 _LIMITS_DEFAULT_CEILING: dict[str, int] = {
     "max_subagents": 8,
     "max_depth": 2,
@@ -345,10 +366,10 @@ class WorkflowCompiler:
     ) -> CompiledWorkflow:
         """Compile ``manifest`` into a typed, validated ``CompiledWorkflow``.
 
-        ``trust`` is the manifest's source/trust context (CAP-03 / D-02): ``file``
-        or ``builtin`` are TRUSTED (the default — the 15 file-backed manifests
-        compile unrestricted, so Phase-4/7 parity holds); ``user`` or ``db`` are
-        UNTRUSTED — every declared capability reference is additionally checked
+        ``trust`` is the manifest's source/trust context (CAP-03 / D-02): ``file``,
+        ``builtin`` or ``db`` are TRUSTED (the default is ``file`` — the 39 file-backed
+        manifests compile unrestricted, so Phase-4/7 parity holds); ``user`` (or any
+        unknown value) is UNTRUSTED — every declared capability reference is additionally checked
         against the registry's ``user_allowed`` flag, and a not-user-allowed
         reference is a ``CompilerError`` NAMING the offending ``(kind, name)``.
 
@@ -402,9 +423,9 @@ class WorkflowCompiler:
         # ── Trust-conditional Limits materialization (FANOUT-09 / OBS-01) ─────
         # The formerly declared-but-inert ``manifest.limits`` is now materialized into
         # a typed ``Limits`` on the CompiledWorkflow (consumed by the run-entry
-        # BudgetManager.from_limits). Under a TRUSTED (file/builtin) manifest a Limits
-        # cap may RAISE above the default ceiling; under an UNTRUSTED (user/db) manifest
-        # a cap that RAISES any ceiling is a CompilerError naming the dimension (user/db
+        # BudgetManager.from_limits). Under a TRUSTED (file/builtin/db) manifest a Limits
+        # cap may RAISE above the default ceiling; under an UNTRUSTED (user) manifest
+        # a cap that RAISES any ceiling is a CompilerError naming the dimension (user
         # may only LOWER — the 08-03/10-02 precedent).
         limits = self._compile_limits(
             getattr(manifest, "limits", None), trusted, where, trust=trust
@@ -429,6 +450,9 @@ class WorkflowCompiler:
 
         # ── Conditional-route target resolution guard (spec 014 / R-10/R-27) ──
         self._validate_route_targets(steps)
+
+        # ── Loop-back route must have an exit (run a57f82ce) ──────────────────
+        self._validate_route_has_exit(steps)
 
         # ── Leaf computation (spec 014 / R-26) ─────────────────────────────────
         self._compute_is_leaf(steps)
@@ -470,6 +494,14 @@ class WorkflowCompiler:
             # control-flow keys off it (the run Concierge reads it via getattr). A
             # manifest without the key ⇒ {} (parity — the 5 goldens are untouched).
             chat=dict(getattr(manifest, "chat", {}) or {}),
+            # Spec 012 / R-07: carry the manifest's optional capabilities block
+            # ({"internet": bool}) verbatim. Pure data pass-through (INV-5) — the engine
+            # threads it into AgentContext.capabilities and the factory binds the
+            # internet tools off it. Absent ⇒ {} (parity for manifests without it).
+            capabilities=dict(getattr(manifest, "capabilities", {}) or {}),
+            # Connected-app grants are admitted only for user-authored trust
+            # (db/user); overrides.compile_with_baseline clears it for override rows.
+            admits_connector_grants=connector_grants_permitted(trust),
             # P27 E6: self-healing knobs (None when the manifest has no block).
             resilience=getattr(manifest, "resilience", None),
         )
@@ -487,10 +519,10 @@ class WorkflowCompiler:
         manifest is untouched). A declared block coerces each value onto the ``Limits``
         slot.
 
-        Trust rule (the static budget ceiling gate): under a TRUSTED (file/builtin)
+        Trust rule (the static budget ceiling gate): under a TRUSTED (file/builtin/db)
         manifest a cap may RAISE above ``_LIMITS_DEFAULT_CEILING`` (engineer-authored).
-        Under an UNTRUSTED (user/db) manifest a cap that RAISES any ceiling is a
-        ``CompilerError`` NAMING the offending dimension — a user/db manifest may only
+        Under an UNTRUSTED (user) manifest a cap that RAISES any ceiling is a
+        ``CompilerError`` NAMING the offending dimension — a user manifest may only
         LOWER a cap (08-03 AGENT.md-only-lowers + 10-02 ceiling precedent). ``max_tokens``
         is omitted from the raise-rejection set (it has no module-constant ceiling; a
         user/db manifest declaring it only constrains itself).
@@ -1075,6 +1107,9 @@ class WorkflowCompiler:
         # MCP-03 / MCP-04: validate + gate each declared ``tools.mcp`` server.tool
         # reference at the SAME per-reference site as is_registered (no forked path).
         self._validate_mcp_grant(step_grant, gates, registry, trusted, where)
+        # Connected apps (design 5.5 layer 1): user-authored trust only, names checked
+        # against the connector catalog; the grant is de-duplicated in place.
+        self._validate_connector_grant(step_grant, trust, where)
 
         # ── GRANT-PATH (EXEC-01) — trust-conditional privileged-grant rules ──
         # exec/network/secrets are ENGINEER-ONLY (file/builtin trust). A user/db
@@ -1413,9 +1448,9 @@ class WorkflowCompiler:
         gate). A declared block strict-key rejects any non-route field (INV-5; a
         control-flow/DSL field has nowhere to live) and coerces each value onto the
         RouteSpec slot. Each ``outcomes`` entry strict-key rejects any non-outcome
-        field, validates ``trigger`` is exactly ``"step"`` or ``"workflow"``, and
-        validates ``target`` is a non-empty string — building a typed ``RouteOutcome``
-        per entry. ``trigger_max_depth`` is fixed at ``5`` in v1 (R-19, clarified): a
+        field, validates ``trigger`` is exactly ``"step"``, ``"workflow"`` or ``"end"``,
+        and validates ``target`` is a non-empty string (``end`` takes no target and no
+        feedback) — building a typed ``RouteOutcome`` per entry. ``trigger_max_depth`` is fixed at ``5`` in v1 (R-19, clarified): a
         declared value other than ``5`` is rejected here (the field's own default is
         already ``5``, so an author omitting the key is unaffected). The compiler only
         RECORDS the declaration — the condition evaluation / dispatch control flow
@@ -1456,12 +1491,26 @@ class WorkflowCompiler:
                     f"has nowhere to live (INV-5)"
                 )
             trigger = raw_outcome.get("trigger")
-            if trigger not in ("step", "workflow"):
+            if trigger not in _ALLOWED_OUTCOME_TRIGGERS:
                 raise CompilerError(
                     f"route outcome {outcome_key!r} in {where} has invalid "
-                    f"trigger {trigger!r} — must be exactly 'step' or 'workflow' "
-                    f"(R-05b)"
+                    f"trigger {trigger!r} — must be exactly 'step', 'workflow' "
+                    f"or 'end' (R-05b)"
                 )
+            if trigger == "end":
+                # ``end`` finishes THIS run at the gating step. It names no
+                # destination and carries no retry guidance, so a target/feedback
+                # here is an authoring mistake (the author expects it to do
+                # something) — reject it rather than silently ignore it.
+                for _inert in ("target", "feedback"):
+                    if raw_outcome.get(_inert) not in (None, ""):
+                        raise CompilerError(
+                            f"route outcome {outcome_key!r} in {where} has "
+                            f"trigger 'end' and a {_inert!r} — 'end' finishes "
+                            f"the run and takes neither; remove the {_inert!r}"
+                        )
+                outcomes[outcome_key] = RouteOutcome(trigger="end", target="")
+                continue
             target = raw_outcome.get("target")
             if not isinstance(target, str) or not target.strip():
                 raise CompilerError(
@@ -1654,9 +1703,70 @@ class WorkflowCompiler:
                 f"manifests are pure data; a control-flow/DSL field has nowhere "
                 f"to live (INV-5)"
             )
+        raw_connectors = raw_tools.get("connectors")
+        if raw_connectors is not None and (
+            not isinstance(raw_connectors, list)
+            or not all(isinstance(n, str) for n in raw_connectors)
+        ):
+            raise CompilerError(
+                f"tools.connectors must be a list of tool-name strings in {where}"
+            )
         # The vocabulary and the parse both live in ``permission_caps`` — the
         # compiler raises the diagnostic, it does not define what a permission is.
         return parse_grant(raw_tools)
+
+    @staticmethod
+    def _validate_connector_grant(
+        step_grant: ToolPermissions, trust: str | None, where: str
+    ) -> None:
+        """Validate the step's ``tools.connectors`` and drop duplicates in order.
+
+        A manifest at a trust level that may not carry connected apps (``file``,
+        ``builtin`` or an unknown value) is refused when it names ANY connector
+        tool: predefined workflows never get connector tools. Otherwise each entry
+        must match ``<connector_key>__<tool>`` (at most 64 characters), name a
+        connector in the catalog and, for a ``native_api`` connector, a tool the
+        definition declares. A remote-MCP connector's tool names are discovered at
+        run time, so only the name shape is checked for those. At most 64 entries.
+        """
+        entries = list(step_grant.connectors or [])
+        if not entries:
+            return
+        if not connector_grants_permitted(trust):
+            raise ConnectorGrantsNotAllowed(f"{CONNECTOR_PREDEFINED_MESSAGE} ({where})")
+        if len(entries) > _MAX_CONNECTOR_GRANTS:
+            raise CompilerError(
+                f"tools.connectors in {where} lists {len(entries)} tools; "
+                f"at most {_MAX_CONNECTOR_GRANTS} are allowed"
+            )
+        from agents.capabilities.connector_catalog import get_connector
+
+        for name in entries:
+            match = (
+                _CONNECTOR_TOOL_NAME_RE.fullmatch(name)
+                if len(name) <= _MAX_CONNECTOR_TOOL_NAME
+                else None
+            )
+            if match is None:
+                raise CompilerError(
+                    f"tools.connectors entry {name!r} in {where} is not a valid "
+                    f"tool name (expected '<connector>__<tool>', at most "
+                    f"{_MAX_CONNECTOR_TOOL_NAME} characters)"
+                )
+            connector_key, tool_name = match.groups()
+            definition = get_connector(connector_key)
+            if definition is None:
+                raise CompilerError(
+                    f"tools.connectors entry {name!r} in {where} names an unknown "
+                    f"connector {connector_key!r}"
+                )
+            native = definition.tooling.native_tools
+            if native and tool_name not in {t.name for t in native}:
+                raise CompilerError(
+                    f"tools.connectors entry {name!r} in {where} is not a tool "
+                    f"of connector {connector_key!r}"
+                )
+        step_grant.connectors = list(dict.fromkeys(entries))
 
     @staticmethod
     def _validate_mcp_grant(
@@ -1754,8 +1864,8 @@ class WorkflowCompiler:
         # Gated on this declared flag — NEVER on the mere presence of source_run_id
         # (INV-1 / SC-001). Coerced to bool (same treatment as revises_existing).
         # ``chain_policy`` is the DECLARED failure policy (sandbox-git-versioning-v2 /
-        # Req 6): ``refuse`` (default) or ``degrade``. An unknown value fails
-        # compilation — NO defaulting (INV-5).
+        # Req 6): only ``refuse`` (the default) is valid. An unknown value, including
+        # the removed ``degrade``, fails compilation — NO defaulting (INV-5).
         # ``mimetype`` is a thin pass-through (ISS-021 / 18-01): copied verbatim from
         # the manifest (default None). NO defaulting logic lives here — the
         # per-resolver default is computed at emission time (INV-5: no DSL/defaulting
@@ -1797,7 +1907,9 @@ class WorkflowCompiler:
             )
 
         # ── chain_policy validation (INV-5: no defaulting, unknown → error) ─
-        _VALID_CHAIN_POLICIES = {"refuse", "degrade"}
+        # ``degrade`` was removed (B5 / B30): admission refuses a missing payload
+        # whatever the policy, so only ``refuse`` has any runtime meaning.
+        _VALID_CHAIN_POLICIES = {"refuse"}
         if raw_chain_policy not in _VALID_CHAIN_POLICIES:
             raise CompilerError(
                 f"deliverable.chain_policy {raw_chain_policy!r} in workflow "
@@ -1985,6 +2097,52 @@ class WorkflowCompiler:
                         f"conditional gate's decision source MUST declare the "
                         f"typed artifact its outcome match is read from (R-27)"
                     )
+
+    # ── Loop-back route exit guard ────────────────────────────────────────────
+
+    @staticmethod
+    def _validate_route_has_exit(steps: list[Step]) -> None:
+        """Reject a route whose every outcome jumps back, with no way to finish.
+
+        ``ConditionalGate`` blocks the run when the decision matches no outcome
+        and no ``default_next`` is declared (fail-closed, ISS-170). A route whose
+        outcomes ALL point at this step or an earlier one has no decision that
+        moves the run forward, so the step's "it's good" answer can only ever be
+        unmatched and the run is guaranteed to fail at that step. Observed live on
+        run a57f82ce: an End-to-End Tester declared only ``revise -> screen-planner``,
+        answered ``{"decision": "pass"}`` after a two-hour build, and the run
+        ended ``failed`` with "conditional gate had nowhere to route".
+
+        A route has an exit when it declares ``default_next``, or at least one
+        outcome whose trigger is ``end`` or ``workflow``, or a ``step`` outcome
+        whose target sits LATER in manifest order. Runs after
+        ``_validate_route_targets``, so every target already resolves. Compares
+        positions only, never a workflow or agent name (INV-1 / SC-001).
+        """
+        index_of: dict[str, int] = {}
+        for i, s in enumerate(steps):
+            index_of[s.agent_id] = i
+            if s.instance_id:
+                index_of[s.instance_id] = i
+        for i, step in enumerate(steps):
+            route = step.route
+            if route is None or not route.outcomes or route.default_next:
+                continue
+            has_exit = any(
+                outcome.trigger in ("end", "workflow")
+                or (outcome.trigger == "step" and index_of.get(outcome.target, -1) > i)
+                for outcome in route.outcomes.values()
+            )
+            if has_exit:
+                continue
+            raise CompilerError(
+                f"step '{step.agent_id}' has a conditional route whose outcomes "
+                f"({', '.join(repr(k) for k in route.outcomes)}) all send the run "
+                f"back to this step or an earlier one, so no decision lets the run "
+                f"finish. Add an outcome that ends or continues the run, e.g. "
+                f"\"pass\": {{\"trigger\": \"end\"}}, or a forward target / "
+                f"default_next."
+            )
 
     # ── Leaf computation (spec 014 / R-26) ────────────────────────────────────
 

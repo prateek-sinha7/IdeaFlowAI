@@ -1074,6 +1074,16 @@ jobs:
           # Resolutions Q3) — delivered as an ordinary Environment variable,
           # never pasted into source or Terraform.
           HOST_CAPACITY_INSTANCE_IDS: ${{ vars.HOST_CAPACITY_INSTANCE_IDS }}
+          # Connectors: OAuth apps and the token-vault key. GitHub reserves the
+          # GITHUB_ prefix for secret and variable names, so the GitHub OAuth app
+          # values use GH_* here and are written to SSM as GITHUB_OAUTH_CLIENT_*,
+          # the names the app reads.
+          TOKEN_ENCRYPTION_KEY: ${{ secrets.TOKEN_ENCRYPTION_KEY }}
+          JIRA_OAUTH_CLIENT_SECRET: ${{ secrets.JIRA_OAUTH_CLIENT_SECRET }}
+          GH_OAUTH_CLIENT_SECRET: ${{ secrets.GH_OAUTH_CLIENT_SECRET }}
+          JIRA_OAUTH_CLIENT_ID: ${{ vars.JIRA_OAUTH_CLIENT_ID }}
+          GH_OAUTH_CLIENT_ID: ${{ vars.GH_OAUTH_CLIENT_ID }}
+          APP_BASE_URL: ${{ vars.APP_BASE_URL }}
           # The project CMK that encrypts this environment's SecureString
           # parameters. Set KMS_KEY_ALIAS on the GitHub Environment to the
           # actual alias in the account (e.g. `velocityai-dev-euc1`); the
@@ -1106,6 +1116,12 @@ jobs:
           #   AUTH_EMAIL_MFA_ENABLED           String        preserve-if-empty
           #   HOST_CAPACITY_METRIC_NAMESPACE   String        delete-if-empty
           #   HOST_CAPACITY_INSTANCE_IDS       String        delete-if-empty
+          #   TOKEN_ENCRYPTION_KEY             SecureString  required
+          #   JIRA_OAUTH_CLIENT_SECRET         SecureString  required
+          #   GITHUB_OAUTH_CLIENT_SECRET       SecureString  required
+          #   JIRA_OAUTH_CLIENT_ID             String        required
+          #   GITHUB_OAUTH_CLIENT_ID           String        required
+          #   APP_BASE_URL                     String        delete-if-empty
           #   llm/region                       String        required
           #   llm/model_id                     String        delete-if-empty
           #   llm/inference_profile_id         String        delete-if-empty
@@ -1468,6 +1484,19 @@ jobs:
           # Plain config, never secrets.
           put_param "HOST_CAPACITY_METRIC_NAMESPACE"       "$HOST_CAPACITY_METRIC_NAMESPACE"       "String" "delete-if-empty"
           put_param "HOST_CAPACITY_INSTANCE_IDS"           "$HOST_CAPACITY_INSTANCE_IDS"           "String" "delete-if-empty"
+
+          # Connectors. Outside development the backend refuses to start without
+          # the first five (Settings._validate_connector_config), so `required`
+          # fails the deploy before the container restarts, and an empty
+          # TOKEN_ENCRYPTION_KEY can never delete the live key (every stored token
+          # would become unreadable). APP_BASE_URL is delete-if-empty: clearing it
+          # in GitHub lets the PUBLIC_BASE_URL fallback apply.
+          put_param "TOKEN_ENCRYPTION_KEY"       "$TOKEN_ENCRYPTION_KEY"     "SecureString" "required"
+          put_param "JIRA_OAUTH_CLIENT_SECRET"   "$JIRA_OAUTH_CLIENT_SECRET" "SecureString" "required"
+          put_param "GITHUB_OAUTH_CLIENT_SECRET" "$GH_OAUTH_CLIENT_SECRET"   "SecureString" "required"
+          put_param "JIRA_OAUTH_CLIENT_ID"       "$JIRA_OAUTH_CLIENT_ID"     "String"       "required"
+          put_param "GITHUB_OAUTH_CLIENT_ID"     "$GH_OAUTH_CLIENT_ID"       "String"       "required"
+          put_param "APP_BASE_URL"               "$APP_BASE_URL"             "String"       "delete-if-empty"
 
           # Bedrock LLM config (under the llm/ sub-prefix the host loader maps
           # to AWS_REGION / BEDROCK_* — any other key name is silently dropped).

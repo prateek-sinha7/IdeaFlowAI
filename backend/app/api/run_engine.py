@@ -879,6 +879,31 @@ def _revalidate_selections_trust_user(
     return None
 
 
+#: Shown when a request that cannot carry connected-app grants names some (design 5.5).
+CONNECTOR_GRANTS_NOT_ALLOWED_MESSAGE = (
+    "Predefined workflows cannot use connected apps; "
+    "save the workflow as your own to use them."
+)
+
+
+def _reject_connector_selections(selections: Any) -> str | None:
+    """Ingress layer 4: refuse per-step selections that name connector tools.
+
+    Used where the launch (FILE_PIPELINE, USER_WORKFLOW_FLAT) or the save (a flat
+    selection map) is for a plan that never admits connected-app grants. Returns a
+    message when any step's ``tools.connectors`` is non-empty, else ``None``; an
+    empty list (an explicit "off") is fine. The caller answers 422
+    ``connector_grants_not_allowed`` before any run row is created.
+    """
+    if not isinstance(selections, dict):
+        return None
+    for per_step in selections.values():
+        tools = per_step.get("tools") if isinstance(per_step, dict) else None
+        if isinstance(tools, dict) and tools.get("connectors"):
+            return CONNECTOR_GRANTS_NOT_ALLOWED_MESSAGE
+    return None
+
+
 def _own_plan_roster(pipeline_type: str) -> set[str]:
     """ISS-687: every agent id of ``pipeline_type``'s own compiled plan, when that plan
     has ``custom-agent:<instance_id>`` steps; the empty set for any other pipeline.

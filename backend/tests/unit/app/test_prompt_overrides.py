@@ -193,7 +193,8 @@ class TestFactoryPromptOverrideInjection:
         ctx.attached_skills = []
         ctx.attached_hooks = []
         ctx.prewarmed_constitution = None
-        ctx.prewarmed_mcp_tools = []
+        ctx.step_tools = None
+        ctx.run_tools = {}
         return ctx
 
     def test_base_prompt_used_when_no_override(self, overrides_sandbox):

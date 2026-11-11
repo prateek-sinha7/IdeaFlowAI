@@ -413,7 +413,7 @@ class LocalWorkspace:
         clone TARGET (the source may be an absolute fixture path outside the root,
         which is expected). The clone populates the run root in place.
 
-        Security (WR-01): ``source`` is host-injected (the §15 RepoSpec seam) and
+        Security (WR-01): ``source`` is host-injected (the §15 binding seam) and
         must NOT be able to execute code despite exec=OFF. Two git-native escapes
         are closed here: (a) the ``ext::``/``fd::`` transports run arbitrary
         commands at clone time — ``GIT_ALLOW_PROTOCOL`` restricts the clone to

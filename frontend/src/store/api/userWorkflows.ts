@@ -1,5 +1,5 @@
 import { http } from "./http";
-import { getToken } from "@/lib/api";
+import { getToken, type WorkflowAuthoringManifest } from "@/lib/api";
 import type {
   AgentDef,
   AgentToolGrants,
@@ -44,6 +44,8 @@ export interface UserWorkflowSummary {
   base_pipeline_type: string;
   agent_ids: string[];
   model_overrides?: Record<string, string> | null;
+  // Spec 016: the built-in this row overrides; absent/null on an ordinary row.
+  overrides_pipeline_type?: string | null;
   // Spec 012 (R-27/R-29): `manifest_json` holds ONE of two shapes — the compact
   // EMP-03 `{agent_id: {...}}` selections map, or a full per-step `{"steps":
   // [...]}` manifest once a node carries a skill/prompt/subagents tree.
@@ -101,12 +103,30 @@ export function mapAgentInTree(
   });
 }
 
+/** Default `max_parallel` of a child group the canvas creates. */
+const NEW_GROUP_MAX_PARALLEL = 3;
+
+/**
+ * The parallel cap the runtime applies to a group with no `max_parallel` key
+ * (`DEFAULT_MAX_CONCURRENCY` in `backend/agents/execution_engine/budget.py`).
+ * The config rail shows this for a loaded group without the key, so the number
+ * on screen is the one the run uses.
+ */
+export const RUNTIME_DEFAULT_MAX_PARALLEL = 5;
+
 /** Append `child` under the node with id `parentId` (wherever it lives),
- *  defaulting a fresh child group to `sequential` (R-04). */
+ *  defaulting a fresh child group to `sequential` (R-04) and, for a node that had no
+ *  children yet, to a `max_parallel` of 3. */
 export function addChildInTree(agents: AgentDef[], parentId: string, child: AgentDef): AgentDef[] {
   return agents.map((a) => {
     if (a.id === parentId) {
-      return { ...a, children: [...(a.children ?? []), child], strategy: a.strategy ?? "sequential" };
+      const isNewGroup = (a.children?.length ?? 0) === 0;
+      return {
+        ...a,
+        children: [...(a.children ?? []), child],
+        strategy: a.strategy ?? "sequential",
+        ...(isNewGroup ? { maxParallel: a.maxParallel ?? NEW_GROUP_MAX_PARALLEL } : {}),
+      };
     }
     if (a.children) return { ...a, children: addChildInTree(a.children, parentId, child) };
     return a;
@@ -333,14 +353,22 @@ function agentToManifestStep(
   // and only defaulted to `false` for a genuinely NEW parent the composer
   // itself created (the untrusted-cap behaviour this default existed for).
   const grants = selections?.[agent.id]?.tools;
+  // Connected-app grants come from the SELECTION only. The load-time copy in
+  // `agent.tools` is dropped here, otherwise a tool switched off in this
+  // session would come back from it (and the Simple view, which never edits
+  // connectors, still keeps them because `manifestStepsToGateSelections`
+  // copied them onto the selection).
+  const loadedTools: AgentToolGrants = { ...agent.tools };
+  delete loadedTools.connectors;
   step.tools = {
-    ...agent.tools,
+    ...loadedTools,
     read_files: grants?.read_files ?? true,
     write_files: grants?.write_files ?? true,
     exec: false,
     // Named tool packs (file_extract / playwright): emitted only when the
     // author ticked at least one, so untouched steps serialise unchanged.
     ...(grants?.tool_sets?.length ? { tool_sets: [...grants.tool_sets] } : {}),
+    ...(grants?.connectors?.length ? { connectors: [...grants.connectors] } : {}),
     ...(isParent && agent.tools?.spawn_subagents === undefined ? { spawn_subagents: false } : {}),
   };
   step.gates = selections?.[agent.id]?.gates ?? [];
@@ -361,11 +389,16 @@ function agentToManifestStep(
   if (selModel || selEffort) {
     const inherited =
       step.model && typeof step.model === "object" ? (step.model as Record<string, unknown>) : {};
-    step.model = {
+    const policy: Record<string, unknown> = {
       ...inherited,
       ...(selModel ? { model: selModel } : {}),
       ...(selEffort ? { effort: selEffort } : {}),
-    } as ManifestStep["model"];
+    };
+    // The selection is hydrated from the step's own policy, so once it names a model
+    // it also owns the effort. An effort the rail cleared (a model change, or Default)
+    // must not come back from the inherited mapping.
+    if (selModel && !selEffort) delete policy.effort;
+    step.model = policy as ManifestStep["model"];
   }
   if (isParent) {
     // Fan-out lives on the SELECTION (the rail patches `sel.strategy` /
@@ -378,7 +411,10 @@ function agentToManifestStep(
     const selParser = selections?.[agent.id]?.task_source?.parser ?? "heading_tasks";
     step.subagents = {
       mode: selFanout ? "fanout" : (agent.strategy ?? "sequential"),
-      max_parallel: agent.maxParallel ?? 3,
+      // Absent means the runtime cap (DEFAULT_MAX_CONCURRENCY = 5), not 3, so a loaded
+      // group without the key must save without it. A group the canvas creates gets 3
+      // in `addChildInTree`.
+      ...(agent.maxParallel !== undefined ? { max_parallel: agent.maxParallel } : {}),
       ...(selFanout && selSource
         ? {
             task_source: {
@@ -679,6 +715,35 @@ export function runConfigFromManifest(
   };
 }
 
+/** What a built-in canvas needs from `GET /api/workflows/{id}`'s `manifest`
+ *  (ISS-876): the passthrough source for `buildWorkflowManifest`, plus the run
+ *  config levers that are MODELED keys and so are recomputed from Composer state
+ *  on Save rather than passed through.
+ *
+ *  `manifest` is a shallow copy, never carrying an `id`: a built-in has no
+ *  WorkflowDefinition row, so Save still creates a user-owned copy (ADR-0014).
+ *  `capabilities` also rides in `manifest`; ComposerPage adopts it into its own
+ *  state because `manifestTopLevelExtra` skips modeled keys. */
+export function builtinAuthoringSeed(
+  authoring?: WorkflowAuthoringManifest | null,
+): { manifest: Record<string, unknown> | null; runConfig: WorkflowRunConfig } {
+  if (!authoring) return { manifest: null, runConfig: {} };
+  // The composer can declare exactly one context provider; any other provider a
+  // built-in lists is not modeled and is not carried (see ContextProviderName).
+  const contextProvider = authoring.context_providers?.includes("opendesign")
+    ? ("opendesign" as const)
+    : undefined;
+  return {
+    manifest: { ...authoring },
+    runConfig: {
+      ...(contextProvider ? { contextProvider } : {}),
+      ...(contextProvider && authoring.design_mode
+        ? { designMode: authoring.design_mode }
+        : {}),
+    },
+  };
+}
+
 /** The free-text summary a "Save as my version" override stores (ISS-226).
  *
  *  An override row persists `manifest`, and `manifest`/`selections` are mutually
@@ -793,9 +858,11 @@ export function manifestStepsToGateSelections(
         const read = step.tools?.read_files ?? true;
         const write = step.tools?.write_files ?? true;
         const packs = step.tools?.tool_sets ?? [];
-        if (!read || !write || packs.length > 0) {
+        const connectors = step.tools?.connectors ?? [];
+        if (!read || !write || packs.length > 0 || connectors.length > 0) {
           entry.tools = { read_files: read, write_files: write };
           if (packs.length > 0) entry.tools.tool_sets = [...packs];
+          if (connectors.length > 0) entry.tools.connectors = [...connectors];
         }
         // Parent fan-out: reverse of the fan-out write in agentToManifestStep
         if (step.subagents?.mode === "fanout") {
@@ -841,11 +908,11 @@ export function manifestStepsToGateSelections(
             entry.on_conflict = step.on_conflict;
           }
         }
-        // Model hydration
-        const model = (step as { model?: { model?: string } }).model?.model;
-        if (model) {
-          entry.model = model;
-        }
+        // Model + effort hydration (R-12: effort was dropped, so a reopened
+        // workflow or an applied draft showed the effort as unset).
+        const policy = step.model;
+        if (policy?.model) entry.model = policy.model;
+        if (policy?.effort) entry.effort = policy.effort;
         if (Object.keys(entry).length > 0) out[id] = entry;
       }
       if (step.subagents?.steps) walk(step.subagents.steps, true);
@@ -853,6 +920,22 @@ export function manifestStepsToGateSelections(
   };
   walk(steps);
   return out;
+}
+
+/** Root-step ids as the server stores them in `agent_ids`: `custom-agent:<instance_id>`
+ *  for a custom step with an instance id, the bare agent id otherwise; steps with
+ *  no agent are skipped. Direct port of `compiled_root_ids` in
+ *  `backend/app/agents/workflow_builder/skills/velocity-workflow-creator/scripts/export_manifest.py` — keep
+ *  the two in step (design §3.10.8). */
+export function compiledRootIds(manifest: { steps?: ManifestStep[] | null }): string[] {
+  const ids: string[] = [];
+  for (const step of manifest.steps ?? []) {
+    const agent = step.agent;
+    const id =
+      agent === "custom-agent" && step.instance_id ? `${agent}:${step.instance_id}` : agent;
+    if (id) ids.push(id);
+  }
+  return ids;
 }
 
 /** Is this saved workflow one the Composer authored?

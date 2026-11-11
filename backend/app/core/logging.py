@@ -8,6 +8,7 @@ before any app.* module that logs is imported.
 import json
 import logging
 import os
+import re
 import sys
 import zlib
 import contextvars
@@ -37,6 +38,35 @@ class _RequestIdFilter(logging.Filter):
 
     def filter(self, record: logging.LogRecord) -> bool:
         record.request_id = _request_id_var.get()
+        return True
+
+
+_OAUTH_CALLBACK_PATH = "/api/connectors/oauth/callback"
+_OAUTH_CALLBACK_QUERY = re.compile(re.escape(_OAUTH_CALLBACK_PATH) + r"\?\S*")
+
+
+def _redact_oauth_query(text: str) -> str:
+    """Replace the query string of any OAuth callback request line in ``text``."""
+    return _OAUTH_CALLBACK_QUERY.sub(f"{_OAUTH_CALLBACK_PATH}?[redacted]", text)
+
+
+class _RedactOAuthQueryFilter(logging.Filter):
+    """Hides the OAuth callback's ``code`` and ``state`` from access log lines.
+
+    Defense in depth: ``uvicorn.access`` is at WARNING today, so these lines are not
+    emitted, but a lowered level must not write an authorization code to a log.
+    uvicorn passes the request line as format arguments (``record.args``); the
+    message text is handled as well for other loggers that interpolate early.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if isinstance(record.args, tuple):
+            record.args = tuple(
+                _redact_oauth_query(arg) if isinstance(arg, str) else arg
+                for arg in record.args
+            )
+        if isinstance(record.msg, str):
+            record.msg = _redact_oauth_query(record.msg)
         return True
 
 
@@ -340,6 +370,10 @@ def configure_logging() -> None:
     # silent. Same environment gate as ``app`` above, so prod stays at INFO.
     logging.getLogger("agents").setLevel(_app_log_level)
     logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
+    # The OAuth callback URL carries a one-time code and state; never log them.
+    _access_logger = logging.getLogger("uvicorn.access")
+    if not any(isinstance(f, _RedactOAuthQueryFilter) for f in _access_logger.filters):
+        _access_logger.addFilter(_RedactOAuthQueryFilter())
     logging.getLogger("httpx").setLevel(logging.WARNING)
     logging.getLogger("httpcore").setLevel(logging.WARNING)
     # Suppress WinError 10054 teardown noise from the ProactorEventLoop.

@@ -15,6 +15,7 @@ import {
   BarChart2,
   CreditCard,
   LayoutGrid,
+  Plug,
   Shield,
   Moon,
   Sun,
@@ -51,13 +52,13 @@ const LIVE_STATUSES = new Set([
 ]);
 
 interface AppHeaderProps {
-  currentPage: "home" | "library" | "workflow" | "execution" | "history" | "settings" | "analytics" | "catalog" | "saved-workflows";
+  currentPage: "home" | "library" | "workflow" | "execution" | "history" | "settings" | "analytics" | "connectors" | "catalog" | "saved-workflows";
   /**
    * Navigate to an in-app dashboard panel. `options.settingsSection` deep-links
    * into a single Account Settings tab and is ignored for every other page.
    */
   onNavigate: (
-    page: "home" | "library" | "history" | "settings" | "analytics" | "catalog" | "saved-workflows",
+    page: "home" | "library" | "history" | "settings" | "analytics" | "connectors" | "catalog" | "saved-workflows",
     options?: { settingsSection?: SettingsSection },
   ) => void;
   onLogout: () => void;
@@ -593,6 +594,14 @@ export function AppHeader({
                   >
                     <BarChart2 className="h-3.5 w-3.5 text-ink-400 flex-shrink-0" />
                     Analytics
+                  </button>
+                  <button
+                    role="menuitem"
+                    onClick={() => { setProfileOpen(false); onNavigate("connectors"); }}
+                    className="w-full flex items-center gap-2.5 px-3.5 py-2 text-[12px] text-ink-700 hover:bg-surface-warm transition-colors text-left"
+                  >
+                    <Plug className="h-3.5 w-3.5 text-ink-400 flex-shrink-0" />
+                    Connectors
                   </button>
                   <button
                     role="menuitem"

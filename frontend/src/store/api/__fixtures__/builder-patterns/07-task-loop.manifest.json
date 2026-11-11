@@ -1,0 +1,48 @@
+{
+  "id": "pattern-07-task-loop",
+  "name": "Sequential task loop",
+  "description": "Fixture for patterns.md section 7: Sequential task loop.",
+  "planner": "skip",
+  "clarify": {
+    "mode": "skip",
+    "defaults": []
+  },
+  "deliverable": {
+    "strategy": "single_file",
+    "name": "out.md"
+  },
+  "steps": [
+    {
+      "agent": "custom-agent",
+      "instance_id": "plan",
+      "name": "Planner",
+      "gates": [],
+      "tools": {
+        "read_files": true,
+        "write_files": true
+      },
+      "prompt": "Write tasks.md. Each task starts with a heading '## Task N: <title>', numbered from 1, and uses '###' headings inside its body."
+    },
+    {
+      "agent": "custom-agent",
+      "instance_id": "builder",
+      "name": "Builder",
+      "gates": [],
+      "strategy": "task_loop",
+      "depends_on": [
+        "custom-agent:plan"
+      ],
+      "task_source": {
+        "kind": "parsed",
+        "parser": "heading_tasks",
+        "target": "tasks.md",
+        "source_step": "custom-agent:plan"
+      },
+      "tools": {
+        "read_files": true,
+        "write_files": true
+      },
+      "prompt": "Apply the task in your message to the files in the workspace. Build on earlier tasks."
+    }
+  ]
+}

@@ -1,0 +1,59 @@
+{
+  "name": "Paste chain (zero tool calls)",
+  "description": "Fixture for patterns.md section 2: Paste chain (zero tool calls).",
+  "base_pipeline_type": "custom",
+  "agent_ids": [
+    "custom-agent:outline",
+    "custom-agent:draft"
+  ],
+  "manifest": {
+    "id": "pattern-02-paste-chain",
+    "name": "Paste chain (zero tool calls)",
+    "description": "Fixture for patterns.md section 2: Paste chain (zero tool calls).",
+    "planner": "skip",
+    "clarify": {
+      "mode": "skip",
+      "defaults": []
+    },
+    "deliverable": {
+      "strategy": "streamed_text",
+      "name": "draft.md"
+    },
+    "steps": [
+      {
+        "agent": "custom-agent",
+        "instance_id": "outline",
+        "name": "Outliner",
+        "gates": [],
+        "produces": [
+          "outline"
+        ],
+        "tools": {
+          "read_files": false,
+          "write_files": false
+        },
+        "prompt": "You are the Outliner. Write a numbered outline of the document the brief asks for. Reply with the outline only."
+      },
+      {
+        "agent": "custom-agent",
+        "instance_id": "draft",
+        "name": "Drafter",
+        "gates": [],
+        "consumes": [
+          "outline"
+        ],
+        "produces": [
+          "draft"
+        ],
+        "depends_on": [
+          "custom-agent:outline"
+        ],
+        "tools": {
+          "read_files": false,
+          "write_files": false
+        },
+        "prompt": "The outline is shown above. Write the full draft following it."
+      }
+    ]
+  }
+}

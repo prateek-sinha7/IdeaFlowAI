@@ -309,6 +309,27 @@ class TestNoCredentialsDecorator:
         result = test_bearer_token()
         assert result is None
 
+    def test_no_credentials_clears_connector_secrets_when_offline_enabled(
+        self, enable_ci_offline, clean_env
+    ):
+        """Connector OAuth secrets and the token-vault key are unset inside the test."""
+        names = [
+            "TOKEN_ENCRYPTION_KEY",
+            "JIRA_OAUTH_CLIENT_SECRET",
+            "GITHUB_OAUTH_CLIENT_SECRET",
+            "GH_OAUTH_CLIENT_SECRET",
+        ]
+        for name in names:
+            os.environ[name] = "dummy-connector-value"
+
+        @no_credentials
+        def test_connector_secrets():
+            return {name: os.environ.get(name) for name in names}
+
+        result = test_connector_secrets()
+
+        assert result == dict.fromkeys(names)
+
     def test_decorator_restores_credentials_after_test(
         self, enable_ci_offline, clean_env
     ):
@@ -336,6 +357,10 @@ class TestNoCredentialsDecorator:
             "AWS_SECRET_ACCESS_KEY",
             "AWS_SESSION_TOKEN",
             "AWS_BEARER_TOKEN_BEDROCK",
+            "JIRA_OAUTH_CLIENT_SECRET",
+            "GITHUB_OAUTH_CLIENT_SECRET",
+            "GH_OAUTH_CLIENT_SECRET",
+            "TOKEN_ENCRYPTION_KEY",
         }
         assert expected.issubset(CREDENTIAL_ENV_PATTERNS)
 

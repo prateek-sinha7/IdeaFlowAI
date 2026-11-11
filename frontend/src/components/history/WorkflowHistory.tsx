@@ -494,7 +494,7 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
 
   // ─── Derived values for detail view — must be computed unconditionally ────
   // (Rules of Hooks: useMemo cannot be inside an if block)
-  const detailWorkflowType = (selectedRun?.type ?? "custom") as WorkflowType;
+  const detailWorkflowType = selectedRun?.type ?? "custom";
   const detailIsAppBuilder = detailWorkflowType === "app_builder" || detailWorkflowType === "app_builder_revision";
 
   const detailAgentOutputs = useMemo<{ agent_id: string; name: string; role: string; icon: string; output: string; duration: number | null; input_tokens?: number; output_tokens?: number; total_tokens?: number; model_id?: string }[]>(() => {
@@ -584,7 +584,7 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
 
   // ─── DETAIL VIEW ───────────────────────────────────────────────────────────
   if (selectedRun) {
-    const workflowType = selectedRun.type as WorkflowType;
+    const workflowType = selectedRun.type;
     // ─── C-FLAG-1 (260703-174) — reopen StartingPointCard revision chip wiring ──
     // revisionParentVersion = 1-based family index of selectedRun's PARENT, derived
     // from the fetched `family` state (getRunFamily). family.members uses the same
@@ -830,7 +830,7 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
                          } else {
                            sessionStorage.removeItem(CHAIN_SOURCE_STATUS_KEY);
                          }
-                         onChainPipeline(selectedRun, opt.id as WorkflowType);
+                         onChainPipeline(selectedRun, opt.id);
                        }}
                        disabled={opt.beta || !canChain}
                        aria-disabled={opt.beta || !canChain}
@@ -898,7 +898,7 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
                          } else {
                            sessionStorage.removeItem(CHAIN_SOURCE_STATUS_KEY);
                          }
-                         onChainPipeline!(selectedRun, sw.base_pipeline_type as WorkflowType, sw.id);
+                         onChainPipeline!(selectedRun, sw.base_pipeline_type, sw.id);
                        }}
                        disabled={!canChain}
                        aria-disabled={!canChain}

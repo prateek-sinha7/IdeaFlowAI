@@ -11,7 +11,7 @@ import type { ConnectionStatus } from "@/hooks/useHandoffSocket";
 import type { RunConnectionPhase } from "@/hooks/useRunStream";
 import { applyTerminalStatus, useWorkflow } from "@/hooks/useWorkflow";
 import { parseViewPath, routes, type ParsedView } from "@/lib/routes";
-import { consumeShallowNav } from "@/lib/shallowNavGuard";
+import { consumeShallowNav, consumeShallowNavTo } from "@/lib/shallowNavGuard";
 // Phase 31 (CHATUI-01/02/03) — the chat-lane DATA layer + the nonce'd deep-link
 // seam + the app-level SSE connection. useRunChat folds the Phase-29 chat frames
 // into a transport-agnostic transcript; useTabDeepLink is the result-card →
@@ -43,7 +43,7 @@ import { useRunStateStore } from "@/hooks/useRunStateStore";
 // api.ts has no GET-by-id wrapper for /api/user-workflows/{id}, but this
 // RTK-adjacent module already does (userWorkflowsApi.get), so no new API
 // wrapper is added here.
-import { userWorkflowsApi, isComposerWorkflow, runConfigFromManifest } from "@/store/api/userWorkflows";
+import { userWorkflowsApi, isComposerWorkflow, runConfigFromManifest, builtinAuthoringSeed } from "@/store/api/userWorkflows";
 import type { UserWorkflowSummary } from "@/store/api/userWorkflows";
 // T30 (015-frontend-routing, FR-011): the standalone read-only view for
 // `/workflows/{id}` — data-model.md's T4 finding confirmed no existing
@@ -199,6 +199,8 @@ function initialMainViewFor(parsed: ParsedView): MainView | undefined {
       return "settings";
     case "analytics":
       return "analytics";
+    case "connectors":
+      return "connectors";
     default:
       return undefined;
   }
@@ -538,12 +540,16 @@ export default function DashboardPage() {
         if (!jwt) return;
         const detail = await getWorkflowDetail(jwt, builtinCanvasType);
         if (cancelled) return;
+        // ISS-876: the built-in's other top-level keys (limits, input_providers,
+        // seed_files, capabilities, ...) so Save as copy carries them. Still no `id`.
+        const authoring = builtinAuthoringSeed(detail.manifest);
         setInitialSavedComposition({
           // NO `id`: a built-in has no WorkflowDefinition row, so Save must POST a new
           // one rather than PATCH something that does not exist. That absence is what
           // puts the composer in copy-only mode.
           agentIds: detail.steps.map((st) => st.agent_id),
           manifestSteps: detail.manifest_steps ?? undefined,
+          manifest: authoring.manifest,
           modelOverrides: {},
           selections: {},
           name: detail.name,
@@ -568,6 +574,7 @@ export default function DashboardPage() {
               mode: detail.clarify_mode === "auto" ? "auto" : "skip",
               defaults: detail.clarify_defaults ?? [],
             },
+            ...authoring.runConfig,
           },
         });
       } catch (err) {
@@ -4090,7 +4097,7 @@ export default function DashboardPage() {
         // this remount leaves contentSourceRunType null and PreviewPanel's
         // fallback chain renders every freshly launched run as "USER STORIES".
         const persistedType = sessionStorage.getItem(`run_type:${runId}`);
-        if (persistedType) setContentSourceRunType(persistedType as WorkflowType);
+        if (persistedType) setContentSourceRunType(persistedType);
       } catch { /* non-fatal — brief/type just stay blank */ }
       return;
     }
@@ -4114,6 +4121,11 @@ export default function DashboardPage() {
     if (!isAuthenticated) return;
     const workflowId = workflowEditIdFor(parsedView);
     if (!workflowId) return;
+    // AI workflow builder (design §3.10.6, D-08): the composer itself moved the
+    // URL here with a marked shallow `replaceState` after its first save. The
+    // canvas is already live, so skip the fetch: `savedComposition` stays null
+    // and the composer is not remounted. One-shot; a reload takes the normal path.
+    if (consumeShallowNavTo(pathname)) return;
 
     let cancelled = false;
     // T24 (FR-009): clear a prior denial before this fetch resolves — same
@@ -4139,6 +4151,10 @@ export default function DashboardPage() {
           description: saved.description ?? undefined,
           id: saved.id,
           runConfig: runConfigFromManifest(saved.manifest),
+          basePipelineType: saved.base_pipeline_type,
+          ...(saved.overrides_pipeline_type
+            ? { overridesPipelineType: saved.overrides_pipeline_type }
+            : {}),
         });
       })
       .catch((err) => {
@@ -4348,6 +4364,10 @@ export default function DashboardPage() {
           description: saved.description ?? undefined,
           id: saved.id,
           runConfig: runConfigFromManifest(saved.manifest),
+          basePipelineType: saved.base_pipeline_type,
+          ...(saved.overrides_pipeline_type
+            ? { overridesPipelineType: saved.overrides_pipeline_type }
+            : {}),
         });
         // Same rule as DashboardLayout's click path: a composed manifest is
         // proof this came from the Composer, even when `base_pipeline_type` was

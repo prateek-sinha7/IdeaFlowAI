@@ -44,6 +44,25 @@ DOCKER_ENTRYPOINT = BACKEND_DIR / "docker-entrypoint.sh"
 DOCKER_COMPOSE = REPO_ROOT / "docker-compose.yml"
 
 
+def _connector_kwargs() -> dict[str, str]:
+    """The connector settings any non-development Settings needs to be constructed.
+
+    Unrelated to what these tests pin, but a precondition of building
+    ``Settings(ENV="production", ...)`` at all (``_validate_connector_config``).
+    The Fernet key is generated here and is never a real secret.
+    """
+    from cryptography.fernet import Fernet
+
+    return {
+        "APP_BASE_URL": "https://app.example.test",
+        "TOKEN_ENCRYPTION_KEY": Fernet.generate_key().decode(),
+        "JIRA_OAUTH_CLIENT_ID": "test-jira-client-id",
+        "JIRA_OAUTH_CLIENT_SECRET": "test-jira-client-secret",
+        "GITHUB_OAUTH_CLIENT_ID": "test-github-client-id",
+        "GITHUB_OAUTH_CLIENT_SECRET": "test-github-client-secret",
+    }
+
+
 # ════════════════════════════════════════════════════════════════════════════
 # Single sources of truth — parsed, never hardcoded, so drift in either file
 # fails these tests instead of silently changing the budget.
@@ -157,6 +176,7 @@ def test_production_leaves_shutdown_stop_runs_off():
         COGNITO_USER_POOL_ID="eu-central-1_testpool",
         COGNITO_CLIENT_ID="test-client-id",
         COGNITO_CLIENT_SECRET="test-client-secret",
+        **_connector_kwargs(),
     )
     assert prod.SHUTDOWN_STOP_RUNS is False
 
@@ -198,6 +218,7 @@ def test_explicit_shutdown_stop_runs_always_wins(env_name, explicit, expected):
             "COGNITO_USER_POOL_ID": "eu-central-1_testpool",
             "COGNITO_CLIENT_ID": "test-client-id",
             "COGNITO_CLIENT_SECRET": "test-client-secret",
+            **_connector_kwargs(),
         }
     )
 

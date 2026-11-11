@@ -142,6 +142,10 @@ test.describe("Composer sub-agents", () => {
     await expect(page.getByRole("heading", { name: "My Workflows" })).toBeVisible();
     await expect(page.locator("p", { hasText: /^Sub-agent round trip$/ })).toBeVisible();
     await page.getByRole("button", { name: /Run workflow/ }).click();
+    // The saved composition arrives after the composer's first mount and remounts it
+    // (DashboardLayout keys BuilderComposerHost on the saved row id). Wait for the
+    // loaded tree on Canvas first, or the Simple click lands on the discarded mount.
+    await expectNestedUnderParent(page, "swot-analyst");
 
     // The Simple view must still show the sub-agent — this is the case that used
     // to silently drop it. (The composer reopens on Canvas, its default view.)

@@ -1,0 +1,25 @@
+{
+  "issues": [
+    {
+      "id": "10001",
+      "key": "ABC-1",
+      "fields": {
+        "summary": "Login page returns 500",
+        "status": {"name": "In Progress"},
+        "assignee": {"displayName": "Ada Lovelace", "accountId": "acc-1"},
+        "updated": "2026-05-01T10:00:00.000+0000"
+      }
+    },
+    {
+      "id": "10002",
+      "key": "ABC-2",
+      "fields": {
+        "summary": "Update onboarding copy",
+        "status": {"name": "To Do"},
+        "assignee": null,
+        "updated": "2026-05-02T09:30:00.000+0000"
+      }
+    }
+  ],
+  "nextPageToken": "page-2-token"
+}

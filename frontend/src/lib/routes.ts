@@ -177,6 +177,13 @@ export const routes = {
     return `/analytics${buildQueryString(params)}`;
   },
 
+  // Connectors page. The query carries the OAuth result hint that
+  // /connectors/oauth-complete forwards to a normal tab; the page state itself
+  // always comes from GET /api/connectors.
+  connectors: (params?: { connector?: string; result?: string; reason?: string }): string => {
+    return `/connectors${buildQueryString(params)}`;
+  },
+
   // Intentionally unreachable dead code: static app/admin/page.tsx takes precedence over [...view] catch-all for /admin path; kept for routes.ts documentation.
   admin: (): string => '/admin',
 };
@@ -234,6 +241,7 @@ export type ParsedView =
   | { screen: 'settings-constitution' }
   | { screen: 'settings-security' }
   | { screen: 'analytics'; range?: string; pipeline?: string }
+  | { screen: 'connectors' }
   | { screen: 'admin' }
   | { screen: 'unknown' };
 
@@ -503,6 +511,13 @@ export function parseViewPath(segments: string[] | undefined): ParsedView {
   // Fix: add segments.length === 1 guard, same shape as register/create/workflows.
   if (head === 'analytics' && segments.length === 1) {
     return { screen: 'analytics' };
+  }
+
+  // Same depth guard as analytics (ISS-910/911): /connectors/<sub-path> is unknown.
+  // /connectors/oauth-complete is a static route (app/connectors/oauth-complete) and
+  // never reaches this parser.
+  if (head === 'connectors' && segments.length === 1) {
+    return { screen: 'connectors' };
   }
 
   // ISS-349: exact /admin is served by the static app/admin/page.tsx, so only /admin/<sub-path>

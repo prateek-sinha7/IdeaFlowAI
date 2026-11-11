@@ -52,6 +52,14 @@ README*
 # dirs, no skills/*.md docs).
 !skills/global
 !skills/global/**
+# ...and the AI workflow builder's skill, shipped with app/ (its SKILL.md and
+# reference .md files are runtime DATA, and the image build checks the main ones
+# exist). Must stay BELOW `*.md`.
+!app/agents/workflow_builder/skills/**
+# ...and the AI workflow builder's versioned prompts (system_prompt.v1.md,
+# transcript_summary.v1.md). The agent reads them from disk at import, and the image
+# build checks that system_prompt.v1.md exists. Must stay BELOW `*.md`.
+!app/agents/workflow_builder/prompts/*.md
 
 # --- Git metadata ----------------------------------------------------------
 .git/

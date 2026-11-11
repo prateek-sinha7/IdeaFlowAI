@@ -16,6 +16,10 @@ branching + cross-workflow triggering). At such a step it:
          cursor jump this gate exists to drive (Phase 3, not this file's concern);
        * no match, ``route.default_next`` set → ``GATE_PASS`` (the engine advances
          normally, no special routing — the SAME outcome every non-branching step emits);
+       * a match whose trigger is ``end`` is a ``GATE_ROUTE`` too: the dispatch loop
+         finishes the run successfully at this step. It is how a loop-back route
+         declares the decision that LEAVES the loop — "pass" must be spelled out,
+         because an unmatched decision is a refusal, not a quiet success;
        * no match, ``route.default_next`` unset → the run has NOWHERE TO GO. This reuses
          the EXISTING ``GATE_BLOCK`` outcome + ``gate_blocked`` event shape
          (validation.py/security.py's block path) rather than inventing a new outcome —
@@ -172,12 +176,16 @@ class ConditionalGate:
                 # row (a routed outcome emits no SSE event — that row is the only record).
                 "feedback": matched.feedback,
             }
-            _all_options = ", ".join(f"{k!r}->{v.target}" for k, v in outcomes.items())
+            # ``end`` has no target; name the trigger so the log line still says
+            # where the run goes.
+            _all_options = ", ".join(
+                f"{k!r}->{v.target or v.trigger}" for k, v in outcomes.items()
+            )
             logger.info(
                 "condition: step %s picked %r -> target=%s | declared options: %s",
                 step_id,
                 decision,
-                matched.target,
+                matched.target or matched.trigger,
                 _all_options or "-",
             )
             await write_gate_event(ctx, step_id, "conditional", GATE_ROUTE, detail)

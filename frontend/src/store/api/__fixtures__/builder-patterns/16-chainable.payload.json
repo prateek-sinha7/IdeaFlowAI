@@ -1,0 +1,45 @@
+{
+  "name": "Chainable workflow",
+  "description": "Fixture for patterns.md section 16: Chainable workflow.",
+  "base_pipeline_type": "custom",
+  "agent_ids": [
+    "custom-agent:release-plan"
+  ],
+  "manifest": {
+    "id": "pattern-16-chainable",
+    "name": "Chainable workflow",
+    "description": "Fixture for patterns.md section 16: Chainable workflow.",
+    "planner": "skip",
+    "clarify": {
+      "mode": "skip",
+      "defaults": []
+    },
+    "deliverable": {
+      "strategy": "single_file",
+      "name": "release-plan.md",
+      "chains_from": true
+    },
+    "steps": [
+      {
+        "agent": "custom-agent",
+        "instance_id": "release-plan",
+        "name": "Release Planner",
+        "gates": [],
+        "tools": {
+          "read_files": true,
+          "write_files": true
+        },
+        "prompt": "Read .context/summary.md and the output files in .context/. Write release-plan.md, a release plan for what the earlier run produced."
+      }
+    ],
+    "chained_from": [
+      {
+        "id": "user_stories",
+        "text": "Plan the release"
+      }
+    ],
+    "context_providers": [
+      "chain_context"
+    ]
+  }
+}

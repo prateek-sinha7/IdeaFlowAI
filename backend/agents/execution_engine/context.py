@@ -626,3 +626,11 @@ class ExecutionContext:
     # Default ``{}`` ⇒ DORMANT on every run with no failing validation step ⇒
     # INV-3 byte-parity holds.  Transient per-run scratch (INV-2).
     pending_validation_fix: dict = field(default_factory=dict)
+
+    # ── Connector tools (connectors phase 3, step 8a) ───────────────────────────
+    # run_tools: the per-run connector tool pool, filled once at run entry from the
+    # injected ``RunToolBinder`` (``agents/execution_engine/run_tools.py``) and keyed by
+    # bound tool name. Each step receives only the subset its compiled grant names
+    # (``permission_caps.bound_connector_tools``). Default-empty ⇒ DORMANT on every run
+    # without connector grants ⇒ INV-3 byte-parity holds. Transient per-run scratch (INV-2).
+    run_tools: dict = field(default_factory=dict)

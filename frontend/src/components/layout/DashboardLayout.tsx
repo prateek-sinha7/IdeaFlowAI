@@ -11,9 +11,11 @@ import { LibraryPage } from "@/components/library/LibraryPage";
 import { WorkflowHistory } from "@/components/history/WorkflowHistory";
 import { AccountSettings, type SettingsSection } from "@/components/settings/AccountSettings";
 import { AnalyticsPage } from "@/components/analytics/AnalyticsPage";
+import { ConnectorsPage } from "@/components/connectors/ConnectorsPage";
 import { SavedWorkflowsPage } from "@/components/savedworkflows/SavedWorkflowsPage";
 import { IdeaInputPage } from "@/components/workflow/IdeaInputPage";
-import { ComposerPage } from "@/components/workflow/composer/ComposerPage";
+import { BuilderComposerHost } from "@/components/workflowBuilder/BuilderComposerHost";
+import { BuildWithAiLauncher } from "@/components/workflowBuilder/BuildWithAiLauncher";
 // INV-3 (plan 06): the AgentProgressPanel run-lane mount was removed here — its
 // Stop/revise/suggestions controls are fully absorbed by RunChatLane. The
 // component itself is retained (its own suite + the plan-08 Steps relocation);
@@ -82,6 +84,13 @@ export type SavedComposition = {
   // without this the Composer always re-initializes to its hardcoded default
   // on reopen, so a saved .html deliverable silently reverted to .md.
   runConfig?: import("@/types/index").WorkflowRunConfig;
+  // The saved row's `base_pipeline_type`. The builder host turns Save into
+  // "Save as new" for a non-custom base (Req 10.10); passing it here spares the
+  // host a row lookup and avoids offering Save before that lookup returns.
+  basePipelineType?: string;
+  // The built-in this saved row overrides (spec 016); absent on an ordinary
+  // saved workflow. Connected apps are not offered on an override row.
+  overridesPipelineType?: string;
 };
 
 export interface DashboardLayoutProps {
@@ -400,7 +409,7 @@ export interface DashboardLayoutProps {
   pinnedVersion?: string;
 }
 
-export type MainView = "home" | "library" | "history" | "settings" | "analytics" | "input" | "execution" | "catalog" | "saved-workflows" | "composer";
+export type MainView = "home" | "library" | "history" | "settings" | "analytics" | "connectors" | "input" | "execution" | "catalog" | "saved-workflows" | "composer";
 
 // ISS-054 / KAN-160: stable empty fallback for non-live callers and existing tests
 // (preserves referential identity across renders). Live proposals now come from
@@ -413,7 +422,7 @@ const RUN_CONCIERGE_PROPOSALS: LaneProposal[] = [];
 // old brief/Input + AgentsPopup "Advanced" flow instead.
 const COMPOSER_ENABLED_TYPES = new Set<WorkflowType>([
   "custom",
-] as WorkflowType[]);
+]);
 
 // T9 (015-frontend-routing): map a WorkflowType entering the "input" MainView
 // to its /create/{mode} route. Only ppt/prototype/app/user-stories have a
@@ -443,7 +452,7 @@ function createRouteForType(type: WorkflowType): string {
 // their routes.* builder. "library"/"settings" land on their default sub-tab
 // (contracts/route-map.md's redirect-only /library and /settings entries).
 function headerNavRoute(
-  page: "home" | "library" | "history" | "settings" | "analytics" | "catalog" | "saved-workflows",
+  page: "home" | "library" | "history" | "settings" | "analytics" | "connectors" | "catalog" | "saved-workflows",
 ): string {
   switch (page) {
     case "home": return routes.home();
@@ -451,6 +460,7 @@ function headerNavRoute(
     case "history": return routes.runHistory();
     case "settings": return routes.settingsProfile();
     case "analytics": return routes.analytics();
+    case "connectors": return routes.connectors();
     case "catalog": return routes.create();
     case "saved-workflows": return routes.workflows();
   }
@@ -661,7 +671,7 @@ export function DashboardLayout({
     // A cold-loaded /create/{type} URL wins: without this the panel silently
     // opened on the "user_stories" default below, so a shared or refreshed link
     // launched the WRONG workflow rather than the one the URL named.
-    if (initialWorkflowType) return initialWorkflowType as WorkflowType;
+    if (initialWorkflowType) return initialWorkflowType;
     if (typeof window !== "undefined") {
       if (sessionStorage.getItem("prototype.pending")) return "prototype";
       if (sessionStorage.getItem("ppt.pending")) return "ppt";
@@ -872,7 +882,7 @@ export function DashboardLayout({
       if (mainView !== "execution") {
         setMainView("execution");
       }
-      const normalised = pipelineState.pipeline_type as WorkflowType;
+      const normalised = pipelineState.pipeline_type;
       if (normalised && normalised !== workflowType) {
         setWorkflowType(normalised);
       }
@@ -1287,7 +1297,7 @@ export function DashboardLayout({
           }
         })
         .catch((e) => console.error("postRevision failed", e));
-      setWorkflowType("ppt_revision" as WorkflowType);
+      setWorkflowType("ppt_revision");
       if (onResetPipeline) onResetPipeline();
       return;
     }
@@ -1295,7 +1305,7 @@ export function DashboardLayout({
     // Legacy fallback (no parent run id available).
     const existingHtml = pptContent || pptxCode || "";
     const revisionMessage = `=== EXISTING HTML DECK ===\n${existingHtml.slice(0, 60000)}\n=== END EXISTING DECK ===\n\n=== REVISION REQUEST ===\n${instruction}\n=== END REQUEST ===`;
-    setWorkflowType("ppt_revision" as WorkflowType);
+    setWorkflowType("ppt_revision");
     if (onResetPipeline) onResetPipeline();
     if (onStartPipeline) {
       onStartPipeline("ppt_revision", revisionMessage, undefined, attachedHooks);
@@ -1306,7 +1316,7 @@ export function DashboardLayout({
   const handleReviseUserStory = useCallback((instruction: string) => {
     if (!userStoryContent) return;
     const revisionMessage = `=== EXISTING PRODUCT BACKLOG ===\n${userStoryContent}\n=== END EXISTING BACKLOG ===\n\n=== REVISION REQUEST ===\n${instruction}\n=== END REQUEST ===`;
-    setWorkflowType("user_stories_revision" as WorkflowType);
+    setWorkflowType("user_stories_revision");
     if (onResetPipeline) onResetPipeline();
     if (onStartPipeline) {
       // Revision Families (B1): link the parent so the backend assembles the family.
@@ -1324,7 +1334,7 @@ export function DashboardLayout({
     // Pass the full prototype HTML — no slice. The agent will output only the
     // changed sections, not the full document.
     const revisionMessage = `=== EXISTING PROTOTYPE HTML ===\n${prototypeContent}\n=== END EXISTING HTML ===\n\n=== REVISION REQUEST ===\n${instruction}\n=== END REQUEST ===`;
-    setWorkflowType("prototype_revision" as WorkflowType);
+    setWorkflowType("prototype_revision");
     if (onResetPipeline) onResetPipeline();
     if (onStartPipeline) {
       // Phase 5: send source_workflow_run_id so the backend can seed the
@@ -1338,7 +1348,7 @@ export function DashboardLayout({
   const handleReviseAppBuilder = useCallback((instruction: string) => {
     if (!userStoryContent) return;
     const revisionMessage = `=== EXISTING APP BLUEPRINT ===\n${userStoryContent.slice(0, 40000)}\n=== END EXISTING BLUEPRINT ===\n\n=== REVISION REQUEST ===\n${instruction}\n=== END REQUEST ===`;
-    setWorkflowType("app_builder_revision" as WorkflowType);
+    setWorkflowType("app_builder_revision");
     if (onResetPipeline) onResetPipeline();
     if (onStartPipeline) {
       // Revision Families (B1): link the parent so the backend assembles the family.
@@ -1386,7 +1396,7 @@ export function DashboardLayout({
         }
       })
       .catch((e) => console.error("postRevision (prototype_v2) failed", e));
-    setWorkflowType("prototype_v2_revision" as WorkflowType);
+    setWorkflowType("prototype_v2_revision");
     if (onResetPipeline) onResetPipeline();
   }, [contentSourceRunId, runConnection, onRevisionLaunched, onResetPipeline]);
 
@@ -1405,7 +1415,7 @@ export function DashboardLayout({
         }
       })
       .catch((e) => console.error("postRevision (backlog) failed", e));
-    setWorkflowType("backlog_revision" as WorkflowType);
+    setWorkflowType("backlog_revision");
     if (onResetPipeline) onResetPipeline();
   }, [contentSourceRunId, runConnection, onRevisionLaunched, onResetPipeline]);
 
@@ -1501,7 +1511,7 @@ export function DashboardLayout({
     // see the fuller rationale at the postRevision push above (:1005). The
     // pipelineRunId-reactive effect (:662) pushes the real new run's URL once
     // its own pipeline_start frame arrives.
-    const webPipeline = (pendingOdProtoParams.pipelineType ?? "prototype") as WorkflowType;
+    const webPipeline = pendingOdProtoParams.pipelineType ?? "prototype";
     setWorkflowType(webPipeline);
     setQuestionnaireQuestions([]);
     setQuestionnaireLoading(false);
@@ -1571,7 +1581,7 @@ export function DashboardLayout({
     // Spec 017: `ppt` and `ppt_v2` ride the same staging pipe (identical draft
     // shape, identical wizard), so the draft names the pipeline. Absent = `ppt`,
     // which is every draft written before ppt_v2 existed.
-    const deckPipeline = (pendingOdPptParams.pipelineType ?? "ppt") as WorkflowType;
+    const deckPipeline = pendingOdPptParams.pipelineType ?? "ppt";
     setMainView("execution");
     // T9 fix (015-frontend-routing, FR-004/FR-010): same reasoning as the
     // pendingOdProtoParams effect above (:1163) — sourceRunId is the PARENT run,
@@ -1678,6 +1688,14 @@ export function DashboardLayout({
     setMainView(COMPOSER_ENABLED_TYPES.has(type) ? "composer" : "input");
     router.push(COMPOSER_ENABLED_TYPES.has(type) ? routes.workflowNew() : createRouteForType(type));
   }, [router]);
+
+  // AI Workflow Builder entry on /workflows (design 3.10.6): no workflow is open on that
+  // page, so "Build with AI" opens a new canvas exactly like "New workflow". The launcher
+  // has already asked the Composer's host to open its panel empty; the conversation
+  // starts with the first message sent there.
+  const handleOpenBuilderCanvas = useCallback(() => {
+    handleSelectFeature("custom");
+  }, [handleSelectFeature]);
 
   // "Open in full canvas" (AgentsPopup header -> IdeaInputPage -> here): take the
   // composition the launch panel is holding RIGHT NOW — including any edits made in
@@ -1832,8 +1850,12 @@ export function DashboardLayout({
       // top-level column for them — UserWorkflowResponse has no such fields),
       // so they only exist here when the row is manifest-shaped (Case 3).
       runConfig: runConfigFromManifest(saved.manifest),
+      basePipelineType: saved.base_pipeline_type,
+      ...(saved.overrides_pipeline_type
+        ? { overridesPipelineType: saved.overrides_pipeline_type }
+        : {}),
     });
-    const launchedType = saved.base_pipeline_type as WorkflowType;
+    const launchedType = saved.base_pipeline_type;
     setWorkflowType(launchedType);
     // 41-04 — edit-from-My-Workflows opens the full-page Composer PRE-LOADED with
     // the saved agents + selections (D-CMP-ENTRY) only for Composer-enabled types
@@ -2021,7 +2043,7 @@ export function DashboardLayout({
     const sourceRunId: string | undefined =
       contentSourceRunId ??
       recentRuns?.find(
-        r => baseWorkflowType(r.type as WorkflowType) === baseWorkflowType(effectiveSourceType as WorkflowType) && r.status === "completed"
+        r => baseWorkflowType(r.type) === baseWorkflowType(effectiveSourceType) && r.status === "completed"
       )?.id;
 
     if (wizardPath) {
@@ -2184,7 +2206,7 @@ export function DashboardLayout({
     setWorkflowInput(briefMessage);
     setLastPipelineOutput(run.output || "");
     setCompletedPipelineTypes((prev) =>
-      prev.includes(run.type as WorkflowType) ? prev : [...prev, run.type as WorkflowType],
+      prev.includes(run.type) ? prev : [...prev, run.type],
     );
     setMainView("execution");
     // T9 fix (015-frontend-routing, FR-004/FR-010): run.id is the historical run
@@ -2407,7 +2429,7 @@ export function DashboardLayout({
   // keyed on it, so asking for the same tab again remounts AccountSettings and
   // re-applies `initialSection` even when the user has since clicked another tab.
   const handleNavigate = useCallback((
-    page: "home" | "library" | "history" | "settings" | "analytics" | "catalog" | "saved-workflows",
+    page: "home" | "library" | "history" | "settings" | "analytics" | "connectors" | "catalog" | "saved-workflows",
     options?: { settingsSection?: SettingsSection },
   ) => {
     if (page === "settings") {
@@ -2859,12 +2881,12 @@ export function DashboardLayout({
   // Suggested next steps (absorbed) — the chainable workflows as generic chips.
   // Use effectiveReviseType (the type of the run currently on screen) so the filter
   // correctly excludes the VIEWED pipeline type, not the last-launched type.
-  const chainFromType = (effectiveReviseType ?? workflowType) as WorkflowType;
+  const chainFromType = effectiveReviseType ?? workflowType;
   const laneSuggestions: LaneSuggestion[] = chainInto(baseWorkflowType(chainFromType))
     //.filter((o) => !o.beta)
     .map((o) => ({ id: o.id, text: o.text, label: o.label, isBeta: o.beta, display_name: o.display_name, short_name: o.short_name }));
   const handleLaneSuggestion = useCallback(
-    (id: string) => { handleChainPipeline(id as WorkflowType); },
+    (id: string) => { handleChainPipeline(id); },
     [handleChainPipeline],
   );
 
@@ -2874,6 +2896,7 @@ export function DashboardLayout({
     mainView === "history" ? "history" :
     mainView === "settings" ? "settings" :
     mainView === "analytics" ? "analytics" :
+    mainView === "connectors" ? "connectors" :
     mainView === "saved-workflows" ? "saved-workflows" :
     mainView === "input" ? "workflow" :
     mainView === "execution" ? "execution" : "home";
@@ -3118,7 +3141,7 @@ export function DashboardLayout({
                   userTier={userTier}
                   brief={homeBrief}
                   onBriefChange={setHomeBrief}
-                  onBuild={() => handleHomeSelectFeature("custom" as WorkflowType)}
+                  onBuild={() => handleHomeSelectFeature("custom")}
                   onOpenRun={(run) => { onSelectWorkflowRun?.(run); setMainView("execution"); router.push(routes.runDetail(run.id)); }}
                   recentRuns={recentRuns}
                 />
@@ -3261,6 +3284,23 @@ export function DashboardLayout({
             </motion.div>
           )}
 
+          {/* CONNECTORS */}
+          {mainView === "connectors" && (
+            <motion.div
+              key="connectors"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.2 }}
+              className="h-full"
+            >
+              {/* ConnectorsPage calls useSearchParams(), which needs a Suspense boundary (see ISS-624 above). */}
+              <Suspense fallback={null}>
+                <ConnectorsPage onBack={handleBackNav} />
+              </Suspense>
+            </motion.div>
+          )}
+
           {/* SAVED WORKFLOWS — user's saved custom workflows */}
           {mainView === "saved-workflows" && (
             <motion.div
@@ -3271,7 +3311,15 @@ export function DashboardLayout({
               transition={{ duration: 0.2 }}
               className="h-full"
             >
-              <SavedWorkflowsPage onLaunchSaved={handleLaunchSaved} onCreateNew={() => handleSelectFeature("custom")} />
+              <BuildWithAiLauncher tier={profileTier} onOpenComposer={handleOpenBuilderCanvas}>
+                {(onBuildWithAi) => (
+                  <SavedWorkflowsPage
+                    onLaunchSaved={handleLaunchSaved}
+                    onCreateNew={() => handleSelectFeature("custom")}
+                    onBuildWithAi={onBuildWithAi}
+                  />
+                )}
+              </BuildWithAiLauncher>
             </motion.div>
           )}
 
@@ -3299,7 +3347,7 @@ export function DashboardLayout({
                 // SURF-03 — the backend workflow id whose compiled per-step
                 // capabilities the composer surfaces. For a built-in launchable
                 // workflow opened from the catalog, `workflowType` IS the workflow id
-                // (HomeLaunchGrid launches via `row.id as WorkflowType`); for a saved
+                // (HomeLaunchGrid launches via `row.id`); for a saved
                 // workflow it is the persisted `base_pipeline_type` (set in
                 // handleLaunchSaved). Unknown ids (e.g. `custom`/`migration` meta) 404
                 // server-side and the strip simply does not render.
@@ -3323,7 +3371,11 @@ export function DashboardLayout({
               transition={{ duration: 0.25 }}
               className="h-full"
             >
-              <ComposerPage
+              {/* AI Workflow Builder (task 20.8): the host renders ComposerPage with every
+                  prop below plus its `builder` binding; without the Custom_Entitlement or a
+                  200 from GET /models it renders ComposerPage alone (Req 2.1, 2.2). */}
+              <BuilderComposerHost
+                tier={profileTier}
                 // T8 (015-frontend-routing, FR-011): ComposerPage seeds its OWN
                 // internal state from these initial* props via useState
                 // initializers (read once, at ITS first mount) — fine for the
@@ -3341,6 +3393,9 @@ export function DashboardLayout({
                 // write back into savedComposition, so this key never churns
                 // mid-edit.
                 key={savedComposition?.id ?? "new"}
+                linkedBasePipelineType={
+                  savedComposition?.id ? (savedComposition.basePipelineType ?? null) : null
+                }
                 workflowType={workflowType}
                 onBack={handleBackNav}
                 onUnsavedChange={handleUnsavedChange}
@@ -3368,6 +3423,7 @@ export function DashboardLayout({
                 initialManifestSteps={savedComposition?.manifestSteps}
                 initialManifest={savedComposition?.manifest}
                 builtinCanvasType={builtinCanvasType}
+                overridesPipelineType={savedComposition?.overridesPipelineType}
                 expectedUserWorkflowId={expectedUserWorkflowId}
                 initialSelections={
                   savedComposition?.selections

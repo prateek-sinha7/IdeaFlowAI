@@ -1149,7 +1149,7 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
   // version differently from its own /runs/{id} page (different renderer, and so
   // a different derived deliverable name) even once its bytes were correct.
   // Null when nothing is pinned, so the live path below is untouched.
-  const pinnedType = viewingVersion?.pipelineState?.pipeline_type as WorkflowType | undefined;
+  const pinnedType = viewingVersion?.pipelineState?.pipeline_type;
   // BUG-012: `workflowType` is the VIEWED run's type (effectiveReviseType) and must
   // win over `rawPipelineType`, whose fallback is the shell's stale "user_stories"
   // default on a History reopen (no live pipelineState) — preferring it rendered a

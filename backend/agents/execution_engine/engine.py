@@ -133,6 +133,12 @@ from agents.workflows.artifacts import CUSTOM_AGENT_PREFIX, artifact_name, topic
 from agents.workflows.compiler import WorkflowCompiler  # noqa: E402
 from agents.workflows.manifest import load_manifest  # noqa: E402
 from agents.workflows.plan import CompiledWorkflow  # noqa: E402
+from agents.workflows import permission_caps  # noqa: E402
+from agents.execution_engine.run_tools import (  # noqa: E402, F401
+    RUN_TOOL_BIND_TIMEOUT_SECONDS,
+    RunToolBinder,
+    RunToolRequest,
+)
 from app.agents.sandbox import (  # noqa: E402
     RunSandbox,
     _AGENT_OUTPUTS_PREFIX,
@@ -4131,6 +4137,10 @@ class ExecutionEngine:
         self._resume_milestone_sink: "MilestoneSink | None" = None
         self._resume_live_ectx_register: "LiveEctxRegister | None" = None
         self._resume_live_ectx_unregister: "LiveEctxUnregister | None" = None
+        # run_tool_binder (connectors phase 3, step 8a): the injected RunToolBinder that
+        # resumed runs use to bind their connector tools. None (goldens and every non-app
+        # driver) keeps a resumed run free of connector tools.
+        self._resume_run_tool_binder: "RunToolBinder | None" = None
         # ── BUG-R03: the app-layer resume output-column persister, injected app-side
         # (app/main.py restore-scan site) from the SAME callable the REST/SSE launch
         # driver's terminal block folds through. Fired from _drive_resumed_stream's
@@ -4368,6 +4378,7 @@ class ExecutionEngine:
         workspace_id_override: str | None = None,
         chain_source_run_id: str | None = None,
         chain_selection: object | None = None,
+        run_tool_binder: "RunToolBinder | None" = None,
     ) -> AsyncGenerator[dict, None]:
         """Public entry — the SINGLE outward emit boundary (PERSIST-03 / D-11).
 
@@ -4495,6 +4506,7 @@ class ExecutionEngine:
                 # every non-chained run ⇒ DORMANT / byte-identical (INV-3).
                 chain_source_run_id=chain_source_run_id,
                 chain_selection=chain_selection,
+                run_tool_binder=run_tool_binder,
             ):
                 # Stamp exactly once, at the boundary, so seq is contiguous across the
                 # nondeterministically-interleaved build loop. Events always carry a
@@ -4624,6 +4636,7 @@ class ExecutionEngine:
         _run_trace: "RunTrace | None" = None,
         chain_source_run_id: str | None = None,
         chain_selection: object | None = None,
+        run_tool_binder: "RunToolBinder | None" = None,
     ) -> AsyncGenerator[dict, None]:
         """Execute a workflow end-to-end, yielding WebSocket events.
 
@@ -5167,22 +5180,6 @@ class ExecutionEngine:
                         pipeline_run_id,
                         _stamp_exc,
                     )
-            # ── Per-run integration scopes + active MCP servers (09-06 / CAPRUN-01) ──
-            # Record the run's active integration scopes + the MCP servers they activate
-            # (alongside the runtime) so ``run_capabilities`` is the audit row for WHAT
-            # external surface this run could reach (INTEG-02). ``integration_scopes`` is
-            # host-injected (the §15 seam); default NONE ⇒ both persist as SQL NULL (INV-3
-            # row parity — never a spurious non-null write for a run with no integration).
-            _rec_scopes = list(getattr(ectx, "integration_scopes", None) or [])
-            _rec_servers: list[str] = []
-            if _rec_scopes:
-                from agents.capabilities.integration_providers.providers import (
-                    SCOPE_TO_SERVER,
-                )
-
-                _rec_servers = sorted(
-                    {SCOPE_TO_SERVER[s] for s in _rec_scopes if s in SCOPE_TO_SERVER}
-                )
             await scoped_store.record_capabilities(
                 pipeline_run_id,
                 runtime="langchain_deepagents",
@@ -5190,10 +5187,6 @@ class ExecutionEngine:
                 # empty {} (every run today) persists as SQL NULL — INV-3 row parity
                 # with legacy/no-override rows (never a spurious non-null {} write).
                 model_overrides=(ectx.model_overrides or None),
-                # 09-06: the active integration scopes + the MCP servers they activate
-                # (``or None`` ⇒ SQL NULL for a no-integration run — INV-3 parity).
-                integrations=(_rec_scopes or None),
-                mcp_servers=(_rec_servers or None),
             )
         except Exception as _scope_exc:  # noqa: BLE001 — never break a run on DB persist
             # WR-02: degrade ONLY the offline-harness DB condition (no schema →
@@ -5453,82 +5446,36 @@ class ExecutionEngine:
                 _const_exc,
             )
 
-        # ── MCP/integration tool pre-warm at run entry (09-05 / MCP-01) ──────────────
-        # The SAME async→sync resolution as the Constitution pre-warm above: the factory
-        # tool-resolution (_resolve_runner_tools) is SYNC and runs under THIS running
-        # event loop, but McpClientAdapter.get_tools() is ASYNC. We connect + await the
-        # tools ONCE here, before any sync create_runner, and stash them on the per-run
-        # context (ectx.prewarmed_mcp_tools); each per-agent AgentContext carries the list
-        # so the factory UNIONS them WITHOUT awaiting (no double-loop, Pitfall 3). The
-        # tools AUGMENT the deepagents runtime, never replace it (INV-13). Best-effort:
-        # the offline characterization harness activates no MCP scope → the list stays
-        # empty (graceful no-op) and the 5 snapshots stay byte-identical. The per-run MCP
-        # scope/credential wiring (which servers a run activates) is supplied by the
-        # run-entry host (the §15 binding seam, like the RepoSpec injection in 09-04);
-        # absent any active scope this pre-warm is a no-op.
-        if not hasattr(ectx, "prewarmed_mcp_tools"):
-            ectx.prewarmed_mcp_tools = []
-
-        # ── Integration-provider bridge → the SAME MCP prewarm (09-06 / INTEG-01) ─────
-        # The github/gitlab/jira/slack integration providers are THIN bridges onto the
-        # 09-05 mcp_server catalog (ONE mechanism, no parallel SDK path — D-08): a granted
-        # ``integrations`` scope (``gitlab_read`` etc.) is translated into the EXACT two
-        # inputs the MCP prewarm below consumes (server-config map + exposed-tool allow-list)
-        # by ``resolve_integration_scopes``. We MERGE them with any host-supplied MCP configs
-        # so an integration's tools surface through the identical ``McpClientAdapter`` path.
-        # Scopes default NONE (INTEG-02): no granted scope ⇒ empty maps ⇒ zero integration
-        # tools bound (graceful no-op; the offline characterization activates none → snapshots
-        # byte-identical). ``integration_scopes`` is host-injected per-run (the §15 seam, like
-        # ``mcp_server_configs``); the live transport/credential per server rides on
-        # ``integration_host_configs`` (also host-injected). Recorded per-run below (CAPRUN-01).
-        _integration_scopes = list(getattr(ectx, "integration_scopes", None) or [])
-        if _integration_scopes:
+        # ── Connector tools (connectors phase 3, step 8a) ─────────────────────────────
+        # Bind the run's granted connector tools once, before any agent is built. The
+        # plan decides whether grants exist (admits_connector_grants); the binder is the
+        # injected app-side port (agents/execution_engine/run_tools.py). Predefined and
+        # override plans never admit grants, so the binder is not called and
+        # ectx.run_tools stays empty. The binder never raises by contract; the except
+        # below is the last resort, so a binding failure never breaks the run.
+        ectx.run_tools = {}
+        requested_tool_names = permission_caps.connector_tool_grants(compiled)
+        if requested_tool_names and run_tool_binder is not None:
             try:
-                from agents.capabilities.integration_providers.providers import (
-                    resolve_integration_scopes,
-                )
-
-                _integ_configs, _integ_exposed = resolve_integration_scopes(
-                    _integration_scopes,
-                    getattr(ectx, "integration_host_configs", None),
-                )
-                # NOTE: the per-run active-server list persisted to
-                # run_capabilities is computed ONCE at the scoped-store entry
-                # (_rec_servers via SCOPE_TO_SERVER) — do not duplicate it here.
-                if _integ_configs:
-                    _merged_configs = dict(
-                        getattr(ectx, "mcp_server_configs", None) or {}
+                ectx.run_tools = dict(
+                    await asyncio.wait_for(
+                        run_tool_binder(
+                            RunToolRequest(
+                                run_id=pipeline_run_id,
+                                user_id=user_id,
+                                tool_names=requested_tool_names,
+                            )
+                        ),
+                        timeout=RUN_TOOL_BIND_TIMEOUT_SECONDS,
                     )
-                    _merged_configs.update(_integ_configs)
-                    ectx.mcp_server_configs = _merged_configs
-                    _merged_exposed = dict(
-                        getattr(ectx, "mcp_exposed_tools", None) or {}
-                    )
-                    _merged_exposed.update(_integ_exposed)
-                    ectx.mcp_exposed_tools = _merged_exposed
-            except Exception as _integ_exc:  # noqa: BLE001 — never break a run on the bridge
-                logger.warning(
-                    "execute(): integration-scope bridge failed (%s) — proceeding "
-                    "without integration tools (graceful no-op)",
-                    _integ_exc,
                 )
-
-        try:
-            _mcp_configs = getattr(ectx, "mcp_server_configs", None)
-            if _mcp_configs:
-                from app.agents.mcp.client import McpClientAdapter
-
-                _mcp_allowed = getattr(ectx, "mcp_exposed_tools", None)
-                _adapter = McpClientAdapter(_mcp_configs)
-                ectx.prewarmed_mcp_tools = await _adapter.get_tools(
-                    allowed=_mcp_allowed
+            except Exception as _bind_exc:  # noqa: BLE001 — binding never breaks a run
+                logger.error(
+                    "execute(): run tool binding failed for %s (%s); granted connector "
+                    "tools are unavailable for this run",
+                    pipeline_run_id,
+                    type(_bind_exc).__name__,
                 )
-        except Exception as _mcp_exc:  # noqa: BLE001 — never break a run on the pre-warm
-            logger.warning(
-                "execute(): MCP tool pre-warm failed (%s) — proceeding without "
-                "pre-warmed MCP tools (graceful no-op)",
-                _mcp_exc,
-            )
 
         # ── Step 1: Validate the DAG ──────────────────────────────────────
         validation = self._resolver.validate(agents)
@@ -7530,6 +7477,57 @@ class ExecutionEngine:
                                         ordered_agents[_route_index].id,
                                         _skipped_ids or "-",
                                     )
+                        elif _route_trigger == "end":
+                            # ── Explicit end of run (``trigger: end``) ───────────
+                            # The gating step's decision is the one that LEAVES a
+                            # loop ("pass" on a tester whose only other outcome is
+                            # "revise" -> an earlier step). It finishes the run
+                            # successfully HERE. This is deliberately not "no
+                            # match": a decision that matches nothing still fails
+                            # closed (ISS-170) — declaring "pass" is what makes the
+                            # happy path distinguishable from a typo'd decision.
+                            #
+                            # Nothing can run again once the walk ends, so every
+                            # roster entry after this step that has not already run
+                            # is dead, and is reported skipped the same way a branch
+                            # jump reports the siblings it leaves behind. A fan-out
+                            # child is reported by its parent group, and a step that
+                            # ran on an earlier pass keeps its agent_complete.
+                            _ended_ids: list[str] = []
+                            for _left_behind in ordered_agents[cursor + 1 :]:
+                                if getattr(_left_behind, "dispatched_by", ""):
+                                    continue
+                                if any(
+                                    r.get("agent_id") == _left_behind.id
+                                    for r in results
+                                ):
+                                    continue
+                                _ended_ids.append(_left_behind.id)
+                                yield {
+                                    "type": "agent_skipped",
+                                    "data": {
+                                        "agent_id": _left_behind.id,
+                                        "step": step.id,
+                                        "gate": "conditional",
+                                        "reason": (
+                                            "conditional gate ended the run at "
+                                            f"{step.id!r}; no later step runs"
+                                        ),
+                                    },
+                                }
+                            logger.info(
+                                "condition: step %s decision=%r -> end of run, skipped=%s",
+                                step.id,
+                                _gdetail.get("decision")
+                                if isinstance(_gdetail, dict)
+                                else None,
+                                _ended_ids or "-",
+                            )
+                            # Ending the walk is the same move the leaf-step arm
+                            # makes below; ``_routed`` keeps the plain ``cursor + 1``
+                            # from overriding it.
+                            cursor = len(ordered_agents)
+                            _routed = True
                         elif _route_trigger == "workflow":
                             # ── [spec 014 / T29] Cross-workflow trigger (R-12/R-13/R-14) ──
                             # Mint + spawn a NEW, independent WorkflowRun via the T28
@@ -10209,13 +10207,6 @@ class ExecutionEngine:
                     # Constitution under this running event loop WITHOUT awaiting (the R12
                     # no-op fix). None when none is set → graceful no-op (parity).
                     prewarmed_constitution=ectx.prewarmed_constitution,
-                    # prewarmed_mcp_tools (09-05 / MCP-01): the MCP/integration tools bound
-                    # ONCE at run entry (above) so the SYNC factory unions them into the runner
-                    # tool set under this running loop WITHOUT awaiting. Empty when no MCP
-                    # scope is active → graceful no-op (parity; snapshots byte-identical).
-                    prewarmed_mcp_tools=list(
-                        getattr(ectx, "prewarmed_mcp_tools", None) or []
-                    ),
                     # step_injects (WIRE-03 / D-16): the compiled Step.injects for THIS step,
                     # read GENERICALLY off ectx.current_step (the compiled Step bound by the
                     # strategy handle before this call — the SAME seam current_step.hooks uses,
@@ -10281,6 +10272,10 @@ class ExecutionEngine:
                     step_tools=getattr(
                         getattr(ectx, "current_step", None), "tools", None
                     ),
+                    # run_tools (connectors phase 3, step 8a): the run's bound connector
+                    # tools keyed by name. The factory gives this step only the ones its
+                    # own grant names (permission_caps.bound_connector_tools).
+                    run_tools=ectx.run_tools,
                     # step_produces (ISS-1156): off the SAME overlaid spec the
                     # single_file readback guard and the typed artifact write
                     # below read, so the factory's prompt guard cannot disagree.
@@ -14786,7 +14781,19 @@ class ExecutionEngine:
             return compiled, {}
 
         # Index the user-compiled levers by agent_id and merge onto the file steps.
-        _user_by_agent = {s.agent_id: s for s in user_compiled.steps}
+        # Connected-app grants (design 5.5 layer 3): the trust="user" re-compile above
+        # admits them, so when the BASE plan does not admit grants (predefined plans,
+        # flat rows, override merges) they are stripped from the steps Path B
+        # (absent-agent synthesis) reads, and never copied onto a plan step below.
+        from agents.workflows import permission_caps
+
+        _admits_connectors = bool(getattr(compiled, "admits_connector_grants", False))
+        _user_by_agent = {
+            s.agent_id: (
+                s if _admits_connectors else permission_caps.without_connector_grants(s)
+            )
+            for s in user_compiled.steps
+        }
         _sel_map = selections or {}
         new_steps = []
         for step in compiled.steps:
@@ -14870,9 +14877,14 @@ class ExecutionEngine:
             # filter keeps ``dataclasses.replace`` total.
             if isinstance(sel.get("tools"), dict) and sel["tools"]:
                 _slots = {f.name for f in dataclasses.fields(step.tools)}
-                _named = {
-                    k: getattr(user_step.tools, k) for k in sel["tools"] if k in _slots
-                }
+                _named = permission_caps.overlay_tool_slots(
+                    {
+                        k: getattr(user_step.tools, k)
+                        for k in sel["tools"]
+                        if k in _slots
+                    },
+                    admits=_admits_connectors,
+                )
                 if _named:
                     patch["tools"] = dataclasses.replace(step.tools, **_named)
             # Fan-out levers (D3, the crux) — each fires ONLY when the user selected
@@ -16315,6 +16327,13 @@ class ExecutionEngine:
         # A resume is a new attempt over durable state. Drop only this run's stale
         # process-local terminal state; durable rows and events remain authoritative.
         self._state_machine.forget_run(run_id)
+        # The finalizer's fire-once guard is per ATTEMPT, not per run. Left set, a
+        # same-process resume skips finalization and republishes the PRIOR attempt's
+        # record (run a57f82ce: the 16:01 "degraded" record was reused at 18:30 and
+        # 18:35, so the fresh build was never committed, ref-advanced or tagged).
+        # Safe against double-finalizing one attempt: the resume endpoint refuses
+        # while the earlier driver is still live, so its finalizer has returned.
+        _finalize_terminal_run_started.discard(run_id)
 
         # ── Migration 0040: a run launched from a Composer manifest must resume as
         # THAT workflow. Before this, the registry branch below rebuilt the roster
@@ -16684,6 +16703,9 @@ class ExecutionEngine:
                 # (``flush_terminal``) drains the buffered output/thinking and writes
                 # the terminal entry BEFORE step 4 copies the file into ``.chain/``.
                 _run_trace=_resume_trace,
+                # Connectors phase 3 (step 8a): resumed runs rebind their connector tools
+                # through the app-armed binder. None keeps the resume free of them.
+                run_tool_binder=self._resume_run_tool_binder,
             ):
                 if event.get("type") in (
                     "pipeline_failed",

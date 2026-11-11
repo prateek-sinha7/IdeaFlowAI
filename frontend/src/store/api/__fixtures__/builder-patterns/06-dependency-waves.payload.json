@@ -1,0 +1,62 @@
+{
+  "name": "Dependency waves",
+  "description": "Fixture for patterns.md section 6: Dependency waves.",
+  "base_pipeline_type": "custom",
+  "agent_ids": [
+    "custom-agent:architect",
+    "custom-agent:modules"
+  ],
+  "manifest": {
+    "id": "pattern-06-dependency-waves",
+    "name": "Dependency waves",
+    "description": "Fixture for patterns.md section 6: Dependency waves.",
+    "planner": "skip",
+    "clarify": {
+      "mode": "skip",
+      "defaults": []
+    },
+    "deliverable": {
+      "strategy": "single_file",
+      "name": "out.md"
+    },
+    "steps": [
+      {
+        "agent": "custom-agent",
+        "instance_id": "architect",
+        "name": "Architect",
+        "gates": [],
+        "tools": {
+          "read_files": true,
+          "write_files": true
+        },
+        "prompt": "Write build/tasks.json: {\"tasks\": [{\"id\": \"m1\", \"title\": \"...\", \"targets\": [\"modules/m1.md\"], \"depends_on\": [], \"body\": \"...\"}]}. Every id in a depends_on list must be the id of another task. At most 6 tasks."
+      },
+      {
+        "agent": "custom-agent",
+        "instance_id": "modules",
+        "name": "Module Builders",
+        "gates": [],
+        "strategy": "wave_scheduler",
+        "depends_on": [
+          "custom-agent:architect"
+        ],
+        "task_source": {
+          "kind": "parsed",
+          "parser": "json_tasks",
+          "target": "build/tasks.json",
+          "source_step": "custom-agent:architect"
+        },
+        "fanout": {
+          "mode": "parallel",
+          "max_parallel": 4,
+          "agent": "self"
+        },
+        "tools": {
+          "read_files": true,
+          "write_files": true
+        },
+        "prompt": "Your task is in your message. Write only the file named in its targets."
+      }
+    ]
+  }
+}

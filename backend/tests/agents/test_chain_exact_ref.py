@@ -442,10 +442,11 @@ class TestReasonCodes:
 class TestDepartureN2:
     """Departure N2: corrupt/mismatched payloads always refuse, never degrade.
 
-    Only ``source_payload_missing`` (absent or swept) is degradable.
     A structural mismatch, tag/ref disagreement, or summary.md identity
-    failure raises ``source_provenance_conflict`` and is refused even when
-    ``chain_policy='degrade'`` is declared.
+    failure raises ``source_provenance_conflict`` and is refused even when a
+    (mock) plan still carries ``chain_policy='degrade'``. Since B5 every
+    refusal, ``source_payload_missing`` included, refuses; ``degrade`` itself
+    is no longer a valid manifest value.
     """
 
     def test_provenance_conflict_refuses_under_degrade_policy(self) -> None:
@@ -1071,9 +1072,10 @@ class TestB5SourcePayloadMissingAlwaysRefuses:
     so users get a clear 422 error rather than a run that silently starts with
     no context. See GIT_VERSIONING_BUGS.md B5.
 
-    The degrade path is now dead code (guarded by ``if False:`` in
-    admit_chain_launch) because no production manifest declares
-    ``chain_policy: degrade`` and the owner has ruled it out.
+    The degrade path was deleted from admit_chain_launch, and the compiler now
+    rejects ``chain_policy: degrade`` (see test_compiler_chain_policy.py). The
+    tests below hand a mock plan that still says ``degrade`` to prove admission
+    ignores the field and refuses anyway.
     """
 
     def test_source_payload_missing_with_degrade_policy_still_refuses(self) -> None:

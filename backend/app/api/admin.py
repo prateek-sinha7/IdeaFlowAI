@@ -29,6 +29,9 @@ from pydantic import BaseModel, ConfigDict
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from app.agents.workflow_builder.sandbox import BuilderSandbox, SandboxPathError
+from app.api.workflow_builder.lifecycle import stop_user_turns_from_worker
+from app.connectors.services import ConnectorServices, get_connector_services
 from app.core import auth_events, cognito_admin
 from app.core.auth_events import AuthEvent
 from app.core.email_identity import canonicalize_email
@@ -666,6 +669,7 @@ def delete_user(
     user_id: str,
     admin: User = Depends(require_admin),
     db: Session = Depends(get_db),
+    connectors: ConnectorServices = Depends(get_connector_services),
 ):
     """Delete a user. Admin cannot delete themselves.
 
@@ -679,8 +683,13 @@ def delete_user(
          absent from a prior partial run).
       3. ONE local transaction: delete every dependent row this user owns
          (``delete_user_dependents`` -- nine run-fanout tables, saved
-         workflows, custom agents, chat history, in dependency order), then
-         the ``User`` row itself. Per-table counts land in the audit event.
+         workflows, custom agents, chat history, connector rows, in
+         dependency order), then the ``User`` row itself. Per-table counts land
+         in the audit event. Before any row is deleted, the user's connector
+         tokens are read under a row lock (``AccountDeletion.collect``); after
+         the commit the provider grants are revoked, best effort
+         (``AccountDeletion.revoke``), and the outcome per connector joins the
+         audit event as ``connector_revocations``.
       4. ``AdminDeleteUser`` LAST. On failure, a ``PendingCognitoDeletion`` row
          records it for ``app/scripts/retry_cognito_deletions.py`` -- safe to
          defer because the account is already disabled and gone locally.
@@ -730,9 +739,31 @@ def delete_user(
     deleted_id = user.id
     deleted_email = user.email
     deleted_cognito_sub = user.cognito_sub
+    # Stop the user's running builder turns before their builder rows are deleted
+    # (Req 31.7), so a turn does not write rows or files for a removed account.
+    stop_user_turns_from_worker(deleted_id)
+    # Connector tokens are read BEFORE their rows are deleted (no provider call,
+    # no write); the grants are revoked after the commit.
+    connector_grants = connectors.account_deletion.collect(db, user_id)
     dependent_counts = delete_user_dependents(db, user_id)
     db.delete(user)
     db.commit()
+
+    # Workflow Builder sandbox folder (Req 31.7). After the commit so a failed
+    # database delete never loses files; a disk failure is logged by the
+    # sandbox and must not undo the committed deletion.
+    try:
+        BuilderSandbox.delete_user(deleted_id)
+    except SandboxPathError:
+        logger.warning(
+            "builder sandbox folder not removed for deleted user %s", deleted_id
+        )
+
+    # Provider grants (GitHub, Atlassian): after the commit so a provider outage can
+    # neither block nor roll back the deletion; never raises.
+    connector_revocations = connectors.account_deletion.revoke(
+        deleted_id, connector_grants
+    )
 
     # Step 4: the final Cognito delete, LAST and OUTSIDE the local transaction
     # -- the local state is already committed and correct either way.
@@ -754,6 +785,9 @@ def delete_user(
             pending.id,
         )
 
+    extra_event_fields: dict[str, object] = {}
+    if connector_revocations:
+        extra_event_fields["connector_revocations"] = connector_revocations
     auth_events.emit(
         AuthEvent.USER_DELETED,
         user_id=deleted_id,
@@ -761,6 +795,7 @@ def delete_user(
         actor_id=admin.id,
         dependent_counts=dependent_counts,
         pool_delete_pending=failure_code is not None,
+        **extra_event_fields,
     )
 
     # Return 202 if Cognito deletion is pending retry; 204 if fully successful

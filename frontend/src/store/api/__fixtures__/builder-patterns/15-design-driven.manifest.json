@@ -1,0 +1,37 @@
+{
+  "id": "pattern-15-design-driven",
+  "name": "Design-driven output (OpenDesign)",
+  "description": "Fixture for patterns.md section 15: Design-driven output (OpenDesign).",
+  "planner": "skip",
+  "clarify": {
+    "mode": "skip",
+    "defaults": []
+  },
+  "deliverable": {
+    "strategy": "single_file",
+    "name": "page.html",
+    "mimetype": "text/html"
+  },
+  "steps": [
+    {
+      "agent": "custom-agent",
+      "instance_id": "designer",
+      "name": "Designer",
+      "gates": [],
+      "injects": [
+        "design_system",
+        "template",
+        "craft"
+      ],
+      "tools": {
+        "read_files": true,
+        "write_files": true
+      },
+      "prompt": "Read .context/design/design-system.md and .context/design/template/example.html, then write page.html using the design tokens."
+    }
+  ],
+  "context_providers": [
+    "opendesign"
+  ],
+  "design_mode": "web"
+}

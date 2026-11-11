@@ -38,6 +38,7 @@ from __future__ import annotations
 
 import asyncio
 import uuid
+from types import SimpleNamespace
 
 import pytest
 from fastapi import FastAPI
@@ -528,6 +529,40 @@ def test_launch_mints_run(env):
     assert run.type == "user_stories"
     assert run.input == "build a backlog"
     assert run.agent_count > 0
+
+
+def test_launch_run_binds_verified_user_when_body_carries_other_user_id(
+    env, monkeypatch
+):
+    """Connectors 8b-2: the connector binder is bound for the verified caller. A
+    ``user_id`` sent in the request body is ignored, so a caller cannot bind another
+    user's connected tools."""
+    from app.connectors import services as connector_services
+
+    binder = object()
+    monkeypatch.setattr(
+        connector_services,
+        "get_connector_services",
+        lambda: SimpleNamespace(binder=binder),
+    )
+    user = _seed_user(env)
+    env["state"]["user"] = user
+    other_user_id = str(uuid.uuid4())
+
+    resp = _post_launch(
+        env,
+        message="build a backlog",
+        pipeline_type="user_stories",
+        user_id=other_user_id,
+    )
+
+    assert resp.status_code == 200, resp.text
+    run = _latest_run(env)
+    assert run.user_id == user.id
+    kwargs = _RecordingEngine.last_kwargs
+    assert kwargs is not None, "the launch driver did not reach the engine"
+    assert kwargs["user_id"] == user.id
+    assert kwargs["run_tool_binder"] is binder
 
 
 # ────────────────────────────────────────────────────────────────────────────

@@ -23,6 +23,11 @@ from app.models.user import User
 from app.models.workflow import WorkflowRun
 from app.models.workflow_memory import WorkflowMemory
 from tests.fakes.cognito_pool import FakeCognitoPool
+from tests.fakes.connector_services import build_world
+
+# The route takes the connectors runtime as a dependency; a direct call passes one
+# with nothing connected, so these tests keep exercising the Cognito ordering only.
+NO_CONNECTORS = build_world().services
 
 
 @pytest.fixture()
@@ -75,7 +80,9 @@ class TestDeleteOrdering:
         admin = _admin(session, pool)
         target = _target(session, pool)
 
-        admin_mod.delete_user(user_id=target.id, admin=admin, db=session)
+        admin_mod.delete_user(
+            user_id=target.id, admin=admin, db=session, connectors=NO_CONNECTORS
+        )
 
         assert session.query(User).filter(User.id == target.id).first() is None
 
@@ -97,7 +104,9 @@ class TestDeleteOrdering:
         )
         session.commit()
 
-        admin_mod.delete_user(user_id=target.id, admin=admin, db=session)
+        admin_mod.delete_user(
+            user_id=target.id, admin=admin, db=session, connectors=NO_CONNECTORS
+        )
 
         assert session.query(WorkflowMemory).count() == 0
         assert session.query(WorkflowRun).count() == 0
@@ -106,7 +115,9 @@ class TestDeleteOrdering:
         admin = _admin(session, pool)
         target = _target(session, pool)
 
-        admin_mod.delete_user(user_id=target.id, admin=admin, db=session)
+        admin_mod.delete_user(
+            user_id=target.id, admin=admin, db=session, connectors=NO_CONNECTORS
+        )
 
         assert session.query(PendingCognitoDeletion).count() == 0
         assert target.email not in pool
@@ -129,7 +140,9 @@ class TestDeleteOrdering:
 
         monkeypatch.setattr(cognito, "admin_delete_user", _boom)
 
-        admin_mod.delete_user(user_id=target.id, admin=admin, db=session)
+        admin_mod.delete_user(
+            user_id=target.id, admin=admin, db=session, connectors=NO_CONNECTORS
+        )
 
         assert session.query(User).filter(User.id == target.id).first() is None
 
@@ -180,7 +193,9 @@ class TestDeleteReturnCodes:
         monkeypatch.setattr(cognito, "admin_disable_user", track_disable)
         monkeypatch.setattr(cognito, "admin_delete_user", track_delete)
 
-        admin_mod.delete_user(user_id=target.id, admin=admin, db=session)
+        admin_mod.delete_user(
+            user_id=target.id, admin=admin, db=session, connectors=NO_CONNECTORS
+        )
 
         # Verify sign_out and disable were called (in order) before delete
         assert ("sign_out", target.email) in call_order
@@ -210,7 +225,9 @@ class TestDeleteReturnCodes:
 
         monkeypatch.setattr(cognito, "admin_delete_user", _boom)
 
-        result = admin_mod.delete_user(user_id=target.id, admin=admin, db=session)
+        result = admin_mod.delete_user(
+            user_id=target.id, admin=admin, db=session, connectors=NO_CONNECTORS
+        )
 
         # Verify 202 response with pending flag
         assert result.status_code == 202
@@ -228,7 +245,9 @@ class TestDeleteReturnCodes:
         admin = _admin(session, pool)
         target = _target(session, pool)
 
-        result = admin_mod.delete_user(user_id=target.id, admin=admin, db=session)
+        result = admin_mod.delete_user(
+            user_id=target.id, admin=admin, db=session, connectors=NO_CONNECTORS
+        )
 
         # Verify 204 response
         assert result.status_code == 204

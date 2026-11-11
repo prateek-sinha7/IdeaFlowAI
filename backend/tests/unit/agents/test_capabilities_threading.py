@@ -18,6 +18,7 @@ Drives a real single-agent pipeline through ``ExecutionEngine.execute()`` offlin
 
 from __future__ import annotations
 
+import dataclasses
 import uuid
 from typing import Any
 
@@ -35,10 +36,16 @@ _AGENT_ID = "domain-analyst"
 _PIPELINE_TYPE = "user_stories"
 
 
-async def _drive_and_capture_capabilities(capabilities: dict) -> dict:
+async def _drive_and_capture_capabilities(
+    capabilities: dict, *, via_compiler: bool = False
+) -> dict:
     """Run ONE agent through ``ExecutionEngine.execute()`` offline with the compiled
     plan's ``capabilities`` set to ``capabilities``; return the ``AgentContext.capabilities``
-    the engine actually passed to ``create_runner`` for that agent."""
+    the engine actually passed to ``create_runner`` for that agent.
+
+    ``via_compiler=True`` does not stamp the compiled plan. It instead declares
+    ``capabilities`` on the manifest and lets ``WorkflowCompiler.compile`` produce the
+    plan, so the value the engine sees is what the compiler carried (gap 1)."""
     import agents.execution_engine.engine as engine_mod
     import agents.factory as factory_mod
     from agents.execution_engine.engine import ExecutionEngine
@@ -54,6 +61,20 @@ async def _drive_and_capture_capabilities(capabilities: dict) -> dict:
     _orig_compile_for_run = engine_mod.compile_for_run
 
     def _patched_compile_for_run(ptype, _orig=_orig_compile_for_run):
+        if via_compiler:
+            # Fresh compile of the real manifest with the block declared on it. Not the
+            # lru_cached plan, so nothing leaks into other tests.
+            from agents.capabilities.registry import CapabilityRegistry
+            from agents.workflows.compiler import WorkflowCompiler
+            from agents.workflows.manifest import load_manifest
+
+            manifest = dataclasses.replace(
+                load_manifest(ptype, engine_mod._WORKFLOWS_DIR),
+                capabilities=dict(capabilities),
+            )
+            compiled = WorkflowCompiler().compile(manifest, CapabilityRegistry())
+            compiled.clarify.mode = "off"
+            return compiled
         compiled = _orig(ptype)
         compiled.clarify.mode = "off"
         compiled.capabilities = dict(capabilities)
@@ -130,6 +151,19 @@ async def test_compiled_internet_capability_reaches_agent_context() -> None:
     """``capabilities: {internet: true}`` on the compiled workflow reaches
     ``AgentContext.capabilities`` for the step the engine runs (AC-16)."""
     captured = await _drive_and_capture_capabilities({"internet": True})
+    assert captured == {"internet": True}
+
+
+@pytest.mark.asyncio
+async def test_manifest_internet_capability_reaches_agent_context_via_compiler() -> (
+    None
+):
+    """``capabilities: {internet: true}`` declared on the MANIFEST (not stamped on the
+    compiled plan) reaches ``AgentContext.capabilities``: manifest -> compiler ->
+    engine -> factory context (gap 1)."""
+    captured = await _drive_and_capture_capabilities(
+        {"internet": True}, via_compiler=True
+    )
     assert captured == {"internet": True}
 
 

@@ -279,3 +279,25 @@ describe("SavedWorkflowsPage — kebab CRUD is real, not static text (D-15)", ()
     expect(mockRouterPush).toHaveBeenCalledWith(routes.workflowEdit("uw-1"));
   });
 });
+
+describe("SavedWorkflowsPage: Build with AI entry (task 20.8)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockGetToken.mockReturnValue("test-token");
+    mockGetUserWorkflows.mockResolvedValue(makeRows());
+  });
+  it("showsNoBuildWithAiButton_whenOnBuildWithAiIsAbsent", async () => {
+    render(<SavedWorkflowsPage onCreateNew={() => undefined} />);
+    await screen.findByText("My saved workflow");
+    expect(screen.queryByRole("button", { name: "Build with AI" })).toBeNull();
+  });
+  it("callsOnBuildWithAi_whenTheButtonBesideNewWorkflowIsClicked", async () => {
+    const user = userEvent.setup();
+    const onBuildWithAi = vi.fn();
+    render(<SavedWorkflowsPage onCreateNew={() => undefined} onBuildWithAi={onBuildWithAi} />);
+    await screen.findByText("My saved workflow");
+    expect(screen.getByRole("button", { name: "New workflow" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Build with AI" }));
+    expect(onBuildWithAi).toHaveBeenCalledTimes(1);
+  });
+});

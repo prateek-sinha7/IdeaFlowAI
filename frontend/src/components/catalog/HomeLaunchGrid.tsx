@@ -283,7 +283,7 @@ export function HomeLaunchGrid({
           const { productRows, exampleRows, betaRows } = splitCatalog(workflows);
 
           const renderCard = (row: WorkflowSummary) => {
-            const type      = row.id as WorkflowType;
+            const type      = row.id;
             const label     = row.display_name ?? getWorkflowLabel(row.id);
             const subtitle  = row.description;
             const agents    = row.step_count ?? (row as WorkflowSummary & { agent_count?: number }).agent_count;

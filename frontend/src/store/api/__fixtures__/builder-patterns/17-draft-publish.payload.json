@@ -1,0 +1,47 @@
+{
+  "name": "Draft + mechanical publish",
+  "description": "Fixture for patterns.md section 17: Draft + mechanical publish.",
+  "base_pipeline_type": "custom",
+  "agent_ids": [
+    "custom-agent:draft",
+    "custom-agent:publish"
+  ],
+  "manifest": {
+    "id": "pattern-17-draft-publish",
+    "name": "Draft + mechanical publish",
+    "description": "Fixture for patterns.md section 17: Draft + mechanical publish.",
+    "planner": "skip",
+    "clarify": {
+      "mode": "skip",
+      "defaults": []
+    },
+    "deliverable": {
+      "strategy": "single_file",
+      "name": "page.html",
+      "publish_from_glob": "draft.v*.html"
+    },
+    "steps": [
+      {
+        "agent": "custom-agent",
+        "instance_id": "draft",
+        "name": "Draft",
+        "gates": [],
+        "tools": {
+          "read_files": true,
+          "write_files": true
+        },
+        "prompt": "Write draft.v1.html; on each revision write the next number."
+      },
+      {
+        "agent": "custom-agent",
+        "instance_id": "publish",
+        "name": "Publish",
+        "gates": [],
+        "mechanical": "publish",
+        "depends_on": [
+          "custom-agent:draft"
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,37 @@
+{
+  "id": "pattern-13-html-deliverable",
+  "name": "Validated HTML deliverable",
+  "description": "Fixture for patterns.md section 13: Validated HTML deliverable.",
+  "planner": "skip",
+  "clarify": {
+    "mode": "skip",
+    "defaults": []
+  },
+  "deliverable": {
+    "strategy": "single_file",
+    "name": "prototype.html",
+    "mimetype": "text/html"
+  },
+  "steps": [
+    {
+      "agent": "custom-agent",
+      "instance_id": "builder",
+      "name": "Builder",
+      "gates": [
+        "validation"
+      ],
+      "tools": {
+        "read_files": true,
+        "write_files": true
+      },
+      "validators": [
+        "html_static",
+        "html_render"
+      ],
+      "fix": {
+        "max_attempts": 2
+      },
+      "prompt": "Write prototype.html: one self-contained file, inline CSS and JS, hash-routed screens for every journey in the brief."
+    }
+  ]
+}

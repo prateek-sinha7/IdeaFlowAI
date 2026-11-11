@@ -554,7 +554,7 @@ describe("AgentsPopup", () => {
 
       expect(props.onReorder).toHaveBeenCalledWith([
         LOCKED,
-        { ...OPTIONAL, children: [LIB_PICK], strategy: "sequential" },
+        { ...OPTIONAL, children: [LIB_PICK], strategy: "sequential", maxParallel: 3 },
       ]);
       await waitFor(() => expect(screen.queryByRole("heading", { name: "Add agent" })).not.toBeInTheDocument());
     });

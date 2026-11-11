@@ -1,0 +1,107 @@
+{
+  "name": "Forward branch (classifier)",
+  "description": "Fixture for patterns.md section 9: Forward branch (classifier).",
+  "base_pipeline_type": "custom",
+  "agent_ids": [
+    "custom-agent:classify",
+    "custom-agent:bug-report",
+    "custom-agent:feature-spec",
+    "custom-agent:answer",
+    "custom-agent:summary"
+  ],
+  "manifest": {
+    "id": "pattern-09-forward-branch",
+    "name": "Forward branch (classifier)",
+    "description": "Fixture for patterns.md section 9: Forward branch (classifier).",
+    "planner": "skip",
+    "clarify": {
+      "mode": "skip",
+      "defaults": []
+    },
+    "deliverable": {
+      "strategy": "single_file",
+      "name": "out.md"
+    },
+    "steps": [
+      {
+        "agent": "custom-agent",
+        "instance_id": "classify",
+        "name": "Classifier",
+        "gates": [
+          "conditional"
+        ],
+        "produces": [
+          "route_decision"
+        ],
+        "tools": {
+          "read_files": false,
+          "write_files": false
+        },
+        "model": {
+          "model": "eu.anthropic.claude-haiku-5-5",
+          "effort": "low"
+        },
+        "prompt": "Classify the ticket in the brief. Reply with exactly one line: {\"decision\": \"bug\"}, {\"decision\": \"feature\"}, {\"decision\": \"question\"}.",
+        "route": {
+          "outcomes": {
+            "bug": {
+              "trigger": "step",
+              "target": "bug-report"
+            },
+            "feature": {
+              "trigger": "step",
+              "target": "feature-spec"
+            },
+            "question": {
+              "trigger": "step",
+              "target": "answer"
+            }
+          },
+          "default_next": "answer"
+        }
+      },
+      {
+        "agent": "custom-agent",
+        "instance_id": "bug-report",
+        "name": "Bug Report",
+        "gates": [],
+        "depends_on": [
+          "custom-agent:classify"
+        ],
+        "prompt": "Write a bug report for the ticket in the brief: steps, expected, actual."
+      },
+      {
+        "agent": "custom-agent",
+        "instance_id": "feature-spec",
+        "name": "Feature Spec",
+        "gates": [],
+        "depends_on": [
+          "custom-agent:classify"
+        ],
+        "prompt": "Write a short feature spec for the ticket in the brief."
+      },
+      {
+        "agent": "custom-agent",
+        "instance_id": "answer",
+        "name": "Answer",
+        "gates": [],
+        "depends_on": [
+          "custom-agent:classify"
+        ],
+        "prompt": "Answer the question in the ticket in the brief."
+      },
+      {
+        "agent": "custom-agent",
+        "instance_id": "summary",
+        "name": "Summary",
+        "gates": [],
+        "depends_on": [
+          "custom-agent:bug-report",
+          "custom-agent:feature-spec",
+          "custom-agent:answer"
+        ],
+        "prompt": "Summarise the branch that ran in three sentences."
+      }
+    ]
+  }
+}

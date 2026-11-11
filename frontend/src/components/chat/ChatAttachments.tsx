@@ -25,7 +25,7 @@ import { useChatAttachments, type PendingAttachment, type FileContentEntry } fro
 import type { ChatAttachment } from "@/types/index";
 
 const DEFAULT_ACCEPT =
-  "image/png,image/jpeg,image/webp,image/gif,.pdf,.txt,.md,.docx";
+  "image/png,image/jpeg,image/webp,image/gif,.pdf,.txt,.md,.docx,.xml";
 
 interface ChatAttachmentsProps {
   /** Notify the lane of the current live intake so it can attach them to the

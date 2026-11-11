@@ -59,9 +59,17 @@ reflects the engine's git-enabled sandbox posture (``has_git=True`` default).
 
 from __future__ import annotations
 
+import dataclasses
 import logging
+from collections.abc import Mapping
+from typing import Any
 
-from agents.workflows.plan import ToolPermissions, intersect_permissions
+from agents.workflows.plan import (
+    CompiledWorkflow,
+    Step,
+    ToolPermissions,
+    intersect_permissions,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -81,7 +89,16 @@ TRUSTED_TRUST_LEVELS: frozenset[str] = frozenset({"file", "builtin", "db"})
 #: reaches the host (exec / network / secrets / git).
 SAVED_TRUST_LEVEL: str = "db"
 
+#: Trust levels whose manifests may carry ``tools.connectors`` (connected apps).
+#: The privilege tiers above cannot express "user-authored only" (``db`` and
+#: ``file`` share the trusted cap), so this is its own set: saved Composer rows
+#: (``db``) and inline user manifests (``user``). ``file``/``builtin`` are the
+#: predefined workflows and are NOT in it; an unknown value fails closed.
+CONNECTOR_GRANT_TRUST_LEVELS: frozenset[str] = frozenset({"db", "user"})
+
 #: THE CAP INDEX. Every ceiling in the system is one of these three rows.
+#: Every row carries an EMPTY ``connectors`` list; ``apply_cap`` sets the effective
+#: value from the validated request when ``connector_grants_permitted(trust)``.
 PERMISSION_CAP_INDEX: dict[str, ToolPermissions] = {
     # Engineer-authored manifests: may request the privileged capabilities.
     "trusted": ToolPermissions(
@@ -235,6 +252,11 @@ def apply_cap(
     """
     cap = cap_for_trust(trust)
     effective = intersect_permissions(cap, cap, step_grant)
+    if connector_grants_permitted(trust):
+        # The cap rows hold no connector names, so the intersection above emptied
+        # the slot; the compiler already validated the request (name pattern,
+        # known connector, declared tool), so it is taken as asked.
+        effective.connectors = list(step_grant.connectors)
     log_decision(
         "cap",
         workflow,
@@ -244,6 +266,64 @@ def apply_cap(
         detail=f"cap={cap_key_for_trust(trust)} trust={trust or '?'}",
     )
     return effective
+
+
+def connector_grants_permitted(trust: str | None) -> bool:
+    """May a manifest compiled at ``trust`` carry ``tools.connectors``? Fails closed."""
+    return (trust or "") in CONNECTOR_GRANT_TRUST_LEVELS
+
+
+def connector_tool_grants(compiled: CompiledWorkflow) -> frozenset[str]:
+    """The union of every compiled step's connector grant; empty unless admitted.
+
+    A plan that does not admit grants (predefined, override merge, unknown trust)
+    yields nothing even if a step somehow carries names, so the run-entry seam
+    never asks the binder for tools on such a plan.
+    """
+    if not getattr(compiled, "admits_connector_grants", False):
+        return frozenset()
+    names: set[str] = set()
+    for step in compiled.steps:
+        names.update(getattr(step.tools, "connectors", None) or ())
+    return frozenset(names)
+
+
+def bound_connector_tools(
+    step_tools: ToolPermissions | None, pool: Mapping[str, Any] | None
+) -> list[Any]:
+    """The tools of ``pool`` this step's own grant names, in grant order.
+
+    ``None`` means no compiled step is bound (revision agent, chat runner, a direct
+    ``create_runner`` call): nothing binds. A granted name missing from the pool
+    (not configured, not connected) is skipped; a pool entry the step did not
+    grant is never returned, so step B cannot see a tool only step A granted.
+    """
+    if step_tools is None or not pool:
+        return []
+    return [
+        pool[name]
+        for name in dict.fromkeys(getattr(step_tools, "connectors", None) or ())
+        if name in pool
+    ]
+
+
+def overlay_tool_slots(named: dict[str, Any], *, admits: bool) -> dict[str, Any]:
+    """The ``tools`` slots an unsaved selection may copy onto a step.
+
+    ``connectors`` is dropped unless the base plan admits connector grants, so a
+    selections overlay can never put a connected-app grant on a predefined plan.
+    """
+    if admits:
+        return dict(named)
+    return {k: v for k, v in named.items() if k != "connectors"}
+
+
+def without_connector_grants(step: Step) -> Step:
+    """``step`` with an empty connector grant (the same object when already empty)."""
+    tools = step.tools
+    if tools is None or not getattr(tools, "connectors", None):
+        return step
+    return dataclasses.replace(step, tools=dataclasses.replace(tools, connectors=[]))
 
 
 def denied_tools(perms: ToolPermissions | None) -> frozenset[str]:

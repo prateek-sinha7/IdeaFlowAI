@@ -1,0 +1,59 @@
+{
+  "id": "pattern-03-parallel-specialists",
+  "name": "Parallel specialists -> aggregator",
+  "description": "Fixture for patterns.md section 3: Parallel specialists -> aggregator.",
+  "planner": "skip",
+  "clarify": {
+    "mode": "skip",
+    "defaults": []
+  },
+  "deliverable": {
+    "strategy": "streamed_text",
+    "name": "report.md"
+  },
+  "steps": [
+    {
+      "agent": "custom-agent",
+      "instance_id": "report",
+      "name": "Report Writer",
+      "gates": [],
+      "tools": {
+        "read_files": true,
+        "write_files": false
+      },
+      "reply": "last_message",
+      "prompt": "Read the three research notes listed under 'Earlier steps produced' and write the report.",
+      "subagents": {
+        "mode": "parallel",
+        "max_parallel": 3,
+        "steps": [
+          {
+            "agent": "custom-agent",
+            "instance_id": "market-size",
+            "name": "Market Size",
+            "gates": [],
+            "tools": {
+              "read_files": true,
+              "write_files": false
+            },
+            "prompt": "Estimate the market size for the brief's product. Do not look for files from other steps; they run at the same time."
+          },
+          {
+            "agent": "custom-agent",
+            "instance_id": "competitors",
+            "name": "Competitors",
+            "gates": [],
+            "prompt": "List the main competitors for the brief's product and how each positions itself. Do not look for files from other steps."
+          },
+          {
+            "agent": "custom-agent",
+            "instance_id": "regulation",
+            "name": "Regulation",
+            "gates": [],
+            "prompt": "List the regulations that apply to the brief's product. Do not look for files from other steps."
+          }
+        ]
+      }
+    }
+  ]
+}

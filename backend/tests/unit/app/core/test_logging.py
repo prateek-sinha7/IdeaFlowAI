@@ -1204,3 +1204,110 @@ class TestConfigureLogging:
             "logger": "tests.logging_probe",
             "message": "hello world",
         }
+
+
+# --------------------------------------------------------------------------- _RedactOAuthQueryFilter
+
+
+class TestRedactOAuthQueryFilter:
+    CALLBACK = "/api/connectors/oauth/callback"
+
+    def _access_record(self, path: str) -> logging.LogRecord:
+        return _make_record(
+            name="uvicorn.access",
+            msg='%s - "%s %s HTTP/%s" %d',
+            args=("127.0.0.1:5000", "GET", path, "1.1", 303),
+        )
+
+    def test_filter_redacts_query_of_callback_request_line_when_args_hold_path(
+        self,
+    ) -> None:
+        record = self._access_record(f"{self.CALLBACK}?code=abc123&state=def456&iss=x")
+
+        kept = app_logging._RedactOAuthQueryFilter().filter(record)
+
+        assert kept is True
+        line = record.getMessage()
+        assert f"{self.CALLBACK}?[redacted]" in line
+        assert "abc123" not in line and "def456" not in line
+
+    def test_filter_redacts_query_when_message_text_already_interpolated(self) -> None:
+        record = _make_record(
+            name="uvicorn.access",
+            msg=f'1.2.3.4 - "GET {self.CALLBACK}?code=abc&state=def HTTP/1.1" 303',
+        )
+
+        app_logging._RedactOAuthQueryFilter().filter(record)
+
+        assert "abc" not in record.getMessage()
+        assert f"{self.CALLBACK}?[redacted]" in record.getMessage()
+
+    def test_filter_leaves_other_request_lines_untouched_when_path_differs(
+        self,
+    ) -> None:
+        record = self._access_record("/api/runs?limit=5")
+
+        app_logging._RedactOAuthQueryFilter().filter(record)
+
+        assert "/api/runs?limit=5" in record.getMessage()
+
+    def test_filter_leaves_callback_path_without_query_untouched_when_no_query(
+        self,
+    ) -> None:
+        record = self._access_record(self.CALLBACK)
+
+        app_logging._RedactOAuthQueryFilter().filter(record)
+
+        assert record.getMessage().count(self.CALLBACK) == 1
+        assert "[redacted]" not in record.getMessage()
+
+    def test_filter_keeps_non_string_args_when_record_has_numbers(self) -> None:
+        record = self._access_record(f"{self.CALLBACK}?code=zzz")
+
+        app_logging._RedactOAuthQueryFilter().filter(record)
+
+        assert record.args is not None and record.args[-1] == 303  # type: ignore[index]
+
+    def test_configure_logging_installs_filter_once_when_called_twice(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        access = logging.getLogger("uvicorn.access")
+        before = list(access.filters)
+        try:
+            _configure(monkeypatch)
+            _configure(monkeypatch)
+
+            installed = [
+                f
+                for f in access.filters
+                if isinstance(f, app_logging._RedactOAuthQueryFilter)
+            ]
+            assert len(installed) == 1
+        finally:
+            access.filters[:] = before
+
+    def test_redacted_line_reaches_handler_when_access_level_is_lowered(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        stream = io.StringIO()
+        _configure(monkeypatch, stream=stream)
+        access = logging.getLogger("uvicorn.access")
+        access.setLevel(logging.INFO)
+        try:
+            access.info(
+                '%s - "%s %s HTTP/%s" %d',
+                "127.0.0.1:5",
+                "GET",
+                f"{self.CALLBACK}?code=SECRETCODE&state=SECRETSTATE",
+                "1.1",
+                303,
+            )
+        finally:
+            access.filters[:] = [
+                f
+                for f in access.filters
+                if not isinstance(f, app_logging._RedactOAuthQueryFilter)
+            ]
+
+        assert "SECRETCODE" not in stream.getvalue()
+        assert "SECRETSTATE" not in stream.getvalue()

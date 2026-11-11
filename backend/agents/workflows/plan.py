@@ -8,7 +8,7 @@ Phase-4 scope (D-06): define the FULL §6 field set now, populate only the
 Phase-4-consumed fields, and declare every forward field as *inert* — present
 with a safe default but NOT consumed by any Phase-4 behavior. The forward fields
 (``model``, ``tools``, ``validators``, ``fix``, ``compaction``, ``fanout``,
-``on_conflict``, ``retry``, ``injects``, ``repo``, ``limits``) become live in
+``on_conflict``, ``retry``, ``injects``, ``limits``) become live in
 later phases (model policy = Phase 6, capability impls = Phase 7, …). The only
 hard constraint: NO Phase-4 behavior keys off an inert field.
 
@@ -37,7 +37,7 @@ from dataclasses import dataclass, field
 # These are minimal stub dataclasses so the §6 field set is type-complete now.
 # None of them is consumed by Phase-4 behavior; later phases give them meaning
 # (ToolPermissions / ModelPolicy = §8/§20 Phase 6; FixPolicy / RetryPolicy /
-# FanoutSpec = Phase 7; RepoSpec = the brownfield repo phases). Defaults encode
+# FanoutSpec = Phase 7). Defaults encode
 # the §6 least-privilege posture (exec/network/secrets/spawn_subagents OFF).
 # ---------------------------------------------------------------------------
 
@@ -70,6 +70,11 @@ class ToolPermissions:
     secrets: list[str] = field(default_factory=list)
     mcp: list[str] = field(default_factory=list)
     integrations: list[str] = field(default_factory=list)
+    # Connected-app tool names (``<connector_key>__<tool>``) a USER-AUTHORED step
+    # asks for. Every cap row carries an empty list; ``permission_caps.apply_cap``
+    # sets the effective value from the validated request only for a trust level
+    # that may carry it, so a predefined workflow can never hold one.
+    connectors: list[str] = field(default_factory=list)
     spawn_subagents: bool = False
     # Named tool SETS a step may bind beyond its template's AGENT.md ``tools:``
     # list (registry set names, e.g. ``file_extract``/``playwright``). An
@@ -87,7 +92,7 @@ class ToolPermissions:
         "network",
         "spawn_subagents",
     )
-    _LIST_FIELDS = ("secrets", "mcp", "integrations", "tool_sets")
+    _LIST_FIELDS = ("secrets", "mcp", "integrations", "connectors", "tool_sets")
 
     def lowered_by(self, agent_md: "ToolPermissions") -> "ToolPermissions":
         """Return ``self`` masked by an AGENT.md default that may only LOWER (D-07).
@@ -246,9 +251,19 @@ class RouteOutcome:
     at runtime and owns the dispatch control flow.
     """
 
-    trigger: str  # "step" (in-workflow cursor jump) | "workflow" (cross-workflow trigger) — R-05b
-    target: str  # trigger="step": a step id in THIS compiled workflow. trigger="workflow": a
+    trigger: (
+        str  # "step" (in-workflow cursor jump) | "workflow" (cross-workflow trigger)
+    )
+    # | "end" (finish THIS run successfully at the gating step) — R-05b
+    target: str = (
+        ""  # trigger="step": a step id in THIS compiled workflow. trigger="workflow": a
+    )
     # saved user_workflow_id, or the literal "self". Both compile-time validated (R-10).
+    # trigger="end": no target (the compiler rejects one) — the run completes here, the
+    # steps after the gating step are reported skipped, and no further step runs. This is
+    # the way a loop-back route (revise -> earlier step) declares the decision that
+    # LEAVES the loop: an unmatched decision with no ``default_next`` still fails the run
+    # closed (ISS-170), so "pass" must be spelled out rather than implied by omission.
 
     # R-28 — authored retry guidance. Injected into the TARGET step's context on a
     # BACKWARD (loop) jump, under the automatic retry block. Optional and inert when
@@ -284,7 +299,9 @@ class RouteSpec:
     default_next: str | None = (
         None  # fallback step id when no outcome matches; None = the
     )
-    # run terminates at this step (R-13)
+    # run FAILS CLOSED at this step (R-13 / ISS-170): a decision that matches no outcome
+    # and has no fallback is a refusal (``pipeline_failed``), never a quiet success. To
+    # finish successfully on a given decision, declare it as a ``trigger: end`` outcome.
     loop_max_iterations: int = (
         5  # cap on revisits to any ONE trigger="step" backward-jump
     )
@@ -313,25 +330,6 @@ class RetryPolicy:
     max_attempts: int = 0
     backoff_seconds: float = 0.0
     on: list[str] = field(default_factory=lambda: ["transient"])
-
-
-@dataclass
-class RepoSpec:
-    """Brownfield repo binding (§15). INERT in Phase 4 (repo phases 9–12).
-
-    ``index`` is the DECLARED symbol-index opt-in (09-03 / REPO-02 / D-04): when
-    ``True`` the workflow asks the optional ``repo_index`` (``tree_sitter``)
-    capability to build an in-memory symbol index for the cloned repo. The
-    compiler only RECORDS this flag (INV-5 — manifests are pure data, no control
-    flow); the build DECISION (``index OR file_count > N6``) lives inside the
-    ``repo_index`` capability, never the compiler. ``False`` (the default) means
-    grep/glob is the only search path.
-    """
-
-    url: str | None = None
-    ref: str | None = None
-    branch: str | None = None
-    index: bool = False
 
 
 @dataclass
@@ -373,11 +371,10 @@ class DeliverableSpec:
     # every existing compiled plan byte-identical (INV-3).
     chains_from: bool = False
     # DECLARED chain failure policy (sandbox-git-versioning-v2 / Req 6):
-    # ``refuse``  — the default; a missing/swept/unavailable source is a hard
-    #               refusal; no run row is created.
-    # ``degrade`` — a missing or swept (but not corrupt) payload is tolerated;
-    #               the run mints with the edge and ``selection=None``.
-    # An unknown value is a CompilerError (no defaulting — INV-5).
+    # ``refuse`` — the only valid value and the default; a missing/swept/unavailable
+    #              source is a hard refusal; no run row is created.
+    # The former ``degrade`` value was removed (B5 / B30). An unknown value is a
+    # CompilerError (no defaulting — INV-5).
     chain_policy: str = "refuse"
     # DECLARED deliverable shape hint (ISS-021 / 18-01): an optional author-set
     # mimetype the engine emits on pipeline_complete so the FE renderer dispatches
@@ -686,8 +683,9 @@ class CompiledWorkflow:
 
     Phase-4-consumed: ``id``, ``steps``, ``context_providers`` (capability
     names), ``seed_files``, ``deliverable``, ``planner``, ``clarify``. The
-    ``model``/``repo``/``limits`` forward fields are declared-but-inert (Phase
-    6 / repo phases).
+    ``model``/``limits`` forward fields are declared-but-inert (Phase 6).
+    A brownfield repo binding is not a plan field: the ``repo`` context provider
+    and the ``repo_diff`` deliverable bind it at run time (INV-5 / D-08).
 
     ``steps`` may be empty (the ``reverse_engineer`` empty-plan stub, D-05).
     """
@@ -729,5 +727,11 @@ class CompiledWorkflow:
 
     # ── Forward surface (declared, INERT in Phase 4) ──────────────────────
     model: ModelPolicy = field(default_factory=ModelPolicy)  # workflow default (§20)
-    repo: RepoSpec | None = None  # §15 (brownfield)
     limits: Limits = field(default_factory=Limits)  # Q18/Q44
+
+    # admits_connector_grants: stamped by the compiler, True ONLY for a compile at a
+    # trust level that may carry connected-app grants (``permission_caps.
+    # connector_grants_permitted``) and without an override row. Predefined plans,
+    # override merges and every unknown trust leave it False; the engine binds
+    # connector tools only when it is True. Not a manifest field.
+    admits_connector_grants: bool = False

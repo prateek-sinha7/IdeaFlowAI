@@ -25,7 +25,8 @@
     "venv",
     "alembic/versions",
     "tests",
-    "../tools/loadtest"
+    "../tools/loadtest",
+    "app/agents/workflow_builder/skills"
   ],
   "executionEnvironments": [
     {

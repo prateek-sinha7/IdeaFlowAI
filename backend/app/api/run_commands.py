@@ -95,6 +95,7 @@ from app.api.run_engine import (
     _get_or_create_queue,
     _is_run_live,
     _model_entitlement_error,
+    _reject_connector_selections,
     _resolve_owned_parent_run_id,
     _review_gate_advertises_update_specs,
     _review_gate_owned_by,
@@ -4432,6 +4433,16 @@ async def launch_run(
         if _override_error is not None:
             raise _reject("invalid_model_override", _override_error)
 
+        # ── connected apps: FILE_PIPELINE and flat rows never admit grants ─────
+        # 422 before any run row is minted (design 5.5 layer 4).
+        _connector_error = _reject_connector_selections(body.selections)
+        if _connector_error is not None:
+            raise _reject(
+                "connector_grants_not_allowed",
+                _connector_error,
+                http_status=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            )
+
         # ── EMP-02 launch-side trust=user re-validation of persisted selections ─
         _selection_error = _revalidate_selections_trust_user(
             base_pipeline_type, [spec.id for spec in agents], body.selections
@@ -4517,9 +4528,8 @@ async def launch_run(
     # admit_chain_launch already raised HTTPException(422) for every refusal
     # (source_running, source_not_finalized, source_non_chainable,
     # source_provenance_conflict, source_payload_missing — B5: the last one
-    # refuses whatever the manifest's chain_policy) — so execution reaches here
-    # for outcomes (a) and (b) only. (c) is documented for B30: it becomes
-    # reachable again only if a degrade policy is reinstated at admission.
+    # refuses, and ``degrade`` is no longer a valid chain_policy) — so execution
+    # reaches here for outcomes (a) and (b) only.
     #
     #   a) declaration_gate (active=False, source_id=None):
     #      The workflow does not declare chaining, or no source_run_id was
@@ -4532,11 +4542,6 @@ async def launch_run(
     #      The in-run provider (task 6.6) copies the bytes into .context/; the
     #      chain_source_selected audit row and ExecutionContext.chain_selection are
     #      both wired by task 6.5.
-    #
-    #   c) admitted under degrade (active=True, source_id=<id>, selection=None):
-    #      source_payload_missing + chain_policy="degrade".  Mint WITH the edge so
-    #      the lineage is durable; the in-run provider will emit
-    #      chain_context_unavailable (Requirement 20 AC 4).
     #
     # NOTE: _chain_admission.source_id, not body.source_workflow_run_id, is used
     # so declaration-gated launches always produce source_run_id=NULL even when
@@ -4968,6 +4973,20 @@ async def _drive_launch_to_queue(
     paused_reason = ""
     monotonic_start = time.monotonic()
 
+    # Connectors 8b-2: the run's connector tools bind through the process-wide binder. A
+    # failure to reach the services must not block the launch, so the run goes on without
+    # connector tools. The user id is the verified user's, never a request field.
+    try:
+        from app.connectors.services import get_connector_services
+
+        run_tool_binder = get_connector_services().binder
+    except Exception:  # noqa: BLE001 - binding never blocks a launch
+        logger.error(
+            "launch: connector binder unavailable for %s; connected tools off for this run",
+            pipeline_run_id,
+        )
+        run_tool_binder = None
+
     try:
         async for update in engine.execute(
             agents=agents,
@@ -5018,6 +5037,9 @@ async def _drive_launch_to_queue(
             # perturbs the deterministic stream). The WS run_pipeline launch stays dormant (LOCK-B,
             # deleted at 43-09). `persist_milestone_card` lives in the app layer (no kernel import).
             milestone_sink=persist_milestone_card,
+            # Connectors 8b-2: the run's granted connector tools bind through this binder for
+            # the verified user (user_id above). None means no connector tools for this run.
+            run_tool_binder=run_tool_binder,
         ):
             await event_queue.put(
                 {"type": update["type"], "data": update.get("data", {})}
@@ -5636,9 +5658,8 @@ class ChainRefused(Exception):
       ``source_payload_missing``
       ``source_provenance_conflict``
 
-    The launch handler translates this into either a ``chain_refused`` audit row
-    + HTTP 422 refusal (non-degradable reasons) or an admitted-with-degrade row
-    when ``chain_policy == "degrade"`` is declared.
+    The launch handler translates every reason into a ``chain_refused`` audit row
+    + HTTP 422 refusal (B5: no reason is tolerated, whatever the manifest says).
     """
 
     def __init__(self, reason: str) -> None:
@@ -5651,9 +5672,8 @@ class ChainAdmission:
     """Result of ``admit_chain_launch``.
 
     ``active=True`` means the launch is admitted; ``active=False`` means refused.
-    When ``active=True`` and ``selection is None``, the run was admitted under
-    ``chain_policy: degrade`` with no payload (the provider will emit
-    ``chain_context_unavailable``).
+    ``active=True`` always carries a validated ``selection``; the declaration-gate
+    outcome is ``active=False`` with ``refusal_reason="declaration_gate"``.
 
     Attributes
     ----------
@@ -5666,7 +5686,7 @@ class ChainAdmission:
         absent (legacy source) or refused.
     selection:
         A ``V2Selection`` or ``LegacySelection`` when a payload was validated;
-        ``None`` means degrade (no payload) or refused.
+        ``None`` means refused or declaration-gated (no payload was selected).
     refusal_reason:
         The bounded reason code when ``active=False``, ``None`` otherwise.
     """
@@ -5737,9 +5757,9 @@ def _select_v2_payload(
     shape, and confirms ``summary.md`` identity fields match the source.
 
     Raises ``ChainRefused`` on any provenance disagreement.  A missing payload
-    (swept or never committed) raises ``ChainRefused("source_payload_missing")``
-    which the caller maps to ``chain_policy``; structural mismatches raise
-    ``ChainRefused("source_provenance_conflict")`` which are never degradable.
+    (swept or never committed) raises ``ChainRefused("source_payload_missing")``;
+    structural mismatches raise ``ChainRefused("source_provenance_conflict")``.
+    The caller refuses the launch on either.
 
     Parameters
     ----------
@@ -6033,7 +6053,7 @@ def admit_chain_launch(
 
     On any ``ChainRefused`` the function writes a ``chain_refused`` audit row and
     raises ``HTTPException(422)`` (no run row, no edge) — ``source_payload_missing``
-    included, whatever the manifest's ``chain_policy`` (B5 owner decision).
+    included (B5 owner decision; ``chain_policy: degrade`` no longer exists).
 
     Parameters
     ----------
@@ -6177,13 +6197,11 @@ def admit_chain_launch(
         )
     except ChainRefused as exc:
         # B5 (owner decision, 2026-09-14): every refusal — source_payload_missing
-        # included — refuses the launch, whatever the manifest's chain_policy, so the
-        # user gets a clear 422 instead of a run that silently starts with no context.
-        # The degrade branch that used to sit here behind ``if False:`` was deleted
-        # (B30: dead code in shipped admission logic). Reinstating a degrade policy
-        # means restoring an admitted-with-no-payload ChainAdmission here AND
-        # reconciling the compiler / chain_context paths that still accept it —
-        # see GIT_VERSIONING_BUGS.md B5 / B30.
+        # included — refuses the launch, so the user gets a clear 422 instead of a
+        # run that silently starts with no context. The degrade branch that used to
+        # sit here was deleted (B30), and the compiler / chain_context paths that
+        # accepted ``chain_policy: degrade`` were removed with it.
+        # See GIT_VERSIONING_BUGS.md B5 / B30.
         raise _refuse(exc.reason)
 
     logger.info(

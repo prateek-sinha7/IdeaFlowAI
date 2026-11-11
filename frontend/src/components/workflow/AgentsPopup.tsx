@@ -32,6 +32,7 @@ import {
   type CapabilityModelEntry,
   type AgentPromptData,
 } from "@/lib/api";
+import { saveErrorMessage } from "@/lib/saveError";
 import { NameWorkflowModal } from "@/components/catalog/NameWorkflowModal";
 import type { AgentDef, WorkflowType, AttachedHook, AgentToolGrants, WorkflowRunConfig } from "@/types/index";
 import { useHooksCatalog } from "@/hooks/useHooksCatalog";
@@ -1550,6 +1551,33 @@ export function withToolGrant(
   return { ...sel?.tools, ...effectiveToolGrants(sel), [key]: on };
 }
 
+/** The step's `tools` after replacing its connected-app tool names. Same
+ *  spread-first shape as `withToolGrant`, so every other key (`tool_sets`,
+ *  the read/write grants) survives. An empty `names` omits the key, so a step
+ *  with nothing on serialises exactly as before connectors existed. */
+export function withConnectorTools(
+  sel: StepSelection | undefined,
+  names: readonly string[],
+): AgentToolGrants {
+  const next: AgentToolGrants = { ...sel?.tools, ...effectiveToolGrants(sel) };
+  if (names.length > 0) next.connectors = [...names];
+  else delete next.connectors;
+  return next;
+}
+
+/** The step's `tools` after replacing its named tool packs. Same contract as
+ *  `withConnectorTools`: other keys, including `connectors`, survive; an empty
+ *  `sets` omits `tool_sets`. */
+export function withToolSets(
+  sel: StepSelection | undefined,
+  sets: readonly string[],
+): AgentToolGrants {
+  const next: AgentToolGrants = { ...sel?.tools, ...effectiveToolGrants(sel) };
+  if (sets.length > 0) next.tool_sets = [...sets];
+  else delete next.tool_sets;
+  return next;
+}
+
 /** True when a step carries a RESTRICTED grant (one switched off) — what the
  *  Simple view's Overrides "Tools" chip reflects (ISS-274). */
 export function hasToolOverride(sel: StepSelection | undefined): boolean {
@@ -2816,7 +2844,7 @@ export function AgentsPopup({
         setSaveModalOpen(false);
         onClose();
       } catch (e) {
-        setSaveError((e as Error)?.message ?? "Failed to save workflow.");
+        setSaveError(saveErrorMessage(e, "Failed to save workflow."));
       } finally {
         setSaving(false);
       }

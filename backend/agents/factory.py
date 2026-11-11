@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import logging
 import re as _re
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
@@ -78,15 +79,6 @@ class AgentContext:
     # F4 / R12 — the production no-op fix). None ⇒ no Constitution set (graceful no-op,
     # matching the characterization runs which carry none → snapshots byte-identical).
     prewarmed_constitution: str | None = None
-    # prewarmed_mcp_tools: the MCP/integration tools bound at the async engine
-    # run-entry (the SAME seam as prewarmed_constitution) and stashed here so the
-    # SYNC factory UNIONS them into the runner tool set WITHOUT awaiting inside the
-    # running loop (09-05 / MCP-01 — the async→sync binding resolution, R-D). The
-    # McpClientAdapter awaits get_tools() ONCE at run-entry; the factory only reads.
-    # Empty ⇒ no MCP scope active (graceful no-op; the characterization runs carry
-    # none → snapshots byte-identical, exactly like the Constitution no-op). These
-    # tools AUGMENT the deepagents runtime, they never replace it (INV-13).
-    prewarmed_mcp_tools: list = field(default_factory=list)
     # step_injects (WIRE-03 / D-16): the compiled ``Step.injects`` for THIS agent's
     # step, threaded off ``ectx.current_step`` by the engine. Merged order-stably with
     # the AGENT.md-derived ``spec.injects`` at the injection seam in
@@ -143,6 +135,12 @@ class AgentContext:
     # "do not narrow" — the agent keeps whatever its declared tool set resolved
     # to, exactly as before this field existed.
     step_tools: object | None = None
+    # run_tools (connectors phase 3, step 8a): the run's bound connector tools keyed by
+    # tool name, copied from ``ectx.run_tools`` by the engine. It is the successor of the
+    # MCP prewarm field removed in step 1. The per-step filter (``bound_connector_tools``) is
+    # applied where the factory resolves tools, so the field itself filters nothing.
+    # Default-empty ⇒ no connector tool is ever bound through this field.
+    run_tools: Mapping[str, Any] = field(default_factory=dict)
     # workflow_name: the compiled workflow / pipeline id, for the tool_permission
     # trace only. "" ⇒ the trace prints "?" — never affects binding.
     workflow_name: str = ""
@@ -1453,19 +1451,19 @@ def _resolve_runner_tools(
     """
     from agents.capabilities.registry import CapabilityRegistry, discover
 
-    # Pre-warmed MCP/integration tools (09-05 / MCP-01): bound at the async engine
-    # run-entry and stashed on ctx.prewarmed_mcp_tools. The SYNC factory only READS
-    # them here and UNIONS them into custom_tools — NO await and NO re-entrant event
-    # loop inside the running loop (Pitfall 3 double-loop). They are already-instantiated
-    # LangChain BaseTools, so they bypass the key→impl resolution (which is for the
-    # registered tool_provider keys). Empty ⇒ no MCP scope active (graceful no-op).
-    mcp_tools = list(getattr(ctx, "prewarmed_mcp_tools", None) or [])
-
     # Empty tool set (spec 012 / R-22, D-07): filesystem read+write is bound for
     # EVERY agent regardless of the declared tool set, so a previously text-only
     # agent (``tools: []``) now gets the native fs tools too (``exclude_builtin=
     # False``) instead of losing them entirely. ``exec`` is not part of this
     # grant — no custom tool is added here, only the native fs surface.
+
+    # Connector tools (connectors phase 3, step 8a): only the names this step's own
+    # grant selects, out of the run's bound pool. They never change ``exclude``.
+    from agents.workflows import permission_caps
+
+    connector_tools = permission_caps.bound_connector_tools(
+        ctx.step_tools, ctx.run_tools
+    )
 
     discover()  # ensure the tool_provider impls are bound (idempotent)
     registry = CapabilityRegistry()
@@ -1505,16 +1503,11 @@ def _resolve_runner_tools(
         exclude = exclude and internet_exclude
 
     if not spec.tools and not custom_keys:
-        if mcp_tools:
-            return (mcp_tools, False)
-        return ([], False)
+        return (list(connector_tools), False)
 
     resolved = _resolve_custom_tool_keys(
         custom_keys, ctx, sandbox, agent_id=agent_id, thread_id=thread_id
     )
-    # Union the pre-warmed MCP tools after the registered keys (a pre-bound MCP tool
-    # needs the native fs surface, so it flips exclude off too — INV-13 augment).
-    if mcp_tools:
-        resolved = list(resolved) + mcp_tools
-        exclude = False
+    names = {getattr(t, "name", None) for t in resolved}
+    resolved = [*resolved, *(t for t in connector_tools if t.name not in names)]
     return (resolved, exclude)

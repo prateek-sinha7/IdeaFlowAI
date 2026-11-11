@@ -34,6 +34,13 @@
 backend/tests/agents/characterization/golden/**  -text
 backend/tests/**/golden/**                       -text
 backend/tests/**/*.golden                        -text
+# Builder per-pattern fixtures -> always LF.
+#
+# `backend/tools/ci/builder_pattern_fixtures.py --check` compares these files
+# byte for byte with freshly rendered LF output. A checkout with
+# `core.autocrlf=true` would turn them into CRLF and make `--check` report a
+# difference on that machine.
+frontend/src/store/api/__fixtures__/builder-patterns/*.json  text eol=lf
 
 # Dependency locks -> always LF.
 #

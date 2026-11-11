@@ -1,0 +1,61 @@
+{
+  "name": "Linear chain (roster hand-off)",
+  "description": "Fixture for patterns.md section 1: Linear chain (roster hand-off).",
+  "base_pipeline_type": "custom",
+  "agent_ids": [
+    "custom-agent:analyze",
+    "custom-agent:write",
+    "custom-agent:polish"
+  ],
+  "manifest": {
+    "id": "pattern-01-linear-chain",
+    "name": "Linear chain (roster hand-off)",
+    "description": "Fixture for patterns.md section 1: Linear chain (roster hand-off).",
+    "planner": "skip",
+    "clarify": {
+      "mode": "skip",
+      "defaults": []
+    },
+    "deliverable": {
+      "strategy": "streamed_text",
+      "name": "article.md"
+    },
+    "steps": [
+      {
+        "agent": "custom-agent",
+        "instance_id": "analyze",
+        "name": "Analyst",
+        "gates": [],
+        "prompt": "You are the Analyst. From the brief, list audience, goals, key messages and constraints as Markdown sections. Do not write the article."
+      },
+      {
+        "agent": "custom-agent",
+        "instance_id": "write",
+        "name": "Writer",
+        "gates": [],
+        "depends_on": [
+          "custom-agent:analyze"
+        ],
+        "tools": {
+          "read_files": true,
+          "write_files": false
+        },
+        "prompt": "You are the Writer. Read the analysis listed under 'Earlier steps produced'. Write the full article in Markdown."
+      },
+      {
+        "agent": "custom-agent",
+        "instance_id": "polish",
+        "name": "Editor",
+        "gates": [],
+        "depends_on": [
+          "custom-agent:write"
+        ],
+        "tools": {
+          "read_files": true,
+          "write_files": false
+        },
+        "prompt": "You are the Editor. Read the article listed under 'Earlier steps produced'. Reply with the final edited article only."
+      }
+    ]
+  }
+}

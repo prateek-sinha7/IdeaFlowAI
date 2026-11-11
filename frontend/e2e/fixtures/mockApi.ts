@@ -19,6 +19,7 @@
  */
 import type { Page, Route } from "@playwright/test";
 import { MODEL_CATALOG, CAPABILITIES } from "./constants";
+import { E2E_DEFAULT_EFFORT, E2E_DEFAULT_MODEL_ID, E2E_MODELS } from "./workflowBuilderMocks";
 
 export type Tier = "basic" | "pro" | "enterprise";
 
@@ -701,6 +702,18 @@ export class MockApi {
 
     // --- capabilities (model picker) ---
     if (path.endsWith("/api/capabilities")) return json(this.capabilities);
+    // --- AI workflow builder model list (GET /api/workflow-builder/models) ---
+    // The Custom composer probes this for entitled users. Without a handler the
+    // catch-all `{}` reaches preselect(), which reads `models.length` of undefined,
+    // throws, and the error boundary replaces the composer. installWorkflowBuilderMocks
+    // registers a later route for the builder specs, so its own list still wins there.
+    if (path.endsWith("/api/workflow-builder/models")) {
+      return json({
+        models: E2E_MODELS,
+        default_model_id: E2E_DEFAULT_MODEL_ID,
+        default_efforts: { [E2E_MODELS[0].id]: E2E_DEFAULT_EFFORT, [E2E_MODELS[1].id]: null },
+      });
+    }
 
     // --- settings ---
     if (path.endsWith("/api/settings/preferences")) {

@@ -69,6 +69,17 @@ def test_revision_baseline_sets_are_independent_per_instance() -> None:
     assert a.revision_baseline_static is not b.revision_baseline_static
 
 
+def test_run_tools_defaults_empty_and_unshared_when_two_contexts_built() -> None:
+    """``run_tools`` is ``field(default_factory=dict)``: empty by default, never shared."""
+    first = ExecutionContext(run_id="a", owner_id="anon")
+    second = ExecutionContext(run_id="b", owner_id="anon")
+
+    first.run_tools["github__list_issues"] = object()
+
+    assert second.run_tools == {}
+    assert first.run_tools is not second.run_tools
+
+
 def test_module_imports_no_legacy_factory_or_engine_internals() -> None:
     """``context.py`` defines data only — it must not import factory / engine internals.
 

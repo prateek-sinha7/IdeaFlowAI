@@ -1282,6 +1282,94 @@ def _fake_convert(content: bytes = b"PDF2"):
     return mock.create_autospec(soffice.convert_to_pdf, side_effect=convert)
 
 
+class TestPublishPageDir:
+    def test_publish_page_dir_moves_temp_when_rename_succeeds(self, tmp_path):
+        # Arrange
+        tmp = tmp_path / ".tmp-01-a"
+        tmp.mkdir()
+        (tmp / "text.md").write_text("page one", encoding="utf-8")
+        final = tmp_path / "01"
+        # Act
+        fet._publish_page_dir(tmp, final)
+        # Assert
+        assert (final / "text.md").read_text(encoding="utf-8") == "page one"
+        assert not tmp.exists()
+
+    def test_publish_page_dir_succeeds_when_rename_is_locked_once(
+        self, tmp_path, monkeypatch
+    ):
+        # Arrange
+        tmp = tmp_path / ".tmp-01-a"
+        tmp.mkdir()
+        final = tmp_path / "01"
+        real_rename = os.rename
+        calls: list[str] = []
+
+        def flaky_rename(src, dst):
+            calls.append(str(src))
+            if len(calls) == 1:
+                raise PermissionError("locked by another process")
+            real_rename(src, dst)
+
+        monkeypatch.setattr(fet.os, "rename", flaky_rename)
+        monkeypatch.setattr(fet, "_PUBLISH_BACKOFF_SECONDS", 0)
+        # Act
+        fet._publish_page_dir(tmp, final)
+        # Assert
+        assert len(calls) == 2
+        assert final.is_dir()
+
+    def test_publish_page_dir_discards_temp_when_final_already_exists(
+        self, tmp_path, monkeypatch
+    ):
+        # Arrange
+        tmp = tmp_path / ".tmp-01-a"
+        tmp.mkdir()
+        (tmp / "text.md").write_text("new copy", encoding="utf-8")
+        final = tmp_path / "01"
+        final.mkdir()
+        (final / "text.md").write_text("published first", encoding="utf-8")
+        monkeypatch.setattr(
+            fet.os, "rename", mock.Mock(side_effect=PermissionError("denied"))
+        )
+        # Act
+        fet._publish_page_dir(tmp, final)
+        # Assert
+        assert not tmp.exists()
+        assert (final / "text.md").read_text(encoding="utf-8") == "published first"
+
+    def test_publish_page_dir_raises_when_every_attempt_is_locked(
+        self, tmp_path, monkeypatch
+    ):
+        # Arrange
+        tmp = tmp_path / ".tmp-01-a"
+        tmp.mkdir()
+        final = tmp_path / "01"
+        rename = mock.Mock(side_effect=PermissionError("locked"))
+        monkeypatch.setattr(fet.os, "rename", rename)
+        monkeypatch.setattr(fet, "_PUBLISH_BACKOFF_SECONDS", 0)
+        # Act / Assert
+        with pytest.raises(PermissionError):
+            fet._publish_page_dir(tmp, final)
+        assert rename.call_count == fet._PUBLISH_ATTEMPTS
+
+    def test_extract_text_sync_returns_page_error_when_publish_stays_locked(
+        self, root, monkeypatch
+    ):
+        # Arrange
+        rel = _upload(root, "a.pdf", _make_pdf(["A"]))
+        monkeypatch.setattr(
+            fet.os, "rename", mock.Mock(side_effect=PermissionError("locked"))
+        )
+        monkeypatch.setattr(fet, "_PUBLISH_BACKOFF_SECONDS", 0)
+        # Act
+        result = fet._extract_text_sync(rel)
+        # Assert
+        assert result == "failed to materialise page 1: locked"
+        pages = root / ".extract" / "pdf" / "a" / "pages"
+        assert list(pages.iterdir()) == []
+
+
 class TestConvertedPdf:
     # Plan #60 | B28
     def test_converted_pdf_returns_cached_bytes_when_source_pdf_exists(

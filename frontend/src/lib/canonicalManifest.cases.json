@@ -1,0 +1,1266 @@
+{
+  "description": "Shared cases for canonical.py and canonicalManifest.ts. expected, expected_json and expected_hash come from the Python implementation (design 3.10.8, G-34). Regenerate from backend/ only when the canonical form changes on purpose.",
+  "cases": [
+    {
+      "name": "empty manifest",
+      "manifest": {},
+      "expected": {},
+      "expected_json": "{}",
+      "expected_hash": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a"
+    },
+    {
+      "name": "nulls dropped from objects at any depth, kept in lists",
+      "manifest": {
+        "name": "wf",
+        "description": null,
+        "steps": [
+          {
+            "agent": "a",
+            "model": null,
+            "meta": {
+              "x": null,
+              "y": [
+                null,
+                {
+                  "z": null,
+                  "w": 1
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "expected": {
+        "name": "wf",
+        "steps": [
+          {
+            "agent": "a",
+            "meta": {
+              "y": [
+                null,
+                {
+                  "w": 1
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "expected_json": "{\"name\":\"wf\",\"steps\":[{\"agent\":\"a\",\"meta\":{\"y\":[null,{\"w\":1}]}}]}",
+      "expected_hash": "a8e543d76c0a69a4c4f080db3c4db7c5dc1a826381ba8aba4e87bea94d839f9a"
+    },
+    {
+      "name": "all tool defaults removed with the empty tools object",
+      "manifest": {
+        "steps": [
+          {
+            "agent": "a",
+            "tools": {
+              "exec": false,
+              "read_files": true,
+              "write_files": true
+            }
+          }
+        ]
+      },
+      "expected": {
+        "steps": [
+          {
+            "agent": "a"
+          }
+        ]
+      },
+      "expected_json": "{\"steps\":[{\"agent\":\"a\"}]}",
+      "expected_hash": "3a0804d928fbf71587cde46c0a16a42e8d2fb44eedcf8de009e0bfcaf01a140b"
+    },
+    {
+      "name": "tools holding only defaults and nulls is removed",
+      "manifest": {
+        "steps": [
+          {
+            "agent": "a",
+            "tools": {
+              "exec": null,
+              "read_files": true
+            }
+          }
+        ]
+      },
+      "expected": {
+        "steps": [
+          {
+            "agent": "a"
+          }
+        ]
+      },
+      "expected_json": "{\"steps\":[{\"agent\":\"a\"}]}",
+      "expected_hash": "3a0804d928fbf71587cde46c0a16a42e8d2fb44eedcf8de009e0bfcaf01a140b"
+    },
+    {
+      "name": "non-default tool values kept, defaults beside them removed",
+      "manifest": {
+        "steps": [
+          {
+            "agent": "a",
+            "tools": {
+              "exec": true,
+              "read_files": true,
+              "write_files": false,
+              "web": false
+            }
+          }
+        ]
+      },
+      "expected": {
+        "steps": [
+          {
+            "agent": "a",
+            "tools": {
+              "exec": true,
+              "write_files": false,
+              "web": false
+            }
+          }
+        ]
+      },
+      "expected_json": "{\"steps\":[{\"agent\":\"a\",\"tools\":{\"exec\":true,\"web\":false,\"write_files\":false}}]}",
+      "expected_hash": "144e8b1f0864d17bc96e0c2edcc702e93e57822f1e9355fa0e1992fd4eefe151"
+    },
+    {
+      "name": "0 and 1 are not booleans so they are kept",
+      "manifest": {
+        "steps": [
+          {
+            "agent": "a",
+            "tools": {
+              "exec": 0,
+              "read_files": 1,
+              "write_files": true
+            }
+          }
+        ]
+      },
+      "expected": {
+        "steps": [
+          {
+            "agent": "a",
+            "tools": {
+              "exec": 0,
+              "read_files": 1
+            }
+          }
+        ]
+      },
+      "expected_json": "{\"steps\":[{\"agent\":\"a\",\"tools\":{\"exec\":0,\"read_files\":1}}]}",
+      "expected_hash": "6981099719528ba7de3b9c1beb63fe46bbac9b65e05d0a0240be756ae921b87f"
+    },
+    {
+      "name": "empty tools object is removed",
+      "manifest": {
+        "steps": [
+          {
+            "agent": "a",
+            "tools": {}
+          }
+        ]
+      },
+      "expected": {
+        "steps": [
+          {
+            "agent": "a"
+          }
+        ]
+      },
+      "expected_json": "{\"steps\":[{\"agent\":\"a\"}]}",
+      "expected_hash": "3a0804d928fbf71587cde46c0a16a42e8d2fb44eedcf8de009e0bfcaf01a140b"
+    },
+    {
+      "name": "empty gates removed, non-empty gates kept",
+      "manifest": {
+        "steps": [
+          {
+            "agent": "a",
+            "gates": []
+          },
+          {
+            "agent": "b",
+            "gates": [
+              "review"
+            ],
+            "depends_on": [
+              "a"
+            ]
+          }
+        ]
+      },
+      "expected": {
+        "steps": [
+          {
+            "agent": "a"
+          },
+          {
+            "agent": "b",
+            "gates": [
+              "review"
+            ]
+          }
+        ]
+      },
+      "expected_json": "{\"steps\":[{\"agent\":\"a\"},{\"agent\":\"b\",\"gates\":[\"review\"]}]}",
+      "expected_hash": "7d04c9332aa12835c827ad23c3e41f2b6ec6215c32f05c38d9254dd79655db08"
+    },
+    {
+      "name": "sequential depends_on removed",
+      "manifest": {
+        "steps": [
+          {
+            "agent": "a",
+            "depends_on": []
+          },
+          {
+            "agent": "b",
+            "depends_on": [
+              "a"
+            ]
+          },
+          {
+            "agent": "c",
+            "depends_on": [
+              "b"
+            ]
+          }
+        ]
+      },
+      "expected": {
+        "steps": [
+          {
+            "agent": "a"
+          },
+          {
+            "agent": "b"
+          },
+          {
+            "agent": "c"
+          }
+        ]
+      },
+      "expected_json": "{\"steps\":[{\"agent\":\"a\"},{\"agent\":\"b\"},{\"agent\":\"c\"}]}",
+      "expected_hash": "3634d72b9db2122210aa7e3412bd12d47d07391f85550b09e5a47689ede5566f"
+    },
+    {
+      "name": "explicit depends_on that differs from the derived order is kept",
+      "manifest": {
+        "steps": [
+          {
+            "agent": "a"
+          },
+          {
+            "agent": "b",
+            "depends_on": [
+              "a"
+            ]
+          },
+          {
+            "agent": "c",
+            "depends_on": [
+              "a"
+            ]
+          },
+          {
+            "agent": "d",
+            "depends_on": [
+              "c",
+              "b"
+            ]
+          }
+        ]
+      },
+      "expected": {
+        "steps": [
+          {
+            "agent": "a"
+          },
+          {
+            "agent": "b"
+          },
+          {
+            "agent": "c",
+            "depends_on": [
+              "a"
+            ]
+          },
+          {
+            "agent": "d",
+            "depends_on": [
+              "c",
+              "b"
+            ]
+          }
+        ]
+      },
+      "expected_json": "{\"steps\":[{\"agent\":\"a\"},{\"agent\":\"b\"},{\"agent\":\"c\",\"depends_on\":[\"a\"]},{\"agent\":\"d\",\"depends_on\":[\"c\",\"b\"]}]}",
+      "expected_hash": "3265a79b59df1ca9421dfd70d969af545b26a769bede6e846affdee8be05cb53"
+    },
+    {
+      "name": "custom-agent ids come from instance_id",
+      "manifest": {
+        "steps": [
+          {
+            "agent": "custom-agent",
+            "instance_id": "i1",
+            "depends_on": []
+          },
+          {
+            "agent": "b",
+            "depends_on": [
+              "custom-agent:i1"
+            ]
+          },
+          {
+            "agent": "custom-agent",
+            "instance_id": "i2",
+            "depends_on": [
+              "b"
+            ]
+          },
+          {
+            "agent": "d",
+            "instance_id": "",
+            "depends_on": [
+              "custom-agent:i2"
+            ]
+          }
+        ]
+      },
+      "expected": {
+        "steps": [
+          {
+            "agent": "custom-agent",
+            "instance_id": "i1"
+          },
+          {
+            "agent": "b"
+          },
+          {
+            "agent": "custom-agent",
+            "instance_id": "i2"
+          },
+          {
+            "agent": "d",
+            "instance_id": ""
+          }
+        ]
+      },
+      "expected_json": "{\"steps\":[{\"agent\":\"custom-agent\",\"instance_id\":\"i1\"},{\"agent\":\"b\"},{\"agent\":\"custom-agent\",\"instance_id\":\"i2\"},{\"agent\":\"d\",\"instance_id\":\"\"}]}",
+      "expected_hash": "f783c3127fde34262fba95cf45beb5f4fcd08be036e537351c776906f926eb1d"
+    },
+    {
+      "name": "step route target has no previous step in the derived order",
+      "manifest": {
+        "steps": [
+          {
+            "agent": "a",
+            "route": {
+              "outcomes": {
+                "ok": {
+                  "trigger": "step",
+                  "target": "c"
+                },
+                "bad": {
+                  "trigger": "gate",
+                  "target": "b"
+                },
+                "none": {
+                  "trigger": "step",
+                  "target": ""
+                },
+                "odd": "not-a-mapping"
+              }
+            }
+          },
+          {
+            "agent": "b",
+            "depends_on": [
+              "a"
+            ]
+          },
+          {
+            "agent": "c",
+            "depends_on": []
+          },
+          {
+            "agent": "d",
+            "depends_on": [
+              "c"
+            ]
+          }
+        ]
+      },
+      "expected": {
+        "steps": [
+          {
+            "agent": "a",
+            "route": {
+              "outcomes": {
+                "ok": {
+                  "trigger": "step",
+                  "target": "c"
+                },
+                "bad": {
+                  "trigger": "gate",
+                  "target": "b"
+                },
+                "none": {
+                  "trigger": "step",
+                  "target": ""
+                },
+                "odd": "not-a-mapping"
+              }
+            }
+          },
+          {
+            "agent": "b"
+          },
+          {
+            "agent": "c"
+          },
+          {
+            "agent": "d"
+          }
+        ]
+      },
+      "expected_json": "{\"steps\":[{\"agent\":\"a\",\"route\":{\"outcomes\":{\"bad\":{\"target\":\"b\",\"trigger\":\"gate\"},\"none\":{\"target\":\"\",\"trigger\":\"step\"},\"odd\":\"not-a-mapping\",\"ok\":{\"target\":\"c\",\"trigger\":\"step\"}}}},{\"agent\":\"b\"},{\"agent\":\"c\"},{\"agent\":\"d\"}]}",
+      "expected_hash": "91bf2f3e4b85647f2c3bb08b138081497a62a813c4af070be1550eaccc7afdf3"
+    },
+    {
+      "name": "route target matched by instance_id",
+      "manifest": {
+        "steps": [
+          {
+            "agent": "a",
+            "route": {
+              "outcomes": {
+                "ok": {
+                  "trigger": "step",
+                  "target": "i9"
+                }
+              }
+            }
+          },
+          {
+            "agent": "custom-agent",
+            "instance_id": "i9",
+            "depends_on": []
+          },
+          {
+            "agent": "z",
+            "depends_on": [
+              "custom-agent:i9"
+            ]
+          }
+        ]
+      },
+      "expected": {
+        "steps": [
+          {
+            "agent": "a",
+            "route": {
+              "outcomes": {
+                "ok": {
+                  "trigger": "step",
+                  "target": "i9"
+                }
+              }
+            }
+          },
+          {
+            "agent": "custom-agent",
+            "instance_id": "i9"
+          },
+          {
+            "agent": "z"
+          }
+        ]
+      },
+      "expected_json": "{\"steps\":[{\"agent\":\"a\",\"route\":{\"outcomes\":{\"ok\":{\"target\":\"i9\",\"trigger\":\"step\"}}}},{\"agent\":\"custom-agent\",\"instance_id\":\"i9\"},{\"agent\":\"z\"}]}",
+      "expected_hash": "0ccdea9dbd897d950aad9309a0aadf08aca81fc6033669446f61a235397424d1"
+    },
+    {
+      "name": "route target keeps an explicit previous dependency",
+      "manifest": {
+        "steps": [
+          {
+            "agent": "a",
+            "route": {
+              "outcomes": {
+                "ok": {
+                  "trigger": "step",
+                  "target": "b"
+                }
+              }
+            }
+          },
+          {
+            "agent": "b",
+            "depends_on": [
+              "a"
+            ]
+          }
+        ]
+      },
+      "expected": {
+        "steps": [
+          {
+            "agent": "a",
+            "route": {
+              "outcomes": {
+                "ok": {
+                  "trigger": "step",
+                  "target": "b"
+                }
+              }
+            }
+          },
+          {
+            "agent": "b",
+            "depends_on": [
+              "a"
+            ]
+          }
+        ]
+      },
+      "expected_json": "{\"steps\":[{\"agent\":\"a\",\"route\":{\"outcomes\":{\"ok\":{\"target\":\"b\",\"trigger\":\"step\"}}}},{\"agent\":\"b\",\"depends_on\":[\"a\"]}]}",
+      "expected_hash": "333f039783c8aa8505f7a559863ba12f6fa0ecf41ae0b747e1be4927c8908377"
+    },
+    {
+      "name": "subagents come first in the derived order and nested steps are stripped",
+      "manifest": {
+        "steps": [
+          {
+            "agent": "a",
+            "depends_on": []
+          },
+          {
+            "agent": "b",
+            "depends_on": [
+              "s1",
+              "custom-agent:s2",
+              "a"
+            ],
+            "subagents": {
+              "mode": "parallel",
+              "steps": [
+                {
+                  "agent": "s1",
+                  "depends_on": [],
+                  "gates": [],
+                  "tools": {
+                    "exec": false
+                  }
+                },
+                {
+                  "agent": "custom-agent",
+                  "instance_id": "s2",
+                  "depends_on": [
+                    "s1"
+                  ],
+                  "model": null
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "expected": {
+        "steps": [
+          {
+            "agent": "a"
+          },
+          {
+            "agent": "b",
+            "subagents": {
+              "mode": "parallel",
+              "steps": [
+                {
+                  "agent": "s1"
+                },
+                {
+                  "agent": "custom-agent",
+                  "instance_id": "s2",
+                  "depends_on": [
+                    "s1"
+                  ]
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "expected_json": "{\"steps\":[{\"agent\":\"a\"},{\"agent\":\"b\",\"subagents\":{\"mode\":\"parallel\",\"steps\":[{\"agent\":\"s1\"},{\"agent\":\"custom-agent\",\"depends_on\":[\"s1\"],\"instance_id\":\"s2\"}]}}]}",
+      "expected_hash": "a0c403c7670f4414133093e21d62577f797e03a45878933dd5e8a23fc629b235"
+    },
+    {
+      "name": "null list item as previous step means no previous",
+      "manifest": {
+        "steps": [
+          null,
+          {
+            "agent": "b",
+            "depends_on": [
+              "a"
+            ]
+          },
+          {
+            "agent": "c",
+            "depends_on": [
+              "b"
+            ]
+          }
+        ]
+      },
+      "expected": {
+        "steps": [
+          null,
+          {
+            "agent": "b",
+            "depends_on": [
+              "a"
+            ]
+          },
+          {
+            "agent": "c"
+          }
+        ]
+      },
+      "expected_json": "{\"steps\":[null,{\"agent\":\"b\",\"depends_on\":[\"a\"]},{\"agent\":\"c\"}]}",
+      "expected_hash": "f0e280755e4d32ed40a033a59f625fbe115d674ddb6c36a677353ebbe00963c4"
+    },
+    {
+      "name": "non-object step items and non-list fields are left alone",
+      "manifest": {
+        "steps": [
+          "text",
+          3,
+          {
+            "agent": "b",
+            "gates": "none",
+            "depends_on": "a",
+            "tools": "all",
+            "subagents": {
+              "steps": "x"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "steps": [
+          "text",
+          3,
+          {
+            "agent": "b",
+            "gates": "none",
+            "depends_on": "a",
+            "tools": "all",
+            "subagents": {
+              "steps": "x"
+            }
+          }
+        ]
+      },
+      "expected_json": "{\"steps\":[\"text\",3,{\"agent\":\"b\",\"depends_on\":\"a\",\"gates\":\"none\",\"subagents\":{\"steps\":\"x\"},\"tools\":\"all\"}]}",
+      "expected_hash": "f5e08fe4de5ece025122f078a7fe5ef1a9e48398f9eef221d9520e3238bba36d"
+    },
+    {
+      "name": "steps that is not a list is left alone",
+      "manifest": {
+        "steps": {
+          "agent": "a",
+          "gates": []
+        },
+        "gates": []
+      },
+      "expected": {
+        "steps": {
+          "agent": "a",
+          "gates": []
+        },
+        "gates": []
+      },
+      "expected_json": "{\"gates\":[],\"steps\":{\"agent\":\"a\",\"gates\":[]}}",
+      "expected_hash": "81f18cc92d16a354759b39d7164b02e85f67667a6f5aff4ea733b70da8377c28"
+    },
+    {
+      "name": "keys sorted by code point, not UTF-16 unit",
+      "manifest": {
+        "b": 1,
+        "a": 2,
+        "B": 3,
+        "\u00e9": 4,
+        "\uffff": 5,
+        "\ud83d\ude00": 6,
+        "\ud7ff": 7,
+        "": 8,
+        "aa": 9,
+        "a b": 10
+      },
+      "expected": {
+        "b": 1,
+        "a": 2,
+        "B": 3,
+        "\u00e9": 4,
+        "\uffff": 5,
+        "\ud83d\ude00": 6,
+        "\ud7ff": 7,
+        "": 8,
+        "aa": 9,
+        "a b": 10
+      },
+      "expected_json": "{\"\":8,\"B\":3,\"a\":2,\"a b\":10,\"aa\":9,\"b\":1,\"\u00e9\":4,\"\ud7ff\":7,\"\uffff\":5,\"\ud83d\ude00\":6}",
+      "expected_hash": "f662cb14ebfe887e2d6beee0f592968f029bfcc7e3f7bbc466904c5f860c2c0d"
+    },
+    {
+      "name": "non-ASCII and escaped characters",
+      "manifest": {
+        "prompt": "caf\u00e9 \u65e5\u672c\u8a9e \ud83d\ude00 \"quoted\" back\\slash\nnew\ttab \u0001 \u001f \u007f \u2028 \u2029 </script>",
+        "steps": [
+          {
+            "agent": "a",
+            "label": "\u00fcber \ud83d\ude80"
+          }
+        ]
+      },
+      "expected": {
+        "prompt": "caf\u00e9 \u65e5\u672c\u8a9e \ud83d\ude00 \"quoted\" back\\slash\nnew\ttab \u0001 \u001f \u007f \u2028 \u2029 </script>",
+        "steps": [
+          {
+            "agent": "a",
+            "label": "\u00fcber \ud83d\ude80"
+          }
+        ]
+      },
+      "expected_json": "{\"prompt\":\"caf\u00e9 \u65e5\u672c\u8a9e \ud83d\ude00 \\\"quoted\\\" back\\\\slash\\nnew\\ttab \\u0001 \\u001f \u007f \u2028 \u2029 </script>\",\"steps\":[{\"agent\":\"a\",\"label\":\"\u00fcber \ud83d\ude80\"}]}",
+      "expected_hash": "f51b28df6df0c69ce7aea539a3a487b98a92b61b2de4e61271bb56581c36ed78"
+    },
+    {
+      "name": "numbers and booleans",
+      "manifest": {
+        "i": 0,
+        "n": -17,
+        "big": 9007199254740991,
+        "f": 0.5,
+        "g": -2.25,
+        "t": true,
+        "u": false,
+        "list": [
+          1,
+          2.5,
+          true,
+          "x",
+          []
+        ],
+        "obj": {}
+      },
+      "expected": {
+        "i": 0,
+        "n": -17,
+        "big": 9007199254740991,
+        "f": 0.5,
+        "g": -2.25,
+        "t": true,
+        "u": false,
+        "list": [
+          1,
+          2.5,
+          true,
+          "x",
+          []
+        ],
+        "obj": {}
+      },
+      "expected_json": "{\"big\":9007199254740991,\"f\":0.5,\"g\":-2.25,\"i\":0,\"list\":[1,2.5,true,\"x\",[]],\"n\":-17,\"obj\":{},\"t\":true,\"u\":false}",
+      "expected_hash": "8311fac217a001f217434b8bfbf499f83b72ef9c59f6448b04e4478b1a7cd0e1"
+    },
+    {
+      "name": "list order is kept",
+      "manifest": {
+        "agent_ids": [
+          "c",
+          "a",
+          "b"
+        ],
+        "steps": [
+          {
+            "agent": "c"
+          },
+          {
+            "agent": "a",
+            "depends_on": [
+              "c"
+            ]
+          },
+          {
+            "agent": "b",
+            "depends_on": [
+              "a"
+            ]
+          }
+        ]
+      },
+      "expected": {
+        "agent_ids": [
+          "c",
+          "a",
+          "b"
+        ],
+        "steps": [
+          {
+            "agent": "c"
+          },
+          {
+            "agent": "a"
+          },
+          {
+            "agent": "b"
+          }
+        ]
+      },
+      "expected_json": "{\"agent_ids\":[\"c\",\"a\",\"b\"],\"steps\":[{\"agent\":\"c\"},{\"agent\":\"a\"},{\"agent\":\"b\"}]}",
+      "expected_hash": "c2049281baba75dd2ef5a697e8c84c95f52da235551345318c5f962e07ce4e7c"
+    },
+    {
+      "name": "key named __proto__ is data",
+      "manifest": {
+        "__proto__": {
+          "x": null,
+          "y": 1
+        },
+        "steps": [
+          {
+            "agent": "a",
+            "__proto__": 2
+          }
+        ]
+      },
+      "expected": {
+        "__proto__": {
+          "y": 1
+        },
+        "steps": [
+          {
+            "agent": "a",
+            "__proto__": 2
+          }
+        ]
+      },
+      "expected_json": "{\"__proto__\":{\"y\":1},\"steps\":[{\"__proto__\":2,\"agent\":\"a\"}]}",
+      "expected_hash": "acba22cb3c6e8298cd5db41508bb27d92deeed00e66de046e3f7bff1a6f02a5f"
+    },
+    {
+      "name": "defaults at the manifest top level are not touched",
+      "manifest": {
+        "tools": {
+          "exec": false
+        },
+        "gates": [],
+        "depends_on": []
+      },
+      "expected": {
+        "tools": {
+          "exec": false
+        },
+        "gates": [],
+        "depends_on": []
+      },
+      "expected_json": "{\"depends_on\":[],\"gates\":[],\"tools\":{\"exec\":false}}",
+      "expected_hash": "50db00581e9229948bf2c222f47cb9e15559dda0dbf71efe1fade29dc3865b9a"
+    },
+    {
+      "name": "name equal to instance_id is dropped, a different name is kept",
+      "manifest": {
+        "steps": [
+          {
+            "agent": "custom-agent",
+            "instance_id": "i1",
+            "name": "i1"
+          },
+          {
+            "agent": "custom-agent",
+            "instance_id": "i2",
+            "name": "Writer"
+          },
+          {
+            "agent": "custom-agent",
+            "instance_id": "i3",
+            "name": "I3"
+          },
+          {
+            "agent": "b",
+            "name": "b"
+          },
+          {
+            "agent": "d",
+            "instance_id": "",
+            "name": ""
+          },
+          {
+            "agent": "custom-agent",
+            "instance_id": "i5",
+            "name": 5
+          }
+        ],
+        "name": "wf"
+      },
+      "expected": {
+        "steps": [
+          {
+            "agent": "custom-agent",
+            "instance_id": "i1"
+          },
+          {
+            "agent": "custom-agent",
+            "instance_id": "i2",
+            "name": "Writer"
+          },
+          {
+            "agent": "custom-agent",
+            "instance_id": "i3",
+            "name": "I3"
+          },
+          {
+            "agent": "b",
+            "name": "b"
+          },
+          {
+            "agent": "d",
+            "instance_id": "",
+            "name": ""
+          },
+          {
+            "agent": "custom-agent",
+            "instance_id": "i5",
+            "name": 5
+          }
+        ],
+        "name": "wf"
+      },
+      "expected_json": "{\"name\":\"wf\",\"steps\":[{\"agent\":\"custom-agent\",\"instance_id\":\"i1\"},{\"agent\":\"custom-agent\",\"instance_id\":\"i2\",\"name\":\"Writer\"},{\"agent\":\"custom-agent\",\"instance_id\":\"i3\",\"name\":\"I3\"},{\"agent\":\"b\",\"name\":\"b\"},{\"agent\":\"d\",\"instance_id\":\"\",\"name\":\"\"},{\"agent\":\"custom-agent\",\"instance_id\":\"i5\",\"name\":5}]}",
+      "expected_hash": "6998b75b8311d1d4609ea5fec915326358dc38db66e39d00bdd6cf0ed8c27c3f"
+    },
+    {
+      "name": "strategy single_shot is dropped on a leaf step, other strategies are kept",
+      "manifest": {
+        "steps": [
+          {
+            "agent": "a",
+            "strategy": "single_shot"
+          },
+          {
+            "agent": "b",
+            "strategy": "wave_scheduler"
+          },
+          {
+            "agent": "c",
+            "strategy": "Single_Shot"
+          },
+          {
+            "agent": "d",
+            "strategy": null
+          },
+          {
+            "agent": "e",
+            "subagents": null,
+            "strategy": "single_shot"
+          }
+        ]
+      },
+      "expected": {
+        "steps": [
+          {
+            "agent": "a"
+          },
+          {
+            "agent": "b",
+            "strategy": "wave_scheduler"
+          },
+          {
+            "agent": "c",
+            "strategy": "Single_Shot"
+          },
+          {
+            "agent": "d"
+          },
+          {
+            "agent": "e"
+          }
+        ]
+      },
+      "expected_json": "{\"steps\":[{\"agent\":\"a\"},{\"agent\":\"b\",\"strategy\":\"wave_scheduler\"},{\"agent\":\"c\",\"strategy\":\"Single_Shot\"},{\"agent\":\"d\"},{\"agent\":\"e\"}]}",
+      "expected_hash": "2c2189303798a87cc6d8eed5c13d4526b3ad68d9eaa7b2d2e570d02bd6c13a78"
+    },
+    {
+      "name": "strategy single_shot is kept on a parent step and dropped on its children",
+      "manifest": {
+        "steps": [
+          {
+            "agent": "p",
+            "strategy": "single_shot",
+            "subagents": {
+              "mode": "parallel",
+              "steps": [
+                {
+                  "agent": "k1",
+                  "strategy": "single_shot"
+                },
+                {
+                  "agent": "k2",
+                  "strategy": "fanout_batch"
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "expected": {
+        "steps": [
+          {
+            "agent": "p",
+            "strategy": "single_shot",
+            "subagents": {
+              "mode": "parallel",
+              "steps": [
+                {
+                  "agent": "k1"
+                },
+                {
+                  "agent": "k2",
+                  "strategy": "fanout_batch"
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "expected_json": "{\"steps\":[{\"agent\":\"p\",\"strategy\":\"single_shot\",\"subagents\":{\"mode\":\"parallel\",\"steps\":[{\"agent\":\"k1\"},{\"agent\":\"k2\",\"strategy\":\"fanout_batch\"}]}}]}",
+      "expected_hash": "e3c089d2c209d37bc1d915bcef6ca2e2308a505cf783a57178a79e9c5a3ebc4b"
+    },
+    {
+      "name": "spawn_subagents false is dropped on a parent step with the empty tools object",
+      "manifest": {
+        "steps": [
+          {
+            "agent": "p",
+            "tools": {
+              "exec": false,
+              "read_files": true,
+              "write_files": true,
+              "spawn_subagents": false
+            },
+            "subagents": {
+              "steps": [
+                {
+                  "agent": "k"
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "expected": {
+        "steps": [
+          {
+            "agent": "p",
+            "subagents": {
+              "steps": [
+                {
+                  "agent": "k"
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "expected_json": "{\"steps\":[{\"agent\":\"p\",\"subagents\":{\"steps\":[{\"agent\":\"k\"}]}}]}",
+      "expected_hash": "3a74c9c181673cc7642e47a389fcd50d4a78012da76437b1c12c2b9faee7529a"
+    },
+    {
+      "name": "other tools and spawn_subagents true are kept on a parent step",
+      "manifest": {
+        "steps": [
+          {
+            "agent": "p",
+            "tools": {
+              "spawn_subagents": true,
+              "read_files": false
+            },
+            "subagents": {
+              "steps": [
+                {
+                  "agent": "k"
+                }
+              ]
+            }
+          },
+          {
+            "agent": "q",
+            "tools": {
+              "spawn_subagents": false,
+              "write_files": false,
+              "web": true
+            },
+            "subagents": {
+              "steps": []
+            }
+          },
+          {
+            "agent": "r",
+            "tools": {
+              "spawn_subagents": 0
+            },
+            "subagents": {
+              "steps": []
+            }
+          }
+        ]
+      },
+      "expected": {
+        "steps": [
+          {
+            "agent": "p",
+            "tools": {
+              "spawn_subagents": true,
+              "read_files": false
+            },
+            "subagents": {
+              "steps": [
+                {
+                  "agent": "k"
+                }
+              ]
+            }
+          },
+          {
+            "agent": "q",
+            "tools": {
+              "write_files": false,
+              "web": true
+            },
+            "subagents": {
+              "steps": []
+            }
+          },
+          {
+            "agent": "r",
+            "tools": {
+              "spawn_subagents": 0
+            },
+            "subagents": {
+              "steps": []
+            }
+          }
+        ]
+      },
+      "expected_json": "{\"steps\":[{\"agent\":\"p\",\"subagents\":{\"steps\":[{\"agent\":\"k\"}]},\"tools\":{\"read_files\":false,\"spawn_subagents\":true}},{\"agent\":\"q\",\"subagents\":{\"steps\":[]},\"tools\":{\"web\":true,\"write_files\":false}},{\"agent\":\"r\",\"subagents\":{\"steps\":[]},\"tools\":{\"spawn_subagents\":0}}]}",
+      "expected_hash": "ef1967dba3ab96f9e4b50237ff4b7a0108e502435eafb67114e1b8e129a3b0d4"
+    },
+    {
+      "name": "spawn_subagents false is kept on a leaf step",
+      "manifest": {
+        "steps": [
+          {
+            "agent": "a",
+            "tools": {
+              "spawn_subagents": false
+            }
+          },
+          {
+            "agent": "b",
+            "tools": {
+              "spawn_subagents": false,
+              "exec": false
+            },
+            "subagents": null
+          }
+        ]
+      },
+      "expected": {
+        "steps": [
+          {
+            "agent": "a",
+            "tools": {
+              "spawn_subagents": false
+            }
+          },
+          {
+            "agent": "b",
+            "tools": {
+              "spawn_subagents": false
+            }
+          }
+        ]
+      },
+      "expected_json": "{\"steps\":[{\"agent\":\"a\",\"tools\":{\"spawn_subagents\":false}},{\"agent\":\"b\",\"tools\":{\"spawn_subagents\":false}}]}",
+      "expected_hash": "7e5039403f49ca646379d5a525217abd0b8b7975cec7713e613523d812d658d9"
+    },
+    {
+      "name": "unedited apply-and-save of a parent with one child",
+      "manifest": {
+        "steps": [
+          {
+            "agent": "custom-agent",
+            "instance_id": "analyze",
+            "name": "analyze",
+            "prompt": " ",
+            "gates": [],
+            "tools": {
+              "read_files": true,
+              "write_files": true,
+              "exec": false,
+              "spawn_subagents": false
+            },
+            "subagents": {
+              "mode": "parallel",
+              "max_parallel": 3,
+              "steps": [
+                {
+                  "agent": "custom-agent",
+                  "instance_id": "analyze-kid-a",
+                  "name": "analyze-kid-a",
+                  "prompt": " ",
+                  "tools": {
+                    "read_files": true,
+                    "write_files": true,
+                    "exec": false
+                  },
+                  "gates": [],
+                  "strategy": "single_shot"
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "expected": {
+        "steps": [
+          {
+            "agent": "custom-agent",
+            "instance_id": "analyze",
+            "prompt": " ",
+            "subagents": {
+              "mode": "parallel",
+              "max_parallel": 3,
+              "steps": [
+                {
+                  "agent": "custom-agent",
+                  "instance_id": "analyze-kid-a",
+                  "prompt": " "
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "expected_json": "{\"steps\":[{\"agent\":\"custom-agent\",\"instance_id\":\"analyze\",\"prompt\":\" \",\"subagents\":{\"max_parallel\":3,\"mode\":\"parallel\",\"steps\":[{\"agent\":\"custom-agent\",\"instance_id\":\"analyze-kid-a\",\"prompt\":\" \"}]}}]}",
+      "expected_hash": "e3764ab7340b2513624174a0e1669753b9b6226258bd129a5ff2b4093b01ed73"
+    }
+  ]
+}
