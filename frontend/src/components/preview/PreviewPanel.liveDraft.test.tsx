@@ -87,3 +87,13 @@ describe("live draft preview while a run builds", () => {
     expect(mockGetRunSandboxFile).not.toHaveBeenCalled();
   });
 });
+
+describe("finished goal run", () => {
+  it("renders its page through the prototype renderer", async () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    render(<PreviewPanel workflowType={"goal" as any} liveRunId="r1" prototypeContent="<html><body>final</body></html>" />);
+    await openPreview();
+    expect(await screen.findByTestId("proto-preview")).toBeInTheDocument();
+    expect(screen.queryByTestId("live-draft")).toBeNull();
+  });
+});

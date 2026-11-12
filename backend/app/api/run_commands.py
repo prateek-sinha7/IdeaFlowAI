@@ -2055,6 +2055,16 @@ async def _dispose_concierge_proposal(
                 run_id,
             )
             target = "prototype_v2_output"
+        # A goal run has one revision pipeline (goal_revision sizes the change
+        # itself), so a model-supplied target such as prototype_output is rewritten.
+        if base_type == "goal" and target != "goal_output":
+            logger.info(
+                "_dispose_concierge_proposal: parent is goal — rewriting target %r "
+                "to 'goal_output' (run=%s)",
+                target,
+                run_id,
+            )
+            target = "goal_output"
         instruction = params.get("instruction", "")
         # ── Tiered prototype classification via _classify_revision_tier ────────
         # Lightweight one-word LLM classify selects the correct revision pipeline.

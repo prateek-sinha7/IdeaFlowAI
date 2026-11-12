@@ -1419,6 +1419,26 @@ export function DashboardLayout({
     if (onResetPipeline) onResetPipeline();
   }, [contentSourceRunId, runConnection, onRevisionLaunched, onResetPipeline]);
 
+  // Goal revision — one pipeline (goal_revision) that sizes the change itself:
+  // a small change is made directly, a larger one gets a reviewed spec first.
+  const handleReviseGoal = useCallback((instruction: string) => {
+    if (!contentSourceRunId) return;
+    setMainView("execution");
+    void postRevision(getToken() ?? "", contentSourceRunId, {
+      target_artifact_type: "goal_output",
+      instruction,
+    })
+      .then(({ run_id }) => {
+        if (run_id) {
+          runConnection.attachRun(run_id);
+          onRevisionLaunched?.(run_id);
+        }
+      })
+      .catch((e) => console.error("postRevision (goal) failed", e));
+    setWorkflowType("goal_revision" as WorkflowType);
+    if (onResetPipeline) onResetPipeline();
+  }, [contentSourceRunId, runConnection, onRevisionLaunched, onResetPipeline]);
+
   // Handle incoming questionnaire data from WebSocket
   // FIX-201 (KAN-168): also clear questionnaireQuestions when questionnaireData
   // becomes null (run switch, questionnaire_complete, run terminal). Without this,
@@ -2550,9 +2570,9 @@ export function DashboardLayout({
   }, [isPipelineRunning, onResetPipeline, effectiveReviseType, router, contentSourceRunId, submittedBrief]);
 
   const activeReviseHandler =
-    // goal has no revision pipeline. Undefined hides Revise; falling through would
-    // reach the !!prototypeContent branch and start a prototype_revision run.
-    effectiveReviseType === "goal" ? undefined :
+    // goal before the prototype branch: its !!prototypeContent fallback would start a
+    // prototype_revision run on a goal deliverable.
+    (effectiveReviseType === "goal" || effectiveReviseType === "goal_revision") ? handleReviseGoal :
     // ISS-252: ppt_v2 is a deck run (spec 017) — it produces the same HTML
     // deliverable as ppt and must resolve to handleRevisePpt, not undefined.
     (effectiveReviseType === "ppt" || effectiveReviseType === "ppt_v2" || effectiveReviseType === "ppt_revision") ? handleRevisePpt :

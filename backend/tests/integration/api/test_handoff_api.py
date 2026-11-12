@@ -719,6 +719,11 @@ def test_handoff_start_gated_by_host_capacity(monkeypatch, app_client):
 
     monkeypatch.setattr(handoff_module, "_run_pipeline_background", _noop_pipeline)
     monkeypatch.setattr(settings, "HOST_CAPACITY_GATE_ENABLED", True)
+    # The app lifespan starts the real capacity poller (HOST_CAPACITY_ENABLED
+    # defaults on). Its first tick can land mid-test (slow CloudWatch call on
+    # a CI runner) and overwrite the engaged decision below with a blind one,
+    # which lets /start through with 200. Keep the poller from publishing.
+    monkeypatch.setattr(cs, "advance", lambda _snapshot, _now: cs.current_decision())
     cs.reset_state_for_tests()
     now = datetime.now(timezone.utc)
     cs.publish_decision(

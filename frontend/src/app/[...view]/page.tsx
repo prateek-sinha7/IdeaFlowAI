@@ -1790,7 +1790,7 @@ export default function DashboardPage() {
               || pipelineType === "prototype_feature_revision"
               || pipelineType === "prototype_v2_revision"
               || pipelineType === "prototype_v2_feature_revision"
-              || pipelineType === "goal") {
+              || pipelineType === "goal" || pipelineType === "goal_revision") {
               setPrototypeContent(finalOutput);
             } else {
               // ISS-021 (18-03) + CR-01 (18 review fix): any pipeline_type matching
@@ -3237,7 +3237,7 @@ export default function DashboardPage() {
             || fullRun.type === "prototype_feature_revision"
             || fullRun.type === "prototype_v2_revision"
             || fullRun.type === "prototype_v2_feature_revision"
-            || fullRun.type === "goal") {
+            || fullRun.type === "goal" || fullRun.type === "goal_revision") {
             setPrototypeContent(fullRun.output);
           } else {
             // ISS-021 (18-03) / UXFIX-02 (22-03) — generic reopen fallback.

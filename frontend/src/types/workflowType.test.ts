@@ -32,7 +32,7 @@ describe("isKnownWorkflowType", () => {
     const labels: Record<KnownWorkflowType, string> = {
       user_stories: "", user_stories_revision: "", ppt: "", ppt_v2: "", ppt_revision: "",
       prototype: "", prototype_v2: "", prototype_revision: "", prototype_large_revision: "",
-      prototype_feature_revision: "", prototype_v2_revision: "", prototype_v2_feature_revision: "", goal_v2: "", prototype_from_template: "", prototype_from_template_revision: "",
+      prototype_feature_revision: "", prototype_v2_revision: "", prototype_v2_feature_revision: "", goal: "", goal_revision: "", prototype_from_template: "", prototype_from_template_revision: "",
       app_builder: "", app_builder_revision: "", custom: "", custom_revision: "",
       backlog: "", backlog_revision: "", migration: "", mulesoft_to_springboot: "", dotnet_to_azure: "",
     };

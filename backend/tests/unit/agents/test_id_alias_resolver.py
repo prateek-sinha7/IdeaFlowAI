@@ -211,14 +211,25 @@ _EXPECTED_CLARIFY_DEFAULTS: dict[str, list[str]] = {
     "backlog": [],
     "backlog_revision": [],
     "prototype_v2": [],
-    "goal": [],
+    # goal: the engine's built-in clarify stage (planner: run, clarify: auto) asks about the brief first.
+    "goal": ["scope", "priority", "target_audience", "user_journeys", "business_rules"],
+    "goal_revision": [],
     "prototype_v2_revision": [],
     "prototype_v2_feature_revision": [],
     # clarify.mode: skip — spec 023 (prototype_from_template). The base pipeline
     # takes its requirements from an uploaded PDF (req-reader step). The revision
     # pipeline takes its instruction from the revision panel. Both declare
     # defaults: []. Sibling trap: keep in lockstep with test_manifest_parity.py.
-    "prototype_from_template": [],
+    # prototype_from_template: the built-in clarify stage (planner: run, clarify: auto).
+    "prototype_from_template": [
+        "target_audience",
+        "scope",
+        "priority",
+        "user_journeys",
+        "key_screens",
+        "interactions",
+        "personas",
+    ],
     "prototype_from_template_revision": [],
 }
 # The fallback for any id absent from the dict above (the *_revision manifests +
@@ -491,11 +502,11 @@ _PLANNER_SKIP_IDS = _RUN_REVISION_DISPATCHED | {
     # (same rationale as prototype_v2/backlog); revision panel supplies the
     # instruction for the revision. Sibling trap: keep in lockstep with
     # tests/agents/test_manifest_parity.py::_PLANNER_SKIP_IDS.
-    "prototype_from_template",
+    # prototype_from_template itself now runs the planner + the built-in clarify stage.
     "prototype_from_template_revision",
-    # P27 goal: plans for itself (ledger + spec steps and a human review replace
-    # the deep-planner and clarify).
-    "goal",
+    # P27 goal_revision sizes and plans the change itself (goal itself runs the planner
+    # and the built-in clarify stage).
+    "goal_revision",
 }
 
 

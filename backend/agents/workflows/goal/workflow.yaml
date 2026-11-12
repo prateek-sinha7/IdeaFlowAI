@@ -27,10 +27,14 @@ description: Reads every file you give it, builds a requirement ledger with your
   prototype in the chosen design system, checks the pieces fit, and proves each requirement with tests that run.
 launch_surface: wizard
 design_mode: web
-planner: skip
+# The engine's built-in clarify stage: before step 1 the planner reads the brief and the user answers
+# clarifying questions; the answers land in PLANNER.md ("Explicit Constraints"), which every step reads.
+# Same shape as prototype/user_stories (rounds: 2 = a second round only for topics still open).
+planner: run
 clarify:
-  mode: skip
-  defaults: []
+  mode: auto
+  rounds: 2
+  defaults: [scope, priority, target_audience, user_journeys, business_rules]
 deliverable:
   strategy: single_file
   name: prototype.html
@@ -55,6 +59,10 @@ steps:
   model: {model: eu.anthropic.claude-sonnet-4-6}
   prompt: |
     # Goal — Ingest
+
+    The user's answers to the clarifying questions are in `PLANNER.md` under "Explicit Constraints" (when present).
+    They are the user's decisions: follow them, and where an answer and a document disagree, the answer wins and you
+    say so in your reply.
 
     Output: `.goal/inventory.json` and `.goal/missing.json`. Keep it fast — the ledger step reads the documents in
     full; you only classify them.
@@ -100,6 +108,10 @@ steps:
   model: {model: eu.anthropic.claude-sonnet-4-6}
   prompt: |
     # Goal — Requirement Ledger
+
+    The user's answers to the clarifying questions are in `PLANNER.md` under "Explicit Constraints" (when present).
+    They are the user's decisions: follow them, and where an answer and a document disagree, the answer wins and you
+    say so in your reply.
 
     `.goal/ledger.json` is checked by code (`ledger_check`) at every later step. A requirement missing here is
     missing from the product.
@@ -327,6 +339,10 @@ steps:
   model: {model: eu.anthropic.claude-sonnet-4-6}
   prompt: |
     # Goal — Spec and Plan
+
+    The user's answers to the clarifying questions are in `PLANNER.md` under "Explicit Constraints" (when present).
+    They are the user's decisions: follow them, and where an answer and a document disagree, the answer wins and you
+    say so in your reply.
 
     Write `spec.md` and `tasks.json`. `ledger_check` mode `coverage` must be clean before you finish.
 
@@ -708,6 +724,9 @@ steps:
     On the first task: read_file `.context/selections.json`, then `ls .context/design` and `ls .context/design/template`,
     and read_file every file listed above that exists, each to its end. On later tasks read only the files you
     need for what your task changes.
+
+    The user's answers to the clarifying questions are in `PLANNER.md` under "Explicit Constraints" (when present).
+    They are the user's decisions: follow them, and where an answer and a document disagree, the answer wins.
 
     You are a Builder. Your CURRENT TASK is one entry of tasks.json. The deliverable is ONE file, prototype.html;
     never create another page file (no copies, no "-v2" or "-new" files, no redirects) — the tests only ever load
@@ -1438,7 +1457,10 @@ steps:
     # Your task
 
     You are the Report step. Build .goal/report.md from .goal/trace.json (written by run_acceptance) and the
-    ledger — never from your own judgement:
+    ledger — never from your own judgement. When .goal/report.md does not exist, write_file it. When it exists (an
+    earlier attempt or revision left it), write_file cannot replace it: rewrite it with edit_file section by section,
+    then delete every section left over from the old report, and grep `^## ` to check each heading appears exactly
+    once. The finished file holds only this report:
     1. What was built, the profile, the template and design system used.
     2. Totals copied from the trace: requirements, pass, fail, error, not testable, coverage %; the trace's pass
        number and page hash.

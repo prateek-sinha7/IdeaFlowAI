@@ -30,6 +30,7 @@ export const TIER_PIPELINES: Record<Tier, Set<string>> = {
     // wherever `prototype` is (backend/app/core/entitlements.py).
     "prototype_v2", "prototype_v2_revision", "prototype_v2_feature_revision",
     "goal",
+    "goal_revision",
     // revision-pipeline-agent-reuse spec: these share the main prototype
     // pipeline's agents. Entitled on the backend wherever `prototype` is —
     // the UI hid them, so the backend allowed a launch the catalog never offered.
@@ -48,6 +49,7 @@ export const TIER_PIPELINES: Record<Tier, Set<string>> = {
     // wherever `prototype` is (backend/app/core/entitlements.py).
     "prototype_v2", "prototype_v2_revision", "prototype_v2_feature_revision",
     "goal",
+    "goal_revision",
     // revision-pipeline-agent-reuse spec: these share the main prototype
     // pipeline's agents. Entitled on the backend wherever `prototype` is —
     // the UI hid them, so the backend allowed a launch the catalog never offered.
@@ -67,6 +69,7 @@ export const TIER_PIPELINES: Record<Tier, Set<string>> = {
     // wherever `prototype` is (backend/app/core/entitlements.py).
     "prototype_v2", "prototype_v2_revision", "prototype_v2_feature_revision",
     "goal",
+    "goal_revision",
     // revision-pipeline-agent-reuse spec: these share the main prototype
     // pipeline's agents. Entitled on the backend wherever `prototype` is —
     // the UI hid them, so the backend allowed a launch the catalog never offered.

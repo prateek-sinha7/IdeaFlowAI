@@ -401,7 +401,7 @@ export interface Story {
  *  (icons, labels, revision mapping). Use this where a `Record<KnownWorkflowType, …>`
  *  or a `switch` must cover every case. It is NOT the set of workflows that exist:
  *  the backend discovers manifests at runtime (`backend/agents/workflows/<id>/workflow.yaml`). */
-export type KnownWorkflowType = "user_stories" | "user_stories_revision" | "ppt" | "ppt_v2" | "ppt_revision" | "prototype" | "prototype_v2" | "prototype_revision" | "prototype_large_revision" | "prototype_feature_revision" | "prototype_v2_revision" | "prototype_v2_feature_revision" | "goal_v2" | "prototype_from_template" | "prototype_from_template_revision" | "app_builder" | "app_builder_revision" | "custom" | "custom_revision" | "backlog" | "backlog_revision" | "migration" | "mulesoft_to_springboot" | "dotnet_to_azure";
+export type KnownWorkflowType = "user_stories" | "user_stories_revision" | "ppt" | "ppt_v2" | "ppt_revision" | "prototype" | "prototype_v2" | "prototype_revision" | "prototype_large_revision" | "prototype_feature_revision" | "prototype_v2_revision" | "prototype_v2_feature_revision" | "goal" | "goal_revision" | "prototype_from_template" | "prototype_from_template_revision" | "app_builder" | "app_builder_revision" | "custom" | "custom_revision" | "backlog" | "backlog_revision" | "migration" | "mulesoft_to_springboot" | "dotnet_to_azure";
 
 /** Any workflow identifier: a known one (kept for editor autocomplete and literal
  *  narrowing) or any manifest id the catalog returns at runtime. A catalog id
@@ -418,7 +418,7 @@ const KNOWN_WORKFLOW_TYPES: ReadonlySet<string> = new Set<KnownWorkflowType>([
   "user_stories", "user_stories_revision", "ppt", "ppt_v2", "ppt_revision",
   "prototype", "prototype_v2", "prototype_revision", "prototype_large_revision",
   "prototype_feature_revision", "prototype_v2_revision", "prototype_v2_feature_revision",
-  "goal_v2", "prototype_from_template", "prototype_from_template_revision",
+  "goal", "goal_revision", "prototype_from_template", "prototype_from_template_revision",
   "app_builder", "app_builder_revision", "custom", "custom_revision",
   "backlog", "backlog_revision", "migration", "mulesoft_to_springboot", "dotnet_to_azure",
 ]);

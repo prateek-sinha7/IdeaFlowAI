@@ -15,6 +15,7 @@ export const PIPELINE_LABEL: Record<string, string> = {
   prototype: "Prototype",
   prototype_v2: "Prototype",
   goal: "GOAL",
+  goal_revision: "GOAL REVISION",
   pdf_to_prototype: "PDF → Prototype",
   pdf_to_prototype_v2: "PDF → Prototype",
   app_builder: "App Builder",

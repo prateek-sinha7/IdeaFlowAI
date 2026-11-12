@@ -64,10 +64,16 @@ icon: FileText
 description: Read a prototype and its documents end to end, model the whole application, then write detailed
   user stories with EARS requirements and Gherkin acceptance criteria, ready for Jira.
 launch_surface: wizard
-# Offered as "chain into" on a finished prototype_v2 run: its prototype.html arrives as
+# Offered as "chain into" on a finished prototype_v2, goal or prototype_from_template run: its prototype.html arrives as
 # .context/prototype.html (chain_context) and is the look-and-feel source for ui.md/ux.md.
 chained_from:
 - id: prototype_v2
+  beta: false
+  text: Write the backlog
+- id: goal
+  beta: false
+  text: Write the backlog
+- id: prototype_from_template
   beta: false
   text: Write the backlog
 planner: skip

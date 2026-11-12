@@ -1167,6 +1167,9 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
     : detectedType === "prototype_feature_revision" ? "prototype"
     : detectedType === "prototype_v2_revision" ? "prototype"
     : detectedType === "prototype_v2_feature_revision" ? "prototype"
+    // The goal workflow delivers one HTML page; page.tsx stores it in the
+    // prototype slot, so it renders through the prototype renderer.
+    : detectedType === "goal" || detectedType === "goal_revision" ? "prototype"
     : detectedType === "app_builder_revision" ? "app_builder"
     : detectedType;
 

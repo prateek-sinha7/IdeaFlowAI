@@ -31,10 +31,15 @@ description: >
   fully interactive prototype that matches the template's visual structure with
   your requirement content. Playwright validates every button and screen.
 launch_surface: wizard
-planner: skip
+# The engine's built-in clarify stage: before step 1 the planner reads the brief and the user answers
+# clarifying questions; the answers land in PLANNER.md ("Explicit Constraints"), which the steps that read
+# requirements follow. Same shape as prototype (rounds: 2 = a second round only for topics still open; the
+# style question is dropped because the design system is chosen at launch).
+planner: run
 clarify:
-  mode: skip
-  defaults: []
+  mode: auto
+  rounds: 2
+  defaults: [target_audience, scope, priority, user_journeys, key_screens, interactions, personas]
 deliverable:
   strategy: single_file
   name: prototype.html
@@ -60,6 +65,8 @@ steps:
   agent: custom-agent
   prompt: |
     You are the Requirements Reader.
+    The user's answers to the clarifying questions are in `PLANNER.md` under "Explicit Constraints" (when present).
+    They are the user's decisions: follow them, and where an answer and a document disagree, the answer wins.
 
     Your job is to extract every screen, field, action, flow, and business rule
     from the uploaded requirements document(s) and write build/requirements.json.
@@ -348,6 +355,8 @@ steps:
   agent: custom-agent
   prompt: |
     You are the Spec Writer.
+    The user's answers to the clarifying questions are in `PLANNER.md` under "Explicit Constraints" (when present).
+    They are the user's decisions: follow them, and where an answer and a document disagree, the answer wins.
 
     Your job is to read the requirements and the template analysis, then write
     build/spec.md — a complete, builder-ready specification for every screen in
@@ -566,6 +575,8 @@ steps:
   agent: custom-agent
   prompt: |
     You are the Gap Analyser.
+    The user's answers to the clarifying questions are in `PLANNER.md` under "Explicit Constraints" (when present).
+    They are the user's decisions: follow them, and where an answer and a document disagree, the answer wins.
 
     The Spec Writer has produced build/spec.md from the requirements. Your job is to
     find every gap — a requirement in the PDF that is missing, paraphrased, or
@@ -817,6 +828,8 @@ steps:
   name: Builders
   prompt: |
     You are a Builder.
+    The user's answers to the clarifying questions are in `PLANNER.md` under "Explicit Constraints" (when present).
+    They are the user's decisions: follow them, and where an answer and a document disagree, the answer wins.
 
     Your entire brief is in CURRENT TASK. It names one screen, its template source,
     all its fields and actions verbatim from the spec, and the hard rules you must

@@ -65,6 +65,7 @@ const PIPELINE_LABELS: Record<string, string> = {
   // prototype_v2_feature; both base forms map here.
   prototype_v2: "Prototype", prototype_v2_feature: "Prototype",
   goal: "Goal",
+  goal_revision: "Goal (revision)",
   app_builder: "App Builder", app_builder_revision: "App Builder",
   custom: "Custom", mulesoft_to_springboot: "Mulesoft Migration",
   dotnet_to_azure: ".NET Migration",

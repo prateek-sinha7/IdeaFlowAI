@@ -112,8 +112,11 @@ def test_dispatchable_count_is_13() -> None:
 
     Went 36 -> 37 when ``goal`` was added (feat/goal-dev), a new
     manifest-backed workflow with fully-loadable steps.
+
+    Went 37 -> 38 when ``goal_revision`` was added (feat/goal-v2-dev), the
+    revision pipeline for a finished goal run.
     """
-    assert len(_DISPATCHABLE) == 37
+    assert len(_DISPATCHABLE) == 38
     assert "chat" not in _DISPATCHABLE
     assert "reverse_engineer" not in _DISPATCHABLE
     # The three agentless fixtures must stay out — they cannot be dispatched.
@@ -122,8 +125,8 @@ def test_dispatchable_count_is_13() -> None:
             f"{broken} references agents with no AGENT.md and cannot run; "
             "if it now has them, that is a real change — update this list"
         )
-    # Parametrized coverage = 37 dispatchable.
-    assert len(_PARAMS) == 37
+    # Parametrized coverage = 38 dispatchable.
+    assert len(_PARAMS) == 38
 
 
 @pytest.mark.asyncio

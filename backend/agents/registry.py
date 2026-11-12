@@ -153,6 +153,7 @@ REVISION_BASE_MAP: dict[str, str] = {
     "prototype_v2_revision": "prototype_v2",  # Fast revision manifest (spec 022)
     "prototype_v2_feature_revision": "prototype_v2",  # Depth revision manifest (spec 022)
     "backlog_revision": "backlog",  # composed revision manifest (spec 022 §11)
+    "goal_revision": "goal",  # one goal revision: sizes the change, small or full path
 }
 
 
