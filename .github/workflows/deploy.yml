@@ -735,9 +735,10 @@ jobs:
       #
       # KNOWN BACKLOG and where each item went (see scan_accepts.py for the
       # reviewed justification of every accepted entry):
-      #   Debian    zlib1g     CVE-2023-45853 — accepted until 2026-12-31
-      #     (MiniZip is not built into zlib1g; no bookworm fix). Ends with a
-      #     base-image move to a zlib >= 1.3.1 release.
+      #   Debian    zlib1g     CVE-2023-45853 — accepted until 2026-12-31 for
+      #     the backend image only (MiniZip is not built into zlib1g; no
+      #     bookworm fix). The frontend image no longer carries it (distroless
+      #     Debian 13). Ends with a backend base-image move to zlib >= 1.3.1.
       #   node-pkg  image-size CVE-2025-71329 / CVE-2025-71330 — accepted until
       #     2026-12-31 (no fix published; pptxgenjs runs sandboxed). Ends when
       #     the client-side .pptx export and pptxgenjs are removed.

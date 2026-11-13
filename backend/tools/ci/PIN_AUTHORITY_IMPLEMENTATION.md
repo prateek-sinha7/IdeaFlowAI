@@ -16,10 +16,10 @@ A centralized, immutable dataclass that pins:
 - Ruff target: `py313` (automatically derived from runtime major.minor)
 
 #### Node.js Runtime
-- Runtime version: `24.11.0` (exact SemVer, Node 24 LTS)
+- Runtime version: `24.22.3` (exact SemVer, Node 24 LTS)
 - Engines minimum: `24.0.0`
 - Engines maximum: `25.0.0` (exclusive upper bound)
-- Frontend base image: `node:24-bookworm-slim`
+- Frontend build image: `node:24.22.3-trixie-slim`; runtime image: `gcr.io/distroless/nodejs24-debian13:nonroot` (both digest-pinned)
 
 #### PostgreSQL Service
 - Major version: `16` (current maintained release)
@@ -49,7 +49,8 @@ All use specific tags (not mutable `latest` or vague `slim` alone):
 - Backend Python builder: `python:3.13-slim-bookworm`
 - Backend pptx-builder: `node:20-bookworm-slim` (for pptxgenjs installation)
 - Backend Node.js runtime: `node:20-bookworm-slim` (copied from pptx-builder for ABI compatibility)
-- Frontend builder & runtime: `node:24-bookworm-slim`
+- Frontend builder: `node:24.22.3-trixie-slim`
+- Frontend runtime: `gcr.io/distroless/nodejs24-debian13:nonroot` (no shell, no package manager)
 
 ### 2. Pin Authority Test Suite (`backend/tests/ci/test_toolchain_pins.py`)
 
@@ -177,7 +178,7 @@ from tools.ci.pin_authority import (
 )
 
 python_ver = get_python_runtime()  # "3.13.0"
-node_ver = get_node_runtime()      # "24.11.0"
+node_ver = get_node_runtime()      # "24.22.3"
 scanners = get_scanner_versions()  # {"ruff": "0.8.0", ...}
 images = get_container_base_images()  # {"backend-python": "...", ...}
 ```
@@ -269,7 +270,7 @@ Task 3.15 is part of Phase A (pure policy primitives) in the CI remediation work
 Task 3.15 successfully establishes `pin_authority.py` as the **single source of truth** for all pinned versions across:
 
 - Python runtime (`3.13.0`)
-- Node.js runtime (`24.11.0`)
+- Node.js runtime (`24.22.3`)
 - PostgreSQL service (`16`)
 - Playwright/Chromium (`1.60.0` / `1.62.0`)
 - 11 security scanner tools (exact SemVer versions)

@@ -103,19 +103,33 @@ services:
     restart: unless-stopped
     ports:
       - "127.0.0.1:3000:3000"
-    healthcheck:
-      # node:24-bookworm-slim ships neither wget nor curl, so probe with
-      # Node's http client instead. 127.0.0.1 (not localhost): the standalone
-      # server binds IPv4 only, and Debian resolves localhost to ::1 first.
-      test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:3000/', r => process.exit(r.statusCode < 400 ? 0 : 1)).on('error', () => process.exit(1))"]
-      interval: 30s
-      timeout: 5s
-      start_period: 15s
-      retries: 3
+    # No `healthcheck:` here on purpose. The image's own HEALTHCHECK
+    # (frontend/Dockerfile) is the probe: it uses the image's absolute node
+    # path (/nodejs/bin/node in distroless, which has no shell and no node on
+    # PATH). An override here would pin one image's filesystem layout, and a
+    # rollback to an older digest would then report unhealthy.
+    #
+    # Runtime hardening (see .agents/tasks/frontend-image-hardening-plan.md).
+    # The app code in the image is root-owned; the process runs as 10001.
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=16m
+      # Next's server cache (next/image output). Owned by the image's UID so
+      # the server can write it while the rest of the filesystem is read-only.
+      - /app/.next/cache:rw,noexec,nosuid,nodev,size=128m,uid=10001,gid=10001,mode=0700
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    # tini as PID 1: reaps zombies and forwards signals to node.
+    init: true
     deploy:
       resources:
         limits:
           memory: 1G
+          # Process limit. Set only here: compose v2 rejects a service that
+          # sets both `pids_limit` and `deploy.resources.limits.pids`.
+          pids: 200
         reservations:
           memory: 256M
     logging:

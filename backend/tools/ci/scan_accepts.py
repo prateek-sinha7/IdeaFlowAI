@@ -116,20 +116,23 @@ ACCEPTED_FINDINGS: tuple[AcceptedFinding, ...] = (
     AcceptedFinding(
         ids=frozenset({"CVE-2023-45853"}),
         package="zlib1g",
-        scopes=frozenset({"backend-image", "frontend-image"}),
+        # frontend-image dropped 2026-11-12: the frontend now ships on
+        # distroless Debian 13 (zlib 1.3.1), which no longer reports it.
+        scopes=frozenset({"backend-image"}),
         expires="2026-12-31",
         owner="platform-engineering",
         justification=(
             "zlib CVE-2023-45853: integer overflow in MiniZip's "
             "zipOpenNewFileInZip4_64. MiniZip is zlib's contrib/minizip code; "
             "Debian's zlib1g binary package does not build or ship it, and "
-            "neither image installs the separate minizip/libminizip packages. "
-            "Debian bookworm has no fixed zlib1g (the tracker records it as "
-            "not fixed for bookworm), so there is nothing to bump to on the "
-            "pinned python:3.13-slim-bookworm, node:20-bookworm-slim (backend "
-            "pptx stage) and node:24.11.0-bookworm-slim (frontend) bases. "
-            "Ends when every base image moves to a release with zlib >= 1.3.1 "
-            "(e.g. Debian trixie) or bookworm ships a fix."
+            "the backend image does not install the separate "
+            "minizip/libminizip packages. Debian bookworm has no fixed zlib1g "
+            "(the tracker records it as not fixed for bookworm), so there is "
+            "nothing to bump to on the pinned python:3.13-slim-bookworm and "
+            "node:20-bookworm-slim (backend pptx stage) bases. The frontend "
+            "image left this entry when it moved to distroless Debian 13. "
+            "Ends when the backend base images move to a release with "
+            "zlib >= 1.3.1 (e.g. Debian trixie) or bookworm ships a fix."
         ),
     ),
     AcceptedFinding(

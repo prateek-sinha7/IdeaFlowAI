@@ -66,10 +66,15 @@ class PinAuthority:
     #            to Node 24 LTS to ensure security patches through deployment horizon
     # Installed by: .github/actions/setup-frontend/action.yml (`node-version`
     # input default, passed straight to actions/setup-node) and
-    # frontend/Dockerfile (the tag of frontend_base_image below);
-    # frontend/package.json engines.node must bound it. All three are asserted
-    # by tests/unit/tools/ci/test_toolchain_pins.py (F-07).
-    node_runtime_version: str = "24.11.0"
+    # frontend/Dockerfile (the tag of frontend_build_image below, and the Node
+    # binary inside frontend_runtime_image); frontend/package.json engines.node
+    # must bound it. The first three are asserted by
+    # tests/unit/tools/ci/test_toolchain_pins.py (F-07); the runtime image's
+    # Node is asserted by .github/scripts/ci-frontend-image-smoke.sh, because
+    # the distroless tag does not name a patch version.
+    # 2026-11-12: bumped 24.11.0 -> 24.22.3 (the current 24.x LTS, a security
+    # release; https://nodejs.org/en/blog/release/v24.22.3).
+    node_runtime_version: str = "24.22.3"
 
     # Node version range for package.json engines (lock down to major.minor;
     # CI will install the exact patch above)
@@ -287,17 +292,35 @@ class PinAuthority:
     # Same digest as pptx-builder to guarantee ABI compatibility.
     backend_node_runtime_image: str = backend_pptx_builder_image
 
-    # Frontend builder & runtime base, digest-pinned.
-    # Installed by: frontend/Dockerfile (deps, builder, runner stages).
-    # The tag names the exact node_runtime_version, so the image runs the same
+    # Frontend BUILD base (deps + builder stages), digest-pinned.
+    # Installed by: frontend/Dockerfile (deps, builder stages). Never shipped.
+    # The tag names the exact node_runtime_version, so the build uses the same
     # Node that setup-frontend installs in CI; the digest pins the bytes.
     # Provenance: Docker Hub tag API
-    # https://hub.docker.com/v2/repositories/library/node/tags/24.11.0-bookworm-slim
+    # https://hub.docker.com/v2/repositories/library/node/tags/24.22.3-trixie-slim
     # field `digest` (the multi-arch OCI image index digest, last pushed
-    # 2025-11-04). Re-resolve it from the same endpoint when bumping the tag.
-    frontend_base_image: str = (
-        "node:24.11.0-bookworm-slim"
-        "@sha256:76d0ed0ed93bed4f4376211e9d8fddac4d8b3fbdb54cc45955696001a3c91152"
+    # 2026-11-12). Re-resolve it from the same endpoint when bumping the tag.
+    frontend_build_image: str = (
+        "node:24.22.3-trixie-slim"
+        "@sha256:af02d57b57719b9657a45199a79264a9437940cd55b3c7b3fc99615654f124a0"
+    )
+
+    # Frontend RUNTIME base (runner stage), digest-pinned. This is the image
+    # that ships and that container-scan (frontend) scans.
+    # Installed by: frontend/Dockerfile (runner stage).
+    # Google distroless: no shell, no package manager, no npm; non-root.
+    # Entrypoint /nodejs/bin/node (node is NOT on PATH).
+    # The `nonroot` tag carries no Node patch version, so the digest is the
+    # only pin; .github/scripts/ci-frontend-image-smoke.sh asserts that its
+    # process.version equals node_runtime_version.
+    # Provenance: registry API
+    # https://gcr.io/v2/distroless/nodejs24-debian13/manifests/nonroot
+    # header `Docker-Content-Digest` (the multi-arch OCI image index digest),
+    # resolved 2026-11-12; its linux/amd64 image carries Node v24.22.3.
+    # Re-resolve it from the same endpoint when bumping.
+    frontend_runtime_image: str = (
+        "gcr.io/distroless/nodejs24-debian13:nonroot"
+        "@sha256:9fc11f6ee65993285c0fe3c4c9bbc4fd275fd4470572f58834ce490df91056e3"
     )
 
     # =========================================================================
@@ -324,7 +347,7 @@ def get_python_runtime() -> str:
 
 
 def get_node_runtime() -> str:
-    """Get exact Node.js runtime version (e.g., '24.11.0')."""
+    """Get exact Node.js runtime version (e.g., '24.22.3')."""
     return get_authority().node_runtime_version
 
 
@@ -368,7 +391,8 @@ def get_container_base_images() -> dict:
         "backend-python": auth.backend_python_base_image,
         "backend-pptx-builder": auth.backend_pptx_builder_image,
         "backend-node-runtime": auth.backend_node_runtime_image,
-        "frontend": auth.frontend_base_image,
+        "frontend-build": auth.frontend_build_image,
+        "frontend-runtime": auth.frontend_runtime_image,
     }
 
 

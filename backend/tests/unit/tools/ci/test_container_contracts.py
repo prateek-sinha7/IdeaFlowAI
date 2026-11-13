@@ -78,7 +78,9 @@ PRODUCTION_IMAGES = {
     "frontend": ProductionImage(
         name="frontend",
         dockerfile_path=_REPO_ROOT / "frontend" / "Dockerfile",
-        base_image="node:24.11.0-bookworm-slim",
+        # The SHIPPED base (runner stage). Build stages use
+        # pin_authority.frontend_build_image and are never shipped.
+        base_image="gcr.io/distroless/nodejs24-debian13:nonroot",
         build_context="frontend",
         build_args={"NEXT_PUBLIC_API_URL": "", "NEXT_PUBLIC_WS_URL": ""},
         required_scanners={"trivy", "grype"},
@@ -108,8 +110,15 @@ class TestProductionImageContract:
             assert dockerfile.exists(), f"Dockerfile not found for {name}: {dockerfile}"
 
     def test_production_images_use_bookworm_slim(self):
-        """All production images must use Debian bookworm-slim base."""
+        """Backend production images must use a Debian bookworm-slim base.
+
+        The frontend moved to distroless Debian 13 (see
+        test_frontend_runtime_image_is_distroless_debian13_nonroot), so it is
+        excluded here.
+        """
         for name, image in PRODUCTION_IMAGES.items():
+            if name == "frontend":
+                continue
             # bookworm-slim can be "image-bookworm-slim" not necessarily "bookworm-slim"
             assert (
                 "bookworm" in image.base_image
@@ -117,6 +126,22 @@ class TestProductionImageContract:
             assert (
                 "slim" in image.base_image
             ), f"{name} should use slim variant, got {image.base_image}"
+
+    def test_frontend_runtime_image_is_distroless_debian13_nonroot(self):
+        """The shipped frontend base is distroless, glibc (Debian 13), non-root.
+
+        Distroless: no shell or package manager in the runtime image.
+        Debian, not Alpine: sharp resolves the glibc @img/sharp-linux-x64 binary.
+        :nonroot: the image's default user is not root.
+        """
+        base = PRODUCTION_IMAGES["frontend"].base_image
+        assert base.startswith(
+            "gcr.io/distroless/"
+        ), f"frontend runtime must be a distroless image, got {base}"
+        assert "-debian13" in base, f"frontend runtime must be Debian 13, got {base}"
+        assert base.endswith(
+            ":nonroot"
+        ), f"frontend runtime must use the :nonroot tag, got {base}"
 
     def test_production_images_are_not_floating(self):
         """
@@ -248,6 +273,56 @@ class TestDockerfileContract:
         content = dockerfile_path.read_text()
 
         assert "HEALTHCHECK" in content, "Frontend Dockerfile must have HEALTHCHECK"
+
+    @staticmethod
+    def _frontend_runner_stage() -> str:
+        """Return the frontend Dockerfile text from `FROM ... AS runner` onward."""
+        content = PRODUCTION_IMAGES["frontend"].dockerfile_path.read_text()
+        parts = re.split(r"^FROM\s+\S+\s+AS\s+runner\s*$", content, flags=re.MULTILINE)
+        assert len(parts) == 2, "Frontend Dockerfile must have exactly one runner stage"
+        return parts[1]
+
+    def test_frontend_runner_has_no_run_instruction_when_distroless(self):
+        """The distroless runner has no shell, so a RUN there can never work."""
+        runner = self._frontend_runner_stage()
+        assert not re.search(r"^RUN\s", runner, flags=re.MULTILINE), (
+            "frontend runner stage must not contain RUN: the distroless base "
+            "has no /bin/sh"
+        )
+
+    def test_frontend_healthcheck_uses_exec_form_when_distroless(self):
+        """A shell-form HEALTHCHECK needs /bin/sh, which distroless lacks."""
+        runner = self._frontend_runner_stage()
+        match = re.search(
+            r"^HEALTHCHECK\b(?:[^\n]*\\\n)*[^\n]*?\bCMD\s+(\S)",
+            runner,
+            flags=re.MULTILINE,
+        )
+        assert match, "frontend runner must declare HEALTHCHECK ... CMD"
+        assert (
+            match.group(1) == "["
+        ), 'frontend HEALTHCHECK must use exec form CMD ["/nodejs/bin/node", ...]'
+        assert '"/nodejs/bin/node"' in runner, (
+            "frontend HEALTHCHECK must call node by absolute path: distroless "
+            "does not put /nodejs/bin on PATH"
+        )
+
+    def test_frontend_app_code_is_root_owned_when_copied(self):
+        """Only .next/cache may be chowned to the runtime user; code stays root-owned."""
+        runner = self._frontend_runner_stage()
+        copies = re.findall(r"^COPY\s+([^\n]+)$", runner, flags=re.MULTILINE)
+        assert copies, "frontend runner must COPY the standalone build"
+        chowned = [line for line in copies if "--chown" in line]
+        assert all(
+            line.rstrip().endswith("./.next/cache") for line in chowned
+        ), f"only ./.next/cache may be --chown'ed in the runner, got {chowned}"
+
+    def test_frontend_runs_as_fixed_uid_10001_when_started(self):
+        """Fixed UID/GID 10001 matches compose tmpfs ownership and the backend."""
+        runner = self._frontend_runner_stage()
+        assert re.search(
+            r"^USER\s+10001:10001\s*$", runner, flags=re.MULTILINE
+        ), "frontend runner must run as USER 10001:10001"
 
     def test_dockerfiles_use_cache_mounts_where_appropriate(self):
         """Dockerfiles should use BuildKit cache mounts to speed builds."""
@@ -621,11 +696,11 @@ class TestBaseImagePinAuthority:
         assert "24" in PRODUCTION_IMAGES["frontend"].base_image
 
     def test_all_images_use_slim_variants(self):
-        """Production images should use slim variants to minimize attack surface."""
+        """Production images use slim or distroless bases to minimize attack surface."""
         for name, image in PRODUCTION_IMAGES.items():
             assert (
-                "slim" in image.base_image
-            ), f"{name} should use slim base image, got {image.base_image}"
+                "slim" in image.base_image or "/distroless/" in image.base_image
+            ), f"{name} should use a slim or distroless base image, got {image.base_image}"
 
 
 # ============================================================================

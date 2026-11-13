@@ -157,12 +157,16 @@ class TestPinAuthorityImages:
         ), "Backend Node runtime image must match pptx-builder for ABI compatibility"
 
     def test_frontend_base_image_matches_node_runtime(self):
-        """Frontend base image must be Node 24 to match node_runtime_version."""
+        """Frontend build and runtime images must both be Node 24."""
         auth = get_authority()
         assert (
-            "node:24" in auth.frontend_base_image
-        ), f"Frontend must use Node 24, got {auth.frontend_base_image}"
-        assert ":" in auth.frontend_base_image, "Frontend image must include tag"
+            "node:24" in auth.frontend_build_image
+        ), f"Frontend build must use Node 24, got {auth.frontend_build_image}"
+        assert (
+            "/nodejs24-" in auth.frontend_runtime_image
+        ), f"Frontend runtime must use Node 24, got {auth.frontend_runtime_image}"
+        for image in (auth.frontend_build_image, auth.frontend_runtime_image):
+            assert ":" in image, f"Frontend image must include tag, got {image}"
 
 
 class TestPinAuthorityConsistency:
@@ -207,12 +211,15 @@ class TestPinAuthorityConsistency:
         ), f"Node engines-maximum {engines_max_parts[0]} should be major+1 of engines-minimum {engines_min_parts[0]}"
 
     def test_node_version_in_frontend_image(self):
-        """Frontend image major version must match node_runtime_version major."""
+        """Frontend images' Node major must match node_runtime_version major."""
         auth = get_authority()
         runtime_major = auth.node_runtime_version.split(".")[0]
         assert (
-            f"node:{runtime_major}" in auth.frontend_base_image
-        ), f"Frontend image must use Node {runtime_major} to match runtime {auth.node_runtime_version}"
+            f"node:{runtime_major}" in auth.frontend_build_image
+        ), f"Frontend build image must use Node {runtime_major} to match runtime {auth.node_runtime_version}"
+        assert (
+            f"/nodejs{runtime_major}-" in auth.frontend_runtime_image
+        ), f"Frontend runtime image must use Node {runtime_major} to match runtime {auth.node_runtime_version}"
 
     def test_ruff_target_is_valid_python_version(self):
         """Ruff target version must be valid (py310, py311, py312, py313, etc.)."""
@@ -302,7 +309,8 @@ class TestPinAuthorityAccessors:
             "backend-python",
             "backend-pptx-builder",
             "backend-node-runtime",
-            "frontend",
+            "frontend-build",
+            "frontend-runtime",
         }
         assert (
             set(images.keys()) == expected_components
@@ -1224,34 +1232,49 @@ class TestNodeAndPinnedActionAuthority:
         )
 
     def test_frontend_dockerfile_bases_match_authority_when_built(self):
-        """All three frontend stages build on the digest-pinned authority image."""
+        """deps/builder use the build image; runner uses the distroless runtime."""
         auth = get_authority()
         from_lines = re.findall(
             r"^FROM\s+(\S+)(?:\s+AS\s+(\S+))?\s*$",
             _read("frontend/Dockerfile"),
             flags=re.MULTILINE | re.IGNORECASE,
         )
-        stages = {stage for _, stage in from_lines}
-        assert stages == {"deps", "builder", "runner"}, (
-            f"frontend/Dockerfile stages are {sorted(stages)}, expected "
+        image_by_stage = {stage: image for image, stage in from_lines}
+        assert set(image_by_stage) == {"deps", "builder", "runner"}, (
+            f"frontend/Dockerfile stages are {sorted(image_by_stage)}, expected "
             f"deps, builder and runner"
         )
 
-        images = {image for image, _ in from_lines}
-        assert images == {auth.frontend_base_image}, (
-            f"pin drift: frontend/Dockerfile FROM lines use {sorted(images)} but "
-            f"pin_authority.frontend_base_image is {auth.frontend_base_image!r}"
+        expected = {
+            "deps": auth.frontend_build_image,
+            "builder": auth.frontend_build_image,
+            "runner": auth.frontend_runtime_image,
+        }
+        assert image_by_stage == expected, (
+            f"pin drift: frontend/Dockerfile FROM lines are {image_by_stage} but "
+            f"pin_authority implies {expected}"
         )
 
-        reference, _, digest = auth.frontend_base_image.partition("@")
-        assert re.fullmatch(
-            r"sha256:[0-9a-f]{64}", digest
-        ), f"frontend_base_image must be @sha256:-pinned, got {digest!r}"
-        tag = reference.partition(":")[2]
-        assert tag == f"{auth.node_runtime_version}-bookworm-slim", (
-            f"frontend base tag {tag!r} does not name node_runtime_version "
+        for field in ("frontend_build_image", "frontend_runtime_image"):
+            _, _, digest = getattr(auth, field).partition("@")
+            assert re.fullmatch(
+                r"sha256:[0-9a-f]{64}", digest
+            ), f"{field} must be @sha256:-pinned, got {digest!r}"
+
+        build_tag = auth.frontend_build_image.partition("@")[0].partition(":")[2]
+        assert build_tag == f"{auth.node_runtime_version}-trixie-slim", (
+            f"frontend build tag {build_tag!r} does not name node_runtime_version "
             f"{auth.node_runtime_version!r}"
         )
+
+        # The distroless tag carries no patch version; the Node patch inside
+        # the pinned digest is asserted at run time by
+        # .github/scripts/ci-frontend-image-smoke.sh.
+        runtime_ref = auth.frontend_runtime_image.partition("@")[0]
+        node_major = auth.node_runtime_version.split(".")[0]
+        assert (
+            runtime_ref == (f"gcr.io/distroless/nodejs{node_major}-debian13:nonroot")
+        ), f"frontend runtime must be distroless Node {node_major} nonroot, got {runtime_ref!r}"
 
     def test_toolchain_lock_node_major_matches_authority_when_recorded(self):
         """runtime_pins.node records the authority's Node major."""

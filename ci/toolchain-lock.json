@@ -107,7 +107,7 @@
     },
     "node": {
       "version": "24",
-      "description": "Node major. Must agree with backend/tools/ci/pin_authority.py node_runtime_version (major), the .github/actions/setup-frontend node-version default (the exact authority version), frontend/package.json engines.node and the frontend/Dockerfile base tag (node:<node_runtime_version>-bookworm-slim). Asserted by backend/tests/unit/tools/ci/test_toolchain_pins.py."
+      "description": "Node major. Must agree with backend/tools/ci/pin_authority.py node_runtime_version (major), the .github/actions/setup-frontend node-version default (the exact authority version), frontend/package.json engines.node, the frontend/Dockerfile build-stage tag (node:<node_runtime_version>-trixie-slim) and the runner's distroless base (gcr.io/distroless/nodejs<major>-debian13:nonroot). Asserted by backend/tests/unit/tools/ci/test_toolchain_pins.py; the runner's exact Node patch is asserted by .github/scripts/ci-frontend-image-smoke.sh."
     },
     "postgresql": {
       "image": "postgres:16.10-bookworm",

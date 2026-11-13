@@ -274,7 +274,7 @@ Browser console shows requests to `http://localhost:8000` instead of same-origin
 **Fix:**
 - Native dev: Set `NEXT_PUBLIC_API_URL=http://localhost:8000` before `npm run dev`
 - Docker: Build with empty `NEXT_PUBLIC_API_URL` and rely on nginx proxy
-- Verify nginx rewrite: `docker exec <frontend-container> curl -I http://localhost:3000/api/workflows`
+- Verify nginx rewrite from the host: `curl -I http://127.0.0.1:3000/api/workflows`. The frontend image is distroless (no shell, no curl), so `docker exec` cannot run tools inside it; use `docker debug <frontend-container>` for an interactive debug shell.
 
 ### Database connection timeout
 

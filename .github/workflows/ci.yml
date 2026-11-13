@@ -1675,6 +1675,18 @@ jobs:
           echo "free space entering the scanners:"
           df -h /
 
+      # Frontend only. Runs the image with the production runtime flags from
+      # docker-compose.yml (read-only rootfs, tmpfs, cap-drop ALL,
+      # no-new-privileges) and proves it serves, has no shell, cannot modify
+      # its own code, runs as 10001:10001 and carries the authority's Node
+      # patch. BLOCKING: these are functional checks, not vulnerability
+      # findings, so the advisory scan mode does not apply.
+      - name: Smoke-test the hardened frontend image
+        if: matrix.component == 'frontend'
+        env:
+          IMAGE_REF: localhost/velocityai-${{ matrix.component }}:ci-${{ steps.sha.outputs.evaluation_sha }}
+        run: bash .github/scripts/ci-frontend-image-smoke.sh ci-results
+
       - name: Install Trivy
         uses: ./.github/actions/install-checksummed-tool
         with:

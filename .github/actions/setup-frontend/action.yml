@@ -8,7 +8,7 @@ inputs:
       backend/tools/ci/pin_authority.py node_runtime_version; that is asserted
       by backend/tests/unit/tools/ci/test_toolchain_pins.py.
     required: false
-    default: "24.11.0"
+    default: "24.22.3"
 
 runs:
   using: composite

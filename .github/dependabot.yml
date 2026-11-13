@@ -139,8 +139,11 @@ updates:
 
   # ── Container base images ────────────────────────────────────────────────
   # Tracks the digest-pinned FROM lines in each Dockerfile. Both Dockerfiles'
-  # Node bases are digest-pinned: the frontend uses node:24.11.0-bookworm-slim
-  # (the pin_authority Node runtime), while the backend pptx stage stays on
+  # Node bases are digest-pinned: the frontend builds on
+  # node:24.22.3-trixie-slim (the pin_authority Node runtime) and ships on
+  # gcr.io/distroless/nodejs24-debian13:nonroot. Dependabot may not bump the
+  # distroless digest because `nonroot` is not a version tag; re-resolve it by
+  # hand (see pin_authority.frontend_runtime_image). The backend pptx stage stays on
   # node:20-bookworm-slim deliberately; the backend also uses
   # python:3.13-slim-bookworm.
   - package-ecosystem: docker
