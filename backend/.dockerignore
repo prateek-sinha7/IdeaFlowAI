@@ -1,15 +1,31 @@
 # Keep the build context small AND prevent dev/test/secret artefacts from
 # being baked into the image. Anything excluded here is invisible to the
 # `COPY` instructions in the Dockerfile.
+#
+# Matching rule to remember: .dockerignore patterns are anchored at the
+# context root. `*.md` matches only top-level files; `**/x` matches at any
+# depth. The last matching line wins, so re-includes (`!`) follow the
+# exclusion they undo.
 
-# --- Python build/runtime detritus -----------------------------------------
-__pycache__/
-*.pyc
-*.pyo
-*.pyd
-.pytest_cache/
-.mypy_cache/
-.ruff_cache/
+# --- Python build/runtime detritus (any depth) -----------------------------
+# `**/` because a local `docker compose build` otherwise copies stale
+# __pycache__ from a developer's tree into /app; the image compiles its own.
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+**/*.pyd
+**/.pytest_cache/
+**/.mypy_cache/
+**/.ruff_cache/
+**/.hypothesis/
+.import_linter_cache/
+.tox/
+.nox/
+.cache/
+htmlcov/
+.coverage
+.coverage.*
+coverage.xml
 
 # --- Local virtualenvs (must NEVER be copied — wrong arch & polluted) ------
 .venv/
@@ -19,6 +35,8 @@ ENV/
 
 # --- Test code & fixtures (not part of the runtime image) ------------------
 tests/
+evals/
+unit-test-prompt/
 
 # --- Build-time/CI tooling (not part of the runtime image) -----------------
 # tools/ci/* is the CI gate + evidence pipeline, run by GitHub Actions and
@@ -29,9 +47,25 @@ tests/
 # by `COPY agents/`.
 tools/
 
+# --- Local run data and databases (never image content) --------------------
+# runs/ is the local RUNS_ROOT (per-user agent sandboxes); in production
+# /app/runs is a bind mount.
+runs/
+*.db
+*.sqlite
+*.sqlite3
+*.log
+
 # --- Per-user runtime data (bind-mounted from the host at runtime) ---------
 # In production /app/skills is an EBS volume, NOT baked image content.
 skills/
+
+# --- Dev-only files the Dockerfile never copies ----------------------------
+# Dependencies come from pyproject.toml + uv.lock only.
+requirements*.txt
+Makefile
+pyrightconfig.json
+init_db.py
 
 # --- Secrets & local configuration (NEVER bake into images) ----------------
 .env
@@ -40,6 +74,9 @@ skills/
 *.key
 
 # --- Documentation (the runtime image doesn't serve docs) ------------------
+# Top-level only (see the matching rule above). Deliberately NOT `**/*.md`:
+# app/ and agents/ carry Markdown the runtime reads (prompts, AGENT.md,
+# guardrails), and changing this would change what the image contains.
 *.md
 README*
 # ...EXCEPT agents/ AGENT.md + guardrail .md — these are runtime DATA the agent
@@ -76,8 +113,16 @@ docker-compose*.yaml
 .DS_Store
 .idea/
 .vscode/
+.kiro/
+.agents/
 *.swp
-node_modules/
+**/node_modules/
+
+# --- Re-excludes that must beat the re-includes above ----------------------
+# A re-include such as `!skills/global/**` would otherwise bring back caches
+# that live inside it.
+**/__pycache__/
+**/*.pyc
 
 # --- Secrets anywhere in the context (MUST stay last) ----------------------
 # The patterns under "Secrets & local configuration" match only at the context

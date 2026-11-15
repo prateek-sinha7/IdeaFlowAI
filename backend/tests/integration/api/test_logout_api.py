@@ -100,9 +100,9 @@ def client(monkeypatch):
 def decode_access_token(token: str) -> dict:
     """Decode a Cognito-shaped test token without re-verifying it (the
     signature was already proven by the real login/verify round-trip)."""
-    from jose import jwt as jose_jwt
+    import jwt as pyjwt
 
-    return jose_jwt.get_unverified_claims(token)
+    return pyjwt.decode(token, options={"verify_signature": False})
 
 
 def _register(
@@ -247,7 +247,7 @@ class TestPasswordChangeRevocation:
 
         # Sleep ~1.1s so the iat-vs-password_changed_at comparison has at
         # least 1s of headroom: JWT timestamps are stored at 1-second
-        # precision (jose serialises them with ``int(timestamp())``), so a
+        # precision (the issuer serialises them with ``int(timestamp())``), so a
         # change_password call within the same second as the issuance can't
         # be distinguished from "iat == password_changed_at".
         time.sleep(1.1)

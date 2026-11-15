@@ -53,7 +53,11 @@ services:
       - /opt/velocityai/data/skills:/app/skills:z
       - /opt/velocityai/data/runs:/app/runs:z
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      # Python standard library probe (the backend image ships no curl). Same
+      # probe as backend/Dockerfile's HEALTHCHECK; any exception exits 1, which
+      # matches `curl -f`. Every backend image, including older rollback
+      # digests, has `python` on PATH, so this override is rollback-safe.
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=5)"]
       interval: 30s
       timeout: 5s
       start_period: 30s

@@ -2,7 +2,7 @@
 # Container entrypoint for the Flowin backend.
 #
 # We intentionally keep this in /bin/sh (not bash) so it runs on the slim
-# python:3.13-slim-bookworm image without pulling bash in.
+# python:3.13-slim-trixie image without pulling bash in.
 #
 # Order of operations:
 #   1. `alembic upgrade head` — bring the schema to the latest revision before

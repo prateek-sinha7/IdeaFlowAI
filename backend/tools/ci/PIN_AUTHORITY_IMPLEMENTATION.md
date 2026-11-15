@@ -27,8 +27,8 @@ A centralized, immutable dataclass that pins:
 - Note: Task 3.18 (image scan) will add digest pin
 
 #### Playwright & Chromium Browser
-- Playwright package: `1.60.0` (exact SemVer)
-- Chromium version: `1.62.0` (bundled with Playwright 1.60.0)
+- Playwright package: `1.64.1` (exact SemVer)
+- Chromium version: `156.0.8078.4` (bundled with Playwright 1.64.1)
 
 #### Security Scanner Tools
 All pinned to exact SemVer versions:
@@ -46,9 +46,9 @@ All pinned to exact SemVer versions:
 
 #### Container Base Images
 All use specific tags (not mutable `latest` or vague `slim` alone):
-- Backend Python builder: `python:3.13-slim-bookworm`
-- Backend pptx-builder: `node:20-bookworm-slim` (for pptxgenjs installation)
-- Backend Node.js runtime: `node:20-bookworm-slim` (copied from pptx-builder for ABI compatibility)
+- Backend Python builder: `python:3.13-slim-trixie`
+- Backend pptx-builder: `node:24.22.3-trixie-slim` (for pptxgenjs installation)
+- Backend Node.js runtime: `node:24.22.3-trixie-slim` (copied from pptx-builder for ABI compatibility)
 - Frontend builder: `node:24.22.3-trixie-slim`
 - Frontend runtime: `gcr.io/distroless/nodejs24-debian13:nonroot` (no shell, no package manager)
 
@@ -272,7 +272,7 @@ Task 3.15 successfully establishes `pin_authority.py` as the **single source of 
 - Python runtime (`3.13.0`)
 - Node.js runtime (`24.22.3`)
 - PostgreSQL service (`16`)
-- Playwright/Chromium (`1.60.0` / `1.62.0`)
+- Playwright/Chromium (`1.64.1` / `156.0.8078.4`)
 - 11 security scanner tools (exact SemVer versions)
 - 4 container base images (exact tags, ready for digests)
 

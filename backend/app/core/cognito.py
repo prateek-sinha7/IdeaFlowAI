@@ -30,9 +30,8 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import httpx
+import jwt
 from botocore.exceptions import BotoCoreError, ClientError
-from jose import jwt
-from jose.exceptions import JOSEError
 
 from app.core.config import settings
 from app.core.http_client import default_ssl_context
@@ -46,8 +45,7 @@ class CognitoVerificationError(Exception):
     Deliberately a single exception type covering signature failure, expiry,
     wrong issuer, wrong client_id, wrong token_use, unknown kid, and JWKS
     unavailability — the caller (core/identity.py) only needs to know
-    "this token did not verify", not the specific reason, mirroring how
-    ``JWTError`` is treated for the legacy path.
+    "this token did not verify", not the specific reason.
     """
 
 
@@ -157,7 +155,7 @@ def verify_cognito_access_token(
     """Verify a Cognito *access* token offline against the pool's JWKS.
 
     Enforces: signature (RS256), `kid` resolution, `iss` matches this pool,
-    `exp` (via jose's default expiry check, unless ``verify_exp=False``),
+    `exp` (via PyJWT's expiry check, unless ``verify_exp=False``),
     `token_use == "access"`, `client_id` matches the configured app client,
     and the presence of `sub` + `jti`. Returns a typed principal carrying
     `cognito:groups` (defaulting to an empty list — a user in no group is a
@@ -174,11 +172,11 @@ def verify_cognito_access_token(
     far regardless of ``verify_exp``.
 
     Raises ``CognitoVerificationError`` on any failure. Never raises a raw
-    ``JOSEError``/``httpx`` exception to the caller.
+    ``jwt.PyJWTError``/``httpx`` exception to the caller.
     """
     try:
         unverified_header = jwt.get_unverified_header(token)
-    except JOSEError as exc:
+    except jwt.PyJWTError as exc:
         raise CognitoVerificationError(f"malformed token header: {exc}") from exc
 
     kid = unverified_header.get("kid")
@@ -188,9 +186,12 @@ def verify_cognito_access_token(
     signing_key = _get_signing_key(kid)
 
     try:
+        # The key is bound to RS256 here, so PyJWT verifies with RS256 no
+        # matter what `alg` the (attacker-controlled) token header claims.
+        public_key = jwt.PyJWK(signing_key, algorithm="RS256")
         claims = jwt.decode(
             token,
-            signing_key,
+            public_key,
             algorithms=["RS256"],
             issuer=_issuer(),
             options={
@@ -198,9 +199,16 @@ def verify_cognito_access_token(
                 # do) -- audience is verified via client_id below instead.
                 "verify_aud": False,
                 "verify_exp": verify_exp,
+                # PyJWT rejects an `iat` later than this host's clock; the
+                # previous library did not. Cognito sets `iat` from AWS's
+                # clock, so a host running even a second behind would reject
+                # a token minted a moment ago. `iat` carries no security
+                # weight in this check (`exp` bounds the token's life), and
+                # its type is still validated when the principal is built.
+                "verify_iat": False,
             },
         )
-    except JOSEError as exc:
+    except jwt.PyJWTError as exc:
         raise CognitoVerificationError(f"token verification failed: {exc}") from exc
 
     if claims.get("token_use") != "access":
@@ -219,11 +227,17 @@ def verify_cognito_access_token(
     if not sub or not jti:
         raise CognitoVerificationError("token missing sub or jti")
 
+    try:
+        iat = int(claims.get("iat", 0))
+        exp = int(claims.get("exp", 0))
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise CognitoVerificationError("token iat/exp is not an integer") from exc
+
     return CognitoPrincipal(
         sub=sub,
         jti=jti,
-        iat=int(claims.get("iat", 0)),
-        exp=int(claims.get("exp", 0)),
+        iat=iat,
+        exp=exp,
         client_id=client_id,
         groups=list(claims.get("cognito:groups", []) or []),
         username=claims.get("username"),

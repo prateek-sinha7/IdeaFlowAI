@@ -1609,7 +1609,7 @@ to render the .pptx and return the bytes.
 |---|---|---|---|
 | **Client-side** (legacy) | Browser, `pptxgenjs@3.12.0` via npm | `parsePPTSlideData(content)` — expects slide JSON in `message.artifact.content` | Only the chat `ArtifactCard` with `type==="ppt"` (`ArtifactCard.tsx:80-82` → `exportToPptx`). Used when a chat reply contains a PPT artifact with JSON content. Layout: `LAYOUT_WIDE`, 7 slide kinds. |
 | **Client-side** (in-iframe) | Browser, `pptxgenjs@3.12.0` from a CDN inside the assembler's `<script>` tag | The assembler's own `generatePresentation()` JS, embedded in `workflow_runs.output` HTML | The PPT iframe **still has the capability** (the assembler ships a function), but the visible "Download PPTX" button bound to it is now stripped out by `PPTPreview.tsx:117-119` before rendering. The path is dead UI-wise unless a user "Open in new tab"s the raw HTML and clicks an embedded button. |
-| **Server-side** (new) | Node 20 + `pptxgenjs@3.12.0` at `/opt/pptx/node_modules` (Docker) or `frontend/node_modules` (dev) | Three extraction strategies (workflow_id → agent_outputs → Agent 3 output; OR `js_code` param; OR regex-scan `html`) | (a) "Download PPTX" button in `PPTPreview` (`:168-174`); (b) `presentation-pptx` row in `FilesTab` (`:135-175`). Both used by the workflow `PreviewPanel` for the `ppt` and `ppt_revision` types. |
+| **Server-side** (new) | Node 24 + `pptxgenjs@3.12.0` at `/opt/pptx/node_modules` (Docker) or `frontend/node_modules` (dev) | Three extraction strategies (workflow_id → agent_outputs → Agent 3 output; OR `js_code` param; OR regex-scan `html`) | (a) "Download PPTX" button in `PPTPreview` (`:168-174`); (b) `presentation-pptx` row in `FilesTab` (`:135-175`). Both used by the workflow `PreviewPanel` for the `ppt` and `ppt_revision` types. |
 
 In practice the server-side path is the only PPT export users see today — the
 chat artifact path remains in code but is wired to the legacy slide-JSON
@@ -1618,19 +1618,19 @@ does not produce.
 
 **Docker layout for server-side PPTX (`backend/Dockerfile`).** Three stages
 (`:22-178`):
-1. *builder* (`python:3.13-slim-bookworm`, `:25`) — builds Python wheels into
+1. *builder* (`python:3.13-slim-trixie`, `:25`) — builds Python wheels into
    `/opt/venv`. Trims `__pycache__`, in-package tests, pip/setuptools to save
    ~140 MB (`:65-69`).
-2. *pptx-builder* (`node:20-bookworm-slim`, `:91`) — runs
+2. *pptx-builder* (`node:24.22.3-trixie-slim`, `:91`) — runs
    `npm install --prefix /opt/pptx --no-audit --no-fund --omit=dev
     pptxgenjs@3.12.0` (`:97`). Version pinned to match
-   `frontend/package-lock.json`. The pin to `node:20-bookworm-slim` is
-   deliberate — same Debian base as the runtime stage so the Node 20 binary
+   `frontend/package-lock.json`. The pin to `node:24.22.3-trixie-slim` is
+   deliberate — same Debian base as the runtime stage so the Node 24 binary
    copied across is ABI-compatible (`:81-91`).
-3. *runtime* (`python:3.13-slim-bookworm`, `:103`) — installs `libpq5 curl
+3. *runtime* (`python:3.13-slim-trixie`, `:103`) — installs `libpq5 curl
    ca-certificates libstdc++6` apt-side (`:120-127`); copies `/opt/venv`
    from stage 1 (`:130`); copies just the `node` binary (no npm) from
-   `node:20-bookworm-slim` to `/usr/local/bin/node` (`:136`); copies
+   `node:24.22.3-trixie-slim` to `/usr/local/bin/node` (`:136`); copies
    `/opt/pptx/node_modules` from stage 2 with `--chown=10001:10001` (`:140`).
    Runs as non-root user `flowin` (UID/GID 10001, `:146-147,168`).
 

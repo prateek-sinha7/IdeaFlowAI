@@ -114,10 +114,10 @@ def _identity_from_minted_token(access_token: str) -> tuple[str, list[str], int 
 
     Raises ``ValueError`` when the token cannot be decoded or carries no ``sub``.
     """
-    from jose import jwt as _jwt
+    import jwt as _jwt
 
     try:
-        claims = _jwt.get_unverified_claims(access_token)
+        claims = _jwt.decode(access_token, options={"verify_signature": False})
     except Exception as exc:  # noqa: BLE001 - any malformed-token failure
         raise ValueError(f"could not decode the access token Cognito issued: {exc}")
 

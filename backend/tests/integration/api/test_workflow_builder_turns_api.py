@@ -433,6 +433,12 @@ async def test_turn_completes_and_stores_result_when_stream_drops_mid_turn(
         MESSAGE_STATUS_RUNNING
     )
     row = await _await_status(env, turn_id, MESSAGE_STATUS_COMPLETED)
+    # The row is committed in a worker thread before the Turn leaves the live registry.
+    # The snapshot reads that registry, so wait for the release as well.
+    await _eventually(
+        lambda: get_live_turn(session_id) is None,
+        "the live Turn to be released after its row is stored",
+    )
     assert "final answer" in row.content
     assert row.ended_at is not None
 

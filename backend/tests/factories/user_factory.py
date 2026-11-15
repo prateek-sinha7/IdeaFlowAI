@@ -30,7 +30,7 @@ from dataclasses import dataclass, field
 from botocore.exceptions import ClientError
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
-from jose import jwt as jose_jwt
+import jwt as pyjwt
 from sqlalchemy.orm import Session
 
 from app.core import cognito
@@ -209,7 +209,7 @@ class FakeCognitoAuth:
             "cognito:groups": groups or [],
             "username": self.sub_for(email),
         }
-        return jose_jwt.encode(
+        return pyjwt.encode(
             claims, self._pem, algorithm="RS256", headers={"kid": self.kid}
         )
 

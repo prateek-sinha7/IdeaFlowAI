@@ -62,7 +62,7 @@ PRODUCTION_IMAGES = {
     "backend-python": ProductionImage(
         name="backend-python",
         dockerfile_path=_REPO_ROOT / "backend" / "Dockerfile",
-        base_image="python:3.13-slim-bookworm",
+        base_image="python:3.13-slim-trixie",
         build_context="backend",
         build_args={},
         required_scanners={"trivy", "grype"},
@@ -70,7 +70,7 @@ PRODUCTION_IMAGES = {
     "backend-pptx-builder": ProductionImage(
         name="backend-pptx-builder",
         dockerfile_path=_REPO_ROOT / "backend" / "Dockerfile",
-        base_image="node:20-bookworm-slim",
+        base_image="node:24.22.3-trixie-slim",
         build_context="backend",
         build_args={},
         required_scanners={"trivy", "grype"},
@@ -110,7 +110,7 @@ class TestProductionImageContract:
             assert dockerfile.exists(), f"Dockerfile not found for {name}: {dockerfile}"
 
     def test_production_images_use_bookworm_slim(self):
-        """Backend production images must use a Debian bookworm-slim base.
+        """Backend production images must use a Debian trixie-slim base.
 
         The frontend moved to distroless Debian 13 (see
         test_frontend_runtime_image_is_distroless_debian13_nonroot), so it is
@@ -119,10 +119,10 @@ class TestProductionImageContract:
         for name, image in PRODUCTION_IMAGES.items():
             if name == "frontend":
                 continue
-            # bookworm-slim can be "image-bookworm-slim" not necessarily "bookworm-slim"
+            # trixie-slim can be "image-trixie-slim" not necessarily "trixie-slim"
             assert (
-                "bookworm" in image.base_image
-            ), f"{name} should use bookworm base, got {image.base_image}"
+                "trixie" in image.base_image
+            ), f"{name} should use trixie base, got {image.base_image}"
             assert (
                 "slim" in image.base_image
             ), f"{name} should use slim variant, got {image.base_image}"
@@ -149,7 +149,7 @@ class TestProductionImageContract:
 
         A digest (`base@sha256:...`) is the strongest form and remains the target.
         Where a digest is not yet recorded, the reference must at least be
-        qualified beyond a bare major — `python:3.13-slim-bookworm` is acceptable,
+        qualified beyond a bare major — `python:3.13-slim-trixie` is acceptable,
         `python:3` or `python:latest` is not, because those silently change what
         was scanned.
 
@@ -674,10 +674,10 @@ class TestBaseImagePinAuthority:
 
         # Extract base image from Dockerfile builder stage
         builder_match = re.search(
-            r"FROM python:3\.13-slim-bookworm(@sha256:([a-f0-9]{64}))?",
+            r"FROM python:3\.13-slim-trixie(@sha256:([a-f0-9]{64}))?",
             content,
         )
-        assert builder_match, "Backend Dockerfile must have python:3.13-slim-bookworm"
+        assert builder_match, "Backend Dockerfile must have python:3.13-slim-trixie"
 
         # Verify it matches contract (contract may be without digest, that's OK for now)
         assert contract_image.base_image.startswith(
@@ -689,10 +689,11 @@ class TestBaseImagePinAuthority:
         # Python 3.13 is maintained
         assert "3.13" in PRODUCTION_IMAGES["backend-python"].base_image
 
-        # The backend pptx stage stays on Node 20 deliberately (ABI match with
-        # the runtime's copied node binary); the frontend runs the Node 24 LTS
-        # runtime authority (F-07).
-        assert "20" in PRODUCTION_IMAGES["backend-pptx-builder"].base_image
+        # Node 20 reached end of life on 2026-04-30. The backend pptx stage now
+        # uses the Node 24 LTS runtime authority on trixie (ABI match with the
+        # runtime's copied node binary); the frontend runs Node 24 too (F-07).
+        assert "node:24" in PRODUCTION_IMAGES["backend-pptx-builder"].base_image
+        assert "trixie" in PRODUCTION_IMAGES["backend-pptx-builder"].base_image
         assert "24" in PRODUCTION_IMAGES["frontend"].base_image
 
     def test_all_images_use_slim_variants(self):

@@ -35,6 +35,7 @@ from tools.ci.pin_authority import (
     get_scanner_versions,
     get_container_base_images,
     is_exact_semver,
+    is_exact_chromium_version,
     is_exact_image_tag,
 )
 
@@ -92,11 +93,14 @@ class TestPinAuthorityExactness:
         ), f"Playwright version '{auth.playwright_package_version}' is not exact SemVer"
 
     def test_chromium_version_is_exact_semver(self):
-        """Chromium browser version must be exact SemVer."""
+        """Chromium browser build must be an exact four-part build number.
+
+        Chromium uses MAJOR.MINOR.BUILD.PATCH, which is not SemVer.
+        """
         auth = get_authority()
-        assert is_exact_semver(
+        assert is_exact_chromium_version(
             auth.chromium_version
-        ), f"Chromium version '{auth.chromium_version}' is not exact SemVer"
+        ), f"Chromium version '{auth.chromium_version}' is not an exact Chromium build"
 
     def test_all_scanner_versions_are_exact_semver(self):
         """All scanner tool versions must be exact SemVer."""
@@ -127,7 +131,7 @@ class TestPinAuthorityImages:
     def test_backend_python_base_image_is_exact(self):
         """Backend Python base image must be tagged (not 'latest')."""
         auth = get_authority()
-        # Must include tag like 'python:3.13-slim-bookworm', not just 'python'
+        # Must include tag like 'python:3.13-slim-trixie', not just 'python'
         assert (
             ":" in auth.backend_python_base_image
         ), "Backend Python image must include tag"
@@ -141,9 +145,15 @@ class TestPinAuthorityImages:
         assert (
             ":" in auth.backend_pptx_builder_image
         ), "Backend pptx-builder image must include tag"
+        # Node 20 reached end of life on 2026-04-30; the pptx stage follows the
+        # Node runtime authority, on trixie to match the backend runtime's ABI.
+        runtime_major = auth.node_runtime_version.split(".")[0]
         assert (
-            "node:20" in auth.backend_pptx_builder_image
-        ), "Backend pptx-builder must use Node 20 (not Node 24 runtime)"
+            f"node:{runtime_major}" in auth.backend_pptx_builder_image
+        ), f"Backend pptx-builder must use Node {runtime_major} (the Node runtime authority)"
+        assert (
+            "-trixie-slim" in auth.backend_pptx_builder_image
+        ), "Backend pptx-builder must stay on trixie (ABI of the copied node binary)"
 
     def test_backend_node_runtime_image_is_exact(self):
         """Backend Node.js runtime source image must be exact."""
@@ -267,11 +277,11 @@ class TestPinAuthorityAccessors:
         assert version == get_authority().playwright_package_version
 
     def test_get_chromium_version(self):
-        """get_chromium_version() must return exact SemVer."""
+        """get_chromium_version() must return an exact four-part Chromium build."""
         version = get_chromium_version()
-        assert is_exact_semver(
+        assert is_exact_chromium_version(
             version
-        ), f"Chromium version {version} is not exact SemVer"
+        ), f"Chromium version {version} is not an exact Chromium build"
         assert version == get_authority().chromium_version
 
     def test_get_scanner_versions_returns_dict(self):

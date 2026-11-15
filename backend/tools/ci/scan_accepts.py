@@ -112,48 +112,10 @@ class AcceptedFinding:
 #:      deliberately NOT here.)
 #:   2. The reachable impact in THIS codebase is argued in `justification`.
 #:   3. Expiry is at most one quarter out. Renewing is a reviewed change.
+#:
+#: The ecdsa CVE-2024-23342 entry was removed with the PyJWT migration, which
+#: took python-jose and its ecdsa dependency out of uv.lock.
 ACCEPTED_FINDINGS: tuple[AcceptedFinding, ...] = (
-    AcceptedFinding(
-        ids=frozenset({"CVE-2023-45853"}),
-        package="zlib1g",
-        # frontend-image dropped 2026-11-12: the frontend now ships on
-        # distroless Debian 13 (zlib 1.3.1), which no longer reports it.
-        scopes=frozenset({"backend-image"}),
-        expires="2026-12-31",
-        owner="platform-engineering",
-        justification=(
-            "zlib CVE-2023-45853: integer overflow in MiniZip's "
-            "zipOpenNewFileInZip4_64. MiniZip is zlib's contrib/minizip code; "
-            "Debian's zlib1g binary package does not build or ship it, and "
-            "the backend image does not install the separate "
-            "minizip/libminizip packages. Debian bookworm has no fixed zlib1g "
-            "(the tracker records it as not fixed for bookworm), so there is "
-            "nothing to bump to on the pinned python:3.13-slim-bookworm and "
-            "node:20-bookworm-slim (backend pptx stage) bases. The frontend "
-            "image left this entry when it moved to distroless Debian 13. "
-            "Ends when the backend base images move to a release with "
-            "zlib >= 1.3.1 (e.g. Debian trixie) or bookworm ships a fix."
-        ),
-    ),
-    AcceptedFinding(
-        ids=frozenset({"CVE-2024-23342", "GHSA-wj6h-64fc-37mp", "PYSEC-2026-1325"}),
-        package="ecdsa",
-        scopes=frozenset({"backend-image"}),
-        expires="2026-12-31",
-        owner="platform-engineering",
-        justification=(
-            "python-ecdsa CVE-2024-23342 (Minerva timing side channel in ECDSA "
-            "signing on P-256). NO FIX: the ecdsa maintainers treat side "
-            "channels as out of scope. It is present only as a transitive "
-            "dependency of python-jose. The backend never signs with an EC "
-            "key: app/core/cognito.py verifies Cognito tokens with "
-            "algorithms=['RS256'] and app/api/auth.py only reads unverified "
-            "claims; the local HS256 path was removed in the Cognito-only "
-            "migration. The vulnerable signing path is therefore unreachable. "
-            "Ends with the PyJWT migration, which removes python-jose and "
-            "ecdsa from uv.lock."
-        ),
-    ),
     AcceptedFinding(
         ids=frozenset({"CVE-2025-71330", "GHSA-w3rx-r6r6-pgpr"}),
         package="image-size",

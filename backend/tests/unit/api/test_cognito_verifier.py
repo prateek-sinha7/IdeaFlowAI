@@ -28,7 +28,7 @@ from typing import Any
 import pytest
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
-from jose import jwt
+import jwt
 
 from app.core import cognito
 from app.core.cognito import CognitoVerificationError
@@ -226,7 +226,7 @@ class TestSignatureIntegrity:
         header, payload, signature = token.split(".")
 
         # Decode the original payload
-        payload_json = jwt.get_unverified_claims(token)
+        payload_json = jwt.decode(token, options={"verify_signature": False})
 
         # Change the `sub` claim
         payload_json["sub"] = "different-sub-00000000-0000-0000-0000-000000000000"
@@ -297,6 +297,21 @@ class TestClaimEnforcement:
         with pytest.raises(CognitoVerificationError):
             cognito.verify_cognito_access_token(token)
 
+    def test_iat_slightly_ahead_of_host_clock_is_accepted(self, jwks, signing_key):
+        """Cognito stamps `iat` from AWS's clock. A host a few seconds behind
+        must still accept a token minted a moment ago."""
+        now = int(time.time())
+        token = make_token(signing_key, iat=now + 5, exp=now + 3600)
+
+        assert cognito.verify_cognito_access_token(token).iat == now + 5
+
+    def test_non_integer_iat_is_rejected(self, jwks, signing_key):
+        """A malformed `iat` is a verification failure, never a raw ValueError."""
+        token = make_token(signing_key, iat="not-a-number")
+
+        with pytest.raises(CognitoVerificationError):
+            cognito.verify_cognito_access_token(token)
+
     def test_wrong_issuer_is_rejected(self, jwks, signing_key):
         """A valid token from a DIFFERENT pool must not authenticate here.
 
@@ -361,7 +376,7 @@ class TestMalformedInput:
     def test_garbage_never_raises_a_raw_jose_error(self, jwks, token):
         """The verifier's contract is CognitoVerificationError, nothing else.
 
-        A leaking JOSEError/httpx error would escape the 401 mapping in
+        A leaking jwt.PyJWTError/httpx error would escape the 401 mapping in
         core/dependencies.py and surface as a 500.
         """
         with pytest.raises(CognitoVerificationError):

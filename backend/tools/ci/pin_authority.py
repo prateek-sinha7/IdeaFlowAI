@@ -111,16 +111,20 @@ class PinAuthority:
     # Playwright Browser Automation
     # =========================================================================
     # Authority: https://github.com/microsoft/playwright/releases
-    # Current stable: 1.60.0 (released in recent timeline)
+    # Pinned: 1.64.1 (bumped from 1.60.0 for the Debian 13 base migration; it ships
+    # Chromium 156 and Node 24.x in its driver, and its debian13 dependency list
+    # is the source for the backend/Dockerfile apt layer).
     # Note: Playwright is pinned in frontend/package.json + backend requirements
-    playwright_package_version: str = "1.60.0"
+    playwright_package_version: str = "1.64.1"
 
-    # Chromium browser revision installed by Playwright
+    # Chromium browser build installed by Playwright
     # This is managed by Playwright's browsers.json; we document the expected version.
-    # See: https://github.com/microsoft/playwright/releases for browser version mapping
-    chromium_version: str = (
-        "1.62.0"  # Chromium major version bundled with Playwright 1.60.0
-    )
+    # Four-part Chromium build number (MAJOR.MINOR.BUILD.PATCH), NOT SemVer; validate
+    # with is_exact_chromium_version().
+    # Source: playwright-core/browsers.json at tag v1.64.1, entries `chromium` and
+    # `chromium-headless-shell` (revision 1248, browserVersion 156.0.8078.4).
+    # The backend image installs only the headless shell (`--only-shell chromium`).
+    chromium_version: str = "156.0.8078.4"
 
     # =========================================================================
     # Security Scanner Tools (all exact versions + checksums)
@@ -274,18 +278,25 @@ class PinAuthority:
     # scanned, and shipped — a mutable tag could silently change between the
     # scan and the next build. Installed by: backend/Dockerfile (builder,
     # runtime stages).
+    # Provenance: registry HEAD .../library/python/manifests/3.13-slim-trixie
+    # header `Docker-Content-Digest` (multi-arch OCI index; linux/amd64 and
+    # linux/arm64 carry Python 3.13.18), resolved from the anonymous Docker Hub
+    # registry API. Debian 13 (trixie); moved from 3.13-slim-bookworm.
     backend_python_base_image: str = (
-        "python:3.13-slim-bookworm"
-        "@sha256:b6bd71b0dd3811ddbcbc523ec2965fd1e1bcfdf7a20ab24679273d3bee726129"
+        "python:3.13-slim-trixie"
+        "@sha256:e48f59cdba69a3cbd9ed2cf0f348d90d45a8d350d98134cf1070bc106ee9ed90"
     )
 
     # Backend pptx-builder Node.js base (for pptxgenjs installation),
     # digest-pinned. Installed by: backend/Dockerfile (pptx-builder stage).
-    # Deliberately Node 20 (not the Node 24 runtime authority above) — see
-    # test_backend_pptx_builder_image_is_exact's ABI-compatibility rationale.
+    # Node 24 LTS since Node 20 reached end of life (2026-04-30): the same Node
+    # as node_runtime_version, on trixie so the copied `node` binary matches
+    # the python:3.13-slim-trixie runtime's libc/libstdc++ ABI.
+    # Provenance: registry HEAD .../library/node/manifests/24.22.3-trixie-slim
+    # (multi-arch OCI index), resolved from the anonymous Docker Hub registry API.
     backend_pptx_builder_image: str = (
-        "node:20-bookworm-slim"
-        "@sha256:3d0f05455dea2c82e2f76e7e2543964c30f6b7d673fc1a83286736d44fe4c41c"
+        "node:24.22.3-trixie-slim"
+        "@sha256:af02d57b57719b9657a45199a79264a9437940cd55b3c7b3fc99615654f124a0"
     )
 
     # Backend final runtime Node.js binary source (copied from image).
@@ -357,12 +368,12 @@ def get_postgres_version() -> str:
 
 
 def get_playwright_version() -> str:
-    """Get Playwright package version (e.g., '1.60.0')."""
+    """Get Playwright package version (e.g., '1.64.1')."""
     return get_authority().playwright_package_version
 
 
 def get_chromium_version() -> str:
-    """Get Chromium browser version bundled with Playwright."""
+    """Get Chromium browser build bundled with Playwright (four-part, e.g., '156.0.8078.4')."""
     return get_authority().chromium_version
 
 
@@ -414,6 +425,20 @@ def is_exact_semver(version_str: str) -> bool:
     # Reject: ranges, wildcards, pre-release/build unless part of exact release tag
     pattern = r"^(\d+)\.(\d+)\.(\d+)(?:-[a-zA-Z0-9]+(?:\.[a-zA-Z0-9]+)*)?(?:\+[a-zA-Z0-9]+(?:\.[a-zA-Z0-9]+)*)?$"
     return bool(re.match(pattern, version_str))
+
+
+def is_exact_chromium_version(version_str: str) -> bool:
+    """
+    Verify a Chromium build number: exactly four dot-separated integers.
+
+    Chromium versions are MAJOR.MINOR.BUILD.PATCH, which is not SemVer, so
+    is_exact_semver() rejects them.
+    Valid: "156.0.8078.4"
+    Invalid: "156", "156.0.8078", "1.62.0", "latest", "156.0.8078.x"
+    """
+    import re
+
+    return bool(re.match(r"^\d+\.\d+\.\d+\.\d+$", version_str))
 
 
 def is_exact_image_tag(image_str: str) -> bool:

@@ -143,9 +143,9 @@ updates:
   # node:24.22.3-trixie-slim (the pin_authority Node runtime) and ships on
   # gcr.io/distroless/nodejs24-debian13:nonroot. Dependabot may not bump the
   # distroless digest because `nonroot` is not a version tag; re-resolve it by
-  # hand (see pin_authority.frontend_runtime_image). The backend pptx stage stays on
-  # node:20-bookworm-slim deliberately; the backend also uses
-  # python:3.13-slim-bookworm.
+  # hand (see pin_authority.frontend_runtime_image). The backend pptx stage uses
+  # node:24.22.3-trixie-slim (Node 20 is end of life; trixie matches the
+  # backend runtime's ABI); the backend also uses python:3.13-slim-trixie.
   - package-ecosystem: docker
     directory: /backend
     schedule:

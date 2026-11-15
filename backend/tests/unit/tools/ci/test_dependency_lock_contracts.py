@@ -29,6 +29,7 @@ import pytest
 from hypothesis import given, strategies as st, settings
 from tools.ci.pin_authority import (
     get_authority,
+    is_exact_chromium_version,
     is_exact_semver,
     is_exact_image_tag,
     get_python_runtime,
@@ -627,13 +628,17 @@ class TestPinAuthorityConsistency:
             ("python_runtime_version", auth.python_runtime_version),
             ("node_runtime_version", auth.node_runtime_version),
             ("playwright_package_version", auth.playwright_package_version),
-            ("chromium_version", auth.chromium_version),
         ]
 
         for field_name, version in version_fields:
             assert is_exact_semver(
                 version
             ), f"{field_name} = {version} is not exact SemVer"
+
+        # Chromium builds are four-part (MAJOR.MINOR.BUILD.PATCH), not SemVer.
+        assert is_exact_chromium_version(
+            auth.chromium_version
+        ), f"chromium_version = {auth.chromium_version} is not an exact Chromium build"
 
         # Check scanner versions
         scanners = get_scanner_versions()

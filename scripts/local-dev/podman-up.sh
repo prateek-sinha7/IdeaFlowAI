@@ -74,11 +74,15 @@ ensure_machine() {
     echo "         and run: podman machine stop && podman machine start" >&2
   fi
 
-  # Bind-mount sources from docker-compose.yml must exist inside the VM.
-  # Owned by the VM user, which rootless podman maps to container root, so the
-  # image's entrypoint can chown them to 10001 at start.
+  # Bind-mount sources from docker-compose.yml must exist inside the VM and be
+  # owned by uid/gid 10001 AS THE CONTAINER SEES THEM: the backend image runs
+  # as USER 10001:10001, so its entrypoint no longer starts as root to chown
+  # them. Rootless podman maps the VM user to container root, so the chown runs
+  # inside that user namespace (`podman unshare`), where 10001 means the
+  # container's 10001.
   podman machine ssh 'sudo mkdir -p /opt/velocityai/data/skills /opt/velocityai/data/runs \
-    && sudo chown $(id -u):$(id -g) /opt/velocityai/data/skills /opt/velocityai/data/runs'
+    && sudo chown $(id -u):$(id -g) /opt/velocityai/data/skills /opt/velocityai/data/runs \
+    && podman unshare chown 10001:10001 /opt/velocityai/data/skills /opt/velocityai/data/runs'
 }
 
 ensure_env() {

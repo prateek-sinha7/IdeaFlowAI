@@ -620,7 +620,7 @@ jobs:
             fonts-liberation
           soffice --version
 
-      # Browser build is pinned by the locked `playwright==1.60.0` (uv.lock),
+      # Browser build is pinned by the locked `playwright==1.64.1` (uv.lock),
       # the same package the Dockerfile's `playwright install` runs from.
       - name: Install Chromium from the locked Playwright package
         working-directory: backend

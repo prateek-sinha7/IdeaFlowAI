@@ -165,8 +165,8 @@ nothing. They now live in one list:
 
 | Finding | Scopes | Status |
 |---|---|---|
-| `zlib1g` CVE-2023-45853 | backend image | accepted until 2026-12-31: MiniZip is not built into zlib1g; no bookworm fix. The frontend image no longer carries it (distroless Debian 13 since 2026-11-12) |
-| `ecdsa` CVE-2024-23342 | backend image | accepted until 2026-12-31: only RS256 is used, the EC signing path is unreachable; ends with the PyJWT migration |
+| `ecdsa` CVE-2024-23342 | backend image | **fixed**, no longer accepted: the PyJWT migration removed python-jose and ecdsa from `uv.lock` |
+| `python-jose` CVE-2026-85394 / GHSA-3qf3-8w2g-rqmx | backend image | **fixed**: python-jose replaced by PyJWT 2.15.1 |
 | `image-size` CVE-2025-71329 / CVE-2025-71330 | backend image, frontend lockfile | accepted until 2026-12-31: no fix published; ends when pptxgenjs is removed |
 | `setuptools` CVE-2025-47273 | backend image | **fixed**, not accepted: `backend/Dockerfile` upgrades the system interpreter's setuptools |
 

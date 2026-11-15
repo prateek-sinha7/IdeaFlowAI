@@ -345,8 +345,8 @@ class TestMain:
         )
 
     def test_main_returns_one_when_real_entry_is_stale_for_scope(self, tmp_path: Path):
-        # backend-image: the real list has entries in this scope (zlib, ecdsa,
-        # image-size), so an empty report makes them stale. frontend-image has
+        # backend-image: the real list has entries in this scope (image-size),
+        # so an empty report makes them stale. frontend-image has
         # no real entries since the frontend moved to distroless Debian 13.
         trivy = _write(tmp_path / "trivy.json", _trivy())
         code = main(

@@ -285,11 +285,11 @@ def _stamp_mfa_proven(client, user_id: str, token: str) -> None:
     """
     from datetime import datetime, timezone
 
-    from jose import jwt as jose_jwt
+    import jwt as pyjwt
 
     from app.models.user import User
 
-    issued_at = jose_jwt.get_unverified_claims(token)["iat"]
+    issued_at = pyjwt.decode(token, options={"verify_signature": False})["iat"]
     session = client.SessionLocal()
     try:
         user = session.get(User, user_id)
