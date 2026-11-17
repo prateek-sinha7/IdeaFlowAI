@@ -8,8 +8,9 @@ and the turn's own message is pinned by id.
 What the factory wires:
 
 * The versioned system prompt, read once at import (:data:`SYSTEM_PROMPT`,
-  :data:`SYSTEM_PROMPT_SHA256`, :data:`PROMPT_VERSION`). A new prompt version is
-  a new file and a change to :data:`_PROMPT_VERSION_LABEL` (Req 19.1).
+  :data:`SYSTEM_PROMPT_SHA256`, :data:`PROMPT_VERSION`, from
+  :mod:`~app.agents.workflow_builder.system_prompt`). A new prompt version is a
+  new file and a change to ``system_prompt.PROMPT_VERSION_LABEL`` (Req 19.1).
 * The tools: ``run_skill_script``, ``propose_draft`` and the read tools. The
   built-in file tools and ``write_todos`` stay bound by deepagents.
 * The composite file backend: the session sandbox as the default route and the
@@ -33,12 +34,14 @@ The agent layer reaches the platform only through the ports in
 
 from __future__ import annotations
 
-import hashlib
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Final
+from typing import TYPE_CHECKING
 
+from langchain.agents.middleware import ModelRetryMiddleware
+
+from agents.model_policy import _is_transient_throttle
 from app.agents.deep_agent_runner import DeepAgentRunner
 from app.agents.workflow_builder.backend_fs import SKILLS_ROUTE, build_builder_backend
 from app.agents.workflow_builder.draft_tool import DraftToolContext, build_draft_tool
@@ -56,6 +59,11 @@ from app.agents.workflow_builder.script_runner import (
     build_script_tool,
 )
 from app.agents.workflow_builder.skill_package import SKILLS_ROOT
+from app.agents.workflow_builder.system_prompt import (
+    PROMPT_VERSION,
+    SYSTEM_PROMPT,
+    SYSTEM_PROMPT_SHA256,
+)
 
 if TYPE_CHECKING:
     from langchain_core.language_models import BaseChatModel
@@ -75,30 +83,8 @@ __all__ = [
     "build_builder_runner",
 ]
 
-_PROMPT_VERSION_LABEL: Final = "v1"
-_PROMPT_FILE: Final = (
-    Path(__file__).resolve().parent
-    / "prompts"
-    / f"system_prompt.{_PROMPT_VERSION_LABEL}.md"
-)
-_PROMPT_HASH_CHARS: Final = 12
-
-
-def _load_system_prompt(path: Path) -> str:
-    """Read the prompt file as UTF-8 with LF line endings."""
-    return path.read_bytes().decode("utf-8").replace("\r\n", "\n")
-
-
-SYSTEM_PROMPT: Final = _load_system_prompt(_PROMPT_FILE)
-"""The system prompt text, read once at import (Req 19.1)."""
-
-SYSTEM_PROMPT_SHA256: Final = hashlib.sha256(SYSTEM_PROMPT.encode("utf-8")).hexdigest()
-"""SHA-256 of :data:`SYSTEM_PROMPT` (UTF-8, LF line endings), as lowercase hex."""
-
-PROMPT_VERSION: Final = (
-    f"{_PROMPT_VERSION_LABEL}:{SYSTEM_PROMPT_SHA256[:_PROMPT_HASH_CHARS]}"
-)
-"""Stored on each assistant message: ``v1:<first 12 hex of the hash>``."""
+# Re-runs of one failed model call on a transient provider fault (3 attempts in all).
+_MODEL_CALL_RETRIES = 2
 
 
 @dataclass(frozen=True, slots=True)
@@ -158,6 +144,31 @@ def _never() -> bool:
     return False
 
 
+def _model_retry_middleware(model_id: str) -> ModelRetryMiddleware:
+    """Return the middleware that re-runs one failed model call on a transient fault.
+
+    The builder has no engine model-fallback chain, and the runner's own retry
+    only covers a fault before its first event. A turn makes many model calls
+    with tool calls between them, so a Bedrock ``internalServerException`` in
+    the Nth call would otherwise fail the whole turn and discard the tool work
+    already done. This re-runs only the failed call: earlier tool results stay
+    in the graph state.
+
+    ``agents.model_policy._is_transient_throttle`` stays the single verdict on
+    what is retryable (ADR-0046). Anything it calls permanent is re-raised at
+    once, and so is a transient fault that outlasts the retries.
+    """
+    return ModelRetryMiddleware(
+        max_retries=_MODEL_CALL_RETRIES,
+        retry_on=lambda exc: _is_transient_throttle(exc, model_id),
+        on_failure="error",
+        initial_delay=1.0,
+        backoff_factor=2.0,
+        max_delay=8.0,
+        jitter=True,
+    )
+
+
 def build_builder_runner(
     turn_inputs: BuilderTurnInputs,
     sandbox: BuilderSandbox,
@@ -215,7 +226,7 @@ def build_builder_runner(
         ),
     ]
 
-    # Order matters only in that both go after the runner's own middleware.
+    # Order matters only in that all go after the runner's own middleware.
     # The pinning middleware raises ValueError for a wrongly numbered message.
     extra_middleware = [
         PinnedTurnMessageMiddleware(turn_inputs.turn_id, turn_inputs.message),
@@ -224,6 +235,7 @@ def build_builder_runner(
             elapsed_seconds=ports.elapsed_seconds,
             stopped_by_turn_cap=ports.stopped_by_turn_cap,
         ),
+        _model_retry_middleware(turn_inputs.model_id),
     ]
 
     return DeepAgentRunner(

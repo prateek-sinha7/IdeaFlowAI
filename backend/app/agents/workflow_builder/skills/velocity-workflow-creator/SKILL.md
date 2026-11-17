@@ -102,11 +102,15 @@ Never ask **internal** questions (tools, agents, models, effort, retries, loop c
 file names, step count, parallelism, decomposition pattern, tier): decide them, record each
 in the Decisions table (step 6) and move on.
 
-If a functional question is open, ask at most 5 numbered questions in one message, each with
-options and a recommended default, then stop and wait. One round is normal, two is the
-limit; a third means Step 0 was wrong, so redo step 1. If the user says "you decide" or "just
-do it", or no one can answer, use the defaults and list the unanswered functional questions
-as risks on the Open questions line. For a deliverable with a playbook (UI prototype, requirements document), also ask "Fast or Thorough?" (Full is the default), and put the outline in the same message: the playbook's stages at the chosen depth, one line each with what it produces. Then stop and wait for the reply. If the request leaves no question open and the workflow is small (about three steps, no gates, uploads or loops), skip the wait: build it and show the outline in the response.
+The intake settles the Brief from the slot table (`docs/intake-slots.md`) before this step
+runs, and its brief arrives with your message. Ask no further functional questions and add no
+intake step unless the slot table asks for one; a slot the brief marks assumed or unknown
+keeps its default and goes on the Open questions line as a risk. Only when no intake brief
+arrived and a functional question is open, ask at most 5 numbered questions in one message,
+each with options and a recommended default, then stop and wait. For a deliverable with a
+playbook (UI prototype, requirements document), take the depth from the brief (Full is the
+default) and show the playbook's stages at that depth in the response, one line each with
+what it produces.
 
 Question bank: `docs/requirements-analysis.md` §3-5.
 
@@ -116,6 +120,7 @@ Question bank: `docs/requirements-analysis.md` §3-5.
 
 1. Read `<skill>/docs/quick-reference.md` in full. It fits in one read.
 2. Read `<skill>/docs/prompt-writing.md` in full. It fits in one read.
+   Then read `<skill>/docs/requirements-analysis.md` §3-5, the question bank the intake used.
 3. Run `python <skill>/scripts/catalog_lookup.py overview --trust <user|db|file>`. Its
    ASKING THE USER section says how this workflow can get facts from the user at that trust.
 4. Run `python <skill>/scripts/catalog_lookup.py example`, then print the closest shipped step

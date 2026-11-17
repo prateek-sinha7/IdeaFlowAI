@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 
@@ -30,6 +30,18 @@ function announce(message: OAuthCompleteMessage): void {
   }
 }
 
+// window.name does not change while the page is open, so there is nothing to subscribe to.
+const subscribeNever = () => () => {};
+const readIsPopup = () => isConnectorPopupName(window.name);
+// The server has no window. React also uses this snapshot while hydrating, so the first
+// client render matches the server HTML and the real value is applied right after.
+const readIsPopupOnServer = () => false;
+
+/** True when this page was opened by the Connectors page as an OAuth popup. Hydration-safe. */
+function useIsConnectorPopup(): boolean {
+  return useSyncExternalStore(subscribeNever, readIsPopup, readIsPopupOnServer);
+}
+
 /**
  * Shows the outcome of the provider sign-in and hands control back.
  *
@@ -41,7 +53,7 @@ export function OAuthCompleteClient() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const outcome = useMemo(() => parseOAuthResult(searchParams), [searchParams]);
-  const isPopup = typeof window !== "undefined" && isConnectorPopupName(window.name);
+  const isPopup = useIsConnectorPopup();
 
   useEffect(() => {
     if (!outcome) return;

@@ -8,7 +8,9 @@ I/O, no clock, no shared state. See design section 3.6.6 and D-02.
 
 A mandatory file counts as *read in full* when the union of the line ranges
 ``[offset, offset + limit)`` of its successful ``read_file`` calls covers every
-line of the file. Line counts come from the skill files on disk
+line of the file. The mandatory list is the one the active system prompt
+version names. A Turn answered by the intake call alone has no record: that
+call reads no skill file by design. Line counts come from the skill files on disk
 (``skill_package.read_skill_facts``), so paged reads count. ``docs/catalog.md`` is
 not tracked because a single read cannot return it whole (D-02).
 """
@@ -19,6 +21,8 @@ import posixpath
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from typing import Final, Literal
+
+from app.agents.workflow_builder.system_prompt import MANDATORY_FILES
 
 __all__ = [
     "DEFAULT_READ_LIMIT",
@@ -35,13 +39,9 @@ Verdict = Literal["valid", "invalid", "unknown"]
 
 DEFAULT_SKILL_ID: Final = "velocity-workflow-creator"
 
-# Paths relative to the skill folder, in the order the skill asks for them.
-MANDATORY_FILES: Final[tuple[str, ...]] = (
-    "SKILL.md",
-    "docs/problem-decomposition.md",
-    "docs/quick-reference.md",
-    "docs/prompt-writing.md",
-)
+# ``MANDATORY_FILES`` (paths relative to the skill folder, in prompt order) is
+# parsed from the active system prompt version (``system_prompt.py``), so the
+# record tracks the list that prompt names.
 
 # deepagents ``read_file`` defaults (``DEFAULT_READ_OFFSET`` and
 # ``DEFAULT_READ_LIMIT`` in ``deepagents/middleware/filesystem.py``, pinned at

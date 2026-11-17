@@ -93,9 +93,9 @@ README*
 # reference .md files are runtime DATA, and the image build checks the main ones
 # exist). Must stay BELOW `*.md`.
 !app/agents/workflow_builder/skills/**
-# ...and the AI workflow builder's versioned prompts (system_prompt.v1.md,
+# ...and the AI workflow builder's versioned prompts (system_prompt.v*.md,
 # transcript_summary.v1.md). The agent reads them from disk at import, and the image
-# build checks that system_prompt.v1.md exists. Must stay BELOW `*.md`.
+# build checks that system_prompt.v2.md exists. Must stay BELOW `*.md`.
 !app/agents/workflow_builder/prompts/*.md
 
 # --- Git metadata ----------------------------------------------------------

@@ -46,7 +46,7 @@ _PROMPT_FILE = (
     / "agents"
     / "workflow_builder"
     / "prompts"
-    / "system_prompt.v1.md"
+    / "system_prompt.v2.md"
 )
 _SKILLS_ROOT = SKILLS_ROOT
 _TURN_ID = "t-1"
@@ -73,8 +73,8 @@ def test_system_prompt_sha256_matches_file_hash_when_line_endings_are_normalised
 
 
 def test_prompt_version_has_label_and_twelve_hex_when_built() -> None:
-    assert re.fullmatch(r"v1:[0-9a-f]{12}", PROMPT_VERSION)
-    assert PROMPT_VERSION == f"v1:{SYSTEM_PROMPT_SHA256[:12]}"
+    assert re.fullmatch(r"v2:[0-9a-f]{12}", PROMPT_VERSION)
+    assert PROMPT_VERSION == f"v2:{SYSTEM_PROMPT_SHA256[:12]}"
 
 
 def test_system_prompt_has_exactly_six_numbered_parts_when_read() -> None:
@@ -135,6 +135,35 @@ def test_system_prompt_warns_against_whole_reads_when_part_four_lists_large_file
         "examples/",
     ):
         assert name in part
+
+
+def test_system_prompt_says_how_the_intake_brief_arrives_when_part_three_is_read() -> (
+    None
+):
+    part = _part(3)
+
+    assert "`<intake_brief>`" in part
+    assert "ask no further functional questions" in part
+
+
+def test_mandatory_files_equal_the_prompt_list_when_parsed_from_the_active_prompt() -> (
+    None
+):
+    from app.agents.workflow_builder.adherence import MANDATORY_FILES
+
+    assert MANDATORY_FILES == (
+        "SKILL.md",
+        "docs/problem-decomposition.md",
+        "docs/quick-reference.md",
+        "docs/prompt-writing.md",
+    )
+
+
+def test_mandatory_files_raises_when_the_prompt_names_none() -> None:
+    from app.agents.workflow_builder.system_prompt import mandatory_files
+
+    with pytest.raises(ValueError):
+        mandatory_files("## 4. Reading skill files\n\nRead what you need.\n")
 
 
 def test_system_prompt_names_the_four_mandatory_files_when_part_four_is_read() -> None:

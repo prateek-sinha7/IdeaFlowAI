@@ -48,7 +48,9 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import time
+import traceback
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import AbstractContextManager, aclosing, contextmanager
 from dataclasses import dataclass, field
@@ -56,8 +58,13 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Final, Literal, Protocol
 
+from agents.capabilities.model_catalog import ModelCatalog
 from app.agents.llm_errors import map_exception
+from app.agents.model_factory import build_model
 from app.agents.workflow_builder import adherence as adherence_module
+from app.agents.workflow_builder import intake as intake_module
+from app.agents.workflow_builder import fact_checks, irreversible_gate
+from app.agents.workflow_builder.fact_checks import IntakeFacts
 from app.agents.workflow_builder.adherence import AdherenceRecord
 from app.agents.workflow_builder.adherence import ToolCall as AdherenceToolCall
 from app.agents.workflow_builder.agent import (
@@ -79,6 +86,7 @@ from app.agents.workflow_builder.events import (
     Snapshot,
     StageChanged,
     StopReason,
+    TargetTrust,
     Text,
     Thinking,
     ThinkingStep,
@@ -97,7 +105,9 @@ from app.agents.workflow_builder.model_catalog_view import builder_models
 from app.agents.workflow_builder.ports import (
     AcceptedDraft,
     FinishedToolCall,
+    GateIssue,
     GatePort,
+    GateResult,
     TurnLimits,
 )
 from app.agents.workflow_builder.read_tools import (
@@ -147,6 +157,7 @@ from app.models.database import SessionLocal
 from app.models.workflow_builder import (
     DRAFT_KIND_ACCEPTED,
     DRAFT_KIND_UNPROPOSED,
+    SESSION_MODE_CREATE,
     MESSAGE_STATUS_TIMED_OUT,
     MESSAGE_STATUS_TOOL_ERROR,
     MESSAGE_STATUS_TOOL_OK,
@@ -308,6 +319,20 @@ class LiveTurn:
             then on :meth:`stop` changes nothing, so the stored status always
             agrees with the stop reason.
         task: The asyncio task that runs the Turn.
+        intake_only: The intake asked its questions and the builder did not run
+            (intake flag on). Such a Turn does not count as a clarifying turn.
+        prompt_version: The prompt version to store when it is not the builder's
+            system prompt alone (intake flag on). ``None`` stores
+            :data:`PROMPT_VERSION`.
+        gate_rejection_issues: The issues of each Server_Gate rejection, in
+            order (intake flag on only; empty otherwise).
+        intake_appendix: Text appended to the builder's final reply after an
+            intake handoff (why a gate stays, the assumed slots), or ``None``.
+        intake_effort: The reasoning effort the intake call used.
+        intake_facts: The settled brief's facts the Server_Gate checks the draft
+            against (empty when the intake did not hand off).
+        intake_failure: The exception type when the intake failed and the old
+            path ran (the fail-safe), else ``None``.
     """
 
     session_id: str
@@ -336,6 +361,13 @@ class LiveTurn:
     stop_reason: StopReason | None = None
     finalizing: bool = False
     task: asyncio.Task[None] | None = None
+    intake_only: bool = False
+    prompt_version: str | None = None
+    gate_rejection_issues: list[tuple[GateIssue, ...]] = field(default_factory=list)
+    intake_appendix: str | None = None
+    intake_effort: str | None = None
+    intake_facts: IntakeFacts = field(default_factory=IntakeFacts)
+    intake_failure: str | None = None
 
     @property
     def stopping(self) -> bool:
@@ -1211,15 +1243,47 @@ def _warn_time(runner: TurnRunner) -> None:
     )
 
 
+class _RecordingGate:
+    """Passes checks to the real gate and keeps the rules of each rejection on the Turn.
+
+    Used only with the intake flag on, so the Turn's reply can say why a draft
+    was withheld (an ``irreversible_gate`` rejection) and the eval harness can
+    count them.
+    """
+
+    def __init__(self, inner: GatePort, turn: LiveTurn) -> None:
+        self._inner = inner
+        self._turn = turn
+
+    async def check(
+        self, manifest: dict[str, Any], *, requested_trust: TargetTrust
+    ) -> GateResult:
+        result = await self._inner.check(manifest, requested_trust=requested_trust)
+        if not result.accepted:
+            self._turn.gate_rejection_issues.append(result.issues)
+        return result
+
+    async def dry_run(
+        self, manifest_path: Path, *, requested_trust: TargetTrust
+    ) -> GateResult:
+        return await self._inner.dry_run(manifest_path, requested_trust=requested_trust)
+
+
 def _build_gate(turn: LiveTurn, deps: TurnDeps) -> GatePort:
-    if deps.gate is not None:
-        return deps.gate
-    return ServerGate(
-        tier=turn.tier,
-        max_trust=_saved_row_trust(turn.tier),  # type: ignore[arg-type]
-        step_models=builder_models(turn.tier).step,
-        label=_SAVE_CHECK_LABEL,
+    intake_on = settings.BUILDER_INTAKE_V2_ENABLED
+    gate: GatePort = (
+        deps.gate
+        if deps.gate is not None
+        else ServerGate(
+            tier=turn.tier,
+            max_trust=_saved_row_trust(turn.tier),  # type: ignore[arg-type]
+            step_models=builder_models(turn.tier).step,
+            label=_SAVE_CHECK_LABEL,
+            check_irreversible=intake_on,
+            intake_facts=(lambda: turn.intake_facts) if intake_on else None,
+        )
     )
+    return _RecordingGate(gate, turn) if intake_on else gate
 
 
 def _script_metric_sink(
@@ -1238,6 +1302,138 @@ def _script_metric_sink(
         )
 
     return sink
+
+
+def _raised_at(exc: BaseException) -> str:
+    """``<file>:<function>`` of the innermost frame that raised ``exc``.
+
+    Code locations only, never values, so it is safe to log (Req 42.4).
+    """
+    frames = traceback.extract_tb(exc.__traceback__)
+    if not frames:
+        return "unknown"
+    return f"{Path(frames[-1].filename).name}:{frames[-1].name}"
+
+
+def intake_effort(model_id: str, turn_effort: str | None, setting: str) -> str | None:
+    """The reasoning effort of the intake call (``BUILDER_INTAKE_EFFORT``).
+
+    ``default`` keeps the Turn's own effort. ``highest`` takes the last of the
+    model's reasoning levels in the model catalog (the levels are listed lowest
+    first); a model without levels keeps the Turn's effort.
+    """
+    if setting != "highest":
+        return turn_effort
+    entry = next((e for e in ModelCatalog().list() if e.id == model_id), None)
+    reasoning = getattr(entry, "reasoning", None)
+    levels = tuple(getattr(reasoning, "levels", ()) or ())
+    return str(levels[-1]) if levels else turn_effort
+
+
+def _intake_applies(scope: StoreScope, turn: LiveTurn) -> bool:
+    """True for a create session with no accepted and no unfinished draft. Blocking.
+
+    An edit session, a session with an accepted draft, or one with an unproposed
+    revision to continue from goes straight to the builder.
+    """
+    with scope() as store:
+        session = store.get_session(turn.user_id, turn.session_id)
+        if (
+            session is None
+            or str(session.mode) != SESSION_MODE_CREATE
+            or session.first_accepted_revision is not None
+        ):
+            return False
+        revisions = store.get_latest_revisions(turn.user_id, turn.session_id)
+        return revisions.unproposed is None
+
+
+async def _intake_step(
+    runner: TurnRunner, run: TurnRunState, request: TurnRequest, deps: TurnDeps
+) -> tuple[bool, str | None]:
+    """Run the intake (flag on). Returns ``(asked, overlay)``.
+
+    ``asked`` means the intake replied with its questions: the reply is published
+    and the Turn must run nothing else. Otherwise ``overlay`` is the settled brief
+    for the builder's turn context, or ``None`` when the intake does not apply or
+    failed; a failure is logged and the builder runs as before (fail-safe).
+    """
+    turn = runner.live
+    log = turn_logger(turn.session_id, turn.turn_id, name=_logger_name)
+    if run.sandbox is None:
+        return False, None
+    applies = await asyncio.to_thread(_intake_applies, runner.store_scope, turn)
+    if not applies:
+        return False, None
+    await runner.signal_stage(ThinkingDelta())
+    skill_dir = (
+        SKILL_DIR if deps.skills_root is None else deps.skills_root / BUILDER_SKILL_ID
+    )
+    turn.intake_effort = intake_effort(
+        turn.model_id, turn.effort, settings.BUILDER_INTAKE_EFFORT
+    )
+    try:
+        model = (
+            deps.chat_model
+            if deps.chat_model is not None
+            else await asyncio.to_thread(
+                build_model, turn.model_id, effort=turn.intake_effort
+            )
+        )
+        outcome = await intake_module.run_intake(
+            message=request.content,
+            state_path=run.sandbox.path_for(intake_module.STATE_FILE),
+            model=model,
+            model_id=turn.model_id,
+            max_rounds=settings.BUILDER_INTAKE_MAX_ROUNDS,
+            timeout_seconds=settings.LLM_CALL_TIMEOUT_SECONDS,
+            skill_dir=skill_dir,
+        )
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:  # noqa: BLE001 - never block the user on an intake failure
+        turn.intake_failure = type(exc).__name__
+        if isinstance(exc, intake_module.IntakeError):
+            for usage in exc.usage:
+                _on_usage(runner, run, usage)
+        log.warning(
+            "builder intake failed (%s at %s); running the builder as before",
+            type(exc).__name__,
+            _raised_at(exc),
+        )
+        return False, None
+    for usage in outcome.usage:
+        _on_usage(runner, run, usage)
+    if outcome.kind == "ask":
+        text = outcome.reply or ""
+        turn.intake_only = True
+        turn.prompt_version = intake_module.INTAKE_PROMPT_VERSION
+        run.reply.append(text)
+        run.final_output = text
+        await runner.signal_stage(TextDelta())
+        await runner.publish(Text(ts=_now(), turn_id=turn.turn_id, seq=1, text=text))
+        return True, None
+    turn.prompt_version = f"{PROMPT_VERSION}+{intake_module.INTAKE_PROMPT_VERSION}"
+    turn.intake_appendix = outcome.appendix
+    turn.intake_facts = outcome.facts
+    return False, outcome.overlay
+
+
+async def _append_intake_block(runner: TurnRunner, run: TurnRunState) -> None:
+    """After an intake handoff, add the code-rendered block to the final reply.
+
+    It comes after the model's text, so the model's own Open questions stay. It
+    is sent as one more ``text`` event, so a live client shows it too.
+    """
+    turn = runner.live
+    block = turn.intake_appendix
+    if not block or turn.stopping:
+        return
+    text = f"\n\n{block}"
+    if run.final_output is not None:
+        run.final_output = run.final_output.rstrip() + text
+    run.reply.append(text)
+    await runner.publish(Text(ts=_now(), turn_id=turn.turn_id, seq=1, text=text))
 
 
 async def _execute(
@@ -1271,6 +1467,11 @@ async def _execute(
         turn,
         request.canvas_state,
     )
+    intake_brief: str | None = None
+    if settings.BUILDER_INTAKE_V2_ENABLED:
+        asked, intake_brief = await _intake_step(runner, run, request, deps)
+        if asked:
+            return
     agent_input = await build_agent_input(
         InputRequest(
             user_id=turn.user_id,
@@ -1281,6 +1482,7 @@ async def _execute(
             tier=turn.tier,
             content=request.content,
             canvas_state=request.canvas_state,
+            intake_brief=intake_brief,
         ),
         store_scope=runner.store_scope,
         summarizer=deps.summarizer,
@@ -1316,6 +1518,7 @@ async def _execute(
     ) as events:
         async for event in events:
             await _on_runner_event(runner, run, event)
+    await _append_intake_block(runner, run)
 
 
 async def _finalize_shielded(
@@ -1439,7 +1642,35 @@ def _gate_notice(turn: LiveTurn) -> str:
         "I could not get this draft through the platform checks after "
         f"{turn.gate_rejections} tries.{where} The work so far is kept. "
         "Say continue and I will pick it up from the saved draft."
+        f"{_withheld_reason(turn)}"
     )
+
+
+_WITHHELD_WHY: Final[dict[str, str]] = {
+    irreversible_gate.RULE: "The platform requires a person to approve before every post "
+    "or write outside the run.",
+    fact_checks.PROPAGATION_RULE: "A value you gave must reach the step that uses it, or "
+    "the workflow would run without it.",
+    fact_checks.PLACEHOLDER_RULE: "A workflow may not fill a missing fact with a "
+    "placeholder.",
+}
+_FIRST_SENTENCE: Final = re.compile(r"\.\s")
+
+
+def _withheld_reason(turn: LiveTurn) -> str:
+    """Why the draft was withheld, when the last rejection was an intake-brief check (flag on).
+
+    Covers a missing gate before a write, a given value no step carries, and a
+    placeholder for a missing fact. The issue text names step ids, tool names and
+    the user's own identifiers only, never prompt text.
+    """
+    last = turn.gate_rejection_issues[-1] if turn.gate_rejection_issues else ()
+    found = [i for i in last if i.rule in _WITHHELD_WHY]
+    if not found:
+        return ""
+    what = "; ".join(_FIRST_SENTENCE.split(i.message, maxsplit=1)[0] for i in found)
+    why = " ".join(dict.fromkeys(_WITHHELD_WHY[i.rule] for i in found))
+    return f" The draft was withheld and is not on the canvas: {what}. {why}"
 
 
 def _reply_content(turn: LiveTurn, run: TurnRunState, reason: StopReason | None) -> str:
@@ -1449,7 +1680,10 @@ def _reply_content(turn: LiveTurn, run: TurnRunState, reason: StopReason | None)
     return text
 
 
-def _adherence_record(turn: LiveTurn, run: TurnRunState) -> AdherenceRecord:
+def _adherence_record(turn: LiveTurn, run: TurnRunState) -> AdherenceRecord | None:
+    """The Turn's adherence record; ``None`` for an intake-only Turn (exempt)."""
+    if turn.intake_only:
+        return None
     return adherence_module.record(
         turn.finished_calls,
         run.skill_line_counts,
@@ -1527,7 +1761,7 @@ def _persist_turn(
                 adherence=final.adherence,
                 revision=turn.accepted_revision,
                 skill_hash=final.skill_hash,
-                prompt_version=PROMPT_VERSION,
+                prompt_version=turn.prompt_version or PROMPT_VERSION,
             )
         except Exception:  # noqa: BLE001 - the startup sweep catches the leftover row
             log.error("assistant row not finalised", exc_info=True)
@@ -1539,7 +1773,12 @@ def _persist_turn(
 
 
 def _update_clarify_count(store: TurnStore, turn: LiveTurn, final: _Final) -> None:
-    """Add one to the clarify count for a reply turn before the first draft."""
+    """Add one to the clarify count for a reply turn before the first draft.
+
+    An intake turn that only asked its questions does not count (intake flag on).
+    """
+    if turn.intake_only:
+        return
     session = store.get_session(turn.user_id, turn.session_id)
     if session is None:
         return
@@ -1593,7 +1832,9 @@ async def finalize_turn(
             thinking="".join(run.thinking) or None,
             steps=stored_steps(turn.steps),
             usage=turn.usage.model_dump(mode="json"),
-            adherence=adherence_record.as_dict(),
+            adherence=adherence_record.as_dict()
+            if adherence_record is not None
+            else None,
             error_code=run.fatal.code if run.fatal is not None else None,
             skill_hash=run.skill_hash,
         )
@@ -1612,7 +1853,7 @@ async def finalize_turn(
             skill_hash=run.skill_hash,
             stop_reason=reason,
             model_id=turn.model_id,
-            prompt_version=PROMPT_VERSION,
+            prompt_version=turn.prompt_version or PROMPT_VERSION,
         )
         runner.emit(
             TurnCompleted(

@@ -282,3 +282,72 @@ async def test_dry_run_rejects_when_json_is_not_an_object(tmp_path: Path) -> Non
     result = await _gate(_Save()).dry_run(path, requested_trust="user")
 
     assert result.issues[0].message == "The manifest file must hold one JSON object."
+
+
+# --- Gate before irreversible steps (intake flag on) ---------------------------------
+
+_UNGATED_POST: dict[str, Any] = {
+    "steps": [
+        {"agent": "custom-agent", "instance_id": "draft", "prompt": "Write."},
+        {
+            "agent": "custom-agent",
+            "instance_id": "post",
+            "prompt": "Post.",
+            "depends_on": ["custom-agent:draft"],
+            "tools": {"mcp": ["slack.post_message"]},
+        },
+    ]
+}
+
+
+async def test_check_accepts_ungated_post_when_irreversible_check_is_off() -> None:
+    save = _Save()
+
+    result = await _gate(save).check(_UNGATED_POST, requested_trust="user")
+
+    assert result.accepted is True
+
+
+async def test_check_rejects_ungated_post_before_save_check_when_irreversible_check_is_on() -> (
+    None
+):
+    save = _Save()
+    gate = ServerGate(
+        tier="enterprise",
+        max_trust="user",
+        step_models=(),
+        label=LABEL,
+        validate=save,
+        check_irreversible=True,
+    )
+
+    result = await gate.check(_UNGATED_POST, requested_trust="user")
+
+    assert result.accepted is False
+    assert [(i.rule, i.path) for i in result.issues] == [
+        ("irreversible_gate", "steps[1]")
+    ]
+    assert save.calls == []
+
+
+async def test_check_rejects_draft_missing_a_given_identifier_when_intake_facts_are_set() -> (
+    None
+):
+    from app.agents.workflow_builder.fact_checks import IntakeFacts
+
+    save = _Save()
+    gate = ServerGate(
+        tier="enterprise",
+        max_trust="user",
+        step_models=(),
+        label=LABEL,
+        validate=save,
+        intake_facts=lambda: IntakeFacts(
+            required=(("write_destinations", "#releases"),)
+        ),
+    )
+
+    result = await gate.check(MANIFEST, requested_trust="user")
+
+    assert [(i.rule, i.path) for i in result.issues] == [("fact_propagation", "steps")]
+    assert save.calls == []

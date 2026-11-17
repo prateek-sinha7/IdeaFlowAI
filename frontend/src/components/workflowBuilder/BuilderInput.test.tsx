@@ -91,18 +91,19 @@ describe("BuilderInput", () => {
     expect(screen.getByRole("button", { name: "Send" })).toBeDisabled();
   });
 
-  it("shows Stop and disables Send while a turn runs", async () => {
+  it("shows only Stop, not Send, while a turn runs", async () => {
     const user = userEvent.setup();
     const onStop = vi.fn();
     render(<Host initial="Hello" turn={RUNNING} onStop={onStop} />);
-    expect(screen.getByRole("button", { name: "Send" })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "Send" })).toBeNull();
     await user.click(screen.getByRole("button", { name: "Stop" }));
     expect(onStop).toHaveBeenCalledOnce();
   });
 
-  it("hides Stop when no turn runs", () => {
+  it("hides Stop and shows Send when no turn runs", () => {
     render(<Host initial="Hello" />);
     expect(screen.queryByRole("button", { name: "Stop" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Send" })).toBeInTheDocument();
   });
 
   it("shows no counter at 11,000 code points", () => {

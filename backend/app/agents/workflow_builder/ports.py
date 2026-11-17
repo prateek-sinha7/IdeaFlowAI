@@ -54,6 +54,9 @@ GateRule = Literal[
     "step_model",
     "effort",
     "forbidden_feature",
+    "irreversible_gate",
+    "fact_propagation",
+    "placeholder",
 ]
 
 

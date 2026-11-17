@@ -10,13 +10,16 @@ from ``app.api``. The caller passes everything that varies per turn in
 ``app.core.config.settings``, or from the settings object passed to
 :func:`render`.
 
-Two key names are named by the system prompt (``prompts/system_prompt.v1.md``,
+Two key names are named by the system prompt (``prompts/system_prompt.v2.md``,
 part 6) and must not change without a new prompt version:
 ``step_models`` and ``forbidden_features``.
 
 User text appears only inside ``<user_message>``. Every other value is built by
 the server from identifiers and settings. The one value that originates from
-the agent (the unfinished file path) is collapsed to a single line.
+the agent (the unfinished file path) is collapsed to a single line. The one
+exception is the optional ``<intake_brief>`` block (intake flag on only): slot
+values the intake took from the user's request and answers, between the
+context and the message, marked as data, with closing tags neutralised.
 """
 
 from __future__ import annotations
@@ -64,6 +67,11 @@ _LABEL_CLOSE: Final = "</turn_context>"
 _MESSAGE_OPEN: Final = "<user_message>"
 _MESSAGE_CLOSE: Final = "</user_message>"
 _MESSAGE_CLOSE_PREFIX: Final = re.compile(r"</(?=user_message)", re.IGNORECASE)
+_INTAKE_OPEN: Final = "<intake_brief>"
+_INTAKE_CLOSE: Final = "</intake_brief>"
+_INTAKE_CLOSE_PREFIX: Final = re.compile(
+    r"</(?=(?:intake_brief|user_message|turn_context)\b)", re.IGNORECASE
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -108,6 +116,9 @@ class TurnContextInputs:
             session's first accepted draft (Req 16.3).
         forbidden_features: The list shown to the agent. Defaults to the one
             the Server_Gate uses (Req 37.7).
+        intake_brief: The settled intake slots (``intake.render_overlay``), shown
+            in an ``<intake_brief>`` block before the user's message. ``None``
+            (the default, and always when the intake flag is off) renders nothing.
     """
 
     user_message: str
@@ -122,6 +133,12 @@ class TurnContextInputs:
     has_accepted_draft: bool
     clarify_count: int
     forbidden_features: Sequence[ForbiddenFeature] = FORBIDDEN_FEATURES
+    intake_brief: str | None = None
+
+
+def _neutralise_intake(text: str) -> str:
+    """Rewrite closing tags so intake values cannot end their block or open the message."""
+    return _INTAKE_CLOSE_PREFIX.sub(r"<\\/", text)
 
 
 def _neutralise_close_tag(text: str) -> str:
@@ -242,6 +259,10 @@ def render(inputs: TurnContextInputs, config: Settings | None = None) -> str:
         f"skill: {SKILL_PATH}. Run its scripts with run_skill_script. Reply in English."
     )
     lines.append(_LABEL_CLOSE)
+    if inputs.intake_brief is not None:
+        lines.extend(
+            [_INTAKE_OPEN, _neutralise_intake(inputs.intake_brief), _INTAKE_CLOSE]
+        )
     lines.extend(
         [_MESSAGE_OPEN, _neutralise_close_tag(inputs.user_message), _MESSAGE_CLOSE]
     )

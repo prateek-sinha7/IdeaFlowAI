@@ -17,6 +17,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Final
+from unittest.mock import patch
 
 from app.agents.workflow_builder.skill_package import SKILLS_ROOT
 from app.agents.workflow_builder.sandbox import BuilderSandbox
@@ -31,6 +32,7 @@ from app.api.workflow_builder.turns import (
     run_turn,
     set_event_bus,
 )
+from app.core.config import settings
 from tests.factories.builder_session_factory import BuilderSessionFactory
 from tests.fakes.builder_gate import FakeGate
 from tests.fakes.builder_store import InMemoryBuilderStore
@@ -78,8 +80,12 @@ async def run_scripted_turn(  # noqa: PLR0913 - every input is a named test knob
     content: str = "Add a review step",
     skills_root: Path = BACKEND_SKILLS_ROOT,
     prepare: Callable[[BuilderSandbox], None] | None = None,
+    intake: bool = False,
 ) -> TurnRun:
     """Run one Turn to its end and return what it left behind.
+
+    ``model_turns`` script the builder call alone, so the intake is off unless
+    ``intake`` is True.
 
     Args:
         tmp_path: Folder for the Session sandbox.
@@ -88,6 +94,7 @@ async def run_scripted_turn(  # noqa: PLR0913 - every input is a named test knob
         content: The user's text.
         skills_root: The skill package the Turn serves under ``/skills/``.
         prepare: Called with the sandbox before the Turn starts, to plant files.
+        intake: Run the intake call first (``BUILDER_INTAKE_V2_ENABLED``).
     """
     turns._LIVE_TURNS.clear()
     turns._TURN_TASKS.clear()
@@ -130,13 +137,14 @@ async def run_scripted_turn(  # noqa: PLR0913 - every input is a named test knob
     )
     register_live_turn(live)
     try:
-        task = asyncio.ensure_future(
-            run_turn(
-                live, TurnRequest(content=content, canvas_state=canvas_state), deps
+        with patch.object(settings, "BUILDER_INTAKE_V2_ENABLED", intake):
+            task = asyncio.ensure_future(
+                run_turn(
+                    live, TurnRequest(content=content, canvas_state=canvas_state), deps
+                )
             )
-        )
-        attach_task(live, task)
-        await task
+            attach_task(live, task)
+            await task
     finally:
         set_event_bus(None)
         turns._LIVE_TURNS.clear()

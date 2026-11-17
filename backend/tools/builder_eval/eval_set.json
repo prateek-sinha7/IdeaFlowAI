@@ -1,0 +1,29 @@
+{
+  "description": "Eval set. Each request runs twice: 'defaults' (turn 2 = defaults) and 'scripted' (turn 2 = letter codes from 'plan' against the actual round-one questions; a second answer, 'second_answer' or 'defaults', is sent only if the first did not settle the brief). expect=build requests must build on turn 1 with no question. vague-a is contaminated by the worked example and is not in the set (see requests.md).",
+  "requests": [
+    {"id": "R1", "expect": "ask",
+     "text": "Create a workflow that builds a clickable prototype of the approval portal from the attached requirement documents.",
+     "plan": {"*": "b", "depth": "a", "_followup_default": "the approval team"}},
+    {"id": "R2", "expect": "ask",
+     "text": "Write a product requirements document for a leave-request feature: employees request leave, managers approve, HR sees the balance.",
+     "plan": {"*": "b", "depth": "a", "_followup_default": "HR"}},
+    {"id": "R3", "expect": "build",
+     "text": "Write a launch email for the new billing module. 150 to 200 words, friendly, for existing customers. Include the date 1 December and the link to the release notes.",
+     "plan": null},
+    {"id": "vague-b", "expect": "ask",
+     "text": "make a workflow that summarises documents",
+     "plan": {"*": "b", "_followup_default": "#doc-summaries"}},
+    {"id": "vague-c", "expect": "ask",
+     "text": "workflow to post release notes to slack",
+     "plan": {"*": "b", "_followup_default": "#release-notes"}},
+    {"id": "H1", "expect": "ask",
+     "text": "workflow to turn customer call transcripts into CRM notes",
+     "plan": {"*": "b", "_followup_default": "#customer-notes"}},
+    {"id": "H2", "expect": "ask",
+     "text": "create a workflow that builds a weekly status report from jira",
+     "plan": {"*": "b", "_followup_default": "#eng-status"}},
+    {"id": "H3", "expect": "ask",
+     "text": "workflow to translate our product descriptions into german and french",
+     "plan": {"*": "b", "_followup_default": "the product team"}}
+  ]
+}

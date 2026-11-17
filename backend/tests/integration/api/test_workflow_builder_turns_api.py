@@ -103,6 +103,14 @@ _WRITE_MANIFEST = ScriptedToolCall(
 Frame = dict[str, Any]
 
 
+@pytest.fixture(autouse=True, scope="module")
+def _old_builder_path() -> Iterator[None]:
+    """The scripts here drive the builder call alone: run with the intake off."""
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(settings, "BUILDER_INTAKE_V2_ENABLED", False)
+        yield
+
+
 # --- Environment -----------------------------------------------------------------------
 
 
