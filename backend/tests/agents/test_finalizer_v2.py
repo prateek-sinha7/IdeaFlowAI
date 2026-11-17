@@ -33,10 +33,12 @@ H  Commit message contains run_id and status, no user content
 
 I  Three CAS cases (Req 5 AC 25):
    I1  Repeated finalization → idempotent
-   I2  Corrupted ref → conflict, degraded, existing ref preserved
+   I2  Ref conflict → auto-healed via force-update; run stays completed, ref advanced to new SHA
+       (FIX ISS-ref-conflict: a stale ref is overwritten, not preserved)
    I3  Ref survives while tag absent → readable, no fabricated tag
 
-J  Tag success + DB mapping failure → no orphan tag, tag_state=rolled_back
+J  DB mapping failure (both attempts) → git tag never created, run stays completed, tag_state=None
+   (FIX ISS-tag-atomicity: DB committed first, git tag pushed only on DB success)
 
 K  Req 5 AC 20: after finalization failure that follows snapshot commit,
    committed summary.md / logs.jsonl are not modified; commit not amended
@@ -574,7 +576,13 @@ class TestCrashAndRetryPoints:
         assert SECRET_PATTERN not in all_content
 
     def test_a4_tag_success_db_mapping_failure_no_orphan(self, tmp_path: Path) -> None:
-        """A4/J: tag created, both DB mapping attempts fail → tag rolled back, tag_state=rolled_back."""
+        """A4/J: DB mapping fails (both attempts) before git tag is created.
+
+        FIX ISS-tag-atomicity changed the order: the DB record is committed FIRST;
+        only on success is the git tag pushed.  When both DB attempts fail the git tag
+        is never created (no rollback needed), so the run stays ``completed`` and
+        ``tag_state`` is ``None``.  A transient DB error must NOT degrade a clean run.
+        """
         if not shutil.which("git"):
             pytest.skip("git not available")
 
@@ -615,18 +623,23 @@ class TestCrashAndRetryPoints:
                 eng.finalize_terminal_run(run_id, ectx, candidate_status="completed")
             )
 
-        # Tag should be rolled back
+        # DB mapping fails before the git tag is ever created — no orphan possible.
         tags = sandbox.list_tags()
         assert not tags, (
             f"Orphan tag after DB mapping failure: {tags}. "
-            "The finalizer must roll back the tag if mapping fails twice."
+            "The finalizer must not create a git tag when DB mapping fails."
         )
 
         assert record is not None
-        assert record.published_status == "degraded"
+        # A transient DB error must NOT degrade a clean completed run.
+        assert record.published_status == "completed", (
+            f"Expected completed; got {record.published_status!r}. "
+            "DB tag-mapping failures must not degrade the run (FIX ISS-tag-atomicity)."
+        )
+        # Git tag was never created, so tag_state stays None (not "rolled_back").
         assert (
-            record.tag_state == "rolled_back"
-        ), f"Expected tag_state=rolled_back; got {record.tag_state!r}"
+            record.tag_state is None
+        ), f"Expected tag_state=None; got {record.tag_state!r}"
 
     def test_a5_full_success_then_idempotent_reentry(self, tmp_path: Path) -> None:
         """A5: full success; second call converges idempotently."""
@@ -1380,7 +1393,13 @@ class TestCASCases:
     def test_i2_manually_corrupted_ref_yields_conflict_degraded(
         self, tmp_path: Path
     ) -> None:
-        """I2: ref points to different commit → conflict, run_finalization_failed, degraded, ref preserved."""
+        """I2: ref points to different commit → conflict auto-healed via force-update.
+
+        FIX ISS-ref-conflict changed the behaviour: ``refs/ideaflow/runs/{run_id}``
+        is always authoritative for its own run; a stale/conflicting ref is now
+        force-updated (not preserved) so the run stays ``completed``.
+        Only when force-update itself fails does the run degrade.
+        """
         if not shutil.which("git"):
             pytest.skip("git not available")
 
@@ -1407,7 +1426,7 @@ class TestCASCases:
 
         assert first_sha != second_sha, "Test setup: commits must differ"
 
-        # Now run the finalizer — it should detect the conflict
+        # Now run the finalizer — it should detect the conflict and force-update
         ectx = _make_ectx(run_id, sandbox)
         eng._finalize_terminal_run_started.discard(run_id)
 
@@ -1429,22 +1448,28 @@ class TestCASCases:
             )
 
         assert record is not None
+        # FIX ISS-ref-conflict: conflict is auto-healed; run stays completed.
         assert (
-            record.published_status == "degraded"
-        ), f"Expected degraded on ref conflict; got {record.published_status}"
+            record.published_status == "completed"
+        ), f"Expected completed after ref force-update; got {record.published_status}"
 
-        # The EXISTING ref must still point to first_sha (ref not self-healed)
+        # The ref must have been force-updated beyond the conflict point (first_sha).
+        # It lands on the finalizer's snapshot commit (HEAD after finalization).
         existing_ref_sha = sandbox.resolve_ref_commit(ref_name)
-        assert existing_ref_sha == first_sha, (
-            f"Ref {ref_name!r} was moved from {first_sha!r} to {existing_ref_sha!r}. "
-            "On conflict the ref must be preserved, not overwritten."
+        head_after_finalization = _run_git("rev-parse", "HEAD", cwd=sandbox.root)
+        assert existing_ref_sha == head_after_finalization, (
+            f"Ref {ref_name!r} should point to HEAD after force-update "
+            f"({head_after_finalization!r}); got {existing_ref_sha!r}."
+        )
+        assert existing_ref_sha != first_sha, (
+            f"Ref {ref_name!r} still points to conflicting SHA {first_sha!r}; "
+            "it must have been force-updated (FIX ISS-ref-conflict)."
         )
 
-        # The record should note the conflict via degraded_reason
-        assert record.degraded_reason in (
-            "ref_conflict",
-            "ref_creation_failed",
-        ), f"Unexpected degraded_reason on ref conflict: {record.degraded_reason!r}"
+        # No degradation should have occurred
+        assert (
+            record.degraded_reason is None
+        ), f"Expected no degraded_reason after force-update; got {record.degraded_reason!r}"
 
     def test_i3_ref_without_tag_readable_no_fabricated_tag(
         self, tmp_path: Path

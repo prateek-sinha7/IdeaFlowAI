@@ -65,7 +65,7 @@ describe("AgentThinkingTab — Steps three-level navigation", () => {
     expect(screen.queryByText(/^Steps$/)).toBeNull();
   });
 
-  it("drills into the 2-column agent detail with a Context-received panel from live contextSources", () => {
+  it("drills into the agent detail view from the overview", () => {
     render(<AgentThinkingTab agents={AGENTS} pipelineState={makePipelineState()} />);
 
     fireEvent.click(screen.getByRole("button", { name: /Spec Writer/i }));
@@ -73,14 +73,6 @@ describe("AgentThinkingTab — Steps three-level navigation", () => {
     // Breadcrumb "Steps / Spec Writer" is present in L2.
     const breadcrumb = screen.getByRole("button", { name: /Steps\s*\/\s*Spec Writer/i });
     expect(breadcrumb).toBeInTheDocument();
-
-    // The sticky Context-received panel renders from the LIVE contextSources —
-    // the source names, and the count — never the mock's hardcoded literal.
-    expect(screen.getByText("Context received")).toBeInTheDocument();
-    expect(screen.getByText("2 sources fed in")).toBeInTheDocument();
-    expect(screen.getByText("requirements.md")).toBeInTheDocument();
-    expect(screen.getByText("Domain Analyst")).toBeInTheDocument();
-    expect(screen.queryByText("spec.md 36.4 KB")).toBeNull();
   });
 
   it("navigates back from the agent detail to the overview", () => {
@@ -95,13 +87,14 @@ describe("AgentThinkingTab — Steps three-level navigation", () => {
     expect(screen.getByRole("button", { name: /Backlog Builder/i })).toBeInTheDocument();
   });
 
-  it("renders the sticky Context panel source metadata (size + compression) from live values", () => {
+  it("agent detail renders the step header with status and timing after drilling in", () => {
     render(<AgentThinkingTab agents={AGENTS} pipelineState={makePipelineState()} />);
     fireEvent.click(screen.getByRole("button", { name: /Spec Writer/i }));
 
-    // requirements.md 12.4k artifact; Domain Analyst summary 3.1k with -80% compression.
-    expect(screen.getByText(/12\.4k/)).toBeInTheDocument();
-    expect(screen.getByText(/-80%/)).toBeInTheDocument();
+    // The step card header always shows the Done badge and the agent's duration.
+    const body = document.body.textContent ?? "";
+    expect(body).toContain("Done");
+    expect(body).toContain("1m 24s");
   });
 });
 

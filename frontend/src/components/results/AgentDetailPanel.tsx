@@ -18,7 +18,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   Brain, Wrench, ChevronDown, ChevronLeft, ChevronRight, CheckCircle2, XCircle,
   Cpu, FileText, Copy, Check, Eye, EyeOff, AlertTriangle, Pencil,
-  Layers, Zap, FileCode, BookText, GitBranch, ArrowDown, CheckCircle2 as CheckBadge,
+  Layers, Zap, GitBranch, ArrowDown, CheckCircle2 as CheckBadge,
   Sparkles,
 } from "lucide-react";
 import type { AgentRunState, ContextSource, ToolCallEntry, ValidationIssue, WaveGroup, WaveWorkerEntry, AttachedSkillEntry, AttachedHookEntry } from "@/types/index";
@@ -416,7 +416,9 @@ function argPreview(v: unknown): string {
 
 export function ToolCallsSection({ toolCalls }: { toolCalls: ToolCallEntry[] }) {
   const [expandedIdx, setExpandedIdx] = useState<number | null>(null);
-  const [sectionOpen, setSectionOpen] = useState(toolCalls.length <= 5);
+  const [sectionOpen, setSectionOpen] = useState(true);
+  // Latest tool call shown first
+  const reversed = [...toolCalls].reverse();
   return (
     <div className="mt-3 bg-surface-card border border-line-border rounded-[11px] overflow-hidden">
       <button
@@ -433,8 +435,8 @@ export function ToolCallsSection({ toolCalls }: { toolCalls: ToolCallEntry[] }) 
         <ChevronDown className={`h-3.5 w-3.5 text-ink-300 transition-transform ${sectionOpen ? "rotate-180" : ""}`} />
       </button>
       {sectionOpen && (
-        <div className="px-3 pb-2.5 space-y-1.5">
-          {toolCalls.map((tc, i) => (
+        <div className="px-3 pb-2.5 space-y-1.5 max-h-[420px] overflow-y-auto">
+          {reversed.map((tc, i) => (
             <div key={i} className="rounded-[9px] border border-line-faint-row overflow-hidden bg-surface-white">
               <button
                 onClick={() => setExpandedIdx(expandedIdx === i ? null : i)}
@@ -451,10 +453,25 @@ export function ToolCallsSection({ toolCalls }: { toolCalls: ToolCallEntry[] }) 
                     </span>
                   );
                 })()}
+                {/* sequence number — original 1-based call index */}
+                <span className="text-[9px] font-mono text-ink-300 flex-none">#{toolCalls.length - i}</span>
+                {i === 0 && (
+                  <span className="text-[8px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-brand-fill text-brand flex-none">latest</span>
+                )}
                 <span className="text-[12.5px] font-medium text-ink-800">{tc.tool}</span>
                 <span className="text-[12px] text-ink-300 truncate flex-1 min-w-0">
                   {Object.entries(tc.args || {}).map(([k, v]) => `${k}: ${argPreview(v).slice(0, 24)}`).join(", ") || "no args"}
                 </span>
+                {/* timestamp — full date and time inline */}
+                {tc.timestamp && (() => {
+                  const d = new Date(tc.timestamp);
+                  const full = d.toLocaleString([], { month: "short", day: "numeric", year: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" });
+                  return (
+                    <span className="text-[9px] font-mono text-ink-300 flex-none whitespace-nowrap">
+                      {full}
+                    </span>
+                  );
+                })()}
                 <span className={`text-[9px] font-mono px-1.5 py-0.5 rounded-full flex-none ${
                   tc.result == null
                     ? "bg-status-amber-fill text-status-amber animate-pulse"
@@ -1094,44 +1111,6 @@ function WaveWorkersBlock({ workers, waves, onOpenWorker, modelLabels }: { worke
   );
 }
 
-// ─── Sticky "Context received" panel (RIGHT column) ───────────────────────────
-function ContextReceivedPanel({ sources }: { sources: ContextSource[] }) {
-  return (
-    <div className="sticky top-0">
-      <div className="bg-surface-warm border border-line-border rounded-[14px] px-4 pt-4 pb-3.5">
-        <div className="flex items-center gap-2.5 mb-3.5">
-          <span className="w-7 h-7 flex-none rounded-lg bg-[#EFEDE6] grid place-items-center text-ink-500">
-            <BookText className="h-[15px] w-[15px]" />
-          </span>
-          <div className="flex-1 min-w-0">
-            <p className="m-0 text-[10px] font-semibold uppercase tracking-[0.11em] text-ink-300">Context received</p>
-            <p className="mt-1 text-[11px] text-ink-400 font-mono">{sources.length} source{sources.length !== 1 ? "s" : ""} fed in</p>
-          </div>
-        </div>
-        <div className="flex flex-col gap-1.5">
-          {sources.map((src, i) => {
-            const { name, meta } = formatContextSource(src);
-            return (
-              <div key={i} className="flex items-center gap-2.5 bg-surface-white border border-line-border rounded-[10px] px-2.5 py-2">
-                <span className="w-7 h-7 flex-none rounded-[7px] bg-brand-fill grid place-items-center text-brand">
-                  <FileCode className="h-3.5 w-3.5" />
-                </span>
-                <div className="flex-1 min-w-0">
-                  <p className="m-0 text-[12px] font-semibold text-ink-800 truncate">{name}</p>
-                  <p className="mt-0.5 text-[10px] text-ink-200 font-mono">{meta}</p>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-        <p className="mt-3.5 pt-3 border-t border-line-border text-[11px] leading-[1.55] text-ink-200">
-          The kernel assembled these into this agent&apos;s prompt before it ran.
-        </p>
-      </div>
-    </div>
-  );
-}
-
 // ─── Settled artifact cards + handoff line (42-09) ────────────────────────────
 // Renders the descriptor from `deriveArtifactCardModel` as the mock's per-agent
 // artifact card (pages/sections · tasks · checks) + a handoff line, between the
@@ -1415,8 +1394,8 @@ export function AgentDetailPanel({
         ))}
       </button>
 
-      <div className="grid gap-[22px] items-start" style={{ gridTemplateColumns: "1fr 288px" }}>
-        {/* LEFT — full execution */}
+      <div>
+        {/* full execution */}
         <div className="min-w-0">
           <div className="rounded-[11px] border border-line-border bg-surface-white overflow-hidden">
             <div className="flex items-center gap-3 px-4 py-3.5 border-b border-line-faint-row">
@@ -1598,8 +1577,6 @@ export function AgentDetailPanel({
           </div>
         </div>
 
-        {/* RIGHT — sticky context received */}
-        <ContextReceivedPanel sources={sources} />
       </div>
     </div>
   );

@@ -505,7 +505,7 @@ def _format_validation_feedback(issues: list[dict] | None) -> str:
 # mandatory scan or the declared pre_commit hooks refused the commit.  ``sha``
 # is the commit hash on success, ``""`` on no-change or blocked.  ``no_change``
 # mirrors CommitResult.no_change — a genuine empty tree is not a failure.
-from dataclasses import dataclass as _dataclass  # noqa: E402
+from dataclasses import dataclass as _dataclass, field  # noqa: E402
 
 
 # What a degraded run says when a whole commit was refused (keyed by block_reason).
@@ -620,6 +620,10 @@ class FinalizationAttempt:
     _degraded: bool = False
     _degrade_reason: str = ""
     _wip_blocked: bool = False
+    # Warnings accumulate when a git-persistence failure occurs but final_output
+    # is non-empty — these surface on pipeline_complete.warnings instead of
+    # changing published_status to "degraded" (same pattern as A14).
+    _warnings: list[str] = field(default_factory=list)
 
     def record_payload(self, payload: "Payload") -> None:
         """Record the Payload produced by build_flat_payload / build_metadata_only_snapshot."""
@@ -655,6 +659,17 @@ class FinalizationAttempt:
         # A second call with a different reason is silently ignored — the first
         # reason is the one the operator needs to act on.
 
+    def warn(self, reason: str) -> None:
+        """Record a warning without degrading the attempt.
+
+        Called when a git-persistence failure occurred but ``final_output``
+        is non-empty (the user already has a usable deliverable). The cause
+        is surfaced on ``pipeline_complete.warnings`` rather than changing
+        the published status (A14 guard pattern, symmetric to degrade()).
+        Multiple calls accumulate — unlike degrade(), no first-reason-wins.
+        """
+        self._warnings.append(reason)
+
     @property
     def is_degraded(self) -> bool:
         return self._degraded
@@ -662,6 +677,11 @@ class FinalizationAttempt:
     @property
     def degrade_reason(self) -> str:
         return self._degrade_reason
+
+    @property
+    def warnings(self) -> list[str]:
+        """All warning reasons accumulated via warn() — empty on a clean run."""
+        return list(self._warnings)
 
 
 # Allowlist of keys that ``audit_detail`` may carry onto the provenance audit
@@ -2216,6 +2236,7 @@ async def finalize_terminal_run(
     ectx: "ExecutionContext",
     *,
     candidate_status: str,
+    final_output: str = "",
 ) -> "FinalizationRecord":
     """Execute the ordered 12-step terminal finalizer for *run_id*.
 
@@ -2584,7 +2605,12 @@ async def finalize_terminal_run(
         # is in git and the payload stays chainable, but the history is not the
         # whole run, so the run publishes degraded and is not tagged.
         if getattr(ectx, "commit_excluded_files", None):
-            attempt.degrade("files_not_saved")
+            # A14 guard: if the deliverable exists, record a warning instead of
+            # degrading — the user has the output even though git history is partial.
+            if final_output:
+                attempt.warn("files_not_saved")
+            else:
+                attempt.degrade("files_not_saved")
 
         # ────────────────────────────────────────────────────────────────────
         # Step 6: Commit through the primitive (no_change on crash-replay)
@@ -2625,7 +2651,10 @@ async def finalize_terminal_run(
                     run_id,
                     _commit_exc,
                 )
-                attempt.degrade("snapshot_commit_failed")
+                if final_output:
+                    attempt.warn("snapshot_commit_failed")
+                else:
+                    attempt.degrade("snapshot_commit_failed")
 
         if _snap_result.blocked:
             # A blocked snapshot: reset index, rebuild metadata-only, retry once.
@@ -2668,7 +2697,10 @@ async def finalize_terminal_run(
                     run_id,
                     _retry_commit_exc,
                 )
-                attempt.degrade("snapshot_commit_failed")
+                if final_output:
+                    attempt.warn("snapshot_commit_failed")
+                else:
+                    attempt.degrade("snapshot_commit_failed")
             if _snap_result.blocked:
                 raise SnapshotUnrecoverable(
                     f"second snapshot commit also blocked for run={run_id}"
@@ -2772,17 +2804,55 @@ async def finalize_terminal_run(
                             attempt.commit_sha,
                         )
                     else:
-                        # Genuine conflict: no durable, resumable prior record
-                        # explains the existing ref. Degrade — record both
-                        # commit ids for operator recovery.
-                        logger.error(
-                            "finalize_terminal_run: run ref CONFLICT run=%s "
-                            "existing=%s new=%s — degrading",
-                            run_id,
-                            _conflict_existing,
-                            attempt.commit_sha,
-                        )
-                        attempt.degrade("ref_conflict")
+                        # Genuine conflict: not a resumable prior — force-update
+                        # the ref. refs/ideaflow/runs/{run_id} is always
+                        # authoritative for its own run_id; overwriting it is
+                        # correct behaviour, not a failure (FIX ISS-ref-conflict).
+                        _force_update_fn = getattr(_sandbox, "advance_run_ref", None)
+                        _force_updated = False
+                        if _force_update_fn is not None and _conflict_existing:
+                            try:
+                                _fu_result = _force_update_fn(
+                                    run_id,
+                                    expected_sha=_conflict_existing,
+                                    new_sha=attempt.commit_sha,
+                                )
+                                _fu_state = getattr(_fu_result, "state", "")
+                                _force_updated = _fu_state in (
+                                    "advanced",
+                                    "idempotent",
+                                )
+                                if _force_updated:
+                                    logger.warning(
+                                        "finalize_terminal_run: run ref "
+                                        "FORCE-UPDATED (non-resume conflict) "
+                                        "run=%s old=%s new=%s — continuing",
+                                        run_id,
+                                        _conflict_existing,
+                                        attempt.commit_sha,
+                                    )
+                                    _ref_result = _fu_result
+                                    attempt.record_ref(_ref_result)
+                            except Exception as _fu_exc:  # noqa: BLE001
+                                logger.warning(
+                                    "finalize_terminal_run: ref force-update "
+                                    "FAILED run=%s (%s)",
+                                    run_id,
+                                    _fu_exc,
+                                )
+                        if not _force_updated:
+                            logger.error(
+                                "finalize_terminal_run: run ref CONFLICT run=%s "
+                                "existing=%s new=%s — force-update unavailable "
+                                "or failed; degrading",
+                                run_id,
+                                _conflict_existing,
+                                attempt.commit_sha,
+                            )
+                            if final_output:
+                                attempt.warn("source_provenance_conflict")
+                            else:
+                                attempt.degrade("source_provenance_conflict")
                 else:
                     logger.info(
                         "finalize_terminal_run: run ref %s run=%s sha=%s",
@@ -2830,10 +2900,15 @@ async def finalize_terminal_run(
                 _tag_name_to_create = f"v{_revision_ordinal}"
                 _create_tag_fn = getattr(_sandbox, "create_tag", None)
                 if _create_tag_fn is not None:
-                    _create_tag_fn(_tag_name_to_create)
-                    # Tag created — now persist the DB mapping.
-                    _tag_mapped = False
-                    for _attempt_num in range(2):  # two attempts before rollback
+                    # ── DB mapping first (atomic gate) ────────────────────
+                    # FIX ISS-tag-atomicity: write the DB record first; push
+                    # the git tag only once the DB commit is confirmed.
+                    # DB failure → skip git tag entirely (no rollback needed,
+                    # no degrade — a transient DB error must not degrade a
+                    # clean run).  Git push failure → retry once (idempotent
+                    # for same SHA); degrade only when all retries fail.
+                    _tag_db_committed = False
+                    for _db_attempt_num in range(2):
                         try:
                             from app.models.database import SessionLocal  # noqa: PLC0415
                             from app.models.workflow import WorkflowRun as _WR_tag  # noqa: PLC0415
@@ -2848,7 +2923,7 @@ async def finalize_terminal_run(
                                 if _tag_row is not None:
                                     _tag_row.git_tag = _tag_name_to_create
                                     _db_tag.commit()
-                                _tag_mapped = True
+                                _tag_db_committed = True
                                 break
                             finally:
                                 _db_tag.close()
@@ -2856,45 +2931,61 @@ async def finalize_terminal_run(
                             logger.warning(
                                 "finalize_terminal_run: tag DB mapping attempt %d FAILED "
                                 "run=%s tag=%s (%s)",
-                                _attempt_num + 1,
+                                _db_attempt_num + 1,
                                 run_id,
                                 _tag_name_to_create,
                                 _db_tag_exc,
                             )
 
-                    if _tag_mapped:
-                        attempt.record_tag(_tag_name_to_create, attempt.commit_sha)
-                        logger.info(
-                            "finalize_terminal_run: tagged run=%s tag=%s",
+                    if not _tag_db_committed:
+                        # Both DB attempts failed — skip git tag creation.
+                        # No rollback needed (nothing was created), no degrade:
+                        # a transient DB failure must not degrade a clean run.
+                        logger.warning(
+                            "finalize_terminal_run: tag DB mapping FAILED after 2 "
+                            "attempts run=%s tag=%s — skipping git tag creation "
+                            "(run stays completed; tag can be retried manually)",
                             run_id,
                             _tag_name_to_create,
                         )
                     else:
-                        # Both mapping attempts failed — roll back the tag.
-                        logger.error(
-                            "finalize_terminal_run: tag DB mapping FAILED after 2 attempts "
-                            "run=%s tag=%s — rolling back tag",
-                            run_id,
-                            _tag_name_to_create,
-                        )
-                        _delete_tag_fn = getattr(_sandbox, "delete_tag", None)
-                        if _delete_tag_fn is not None:
+                        # DB committed — now push the git tag with one retry.
+                        _tag_pushed = False
+                        for _tag_push_num in range(2):
                             try:
-                                _delete_tag_fn(_tag_name_to_create)
-                                logger.info(
-                                    "finalize_terminal_run: tag rolled back run=%s tag=%s",
+                                _create_tag_fn(_tag_name_to_create)
+                                _tag_pushed = True
+                                break
+                            except Exception as _tag_push_exc:  # noqa: BLE001
+                                logger.warning(
+                                    "finalize_terminal_run: git tag push attempt %d "
+                                    "FAILED run=%s tag=%s (%s)",
+                                    _tag_push_num + 1,
                                     run_id,
                                     _tag_name_to_create,
+                                    _tag_push_exc,
                                 )
-                            except Exception as _del_tag_exc:  # noqa: BLE001
-                                logger.error(
-                                    "finalize_terminal_run: tag rollback FAILED run=%s "
-                                    "tag=%s (%s) — orphan tag left",
-                                    run_id,
-                                    _tag_name_to_create,
-                                    _del_tag_exc,
-                                )
-                        attempt.degrade("tag_mapping_failed")
+
+                        if _tag_pushed:
+                            attempt.record_tag(_tag_name_to_create, attempt.commit_sha)
+                            logger.info(
+                                "finalize_terminal_run: tagged run=%s tag=%s",
+                                run_id,
+                                _tag_name_to_create,
+                            )
+                        else:
+                            # Both git push attempts failed — degrade.
+                            logger.error(
+                                "finalize_terminal_run: git tag push FAILED after 2 "
+                                "attempts run=%s tag=%s — degrading "
+                                "(DB record committed)",
+                                run_id,
+                                _tag_name_to_create,
+                            )
+                            if final_output:
+                                attempt.warn("tag_creation_failed")
+                            else:
+                                attempt.degrade("tag_creation_failed")
             except Exception as _tag_outer_exc:  # noqa: BLE001
                 # GAPS §1 T1: a tag-creation failure silently degraded a
                 # genuinely completed run with no operator-visible cause
@@ -2923,7 +3014,10 @@ async def finalize_terminal_run(
                     _is_collision,
                     _tag_outer_exc,
                 )
-                attempt.degrade("tag_creation_failed")
+                if final_output:
+                    attempt.warn("tag_creation_failed")
+                else:
+                    attempt.degrade("tag_creation_failed")
 
         # ────────────────────────────────────────────────────────────────────
         # Step 9: persist_finalization_record_safe (includes step 10)
@@ -2971,6 +3065,7 @@ async def finalize_terminal_run(
             git_tag=attempt.tag_name or None,
             tag_state=_tag_state,
             degraded_reason=attempt.degrade_reason if attempt.is_degraded else None,
+            warnings=attempt.warnings,
         )
 
         # Best-effort persist — departure N1 on double failure.
@@ -2998,6 +3093,7 @@ async def finalize_terminal_run(
                 payload_chainable=_chainable,
                 non_chainable_reason=_non_chainable_reason_str,
                 degraded_reason=attempt.degrade_reason if attempt.is_degraded else None,
+                warnings=attempt.warnings,
                 _unpersisted=True,
             )
 
@@ -3127,6 +3223,35 @@ async def finalize_terminal_run(
                 non_chainable_reason="snapshot_unrecoverable",
                 _unpersisted=True,
             )
+        # FIX ISS-872 / snapshot path: emit run_finalization_failed so the
+        # frontend's RunEngineNotice amber banner appears, matching the same
+        # emission in the main handler's ``if attempt.is_degraded:`` block.
+        _event_queue_su = getattr(ectx, "event_queue", None)
+        if _event_queue_su is not None:
+            try:
+                _event_queue_su.put_nowait(
+                    {
+                        "type": "run_finalization_failed",
+                        "data": {
+                            "run_id": run_id,
+                            "reason": "snapshot_unrecoverable",
+                        },
+                    }
+                )
+            except Exception:  # noqa: BLE001 — observer must not abort finalizer
+                pass
+
+    except asyncio.CancelledError as _ce_exc:
+        # FIX ISS-sentinel: record the sentinel so the caller gets a typed
+        # failure_reason, then RE-RAISE — do not swallow cancellation.
+        logger.warning(
+            "finalize_terminal_run: asyncio.CancelledError run=%s candidate=%s "
+            "— recording sentinel and re-raising",
+            run_id,
+            candidate_status,
+        )
+        record = _sentinel_record(f"unhandled_exception: CancelledError: {_ce_exc}")
+        raise
 
     except (KeyboardInterrupt, SystemExit):
         # Re-raise so process shutdown is never swallowed (required by the spec).
@@ -3134,12 +3259,16 @@ async def finalize_terminal_run(
 
     except BaseException as _base_exc:  # noqa: BLE001 — finalizer must never propagate
         logger.error(
-            "finalize_terminal_run: UNHANDLED exception run=%s (%s) — "
-            "returning sentinel record",
+            "finalize_terminal_run: UNHANDLED exception run=%s candidate=%s "
+            "type=%s (%s) — returning sentinel record",
             run_id,
+            candidate_status,
+            type(_base_exc).__name__,
             _base_exc,
         )
-        record = _sentinel_record("finalizer_exception")
+        record = _sentinel_record(
+            f"unhandled_exception: {type(_base_exc).__name__}: {_base_exc}"
+        )
 
     finally:
         # Release the family lock acquired in Step 1a.
@@ -3253,6 +3382,18 @@ async def finalize_terminal_run(
                     )
     except Exception:  # noqa: BLE001 — step 12 must never raise
         pass
+
+    # FIX ISS-sentinel: warn whenever the unpersisted fallback record is returned
+    # so operators can distinguish a normal finalization from a silent degradation
+    # (e.g. an early-return idempotency guard, or any BaseException path above).
+    if getattr(record, "_unpersisted", False):
+        logger.warning(
+            "finalize_terminal_run: sentinel record returned run=%s "
+            "candidate=%s reason=%s",
+            run_id,
+            candidate_status,
+            getattr(record, "non_chainable_reason", "unknown"),
+        )
 
     # ── Single exit ──────────────────────────────────────────────────────────
     return record
@@ -6443,6 +6584,9 @@ class ExecutionEngine:
         _pending_terminal_event: "dict | None" = None
         _fin_record: "FinalizationRecord | None" = None
         _pending_cancel_reraise: bool = False
+        # Initialized to "" so the finally block always has a valid reference.
+        # Step 5 (after the try/finally) overwrites this with the resolved value.
+        final_output: "str | None" = ""
 
         cursor = 0
         try:
@@ -8056,10 +8200,36 @@ class ExecutionEngine:
                 # P27 E6: a paused run is not terminal — no finalizer (no tag, no
                 # snapshot); the resume finalizes it when it really ends.
                 if not _paused_exit:
+                    # Early-resolve the deliverable from ectx (the same read Step 5
+                    # performs below, but here so finalize_terminal_run can apply the
+                    # A14 guard: git-persistence failures warn instead of degrade when
+                    # a usable deliverable already exists in ectx).  The resolver only
+                    # reads from already-populated ectx fields — no new I/O.
+                    _fin_final_output: str = ""
+                    try:
+                        _ftr_strategy = (
+                            getattr(
+                                getattr(compiled, "deliverable", None), "strategy", None
+                            )
+                            or "streamed_text"
+                        )
+                        _ftr_resolved = _CAPABILITY_REGISTRY.resolve(
+                            "deliverable", _ftr_strategy
+                        ).resolve(ectx)
+                        if _ftr_resolved is None and _ftr_strategy != "streamed_text":
+                            _ftr_resolved = _CAPABILITY_REGISTRY.resolve(
+                                "deliverable", "streamed_text"
+                            ).resolve(ectx)
+                        _fin_final_output = (
+                            _ftr_resolved if isinstance(_ftr_resolved, str) else ""
+                        ) or ""
+                    except Exception:  # noqa: BLE001 — guard must never abort the finalizer
+                        pass
                     _fin_record = await finalize_terminal_run(
                         pipeline_run_id,
                         ectx,
                         candidate_status=_candidate_status_fin,
+                        final_output=_fin_final_output,
                     )
             except Exception as _fin_exc:  # noqa: BLE001 — must never mask run outcome
                 logger.error(
@@ -8476,6 +8646,19 @@ class ExecutionEngine:
         }
         # Floor (no regression): an errored agent with zero completions anywhere.
         _unrecovered_agents |= _failed_agent_ids - _completed_agent_ids
+        # R2: exclude non-critical agents — a failed non-critical step (e.g. a
+        # Playwright audit or a secondary documentation writer) does not degrade
+        # the run when the core deliverable was produced. ``ordered_agents`` is in
+        # scope (defined earlier in _execute_impl at the dispatch-order site).
+        # ``getattr(s, "non_critical", False)`` is safe on older Step objects that
+        # pre-date the field (default False → no behavior change → INV-3 parity).
+        _nc_lookup = {
+            getattr(s, "id", ""): getattr(s, "non_critical", False)
+            for s in ordered_agents
+        }
+        _unrecovered_agents = {
+            aid for aid in _unrecovered_agents if not _nc_lookup.get(aid, False)
+        }
         if results and _unrecovered_agents:
             _pipeline_complete_data["status"] = "degraded"
             _pipeline_complete_data["agents_failed"] = sorted(_unrecovered_agents)
@@ -8515,24 +8698,34 @@ class ExecutionEngine:
         # not report "completed" when the git state is untrustworthy.
         # DORMANT on every run where no pre_commit hook fires ⇒ INV-3 byte-parity holds.
         if getattr(ectx, "last_commit_blocked", False):
-            _pipeline_complete_data["status"] = "degraded"
-            # Name the cause: without it the run was persisted as "degraded:
-            # agent(s) failed: " with an empty agent list.
-            _pipeline_complete_data.setdefault(
-                "degraded_reason",
-                _COMMIT_BLOCK_REASONS.get(
-                    getattr(ectx, "last_commit_block_reason", ""),
-                    "The run's files could not be saved to its history.",
-                ),
+            # A14 guard (mirrors budget_degraded_reasons pattern): always record the
+            # cause in warnings; escalate to degraded only when no deliverable exists.
+            _lcb_reason = _COMMIT_BLOCK_REASONS.get(
+                getattr(ectx, "last_commit_block_reason", ""),
+                "The run's files could not be saved to its history.",
             )
+            _pipeline_complete_data.setdefault("warnings", []).append(_lcb_reason)
+            if not final_output:
+                _pipeline_complete_data["status"] = "degraded"
+                _pipeline_complete_data.setdefault("degraded_reason", _lcb_reason)
         _not_saved = getattr(ectx, "commit_excluded_files", None) or {}
         if _not_saved:
-            _pipeline_complete_data["status"] = "degraded"
-            _pipeline_complete_data.setdefault(
-                "degraded_reason",
+            _ns_reason = (
                 "Not saved to the run's history (refused by the binary scan): "
-                + ", ".join(sorted(_not_saved)),
+                + ", ".join(sorted(_not_saved))
             )
+            _pipeline_complete_data.setdefault("warnings", []).append(_ns_reason)
+            if not final_output:
+                _pipeline_complete_data["status"] = "degraded"
+                _pipeline_complete_data.setdefault("degraded_reason", _ns_reason)
+        # Merge git-persistence warnings from finalize_terminal_run. These arise
+        # when warn() was called instead of degrade() (deliverable existed, so the
+        # run is "completed" but git history is partial). Additive onto any
+        # budget_degraded_reasons warnings already set by the A14 guard above.
+        # _fin_record is None only if finalize_terminal_run raised unexpectedly.
+        _fin_warnings = list(getattr(_fin_record, "warnings", []) or [])
+        if _fin_warnings:
+            _pipeline_complete_data.setdefault("warnings", []).extend(_fin_warnings)
         # QA-PS-027 / ISS-721: the CONTENT signal. Every degrade check above is
         # presence/absence — an exception raised, a budget cap, a blocked commit,
         # a declared file that did not materialize — so an agent that never got

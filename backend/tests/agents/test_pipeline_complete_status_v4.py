@@ -56,7 +56,7 @@ def _injecting_finalizer(*failure_triples):
     ``_unrecovered_agents`` computation under test can do that.
     """
 
-    async def _finalize(run_id, ectx, *, candidate_status="completed"):
+    async def _finalize(run_id, ectx, *, candidate_status="completed", **kwargs):
         for triple in failure_triples:
             ectx.failed_invocations.add(triple)
         return FinalizationRecord(

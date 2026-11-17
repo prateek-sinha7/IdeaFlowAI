@@ -59,7 +59,9 @@ def _fake_finalizer(published_status: str, candidate_status: str = "completed"):
     decision reach the terminal event", exactly the seam U2 fixes.
     """
 
-    async def _finalize(run_id, ectx, *, candidate_status=candidate_status):
+    async def _finalize(
+        run_id, ectx, *, candidate_status=candidate_status, final_output: str = ""
+    ):
         return FinalizationRecord(
             run_id=run_id,
             owner_id="harness-user",
@@ -134,7 +136,9 @@ def _finalizer_that_marks(**marks):
     real step commits would have during the run, then publishes degraded."""
     inner = _fake_finalizer("degraded")
 
-    async def _finalize(run_id, ectx, *, candidate_status="completed"):
+    async def _finalize(
+        run_id, ectx, *, candidate_status="completed", final_output: str = ""
+    ):
         for key, value in marks.items():
             setattr(ectx, key, value)
         return await inner(run_id, ectx, candidate_status=candidate_status)
@@ -159,8 +163,13 @@ class TestACommitDegradeNamesItsCause:
             events = await _drive("custom")
 
         data = _pipeline_complete_events(events)[0]["data"]
+        # With final_output non-empty, the A14 guard promotes the git-persistence
+        # issue to a warning rather than setting degraded_reason.  Status is still
+        # degraded because the fake finalizer returns published_status="degraded".
         assert data.get("status") == "degraded"
-        assert "build/ui/components/button.png" in (data.get("degraded_reason") or "")
+        assert any(
+            "build/ui/components/button.png" in w for w in (data.get("warnings") or [])
+        ), f"expected excluded file named in warnings, got: {data.get('warnings')}"
 
     @pytest.mark.asyncio
     async def test_a_refused_commit_says_why(self) -> None:
@@ -174,5 +183,10 @@ class TestACommitDegradeNamesItsCause:
             events = await _drive("custom")
 
         data = _pipeline_complete_events(events)[0]["data"]
+        # With final_output non-empty, the A14 guard promotes the git-persistence
+        # issue to a warning rather than setting degraded_reason.  Status is still
+        # degraded because the fake finalizer returns published_status="degraded".
         assert data.get("status") == "degraded"
-        assert "secret" in (data.get("degraded_reason") or "")
+        assert any(
+            "secret" in w for w in (data.get("warnings") or [])
+        ), f"expected secret-scan reason in warnings, got: {data.get('warnings')}"

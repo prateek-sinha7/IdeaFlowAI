@@ -52,8 +52,10 @@ describe("ActivityTrail", () => {
     render(<ActivityTrail runs={long} maxPills={8} status="done" />);
     const shown = screen.getAllByTestId("activity-box");
     expect(shown.length).toBeLessThanOrEqual(8);
-    expect(shown[0]).toHaveAttribute("data-kind", "reason");
-    expect(shown[shown.length - 1]).toHaveAttribute("data-kind", "output");
+    // Settled mode reverses the display order (latest first), so the original
+    // last run ("output") appears first and the original first run ("reason") last.
+    expect(shown[0]).toHaveAttribute("data-kind", "output");
+    expect(shown[shown.length - 1]).toHaveAttribute("data-kind", "reason");
     expect(shown.some((b) => b.textContent?.includes("×66"))).toBe(true);
     const folds = screen.getAllByTestId("activity-more");
     expect(folds.reduce((n, f) => n + Number(f.textContent!.replace("+", "")), 0)).toBe(long.length - shown.length);
@@ -65,7 +67,9 @@ describe("ActivityTrail", () => {
     expect(screen.getAllByTestId("activity-box")[1]).toHaveTextContent("read×4");
     expect(screen.getByTestId("activity-trail").className).toContain("flex-wrap");
     rerender(<ActivityTrail runs={runs} status="done" />);
-    const box = screen.getAllByTestId("activity-box")[1];
+    // Settled mode reverses display order: [output, write, read×4, reason]
+    // so boxes[2] is the read pill (originally index 1).
+    const box = screen.getAllByTestId("activity-box")[2];
     expect(box).toHaveTextContent("×4");
     expect(box).not.toHaveTextContent("read");
     expect(box.getAttribute("title")).toContain("read ×4");
@@ -77,22 +81,15 @@ describe("ActivityTrail", () => {
     expect(container).toBeEmptyDOMElement();
   });
 
-  it("a settled step with a very long trail folds without hitting React's update-depth limit", () => {
-    // A goal_v5 lead produced ~190 runs; fitting one pill per pass threw React #185.
+  it("a settled step with a very long trail shows all pills in a scrollable row (no React update-depth error)", () => {
+    // Previously the shrink-budget loop reduced pills one-by-one and hit React #185
+    // (~50 nested updates). The shrink loop is now removed — settled mode scrolls
+    // horizontally instead, so all pills are shown and no nested updates occur.
     const long: ActivityRun[] = Array.from({ length: 200 }, (_, i) => ({
       kind: i % 2 ? "read" : "write",
       count: 1,
     }));
-    const sw = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "scrollWidth");
-    const cw = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "clientWidth");
-    Object.defineProperty(HTMLElement.prototype, "scrollWidth", { configurable: true, get: () => 5000 });
-    Object.defineProperty(HTMLElement.prototype, "clientWidth", { configurable: true, get: () => 400 });
-    try {
-      expect(() => render(<ActivityTrail runs={long} status="done" />)).not.toThrow();
-      expect(screen.getAllByTestId("activity-box").length).toBeLessThan(200);
-    } finally {
-      if (sw) Object.defineProperty(HTMLElement.prototype, "scrollWidth", sw);
-      if (cw) Object.defineProperty(HTMLElement.prototype, "clientWidth", cw);
-    }
+    expect(() => render(<ActivityTrail runs={long} status="done" />)).not.toThrow();
+    expect(screen.getAllByTestId("activity-box").length).toBe(200);
   });
 });

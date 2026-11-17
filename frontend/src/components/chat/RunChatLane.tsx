@@ -39,6 +39,7 @@ import {
   Check,
   ChevronDown,
   ChevronRight,
+  ChevronUp,
   Code2,
   Copy,
   FileText,
@@ -56,6 +57,7 @@ import {
   X,
 } from "lucide-react";
 import { getWorkflowIcon } from "@/lib/workflowIcons";
+import { getUserMessage, getDeveloperLabel } from "@/lib/failure-messages";
 
 import type {
   AgentEvent,
@@ -1283,6 +1285,10 @@ export function RunChatLane({
   // Copy affordance for the terminal-failed panel's verbatim run error (mirrors
   // MessageBubble's handleCopy pattern — writeText + a 2s "copied" flip).
   const [runErrorCopied, setRunErrorCopied] = useState(false);
+
+  // Two-tier progressive-disclosure toggles for the failed / degraded terminal cards.
+  const [failDetailsOpen, setFailDetailsOpen] = useState(false);
+  const [degradedDetailsOpen, setDegradedDetailsOpen] = useState(false);
   const handleCopyRunError = useCallback(async (text: string) => {
     try {
       await navigator.clipboard.writeText(text);
@@ -1964,6 +1970,25 @@ export function RunChatLane({
           const isSecurityGate = securityBullets.length > 0 ||
             /security.*gate|exec.*denied|secret.*blocked|hook.*block/i.test(sanitized ?? "");
 
+          // Tier 1/Tier 2 failure messaging.
+          const rawFailureCode = pipelineState?.failureCode;
+          const isTotalCollapse =
+            !rawFailureCode && failedIds.length === 0 && !sanitized && !verbatimRunError;
+          const resolvedCode = rawFailureCode ?? (isTotalCollapse ? "total_collapse" : undefined);
+          const userMessage = getUserMessage(resolvedCode ?? "", failedIds.length > 0);
+          // Collect per-agent errors (from the already-hydrated agents array).
+          const failedAgentErrors = (pipelineState?.agents ?? []).filter(
+            (a) => a.status === "error" && (a.error ?? a.errorCode),
+          );
+          const hasFailDetails = !!(
+            resolvedCode ||
+            pipelineState?.failureReason ||
+            pipelineState?.pipelineError ||
+            failedAgentErrors.length > 0 ||
+            names.length > 0 ||
+            verbatimRunError
+          );
+
           return (
             <div data-testid="chat-terminal-failed" className="space-y-3">
               {/* Failure card — red-tinted, alert header, live bullets. */}
@@ -1977,58 +2002,129 @@ export function RunChatLane({
                     What went wrong
                   </span>
                 </div>
-                <div className="px-[14px] py-3 font-serif text-[12px] leading-[1.6] text-ink-700">
-                  {/* KAN-123: show structured security bullets when available;
-                      fall back to the generic agent-name + error pattern. */}
-                  {securityBullets.length > 0 ? (
-                    securityBullets.map((bullet, i) => (
-                      <p key={i} className={i < securityBullets.length - 1 ? "mb-[7px]" : ""}>
-                        • {bullet}
+                <div className="px-[14px] py-3">
+                  {/* Tier 1 — always-visible plain-English user message. */}
+                  <p className="font-sans text-[12.5px] leading-[1.6] text-ink-700 mb-2">
+                    {userMessage}
+                  </p>
+
+                  {/* Always-visible diagnostic: sanitized per-agent error (first line, no stack). */}
+                  {sanitized && (
+                    <p
+                      data-testid="chat-terminal-error"
+                      className="mb-2 font-sans text-[12px] leading-[1.5] text-ink-700"
+                    >
+                      {sanitized}
+                    </p>
+                  )}
+
+                  {/* Always-visible: "Failed agents" label + human-readable names. */}
+                  {names.length > 0 && (
+                    <div className="mb-2">
+                      <p className="mb-0.5 font-sans text-[11px] font-medium text-status-failed-strong">
+                        Failed agents
                       </p>
-                    ))
-                  ) : (
-                    <>
-                      {names.length > 0 && (
-                        <p className="mb-[7px]">
-                          • Failed {names.length > 1 ? "agents" : "agent"}:{" "}
-                          <span className="font-semibold text-ink-900">
-                            {names.join(", ")}
+                      <p className="font-sans text-[12px] text-ink-700">
+                        {names.join(", ")}
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Always-visible: verbatim run error with copy affordance (when no per-agent error). */}
+                  {verbatimRunError && (
+                    <div className="mb-2 flex items-start gap-1.5">
+                      <code
+                        data-testid="chat-terminal-run-error"
+                        className="flex-1 whitespace-pre-wrap break-words font-mono text-[11px] leading-[1.5] text-ink-900"
+                      >
+                        {verbatimRunError}
+                      </code>
+                      <button
+                        type="button"
+                        data-testid="chat-terminal-copy-error"
+                        onClick={() => handleCopyRunError(verbatimRunError)}
+                        aria-label="Copy error"
+                        className="flex-none text-ink-400 transition-colors hover:text-ink-700"
+                      >
+                        {runErrorCopied
+                          ? <Check className="h-3 w-3" />
+                          : <Copy className="h-3 w-3" />}
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Tier 2 toggle — rendered only when there is technical detail. */}
+                  {hasFailDetails && (
+                    <button
+                      id="fail-detail-toggle"
+                      type="button"
+                      aria-expanded={failDetailsOpen}
+                      aria-controls="fail-detail-panel"
+                      onClick={() => setFailDetailsOpen((v) => !v)}
+                      className="flex items-center gap-1 font-sans text-[11px] text-ink-400 hover:text-ink-700 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand rounded-[4px]"
+                    >
+                      {failDetailsOpen ? (
+                        <ChevronUp className="h-3 w-3" strokeWidth={2} aria-hidden />
+                      ) : (
+                        <ChevronDown className="h-3 w-3" strokeWidth={2} aria-hidden />
+                      )}
+                      {failDetailsOpen ? "Hide technical details" : "Show technical details"}
+                    </button>
+                  )}
+
+                  {/* Tier 2 panel — developer detail (collapsed by default). */}
+                  {hasFailDetails && failDetailsOpen && (
+                    <div
+                      id="fail-detail-panel"
+                      role="region"
+                      aria-labelledby="fail-detail-toggle"
+                      data-testid="fail-detail-panel"
+                      className="mt-2 space-y-1 rounded-[8px] border border-status-failed-border bg-white/60 px-[10px] py-[8px]"
+                    >
+                      {resolvedCode && (
+                        <p className="font-mono text-[10.5px] text-ink-500">
+                          code: <span className="text-ink-900">{resolvedCode}</span>
+                        </p>
+                      )}
+                      {resolvedCode && (
+                        <p className="font-mono text-[10.5px] text-ink-500">
+                          label: <span className="text-ink-900">{getDeveloperLabel(resolvedCode)}</span>
+                        </p>
+                      )}
+                      {(pipelineState?.failureReason || pipelineState?.pipelineError) && (
+                        <p className="font-mono text-[10.5px] text-ink-500 break-words">
+                          detail:{" "}
+                          <span className="text-ink-900">
+                            {pipelineState?.failureReason || pipelineState?.pipelineError}
                           </span>
                         </p>
                       )}
-                      {sanitized && (
-                        <p data-testid="chat-terminal-error">• {sanitized}</p>
+                      {pipelineState?.budgetDimension && (
+                        <p className="font-mono text-[10.5px] text-ink-500">
+                          budget: <span className="text-ink-900">{pipelineState.budgetDimension}</span>
+                        </p>
                       )}
-                      {names.length === 0 && !sanitized && verbatimRunError && (
-                        <>
-                          <p className="mb-[7px]">• The run stopped before completing.</p>
-                          <div className="flex items-start gap-1.5 rounded-[8px] border border-status-failed-border bg-white/60 px-[10px] py-[8px]">
-                            <code
-                              data-testid="chat-terminal-run-error"
-                              className="flex-1 whitespace-pre-wrap break-words font-mono text-[11px] leading-[1.5] text-ink-900"
-                            >
-                              {verbatimRunError}
-                            </code>
-                            <button
-                              type="button"
-                              data-testid="chat-terminal-copy-error"
-                              onClick={() => handleCopyRunError(verbatimRunError)}
-                              aria-label="Copy error"
-                              className="flex-none text-ink-400 transition-colors hover:text-ink-700"
-                            >
-                              {runErrorCopied
-                                ? <Check className="h-3 w-3" />
-                                : <Copy className="h-3 w-3" />}
-                            </button>
-                          </div>
-                        </>
+                      {/* Per-agent errors from agent_error events. */}
+                      {failedAgentErrors.map((a) => (
+                        <p key={a.id} className="font-mono text-[10.5px] text-ink-500 break-words">
+                          {a.name ?? a.id}:{" "}
+                          <span className="text-ink-900">{a.error ?? a.errorCode}</span>
+                        </p>
+                      ))}
+                      {/* Security bullets (structural signals, not prose). */}
+                      {securityBullets.length > 0 && (
+                        <div className="pt-1 border-t border-status-failed-border">
+                          {securityBullets.map((bullet, i) => (
+                            <p key={i} className="font-mono text-[10.5px] text-ink-500">{bullet}</p>
+                          ))}
+                        </div>
                       )}
-                      {names.length === 0 && !sanitized && !verbatimRunError && (
-                        <p>• The run stopped before completing. Reopen to resume.</p>
-                      )}
-                    </>
+                      {/* Agent names are now always-visible above; nothing further here. */}
+                    </div>
                   )}
-                  {/* When security gate stopped the run, mention the Audit tab. */}
+
+                  {/* Navigation hint for security-gate failures (kept outside the
+                      panel because it is an action affordance, not a code dump). */}
                   {isSecurityGate && (
                     <p className="mt-[7px] text-[11px] text-ink-400">
                       See the Audit tab for detector, match, and action details.
@@ -2086,6 +2182,11 @@ export function RunChatLane({
         // deliverable is still there); the word shown is "failed", like everywhere else.
         if (pipelineState?.degraded) {
           const names = resolveAgentNames(degradedIds, nameById);
+          const degradedCode = pipelineState?.failureCode;
+          const degradedMessage = getUserMessage(degradedCode ?? "", degradedIds.length > 0);
+          const hasDegradedDetails = !!(
+            degradedCode || pipelineState?.failureReason
+          );
           return (
             <div data-testid="chat-terminal-degraded" className="space-y-2.5">
               <Card className="px-3.5 py-3">
@@ -2095,13 +2196,59 @@ export function RunChatLane({
                     Run failed
                   </p>
                 </div>
+                {/* Tier 1 — always-visible plain-English user message. */}
+                <p className="mt-1 text-[11px] text-ink-600">
+                  {degradedMessage}
+                </p>
+                {/* Always-visible: agent names for the degraded/failed agents. */}
                 {names.length > 0 && (
-                  <p className="mt-1.5 text-[11px] text-ink-600">
-                    Skipped or failed:{" "}
-                    <span className="font-medium text-ink-900">
-                      {names.join(", ")}
-                    </span>
+                  <p className="mt-1 text-[11px] text-ink-700">
+                    {names.join(", ")}
                   </p>
+                )}
+                {/* Tier 2 toggle */}
+                {hasDegradedDetails && (
+                  <button
+                    id="degraded-detail-toggle"
+                    type="button"
+                    aria-expanded={degradedDetailsOpen}
+                    aria-controls="degraded-detail-panel"
+                    onClick={() => setDegradedDetailsOpen((v) => !v)}
+                    className="mt-1.5 flex items-center gap-1 font-sans text-[10.5px] text-ink-400 hover:text-ink-700 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand rounded-[4px]"
+                  >
+                    {degradedDetailsOpen ? (
+                      <ChevronUp className="h-3 w-3" strokeWidth={2} aria-hidden />
+                    ) : (
+                      <ChevronDown className="h-3 w-3" strokeWidth={2} aria-hidden />
+                    )}
+                    {degradedDetailsOpen ? "Hide technical details" : "Show technical details"}
+                  </button>
+                )}
+                {/* Tier 2 panel */}
+                {hasDegradedDetails && degradedDetailsOpen && (
+                  <div
+                    id="degraded-detail-panel"
+                    role="region"
+                    aria-labelledby="degraded-detail-toggle"
+                    data-testid="degraded-detail-panel"
+                    className="mt-2 space-y-1 rounded-[8px] border border-line-border bg-surface-warm px-[10px] py-[8px]"
+                  >
+                    {degradedCode && (
+                      <p className="font-mono text-[10.5px] text-ink-500">
+                        code: <span className="text-ink-900">{degradedCode}</span>
+                      </p>
+                    )}
+                    {degradedCode && (
+                      <p className="font-mono text-[10.5px] text-ink-500">
+                        label: <span className="text-ink-900">{getDeveloperLabel(degradedCode)}</span>
+                      </p>
+                    )}
+                    {pipelineState?.failureReason && (
+                      <p className="font-mono text-[10.5px] text-ink-500 break-words">
+                        detail: <span className="text-ink-900">{pipelineState.failureReason}</span>
+                      </p>
+                    )}
+                  </div>
                 )}
               </Card>
               {relaunch("Run again")}

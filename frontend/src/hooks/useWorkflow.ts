@@ -851,6 +851,12 @@ export function handlePipelineMessage(
           // Gap fix: clear a stale `error` frame's message so a resumed/re-announced
           // run does not keep showing the previous attempt's failure reason.
           pipelineError: undefined,
+          // Clear failure-detail fields so a resumed run never inherits the previous
+          // attempt's Tier 1/Tier 2 failure messages.
+          failureCode: undefined,
+          failureReason: undefined,
+          budgetDimension: undefined,
+          agentErrors: undefined,
           // Phase 39 (RUNUI-06): surface the run's created_at so the lane header can
           // render a relative age ("23h ago"). ADDITIVE optional.
           //
@@ -1265,7 +1271,10 @@ export function handlePipelineMessage(
           thinking: "",
         };
 
-        return { ...prev, agents: updated };
+        // Accumulate per-agent error messages keyed by agent_id for Tier 2 display.
+        const agentErrors = { ...(prev.agentErrors ?? {}), [agentId]: error };
+
+        return { ...prev, agents: updated, agentErrors };
       });
       return true;
     }
@@ -1299,6 +1308,16 @@ export function handlePipelineMessage(
       // and expose the degraded flag on the pipeline state.
       const isDegraded = (msg.status as string) === "degraded";
       const degradedFailedIds = isDegraded ? ((msg.agents_failed as string[]) || []) : [];
+
+      // Extract degraded_reason for Tier 1/Tier 2 display. The loop_iterations
+      // budget path arrives as "loop_iterations (after N steps)" — normalize the
+      // prefix to the vocabulary key so the lookup table finds it.
+      const rawDegradedReason = isDegraded
+        ? ((msg.degraded_reason as string) || (msg.degraded_code as string) || undefined)
+        : undefined;
+      const degradedReasonCode = rawDegradedReason?.startsWith("loop_iterations")
+        ? "loop_iterations"
+        : rawDegradedReason;
 
       // A14 — a loop-cap message that did NOT flip the run to degraded (a
       // resolved deliverable stayed "completed" server-side). Presence-gated
@@ -1342,6 +1361,9 @@ export function handlePipelineMessage(
           // its earlier pipeline_failed as the reason in the header.
           failedAgents: undefined,
           warnings,
+          // Failure-detail fields: set only on the degraded path; cleared on success.
+          failureCode: isDegraded ? (degradedReasonCode ?? undefined) : undefined,
+          failureReason: isDegraded ? (rawDegradedReason ?? undefined) : undefined,
           completedCount: updated.filter((a) => a.status === "done").length,
           // ISS-304: prefer the totals accumulated from agent_complete, and fall
           // back to the event's own fields only when nothing accumulated (so a
@@ -1425,6 +1447,10 @@ export function handlePipelineMessage(
           totalDuration,
           completedCount: updated.filter((a) => a.status === "done").length,
           failedAgents: failedIds,
+          // Capture the pipeline-level error as failureReason for Tier 2 display.
+          // Guard: do not overwrite a more specific budget message already captured
+          // by a preceding budget_aborted event.
+          ...(prev.failureReason ? {} : { failureReason: error || undefined }),
         };
       });
       return true;
@@ -1555,7 +1581,7 @@ export function handlePipelineMessage(
         setPipelineState((prev) =>
           (prev.isRunning && !prev.cancelled && !prev.failed && !prev.degraded && !prev.paused && !prev.pipelineError)
             ? prev
-            : { ...prev, isRunning: true, cancelled: undefined, failed: undefined, degraded: undefined, paused: undefined, pipelineError: undefined, failedAgents: undefined, degradedFailedAgents: undefined }
+            : { ...prev, isRunning: true, cancelled: undefined, failed: undefined, degraded: undefined, paused: undefined, pipelineError: undefined, failedAgents: undefined, degradedFailedAgents: undefined, failureCode: undefined, failureReason: undefined, budgetDimension: undefined, agentErrors: undefined }
         );
         return true;
       }
@@ -2053,7 +2079,40 @@ export function handlePipelineMessage(
     case "run_finalization_failed": {
       const data = (msg.data as Record<string, unknown>) || msg;
       const reason = (data.reason as string) || "unknown";
-      setPipelineState((prev) => ({ ...prev, finalizationFailedReason: reason }));
+      setPipelineState((prev) => ({
+        ...prev,
+        finalizationFailedReason: reason,
+        // Also expose as failureCode/failureReason so the Tier 1/2 panels can
+        // show a user message and developer label for finalization failures.
+        failureCode: reason,
+        failureReason: reason,
+      }));
+      return true;
+    }
+
+    // budget_aborted — fired when a non-loop budget dimension is breached
+    // (wall_clock, subagents, depth, token budgets). Always followed immediately
+    // by pipeline_failed. Capture dimension/message here so they are available
+    // for Tier 1/Tier 2 display when pipeline_failed arrives.
+    case "budget_aborted": {
+      const data = (msg.data as Record<string, unknown>) || msg;
+      const rawDimension = (data.dimension as string) || "unknown";
+      const budgetMessage = (data.message as string) || undefined;
+
+      // Normalize raw dimension names to the UI vocabulary:
+      const DIM_TO_CODE: Record<string, string> = {
+        wall_clock: "wall_clock_seconds",
+        subagents: "max_subagents",
+        depth: "max_depth",
+      };
+      const normalizedCode = DIM_TO_CODE[rawDimension] ?? rawDimension;
+
+      setPipelineState((prev) => ({
+        ...prev,
+        failureCode: normalizedCode,
+        failureReason: budgetMessage,
+        budgetDimension: rawDimension,
+      }));
       return true;
     }
 

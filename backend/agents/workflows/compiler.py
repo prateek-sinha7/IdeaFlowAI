@@ -141,6 +141,8 @@ _ALLOWED_STEP_KEYS: frozenset[str] = frozenset(
         # validated (pure manifest-side declarations — INV-5).
         "outputs",
         "replaces",
+        # R2: opt-out of degrade-on-failure for secondary/quality-checker agents.
+        "non_critical",
     }
 )
 
@@ -1268,6 +1270,9 @@ class WorkflowCompiler:
         # Default []/False → parity for every existing manifest (INV-3).
         outputs = list(raw.get("outputs") or [])
         replaces = bool(raw.get("replaces", False))
+        # R2: non-critical step flag — same bool-coercion idiom as redoable/replaces.
+        # Default False → DORMANT on all existing manifests → INV-3 parity.
+        non_critical = bool(raw.get("non_critical", False))
 
         # ── Per-instance identity + scoping (spec 012 R-01/R-02) ──────────────
         # instance_id/prompt/subagents were already validated (shape, uniqueness,
@@ -1356,6 +1361,7 @@ class WorkflowCompiler:
             condition=condition,
             outputs=outputs,
             replaces=replaces,
+            non_critical=non_critical,
             # Stamped so the runtime security gate can re-check trust (ADR-0054).
             trust=trust,
         )

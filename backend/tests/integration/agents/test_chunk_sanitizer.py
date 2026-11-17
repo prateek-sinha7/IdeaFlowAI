@@ -145,6 +145,13 @@ async def _drive_single_agent(
     if single_step is None:
         # Fallback: build a minimal step from the spec so the test still runs.
         single_step = base_compiled.steps[0]
+    # Disable the validation fix-loop (fix.max_attempts) on the target step.
+    # Without this, steps like prototype-revision-agent (fix.max_attempts=2)
+    # would run the agent 3× when the scripted model doesn't produce a valid
+    # HTML file, causing the emitted chunk list to contain 3× the expected
+    # deltas. The sanitizer behaviour under test is per-run; retries are out of
+    # scope for this suite.
+    single_step = dataclasses.replace(single_step, fix=None)
     single_compiled = dataclasses.replace(
         base_compiled,
         steps=[single_step],

@@ -53,6 +53,8 @@ steps:
   - html_static
   - html_render
   require_render: true
+  fix:
+    max_attempts: 2
   post_step: revision_validation
 - agent: prototype-validate
   tools: {read_files: true, write_files: true}

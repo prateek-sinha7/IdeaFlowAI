@@ -91,6 +91,12 @@ limits:
   max_subagents: 200
   max_depth: 2
   wall_clock_seconds: 10800
+resilience:
+  retry_window_seconds: 900
+  stall_seconds: 600
+  max_same_error: 3
+  pause_after_seconds: 14400
+  credential_probe_seconds: 300
 steps:
 - strategy: single_shot
   depends_on: []
@@ -829,6 +835,7 @@ steps:
   agent: custom-agent
   instance_id: us-uiux
   name: UI/UX Writer
+  non_critical: true
   produces: ["ui.md", "ux.md"]
   consumes: ["build/ui/source.json", "build/ui/tokens.json", "build/ui/components.json", "build/ui/navigation.json", "build/solution/screens.json", "build/solution/roles.json"]
   prompt: |-

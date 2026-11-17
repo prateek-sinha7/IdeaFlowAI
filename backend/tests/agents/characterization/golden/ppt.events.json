@@ -192,7 +192,6 @@
       "agents_total": 3,
       "final_output": "<!doctype html><html><head><title>Deck</title></head><body><section class='deck-slide'>Title</section><section class='deck-slide'>Problem</section><section class='deck-slide'>Solution</section><section class='deck-slide'>Closing</section></body></html>",
       "pipeline_type": "ppt",
-      "status": "degraded",
       "total_input_tokens": "<normalized>",
       "total_output_tokens": "<normalized>",
       "total_tokens": "<normalized>"

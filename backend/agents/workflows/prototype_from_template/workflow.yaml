@@ -1066,6 +1066,7 @@ steps:
 - strategy: single_shot
   instance_id: pb-verify
   name: Validator
+  non_critical: true
   depends_on:
     - custom-agent:pb-assemble
   model:

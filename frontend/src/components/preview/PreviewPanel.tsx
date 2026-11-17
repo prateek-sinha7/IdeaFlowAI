@@ -1513,6 +1513,9 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
     ? resolveAgentNames(failedAgentNames, agentNameById)[0]
     : undefined;
 
+  // Failure code from live pipeline state — drives the Tier 1 subtitle in RunHeader.
+  const headerFailureCode = headerFailed ? (effPipelineState?.failureCode ?? undefined) : undefined;
+
   // Client-only Share (ND-H) — copy the owner-auth-gated run deep link. Composed
   // from the live run id; NO backend call. Default provided here so the header is
   // functional even when the caller does not override it.
@@ -1897,6 +1900,7 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
         runState={headerRunState}
         failed={headerFailed}
         failureReason={headerFailureReason}
+        failureCode={headerFailureCode}
         activeRunId={activeRunId}
         versionLabel={headerVersionLabel}
         selectedRef={sandboxSelectedRef}

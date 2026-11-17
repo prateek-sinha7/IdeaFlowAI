@@ -1085,9 +1085,9 @@ class ConciergeCapability:
                 "please wait for it to finish before starting a new one.'\n"
                 "      - If 'running': BLOCK. Tell user: 'The pipeline is still building — "
                 "please wait for it to complete before starting a revision.'\n"
-                "      - If 'completed': call propose_revision with the user's message as "
-                "the primary instruction and append 'Use the attached [filename] as "
-                "supplementary reference.' to the instruction.\n"
+                "      - If 'completed': call propose_revision with the user's EXACT message "
+                "as the instruction. Do NOT modify, append to, or augment the instruction "
+                "in any way — pass it verbatim.\n"
                 "  A2 — The instruction is to USE THE FILE AS REFERENCE or CONTEXT "
                 "(not a revision — just wants agents to have the file: 'use this', "
                 "'apply these requirements', 'reference this', 'use as spec'):\n"
@@ -1150,9 +1150,10 @@ class ConciergeCapability:
             )
 
         # Image override: when per-turn images are attached the Concierge LLM can
-        # see them in the multi-modal user_message. Inject guidance as a PRIORITY
-        # block so it knows to describe the image visually and embed that description
-        # in propose_revision — the revision agents cannot see the image themselves.
+        # see them in the multi-modal user_message. Inject guidance so it routes the
+        # request correctly. Images are saved to the sandbox by _save_images_to_sandbox
+        # and the revision agents read them directly — the Concierge must NOT compose
+        # or replace the user's instruction; pass it verbatim.
         # Payload-transient (ND-10). Dormant when ctx.images empty (INV-3).
         _ctx_images: list = getattr(ctx, "images", None) or []
         image_override_block: str = ""
@@ -1173,28 +1174,18 @@ class ConciergeCapability:
                 "please wait for it to finish before starting a new one.'\n"
                 "    - If 'running': BLOCK. Tell user: 'The pipeline is still building — "
                 "please wait for it to complete before requesting a revision.'\n"
-                "    - If 'completed': call propose_revision. Compose the instruction as:\n"
-                "      1. 'Revise the prototype to match the following visual reference:'\n"
-                "      2. A DETAILED description of what the image shows. Be specific:\n"
-                "         • Overall layout (sidebar, topbar, main area, footer)\n"
-                "         • Colour palette (background, surface, accent, text colours)\n"
-                "         • Typography (font weight, size, heading vs body style)\n"
-                "         • Navigation structure (tabs, sidebar items, breadcrumbs)\n"
-                "         • Key UI components visible (cards, tables, forms, buttons, icons)\n"
-                "         • Any readable text, labels, or values shown in the screenshot\n"
-                "         Example: 'Dark sidebar with icon-only navigation on the left. "
-                "Top header bar contains a search input and user avatar. Main content area "
-                "shows a two-column card grid with blue accent CTA buttons and white cards "
-                "on a grey #F4F4F5 background.'\n"
-                "      3. Append the user's exact typed message after the description (if any).\n"
-                "      The revision agent cannot see the image — your description IS the "
-                "revision instruction. Make it precise enough to reproduce the design.\n\n"
+                "    - If 'completed': call propose_revision with the user's EXACT typed "
+                "message as the instruction. Do NOT compose a description of the image, "
+                "do NOT modify or augment the user's message in any way — pass it verbatim. "
+                "The image is saved to the sandbox automatically and the revision agents "
+                "can read it directly.\n\n"
                 "CASE B — User's message is a QUESTION about the image or the run:\n"
                 "  → Answer it. Use your visual analysis. Do NOT call propose_revision.\n\n"
                 "CASE C — No actionable text (empty message or only a greeting):\n"
                 "  → Ask: 'I can see the image. Would you like me to revise the prototype "
                 "to match this design?' Do NOT call propose_revision without confirmation.\n\n"
-                "ALWAYS describe what you see in detail before deciding which case applies."
+                "You may describe what you see when answering a question (CASE B) or "
+                "confirming intent (CASE C), but never when routing a revision (CASE A)."
             )
 
         parts: list[str] = []
@@ -1325,7 +1316,9 @@ class ConciergeCapability:
                 parts.append(
                     "## What this run produced\n\n"
                     + run_summary.strip()
-                    + "\n\nUse this as context when answering questions or proposing revisions."
+                    + "\n\nUse this as context when answering questions about the run. "
+                    "Do NOT use it to modify or augment a revision instruction — "
+                    "pass the user's exact message verbatim to propose_revision."
                 )
             else:
                 # Run is still building — inject the title/input as context.

@@ -1350,6 +1350,28 @@ export interface PipelineRunState {
   // a bounded reason code surfaced from the durable finalization record
   // (degraded_reason).  No PII, secrets, or internal paths.
   finalizationFailedReason?: string;
+  /** Normalized failure code for Tier 1/Tier 2 failure-message display. Set from:
+   *  - `budget_aborted.dimension` (normalized: "wall_clock"→"wall_clock_seconds",
+   *    "subagents"→"max_subagents", "depth"→"max_depth")
+   *  - `pipeline_complete.degraded_reason` (passed through; "loop_iterations*"
+   *    prefix-normalized to "loop_iterations")
+   *  - `run_finalization_failed.reason` (passed through verbatim)
+   *  Absent when no specific code is available (generic fallback applies). */
+  failureCode?: string;
+  /** Raw failure-reason string from the backend event (verbatim).
+   *  - For `pipeline_failed`: the `error` field on the event.
+   *  - For `pipeline_complete` degraded: the `degraded_reason` string.
+   *  - For `budget_aborted`: the `message` string.
+   *  - For `run_finalization_failed`: the `reason` code string. */
+  failureReason?: string;
+  /** Raw `budget_aborted.dimension` value before code normalization
+   *  (e.g. "wall_clock", "subagents", "depth"). Present only on
+   *  budget-exceeded paths; absent on all other failure paths. */
+  budgetDimension?: string;
+  /** Per-agent error messages accumulated from `agent_error` events.
+   *  Keyed by `agent_id`; each value is the error string from the event.
+   *  Absent (undefined) until the first agent_error event lands. */
+  agentErrors?: Record<string, string>;
 }
 
 /** One audit entry from a hook_run WS event or persisted hook_runs DB row (KAN-73). */

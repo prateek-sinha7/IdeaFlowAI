@@ -643,6 +643,13 @@ class Step:
     # Added to _ALLOWED_STEP_KEYS only; no registry lookup is performed.
     outputs: list[str] = field(default_factory=list)
     replaces: bool = False
+    # Optional manifest declaration: when True, a failure of this agent does NOT
+    # degrade the run. Use for secondary quality-checker or supplementary-document
+    # steps that run after the core deliverable is produced (e.g. Playwright audit,
+    # UI/UX documentation writers). Additive; default False keeps every existing
+    # manifest byte-identical (INV-3). Added to _ALLOWED_STEP_KEYS so manifests
+    # may declare it; no other registry lookup (pure data, INV-5).
+    non_critical: bool = False
 
     # trust: the trust level of the manifest this step was compiled from
     # (``file`` / ``builtin`` / ``db`` / ``user``). COMPILER-STAMPED, never

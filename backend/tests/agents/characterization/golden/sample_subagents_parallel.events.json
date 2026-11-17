@@ -14,7 +14,6 @@
     "data": {
       "agent": "custom-agent:apple",
       "row_id": null,
-      "status": "complete",
       "task_author_id": null,
       "task_id": null,
       "worker": 0
@@ -36,7 +35,6 @@
     "data": {
       "agent": "custom-agent:ball",
       "row_id": null,
-      "status": "complete",
       "task_author_id": null,
       "task_id": null,
       "worker": 1
@@ -58,7 +56,6 @@
     "data": {
       "agent": "custom-agent:cat",
       "row_id": null,
-      "status": "complete",
       "task_author_id": null,
       "task_id": null,
       "worker": 2
@@ -408,7 +405,6 @@
       "agents_total": 4,
       "final_output": "custom-agent:page default output.",
       "pipeline_type": "sample_subagents_parallel",
-      "status": "degraded",
       "total_input_tokens": "<normalized>",
       "total_output_tokens": "<normalized>",
       "total_tokens": "<normalized>"

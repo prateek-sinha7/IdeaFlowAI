@@ -397,7 +397,18 @@ const TERMINAL_PILL: Record<TerminalStatus, { label: string; cls: string }> = {
 // "completed" run server-side (never degraded), but the cap message must
 // still surface. Never on `failed`/`degraded` (those already read "Failed",
 // exactly as before) — only a completed run can carry a warning here.
-function StatusBadge({ status, warnings }: { status: WorkflowStatus; warnings?: string[] }) {
+function StatusBadge({
+  status,
+  warnings,
+  errorDetail,
+}: {
+  status: WorkflowStatus;
+  warnings?: string[];
+  /** Raw error string from the run record — shown as a hover tooltip on the
+   *  "Failed" pill for failed/degraded runs. Gives developers a quick glance
+   *  at the raw error without opening the run. */
+  errorDetail?: string;
+}) {
   const pill = TERMINAL_PILL[status as TerminalStatus];
   const warningCount = status === "completed" ? (warnings?.length ?? 0) : 0;
   return (
@@ -405,6 +416,7 @@ function StatusBadge({ status, warnings }: { status: WorkflowStatus; warnings?: 
       <span
         className={`${PILL_BASE} ${pill ? pill.cls : "text-ink-500 bg-surface-warm border-line-border"}`}
         data-testid="status-pill"
+        title={errorDetail}
       >
         {pill ? pill.label : "Running"}
       </span>
@@ -619,7 +631,15 @@ export function FamilyGroupCard({
         </div>
         <div className="flex items-center gap-3 flex-shrink-0">
           <RowStats run={run} />
-          <StatusBadge status={run.status} warnings={run.warnings} />
+          <StatusBadge
+            status={run.status}
+            warnings={run.warnings}
+            errorDetail={
+              (run.status === "failed" || run.status === "degraded")
+                ? (run.error ?? undefined)
+                : undefined
+            }
+          />
           <RowMenu runId={run.id} openMenuId={openMenuId} onToggleMenu={onToggleMenu} onDeleteClick={onDeleteClick} />
         </div>
       </motion.div>
@@ -686,7 +706,15 @@ export function FamilyGroupCard({
             <ChevronRight className={`h-2.5 w-2.5 text-brand transition-transform ${expanded ? "rotate-90" : ""}`} />
           </button>
           <RowStats run={latest} />
-          <StatusBadge status={latest.status} warnings={latest.warnings} />
+          <StatusBadge
+            status={latest.status}
+            warnings={latest.warnings}
+            errorDetail={
+              (latest.status === "failed" || latest.status === "degraded")
+                ? (latest.error ?? undefined)
+                : undefined
+            }
+          />
           <RowMenu runId={group.root.id} openMenuId={openMenuId} onToggleMenu={onToggleMenu} onDeleteClick={onDeleteClick} />
         </div>
       </motion.div>

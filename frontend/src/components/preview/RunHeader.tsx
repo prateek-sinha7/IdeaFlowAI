@@ -17,6 +17,7 @@ import { Archive, Check, ChevronDown, Download, FileText, Link2, Loader2, Packag
 
 import type { RunLaneState } from "@/components/chat/RunChatLane";
 import { getToken, postShareRun, deleteShareRun } from "@/lib/api";
+import { getUserMessage } from "@/lib/failure-messages";
 
 /** `v1`, `v2`, …, `v10` → descending numeric order ("newest first"). A tag
  *  that doesn't fit the `vN` shape falls back to a reverse string compare
@@ -217,6 +218,7 @@ function StatusBadge({
   runState,
   failed,
   failureReason,
+  failureUserMessage,
   currentAgentName,
   buildStepIndex,
   buildStepTotal,
@@ -225,6 +227,8 @@ function StatusBadge({
   runState: RunLaneState;
   failed: boolean;
   failureReason?: string;
+  /** Tier 1 plain-English failure message shown as a subtitle below the badge. */
+  failureUserMessage?: string;
   currentAgentName?: string;
   buildStepIndex?: number;
   buildStepTotal?: number;
@@ -232,10 +236,17 @@ function StatusBadge({
 }) {
   if (failed || runState === "terminal") {
     return (
-      <span className="inline-flex items-center gap-[7px] rounded-[10px] border border-status-failed-border bg-status-failed-fill px-3 py-2 font-sans text-[11.5px] font-semibold leading-none text-status-failed">
-        <X aria-hidden className="h-[13px] w-[13px]" strokeWidth={2.2} />
-        Run failed{failureReason ? ` · ${failureReason}` : ""}
-      </span>
+      <>
+        <span className="inline-flex items-center gap-[7px] rounded-[10px] border border-status-failed-border bg-status-failed-fill px-3 py-2 font-sans text-[11.5px] font-semibold leading-none text-status-failed">
+          <X aria-hidden className="h-[13px] w-[13px]" strokeWidth={2.2} />
+          Run failed{failureReason ? ` · ${failureReason}` : ""}
+        </span>
+        {failureUserMessage && (
+          <p className="mt-0.5 font-sans text-[11px] leading-snug text-ink-500">
+            {failureUserMessage}
+          </p>
+        )}
+      </>
     );
   }
 
@@ -293,6 +304,9 @@ export interface RunHeaderProps {
   /** Live failure LOCATION (first failed agent name) appended to the failed badge;
    *  ND-D live/generic, never the mock's fixed text. Absent → bare "Run failed". */
   failureReason?: string;
+  /** Normalized failure code from PipelineRunState.failureCode — drives the Tier 1
+   *  user-message subtitle below the "Run failed" badge. Absent → no subtitle. */
+  failureCode?: string;
   /** The active run id within the family — the Version menu's tag source. */
   activeRunId?: string | null;
   /** The active version label, e.g. "v3" — the Version-button / chip text. */
@@ -341,6 +355,7 @@ export function RunHeader({
   runState,
   failed = false,
   failureReason,
+  failureCode,
   activeRunId = null,
   versionLabel,
   selectedRef = null,
@@ -363,6 +378,10 @@ export function RunHeader({
   const isFailed = failed || runState === "terminal";
   const isRunning = runState === "building" || runState === "clarify" || runState === "gate";
   const isSettled = !isFailed && !isRunning; // complete / idle-with-content
+
+  // Derive Tier 1 user message for the failed badge subtitle.
+  const failureUserMsg =
+    isFailed && failureCode ? getUserMessage(failureCode) : undefined;
 
   // ── Version tags — fetched for EVERY run state (task U1), not settled-only,
   // so the menu can render "next to the status badge" while running/failed
@@ -525,6 +544,7 @@ export function RunHeader({
           runState={runState}
           failed={isFailed}
           failureReason={failureReason}
+          failureUserMessage={failureUserMsg}
           currentAgentName={currentAgentName}
           buildStepIndex={buildStepIndex}
           buildStepTotal={buildStepTotal}

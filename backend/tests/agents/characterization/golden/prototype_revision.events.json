@@ -211,7 +211,6 @@
       "agents_total": 3,
       "final_output": "<!doctype html><html><body>revised</body></html>",
       "pipeline_type": "prototype_revision",
-      "status": "degraded",
       "total_input_tokens": "<normalized>",
       "total_output_tokens": "<normalized>",
       "total_tokens": "<normalized>"

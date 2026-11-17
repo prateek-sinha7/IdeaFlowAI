@@ -25,6 +25,7 @@ import type { ClarifyResponse } from "@/components/chat/InlineClarifyActions";
 import { ClarificationsCard } from "./ClarificationsCard";
 import { formatDuration, formatTokenCount, sumWorkers } from "@/lib/runStats";
 import { routes } from "@/lib/routes";
+import { getUserMessage } from "@/lib/failure-messages";
 
 // ─── Divert-link spine row — same source/target relationship
 // RevisionFamilyView's DivertBadge renders as a Run-History breadcrumb,
@@ -467,6 +468,16 @@ export function StepsOverviewSpine({
     : (pipelineState?.degraded) ? "Run degraded"
     : "Run complete";
 
+  // Tier 1 failure subtitle shown directly below the statusLabel in the spine header.
+  const spineFailureCode = failed
+    ? pipelineState?.failureCode
+    : pipelineState?.degraded
+      ? pipelineState?.failureCode
+      : undefined;
+  const spineFailureSubtitle = spineFailureCode
+    ? getUserMessage(spineFailureCode)
+    : undefined;
+
   const hasClarify = !!(clarifyQuestions && clarifyQuestions.length > 0 && onSubmitClarify);
   const gateActive = !!laneGate && isRunning && !!onApproveGate;
   const phase =
@@ -554,7 +565,17 @@ export function StepsOverviewSpine({
               </span>
             </>
           ) : (
-            <span className="text-[15px] font-semibold text-ink-900 font-[Manrope]">{statusLabel}</span>
+            <div className="flex flex-col gap-0.5">
+              <span className="text-[15px] font-semibold text-ink-900 font-[Manrope]">{statusLabel}</span>
+              {spineFailureSubtitle && (
+                <span
+                  className="text-[11px] text-ink-500 font-sans leading-snug overflow-hidden text-ellipsis whitespace-nowrap"
+                  title={pipelineState?.failureReason ?? spineFailureSubtitle}
+                >
+                  {spineFailureSubtitle}
+                </span>
+              )}
+            </div>
           )}
           <span className="flex-1" />
           {metaBits && <span className="text-[11.5px] text-ink-300 font-mono">{metaBits}</span>}

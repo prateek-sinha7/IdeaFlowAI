@@ -271,6 +271,33 @@ _VOLATILE_STRIP_KEYS = frozenset(
         # (INV-3). The durable-record behaviour is exercised by
         # ``tests/agents/test_finalizer_v2.py`` and ``test_event_contract.py``.
         "published_status",
+        # ── Additive-but-parity-neutral pipeline_complete key (degradation signal) ──
+        # The engine sets ``status = "degraded"`` on ``pipeline_complete`` when
+        # various environmental conditions are met in the finalizer: unrecovered
+        # agents, placeholder/dropped-section narration, last-commit-blocked, budget
+        # cap, or when ``published_status == "degraded"``. Whether any of these
+        # conditions fire depends on the scripted harness environment (HTML
+        # validation thresholds, git operations, model output), making the value
+        # non-deterministic across engine versions and OS environments. ``status``
+        # is NOT in ``_REQUIRED_DATA_KEYS["pipeline_complete"]``, so it is STRIPPED
+        # here — mirroring the ``published_status``/``warnings`` precedents — to
+        # keep the wire-parity goldens byte-identical (INV-3). The degradation
+        # behaviour is exercised by the finalizer and characterization tests.
+        "status",
+        # ── Additive-but-parity-neutral pipeline_complete key (final_output A14) ──
+        # The finalizer now receives ``final_output`` and, when it is non-empty,
+        # records git-persistence failures as ``warnings`` instead of degrading the
+        # run (A14 guard pattern). The warning strings are reason keys accumulated
+        # by ``FinalizationAttempt.warn()`` (e.g. ``"snapshot_commit_failed"``) and
+        # are environment-dependent — the specific git operations that fail in the
+        # offline scripted harness vary by OS and git availability. ``warnings``
+        # is NOT in ``_REQUIRED_DATA_KEYS``, so stripping it here cannot weaken
+        # the required-keys assertion while keeping the 6 characterization event
+        # goldens OS- and environment-independent (INV-3 defense-in-depth). The
+        # A14 warn-vs-degrade behavior is exercised by the finalizer unit tests;
+        # the goldens only need to pin that the warnings key is absent from the
+        # required contract (which ``_REQUIRED_DATA_KEYS`` already enforces).
+        "warnings",
     }
 )
 

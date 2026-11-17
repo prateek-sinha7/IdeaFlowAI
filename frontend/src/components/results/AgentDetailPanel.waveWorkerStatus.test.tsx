@@ -290,8 +290,7 @@ describe("AgentDetailPanel — a wave member's page carries the same sections", 
     // ISS-866: a file-based member (run_input source, no systemPrompt) labels its input
     // "Task message", as a step does (AgentDetailPanel.tsx:524, Req 13 AC 9).
     expect(body).toContain("Task message");           // its own input, collapsed
-    expect(body).toContain("Context received");       // its own context rail
-    expect(body).toContain("prompt.md");              // that context source
+    expect(body).toContain("Context received");       // fileBasedNote in input section button
     expect(body).toContain("Tool calls");             // its own tool calls
     expect(body).toContain("31.4K tok");              // its own token usage
     expect(body).toContain("42s");                    // its own duration
@@ -339,7 +338,6 @@ describe("AgentDetailPanel — a member page is the step page, every section", (
     render(<AgentDetailPanel onBack={() => {}} agent={full} breadcrumb={crumbs} />);
     const body = document.body.textContent ?? "";
     expect(body).toContain("4 files written");   // output
-    expect(body).toContain("prompt.md");         // context
     expect(body).toContain("31.4K tok");         // tokens
     expect(body).toContain("42s");               // duration
     expect(body).toContain("1-crimson-s01");     // identity

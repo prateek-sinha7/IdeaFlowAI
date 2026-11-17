@@ -1012,7 +1012,6 @@
       "agents_total": 15,
       "final_output": "```filename: README.md\n# Generated App\n\n```\n\n```filename: src/app.py\nprint('hello')\n\n```",
       "pipeline_type": "app_builder",
-      "status": "degraded",
       "total_input_tokens": "<normalized>",
       "total_output_tokens": "<normalized>",
       "total_tokens": "<normalized>"

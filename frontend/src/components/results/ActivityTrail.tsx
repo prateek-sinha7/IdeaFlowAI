@@ -7,10 +7,11 @@
  * without reading. Each pill carries an icon and a verb in one muted tone, so
  * the trail never competes with the step's content; only a failed call gets a
  * pale colour of its own. Hover a pill for the files it touched. A live step
- * shows full labels and may wrap; a settled step summarises to icons on one line.
+ * shows full labels and may wrap; a settled step shows all pills reversed
+ * (latest first) in a horizontally-scrollable row.
  */
 
-import { useLayoutEffect, useRef, useState, type ComponentType } from "react";
+import { type ComponentType } from "react";
 import {
   Brain,
   ChevronRight,
@@ -71,52 +72,21 @@ export function ActivityTrail({
   status?: string;
   /** Icon and count only; the verb lives in the tooltip and the aria-label.
    *  Unset = by status: a LIVE step shows full labels and may wrap, because it
-   *  is what you are watching; a settled step summarises to icons on one line. */
+   *  is what you are watching; a settled step shows icons in a scrollable row. */
   iconsOnly?: boolean;
-  /** Fixed pill budget (tests, or a caller that knows its width). Unset = fit
-   *  the row: the trail measures itself and folds until it is one line. */
+  /** Fixed pill budget — fold any runs beyond this into a "+N" pill.
+   *  Primarily for tests or callers that need a hard cap. */
   maxPills?: number;
 }) {
   const isLive = status === "running" || status === "thinking";
   const iconsOnly = iconsOnlyProp ?? !isLive;
   const wraps = !iconsOnly; // a live, labelled trail may take a second line
-  const ref = useRef<HTMLSpanElement>(null);
-  // Fit-to-width: start with everything, and while the row overflows, drop one
-  // pill and let the fold absorb it. A resize resets and the loop runs again.
-  const [budget, setBudget] = useState<number>(maxPillsProp ?? Number.MAX_SAFE_INTEGER);
-  // Each shrink is a synchronous re-render; React aborts after ~50 nested updates
-  // (error #185). A long trail (a lead with ~190 tool calls) used to shrink one pill
-  // per pass and hit that limit. Shrink in proportion to the overflow instead, and
-  // cap the passes per measurement.
-  const passes = useRef(0);
-  useLayoutEffect(() => {
-    if (maxPillsProp !== undefined || wraps) return;
-    const el = ref.current;
-    if (!el) return;
-    if (el.scrollWidth > el.clientWidth + 1 && budget > 3 && passes.current < 12) {
-      passes.current += 1;
-      const cur = Math.min(budget, runs.length);
-      const scaled = Math.floor((cur * el.clientWidth) / el.scrollWidth);
-      setBudget(Math.max(3, Math.min(cur - 1, scaled)));
-    }
-  });
-  useLayoutEffect(() => {
-    if (maxPillsProp !== undefined || typeof ResizeObserver === "undefined") return;
-    const el = ref.current;
-    if (!el) return;
-    const ro = new ResizeObserver(() => {
-      passes.current = 0;
-      setBudget(Number.MAX_SAFE_INTEGER);
-    });
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, [maxPillsProp]);
+
   if (runs.length === 0) return null;
 
-  // One line, always. A long trail keeps its ends and its heavy pills (the
-  // `read ×66` is the story of the step) and folds the light ones between them
-  // into "+N" pills; each fold's tooltip lists exactly what it hides.
-  const MAX_PILLS = wraps ? Number.MAX_SAFE_INTEGER : Math.max(3, budget);
+  // Fold when an explicit maxPills cap is set. In settled/scrollable mode
+  // without a cap, all pills are shown and the row scrolls horizontally.
+  const MAX_PILLS = maxPillsProp ?? Number.MAX_SAFE_INTEGER;
   type Cell = { run: ActivityRun; hidden?: ActivityRun[] };
   let cells: Cell[] = runs.map((run) => ({ run }));
   if (runs.length > MAX_PILLS) {
@@ -134,22 +104,25 @@ export function ActivityTrail({
     });
   }
 
+  // Settled mode: show latest activity first so the most recent action is at
+  // the left edge of the scrollable strip.
+  const displayCells = iconsOnly ? [...cells].reverse() : cells;
+
   return (
     <span
-      ref={ref}
       data-testid="activity-trail"
       aria-label={`Activity: ${runs
         .map((r) => (r.count > 1 ? `${r.kind} ${r.count} times` : r.kind))
         .join(", then ")}`}
-      className={`flex min-w-0 max-w-full items-center ${wraps ? "flex-wrap gap-y-1" : "overflow-hidden whitespace-nowrap"} ${className}`}
+      className={`flex min-w-0 items-center ${wraps ? "flex-wrap gap-y-1 max-w-full" : "overflow-x-auto whitespace-nowrap w-full"} ${className}`}
     >
-      {cells.map(({ run, hidden }, i) => {
-        const isLast = i === cells.length - 1;
+      {displayCells.map(({ run, hidden }, i) => {
+        const isLast = i === displayCells.length - 1;
         if (hidden) {
           const summary = hidden.map((h) => (h.count > 1 ? `${h.kind} ×${h.count}` : h.kind)).join(" › ");
           return (
             <span key={`more-${i}`} className="inline-flex items-center">
-              <ChevronRight aria-hidden className="mx-[1px] h-3 w-3 flex-none text-line-faint opacity-70" />
+              <ChevronRight aria-hidden className="mx-2 h-3 w-3 flex-none text-line-faint opacity-70" />
               <span
                 data-testid="activity-more"
                 title={summary}

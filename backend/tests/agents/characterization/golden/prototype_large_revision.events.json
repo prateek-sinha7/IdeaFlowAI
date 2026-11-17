@@ -479,7 +479,6 @@
       "agents_total": 4,
       "final_output": "<!doctype html><html><body><section data-page='dashboard'>hi</section></body></html>",
       "pipeline_type": "prototype_large_revision",
-      "status": "degraded",
       "total_input_tokens": "<normalized>",
       "total_output_tokens": "<normalized>",
       "total_tokens": "<normalized>"

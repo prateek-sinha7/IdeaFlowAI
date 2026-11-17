@@ -99,6 +99,11 @@ class FinalizationRecord:
     # Degradation reason (stored in non_chainable_reason when degraded)
     degraded_reason: str | None = None
 
+    # Git-persistence warnings (non-persisted): populated when final_output existed
+    # but a git step (snapshot commit, tag push, ref conflict, excluded files) failed.
+    # Surfaced on pipeline_complete.warnings by the terminal block; never written to DB.
+    warnings: list[str] = field(default_factory=list, compare=False)
+
     # Optional human-readable note for operator recovery (departure N1 logging)
     _unpersisted: bool = field(default=False, repr=False, compare=False)
 
@@ -141,6 +146,7 @@ def _enforce_chainability_invariant(record: FinalizationRecord) -> FinalizationR
             tag_state=record.tag_state,
             chain_context_installed=record.chain_context_installed,
             degraded_reason=record.degraded_reason,
+            warnings=record.warnings,
             _unpersisted=record._unpersisted,
         )
     return record
@@ -334,6 +340,7 @@ def persist_finalization_record_safe(
             tag_state=effective.tag_state,
             chain_context_installed=effective.chain_context_installed,
             degraded_reason=effective.degraded_reason,
+            warnings=effective.warnings,
             _unpersisted=True,
         )
 

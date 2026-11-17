@@ -159,6 +159,13 @@ tree-sitter-typescript==0.23.2
 # deliberate upgrade rather than folded in here.
 langchain-mcp-adapters==0.2.2
 mcp==1.30.0
+# pywin32 is required by mcp on Windows (mcp/os/win32/utilities.py imports
+# pywintypes at module load; mcp requires >=310 for Python<3.14).
+# Declared with a sys_platform marker in pyproject.toml so it is not installed
+# on Linux CI or in the Docker image; listed here without the marker to satisfy
+# test_dependency_lock_contracts.py which strips environment markers when comparing
+# pyproject.toml entries to this file.
+pywin32==312
 sse-starlette==3.0.2
 # Document-text extraction — used by _extract_docx / _extract_pptx / _extract_pdf
 # in app/api/file_extract.py (single extraction impl, INV-12).  These were absent
