@@ -10,7 +10,7 @@ import type {
   SessionDetail,
 } from "@/types/workflowBuilder";
 
-import { EXAMPLE_PROMPTS } from "./BuilderEmptyState";
+import { EXAMPLE_PROMPT } from "./BuilderEmptyState";
 import { resetBuilderHandoff } from "./builderHandoff";
 
 const mocks = vi.hoisted(() => ({
@@ -254,9 +254,43 @@ describe("BuilderComposerHost", () => {
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(box()).toHaveFocus();
     expect(screen.getByRole("heading", { name: "What should this workflow do?" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: EXAMPLE_PROMPTS[0] })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: EXAMPLE_PROMPT })).toBeInTheDocument();
+    expect(screen.queryByText("Recent conversations")).toBeNull();
     expect(lastBinding()?.panelOpen).toBe(true);
-    await waitFor(() => expect(mocks.listSessions).toHaveBeenCalled());
+    expect(mocks.listSessions).not.toHaveBeenCalled();
+  });
+
+  it("listsNoConversationsAndFetchesNothing_whenTheMenuOpensOnANewWorkflow", async () => {
+    const user = userEvent.setup();
+    mocks.listSessions.mockResolvedValue({
+      items: [sessionDetail({ id: "other", title: "Other workflow chat" })],
+      next_cursor: null,
+    });
+    renderHost("enterprise");
+    await openPanel(user);
+
+    await user.click(screen.getByRole("button", { name: "Conversations" }));
+
+    expect(await screen.findByText("No conversations yet.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Other workflow chat" })).toBeNull();
+    expect(mocks.listSessions).not.toHaveBeenCalled();
+  });
+
+  it("listsOnlyThisWorkflowsConversations_whenTheMenuOpensOnAnEditRoute", async () => {
+    const user = userEvent.setup();
+    mocks.pathname = "/workflows/wf-1/edit";
+    mocks.listSessions.mockResolvedValue({
+      items: [sessionDetail({ id: "s9", title: "Edit chat", mode: "edit", workflow_id: "wf-1" })],
+      next_cursor: null,
+    });
+    renderHost("enterprise");
+    await openPanel(user);
+
+    await user.click(screen.getByRole("button", { name: "Conversations" }));
+
+    expect(await screen.findByRole("button", { name: "Edit chat" })).toBeInTheDocument();
+    expect(mocks.listSessions).toHaveBeenCalledTimes(1);
+    expect(mocks.listSessions).toHaveBeenCalledWith("token", { limit: 20, workflowId: "wf-1" });
   });
 
   it("collapsesThePanel_whenTheAiButtonIsClickedWhileThePanelIsOpen", async () => {
@@ -275,9 +309,9 @@ describe("BuilderComposerHost", () => {
     renderHost("enterprise");
     await openPanel(user);
 
-    await user.click(screen.getByRole("button", { name: EXAMPLE_PROMPTS[1] }));
+    await user.click(screen.getByRole("button", { name: EXAMPLE_PROMPT }));
 
-    expect(box()).toHaveValue(EXAMPLE_PROMPTS[1]);
+    expect(box()).toHaveValue(EXAMPLE_PROMPT);
     expect(box()).toHaveFocus();
     expect(mocks.createSession).not.toHaveBeenCalled();
     expect(mocks.sendMessage).not.toHaveBeenCalled();

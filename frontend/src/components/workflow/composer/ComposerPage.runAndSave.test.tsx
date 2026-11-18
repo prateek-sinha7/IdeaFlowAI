@@ -702,7 +702,9 @@ describe("ComposerPage — Save", () => {
 
     await user.click(screen.getByRole("button", { name: /Save workflow/ }));
     await waitFor(() => expect(mockSaveUserWorkflow).toHaveBeenCalledTimes(1));
+    // Once saved, the row exists, so Save opens the "Save workflow" / "Save as new" menu.
     await user.click(await screen.findByRole("button", { name: /Saved|Save workflow/ }));
+    await user.click(screen.getByRole("menuitem", { name: "Save workflow" }));
     await waitFor(() => expect(mockSaveUserWorkflow).toHaveBeenCalledTimes(2));
 
     const [, secondId, secondPayload] = mockSaveUserWorkflow.mock.calls[1] as [
@@ -724,9 +726,38 @@ describe("ComposerPage — Save", () => {
     });
 
     await user.click(screen.getByRole("button", { name: /Save workflow/ }));
+    await user.click(screen.getByRole("menuitem", { name: "Save workflow" }));
     await waitFor(() => expect(mockSaveUserWorkflow).toHaveBeenCalled());
 
     expect(mockSaveUserWorkflow.mock.calls[0][1]).toBe("wf-7");
+  });
+
+  it("offers Save as new for a saved workflow without the AI Workflow Builder", async () => {
+    const user = userEvent.setup();
+    mockSaveUserWorkflow.mockResolvedValue({ id: "wf-8" });
+    renderComposer({
+      initialAgentIds: ["alpha-agent"],
+      initialName: "Flow",
+      initialUserWorkflowId: "wf-7",
+    });
+
+    await user.click(screen.getByRole("button", { name: /Save workflow/ }));
+    await user.click(screen.getByRole("menuitem", { name: "Save as new" }));
+    await waitFor(() => expect(mockSaveUserWorkflow).toHaveBeenCalled());
+
+    // Save as new never sends the linked row's id, so it creates a row.
+    expect(mockSaveUserWorkflow.mock.calls[0][1]).toBeUndefined();
+  });
+
+  it("shows a single Save button with no Save as new before the first save", async () => {
+    const user = userEvent.setup();
+    mockSaveUserWorkflow.mockReturnValue(new Promise(() => {}));
+    renderComposer({ initialAgentIds: ["alpha-agent"], initialName: "Flow" });
+
+    const save = screen.getByRole("button", { name: /Save workflow/ });
+    expect(save).not.toHaveAttribute("aria-haspopup");
+    await user.click(save);
+    expect(screen.queryByRole("menuitem", { name: "Save as new" })).not.toBeInTheDocument();
   });
 
   it("disables the button and shows 'Saving…' while the request is in flight", async () => {

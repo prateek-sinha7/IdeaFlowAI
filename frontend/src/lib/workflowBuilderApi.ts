@@ -111,14 +111,18 @@ export function createSession(
   return requestJson(`${BASE_PATH}/sessions`, init(token, "POST", body));
 }
 
-/** List own sessions, newest activity first. */
+/**
+ * List own sessions, newest activity first. `workflowId` narrows the list to
+ * the sessions linked to that saved workflow.
+ */
 export function listSessions(
   token: string,
-  params: { cursor?: string | null; limit?: number } = {},
+  params: { cursor?: string | null; limit?: number; workflowId?: string | null } = {},
 ): Promise<SessionPage> {
   const query = new URLSearchParams();
   if (params.cursor) query.set("cursor", params.cursor);
   if (params.limit !== undefined) query.set("limit", String(params.limit));
+  if (params.workflowId) query.set("workflow_id", params.workflowId);
   const queryString = query.toString();
   const suffix = queryString ? `?${queryString}` : "";
   return requestJson(`${BASE_PATH}/sessions${suffix}`, init(token, "GET"));

@@ -291,7 +291,8 @@ export function BuilderComposerHost({
       : recalledChoice,
   });
   const available = entitled && picker.state.status === "ready";
-  const sessionList = useBuilderSessionList();
+  // The menu lists only this workflow's conversations; a new workflow lists none.
+  const sessionList = useBuilderSessionList(parseEditWorkflowId(pathname));
   const refreshSessions = sessionList.refresh;
 
   // --- Refs: the latest values for callbacks that must stay stable --------------------
@@ -665,12 +666,6 @@ export function BuilderComposerHost({
     dispatch({ type: "panel_set", open: true });
   }, []);
 
-  // An empty panel lists the recent conversations: load the first page whenever it opens.
-  const emptyPanelOpen = available && state.panelOpen && state.load.kind === "none";
-  useEffect(() => {
-    if (emptyPanelOpen) void refreshSessions();
-  }, [emptyPanelOpen, refreshSessions]);
-
   const goToSession = useCallback(
     (id: string, workflowId: string | null) => {
       startGenerationRef.current += 1;
@@ -947,11 +942,7 @@ export function BuilderComposerHost({
                 </Button>
               </div>
             ) : showEmptyState ? (
-              <BuilderEmptyState
-                onPickExample={pickExample}
-                recentSessions={sessionList.items}
-                onSelectSession={requestOpenSession}
-              />
+              <BuilderEmptyState onPickExample={pickExample} />
             ) : (
               <BuilderTranscript
                 messages={session?.messages ?? []}

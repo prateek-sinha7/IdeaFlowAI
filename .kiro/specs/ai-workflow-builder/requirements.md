@@ -2,6 +2,8 @@
 
 > **Amended 2026-11-10 (entry flow and panel layout).** The Builder_Popup is removed. Both entry controls now open the Builder_Panel, whose empty state took over the popup's content (example prompts, recent conversations) and whose message box starts the Session. The panel docks under the Composer header at 360 px from a 1280 px viewport. Changed: the In scope list, the Glossary, Requirement 1 (criteria 3 to 12), Requirement 3 (criteria 1 and 3), Requirement 4 (criterion 11), Requirement 6 (criteria 1 to 6 and 8), Requirement 12 (criteria 1 and 3), Requirement 14 (criteria 1 and 6 to 8) and Requirement 48 (criterion 4). ADR-0061 in `.knowledge/` records the change.
 
+> **Amended 2026-11-17 (empty state and workflow-scoped history).** The Empty_State shows one example prompt and no conversation list. The Builder_Panel header dropdown lists only the Sessions linked to the workflow on the Canvas: none on `/workflows/new`, and on `/workflows/{id}/edit` only the Sessions whose linked workflow id is `{id}`. `GET /sessions` takes an optional `workflow_id` filter for this. Changed: the Glossary (Empty_State), Requirement 1 (criteria 6 and 11) and Requirement 12 (criteria 1 and 3, new criterion 10).
+
 ## Introduction
 
 Users build and edit workflows on `/workflows/new` and `/workflows/{id}/edit` by chatting with a dedicated deep agent, the Builder_Agent. The Builder_Agent follows the `velocity-workflow-creator` skill, reads the skill's guides, runs the skill's lookup and validation scripts through a tool, and writes a workflow manifest. The chat panel shows live progress over SSE. The Canvas renders each validated draft automatically, and the user saves it through the existing save flow. The same panel edits the workflow afterwards. The user picks the LLM and its thinking level in the panel.
@@ -83,7 +85,7 @@ The design must not pick up any of these:
 - **Composer**: `ComposerPage` on `/workflows/new` and `/workflows/{id}/edit`, with its header, Save, Run once, config rail (`CanvasConfigRail`), summary rail (`SummaryRail`), agent library (`AgentLibrary`), Simple view and Canvas view.
 - **Canvas**: The Composer in Canvas view (`CanvasView`, `CanvasNode`, `CanvasConfigRail`).
 - **Builder_Panel**: The left-side chat panel on the composer routes, under the Composer header and left of the Canvas. Its code lives outside `components/workflow`; the Composer only places the element the host renders. With no Session it shows its Empty_State.
-- **Empty_State**: What the Builder_Panel shows before a Session exists: a short introduction, example prompts and recent conversations, above the panel's message box and the Model and Thinking picker. It replaced the earlier popup (Q-01; amended 2026-11-10).
+- **Empty_State**: What the Builder_Panel shows before a Session exists: a short introduction and one example prompt, above the panel's message box and the Model and Thinking picker. It replaced the earlier popup (Q-01; amended 2026-11-10; amended 2026-11-17: one example, no conversation list).
 - **Session_Stream_Hook**: The frontend hook that reads the Session_Stream. It lives outside `components/workflow` and is separate from `RunConnectionProvider`.
 - **Unsaved_Work_Guard**: The Composer's existing ISS-275 guard that compares name and roster against a baseline.
 - **Busy_Modal**: The frontend's existing modal for a `host_capacity_exhausted` response.
@@ -152,12 +154,12 @@ Amended 2026-11-10: criteria 3 to 11 replace the earlier popup flow, and criteri
 3. WHILE the Builder_Panel is collapsed, WHEN the user clicks the Composer AI button, THE Composer SHALL open the Builder_Panel beside the Canvas it already shows: on the URL's Session when the URL carries `?ai=<sessionId>`, and otherwise with the Empty_State. THE Composer SHALL NOT replace an open workflow's Canvas with an empty one. (FR-01.2, FR-02.6, FR-02.7, Q-49)
 4. WHEN the user clicks "Build with AI" on the Saved_Workflows_Page, THE Builder SHALL open a new Canvas on `/workflows/new` with the Builder_Panel open on its Empty_State, and SHALL NOT create a Session. (FR-01.3)
 5. WHILE the Builder_Panel is open, WHEN the user clicks the Composer AI button, THE Composer SHALL collapse the Builder_Panel. (FR-01.3, FR-02.2)
-6. THE Empty_State SHALL show a short introduction, 3 to 4 example prompts and the user's recent builder conversations (Requirement 12), with the panel's message box and the Model and Thinking-level picker (Requirement 6) below it. WHEN the user selects an example prompt, THE Builder_Panel SHALL put its text in the message box and SHALL NOT send it. (FR-01.3, Q-01 option c, G-25)
+6. THE Empty_State SHALL show a short introduction and exactly one static example prompt, and SHALL NOT list conversations, with the panel's message box and the Model and Thinking-level picker (Requirement 6) below it. WHEN the user selects the example prompt, THE Builder_Panel SHALL put its text in the message box and SHALL NOT send it. (FR-01.3, Q-01 option c, G-25)
 7. WHEN the user sends the first message from the Empty_State, THE Builder_Panel SHALL show the message in the transcript at once, SHALL accept no further send until that message's send has settled, and SHALL put the text back in the message box if the Session cannot be created. (FR-01.4, FR-03.3)
 8. WHEN the user sends the first message from the Empty_State on `/workflows/new`, THE Builder SHALL create a Session in create mode with the Canvas as it is, and change the URL to `/workflows/new?ai=<sessionId>`. (FR-02.6, Q-48, Q-49)
 9. WHEN the user sends the first message from the Empty_State on `/workflows/{id}/edit`, THE Builder SHALL create a Session seeded with that workflow, keep that workflow on the Canvas, and change the URL to `/workflows/{id}/edit?ai=<sessionId>`. (FR-01.4, Q-12, Q-49)
 10. WHEN the Session_Stream_Hook has opened the Session_Stream for a Session created from the Empty_State, THE Builder_Panel SHALL send the first message exactly once, with the model and effort selected when the user sent it. (FR-01.4, FR-05.5, FR-16.8, FR-22.6)
-11. WHEN the user selects a recent conversation in the Empty_State, THE Builder SHALL open that Session as described in Requirement 12. (FR-01.5, FR-11.3)
+11. *(Removed 2026-11-17: the Empty_State lists no conversations. Earlier conversations open from the Builder_Panel header dropdown, Requirement 12.)*
 12. IF the Session_Stream closes for good before the first message is sent, THEN THE Builder_Panel SHALL put the first message back in the message box. (FR-12.2)
 
 ### Requirement 2: Access control and authorisation
@@ -323,15 +325,16 @@ Amended 2026-11-10: criteria 3 to 11 replace the earlier popup flow, and criteri
 
 #### Acceptance Criteria
 
-1. WHEN the Empty_State opens or the Builder_Panel header dropdown opens, THE Builder SHALL list the signed-in user's Sessions newest first, each labelled with its title. (FR-11.1, FR-11.2, Q-11)
+1. WHEN the Builder_Panel header dropdown opens on `/workflows/{id}/edit`, THE Builder SHALL list the signed-in user's Sessions linked to workflow `{id}`, newest first, each labelled with its title. WHEN it opens on `/workflows/new`, THE Builder SHALL list no Sessions and SHALL NOT request the list. (FR-11.1, FR-11.2, Q-11; amended 2026-11-17)
 2. WHEN the Builder_API stores a Session's first user message, THE Builder_API SHALL generate the Session's title from that message. (FR-11.2, Q-11)
-3. WHEN the user selects a Session in the Empty_State or the Builder_Panel dropdown, THE Builder SHALL load the Session's transcript and render the Session's latest Draft on the Canvas. (FR-11.3, FR-01.5, J6)
+3. WHEN the user selects a Session in the Builder_Panel dropdown, THE Builder SHALL load the Session's transcript and render the Session's latest Draft on the Canvas. (FR-11.3, FR-01.5, J6)
 4. IF the selected Session is linked to a saved workflow, THEN THE Builder SHALL render the saved row on the Canvas instead of the latest Draft. (FR-11.3, Q-49)
 5. IF the linked saved row has changed since the Session's latest Draft, THEN THE Builder_Panel SHALL show a note in the chat saying so. (FR-11.3, Q-49)
 6. WHEN a client requests a Session, THE Builder_API SHALL return the Session's title, mode, linked workflow id, model, effort, Target_Trust and Skill_Hash; its transcript; its latest Draft; its latest Unproposed_Revision when that revision's number is higher than the latest Draft's; and a snapshot of any running Turn (Stage, activity so far, start time). (FR-26.1, FR-21.1, FR-24.5)
 7. WHEN the user selects delete on a Session, THE Builder SHALL show a confirmation prompt and SHALL NOT delete the Session before the user confirms. (FR-11.4, Q-11)
 8. IF the user dismisses the confirmation prompt, THEN THE Builder SHALL leave the Session unchanged. (FR-11.4, Q-41)
 9. WHEN the user confirms deletion of a conversation, THE Builder SHALL delete the Session as described in Requirement 31. (FR-11.4, Q-11, Q-41)
+10. WHEN a client lists Sessions with a `workflow_id`, THE Builder_API SHALL return only the caller's Sessions whose linked workflow id equals it, with the same order and pagination as the unfiltered list, and SHALL NOT return another user's Sessions. (added 2026-11-17)
 
 ### Requirement 13: Errors and recovery in the panel
 

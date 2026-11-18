@@ -197,7 +197,7 @@ export class DashboardPage {
   // ── full-page Composer (mainView="composer") ─────────────────────────────────
   // Since 41-04 (e1490fad) the `custom` workflow ("Compose a custom workflow"
   // card, My Workflows "New workflow", launching a saved custom row) opens the
-  // full-page ComposerPage at /workflows/new|/workflows/{id}/run — NOT the
+  // full-page ComposerPage at /workflows/new|/workflows/{id}/edit — NOT the
   // IdeaInputPage brief screen. It has no <h1>; these are its role/label anchors.
 
   /** Open the full-page Composer from Home via the "Compose a custom workflow"

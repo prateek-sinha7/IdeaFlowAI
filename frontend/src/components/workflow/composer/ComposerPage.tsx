@@ -312,10 +312,14 @@ export function ComposerPage({
   const aiCopyStem = aiCopyName(initialName ?? "");
   const [linkedRowIsCustom, setLinkedRowIsCustom] = useState(false);
   const linkedBaseIsCustom = linkedRowIsCustom || builder?.linkedBaseIsCustom !== false;
-  // Req 10.10: a linked row with a non-custom base gets only "Save as new". Req 10.6: a
-  // linked custom row keeps Save (PATCH) and shows "Save as new" beside it (POST).
-  const builderSaveAsNewOnly = !!builder && !!userWorkflowId && !linkedBaseIsCustom;
-  const builderSaveAsNewBeside = !!builder && !!userWorkflowId && linkedBaseIsCustom;
+  // "Save as new" is offered once the workflow exists in the database (a linked row
+  // id), with or without the AI Workflow Builder. Req 10.10: a linked row with a
+  // non-custom base gets only "Save as new"; only the builder binding reports that
+  // base, so without it the row counts as custom. Req 10.6: a linked custom row keeps
+  // Save (PATCH) and shows "Save as new" beside it (POST). An unsaved workflow keeps
+  // its single Save button.
+  const builderSaveAsNewOnly = !!userWorkflowId && !linkedBaseIsCustom;
+  const builderSaveAsNewBeside = !!userWorkflowId && linkedBaseIsCustom;
   const [name, setName] = useState(() =>
     builder?.linkedBaseIsCustom === false && initialUserWorkflowId ? aiCopyStem : (initialName ?? ""),
   );

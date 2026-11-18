@@ -67,8 +67,8 @@ async function mockUserWorkflows(page: Page) {
     const idMatch = url.match(/\/api\/user-workflows\/([^/?]+)/);
 
     // GET /api/user-workflows/{id} — the single row. Launching a saved row pushes
-    // /workflows/{id}/run, whose page.tsx effect fetches the row by id to pick the
-    // surface (composer vs input); answering it with the LIST sent that effect a
+    // /workflows/{id}/run (or /edit for a Composer row), whose page.tsx effect
+    // fetches the row by id to load it; answering it with the LIST sent that effect a
     // row-less payload and bounced the launch to the default brief screen.
     if (method === "GET" && idMatch) {
       const row = rows.find((r) => r.id === idMatch[1]);
@@ -214,12 +214,13 @@ test.describe("TS-Z2 — saved workflows (enterprise: compose → Save → appea
     //    reachable for this custom row (which would otherwise seed NO agents →
     //    "Add agents first"). Re-scope the card locator by the RENAMED name. ──
     // RE-ANCHORED: since 41-04 (e1490fad) a saved `custom` row launches into the
-    // full-page Composer PRE-LOADED (handleLaunchSaved → mainView "composer",
-    // /workflows/{id}/run), not IdeaInputPage — there is no "Advanced … N agents"
-    // affordance or "Run workflow" button there.
+    // full-page Composer PRE-LOADED (handleLaunchSaved → mainView "composer"),
+    // not IdeaInputPage — there is no "Advanced … N agents" affordance or
+    // "Run workflow" button there. A Composer row has one URL, its edit route,
+    // whether opened through Run or Edit.
     const renamedRowEl = page.locator(".group", { has: page.getByText("Renamed workflow", { exact: true }) });
     await renamedRowEl.getByRole("button", { name: /Run workflow/ }).click();
-    await page.waitForURL(/\/workflows\/saved-1\/run$/);
+    await page.waitForURL(/\/workflows\/saved-1\/edit$/);
     await expect(dashboard.composerEyebrow()).toBeVisible();
 
     // Pre-loaded proof (the load-bearing 21-03 change): the saved agents seed the

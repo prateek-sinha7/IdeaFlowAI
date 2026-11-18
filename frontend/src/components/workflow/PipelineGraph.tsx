@@ -30,8 +30,14 @@ export function PipelineGraph({
 
   // Auto-scroll to active agent
   useEffect(() => {
-    if (activeNodeRef.current && scrollRef.current) {
-      activeNodeRef.current.scrollIntoView({
+    const activeNode = activeNodeRef.current;
+    // Guarded: jsdom (tests) has no scrollIntoView — degrade, not throw.
+    if (
+      activeNode &&
+      scrollRef.current &&
+      typeof activeNode.scrollIntoView === "function"
+    ) {
+      activeNode.scrollIntoView({
         behavior: "smooth",
         block: "center",
       });

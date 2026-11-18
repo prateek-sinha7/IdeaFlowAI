@@ -225,10 +225,20 @@ class InMemoryBuilderStore:
         return row
 
     def list_sessions(
-        self, user_id: str, *, limit: int | None = None, cursor: str | None = None
+        self,
+        user_id: str,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        workflow_id: str | None = None,
     ) -> SessionPage:
         page_size = clamp_page_size(limit)
-        rows = [s for s in self._sessions.values() if s.user_id == user_id]
+        rows = [
+            s
+            for s in self._sessions.values()
+            if s.user_id == user_id
+            and (workflow_id is None or s.workflow_id == workflow_id)
+        ]
         if cursor is not None:
             after_updated_at, after_id = decode_cursor(cursor)
             rows = [

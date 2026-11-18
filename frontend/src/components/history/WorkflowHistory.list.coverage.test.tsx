@@ -105,12 +105,13 @@ class FakeIntersectionObserver {
 }
 
 async function scrollSentinelIntoView(isIntersecting = true) {
+  // The sentinel's observer is registered in a useEffect after the rows render.
+  // Wait for it instead of silently skipping: on a loaded CI worker the effect can
+  // lag the first paint, and a skipped scroll made the load-more tests assert
+  // against a fetch that never happened.
+  await waitFor(() => expect(observers.some((o) => !o.disconnected)).toBe(true));
   const live = observers.filter((o) => !o.disconnected);
   const latest = live[live.length - 1];
-  // Guard: if no observer is registered yet (e.g. sentinel not mounted or
-  // the useEffect hasn't run), treat the call as a no-op so tests that assert
-  // "nothing happened" don't crash on a missing observer.
-  if (!latest) return;
   await act(async () => {
     latest.callback([{ isIntersecting } as IntersectionObserverEntry], {} as IntersectionObserver);
   });
@@ -122,6 +123,9 @@ function renderHistory(props: Partial<React.ComponentProps<typeof WorkflowHistor
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // clearAllMocks keeps queued mockResolvedValueOnce values; a test that leaves one
+  // unconsumed would otherwise hand its page to the next test.
+  mockGetWorkflows.mockReset();
   searchParamValues.clear();
   observers.length = 0;
   vi.stubGlobal("IntersectionObserver", FakeIntersectionObserver);

@@ -1884,10 +1884,13 @@ export function DashboardLayout({
     // `isComposerWorkflow`, not the stamped type alone: `base_pipeline_type` is
     // immutable after create, so a row stamped with a stale type could never
     // open in the Composer again. A composed manifest is proof of origin.
-    setMainView(
-      COMPOSER_ENABLED_TYPES.has(launchedType) || isComposerWorkflow(saved) ? "composer" : "input",
-    );
-    router.push(routes.workflowRun(saved.id));
+    const opensInComposer = COMPOSER_ENABLED_TYPES.has(launchedType) || isComposerWorkflow(saved);
+    setMainView(opensInComposer ? "composer" : "input");
+    // A saved workflow that opens in the Composer has ONE URL, its edit route, whether
+    // it was reached through Run or Edit. `/workflows/{id}/run` showed the same canvas
+    // without the AI Workflow Builder (its routes are `/workflows/new` and
+    // `/workflows/{id}/edit`) and without the ISS-923 save guard.
+    router.push(opensInComposer ? routes.workflowEdit(saved.id) : routes.workflowRun(saved.id));
   }, [router, attachHook, clearAttachedSkillsHooks]);
 
   // Run the pipeline from Input page — triggers questionnaire first

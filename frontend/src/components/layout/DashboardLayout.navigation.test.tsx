@@ -789,7 +789,8 @@ describe("DashboardLayout navigation", () => {
       expect(screen.getByText("Composer name: [My workflow]")).toBeInTheDocument();
       expect(screen.getByText("Composer saved id: [wf-1]")).toBeInTheDocument();
       expect(router.push).toHaveBeenCalledTimes(1);
-      expect(router.push).toHaveBeenCalledWith("/workflows/wf-1/run");
+      // A Composer row has one URL, its edit route, whether opened through Run or Edit.
+      expect(router.push).toHaveBeenCalledWith("/workflows/wf-1/edit");
     });
 
     it("opens the composer for a manifest that contains composed agents", async () => {
@@ -803,7 +804,7 @@ describe("DashboardLayout navigation", () => {
 
       expect(region("Composer page")).toBeInTheDocument();
       expect(queryRegion("Idea input page")).not.toBeInTheDocument();
-      expect(router.push).toHaveBeenCalledWith("/workflows/wf-1/run");
+      expect(router.push).toHaveBeenCalledWith("/workflows/wf-1/edit");
     });
 
     it("opens the input view pre-loaded with the saved agents and brief for other types", async () => {

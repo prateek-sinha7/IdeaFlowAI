@@ -23,7 +23,9 @@ describe("ISS-682 page.tsx seeds carry the saved row manifest", () => {
     expect(s).toContain(MANIFEST);
   });
   it("/run effect seeds manifest", () => {
-    const s = slice("const workflowId = workflowRunIdFor(parsedView);", 'setWorkflowRunMainView(isComposerWorkflow(saved) ? "composer" : "input");');
+    // The input-view seed: Composer rows redirect to /edit above it, so they are
+    // covered by the /edit case.
+    const s = slice("const workflowId = workflowRunIdFor(parsedView);", 'setWorkflowRunMainView("input");');
     expect(s).toContain(MANIFEST);
   });
 });
