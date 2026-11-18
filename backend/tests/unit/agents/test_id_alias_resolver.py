@@ -213,6 +213,7 @@ _EXPECTED_CLARIFY_DEFAULTS: dict[str, list[str]] = {
     "prototype_v2": [],
     # goal: the engine's built-in clarify stage (planner: run, clarify: auto) asks about the brief first.
     "goal": ["scope", "priority", "target_audience", "user_journeys", "business_rules"],
+    "goal_backup": ["scope", "priority", "target_audience", "user_journeys", "business_rules"],
     "goal_revision": [],
     "prototype_v2_revision": [],
     "prototype_v2_feature_revision": [],

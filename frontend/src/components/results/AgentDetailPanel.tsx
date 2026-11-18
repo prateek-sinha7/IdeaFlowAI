@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Phase 39 plan 02 (RUNUI-06/08) — AgentDetailPanel: the Steps tab's L2 view.
@@ -414,11 +414,29 @@ function argPreview(v: unknown): string {
   try { return JSON.stringify(v) ?? String(v); } catch { return String(v); }
 }
 
+// "11 Nov 23:12:05" in the viewer's own timezone; "" when the stamp is missing or bad.
+export function formatCallTime(ts: string | undefined): string {
+  if (!ts) return "";
+  const d = new Date(ts);
+  if (Number.isNaN(d.getTime())) return "";
+  const date = d.toLocaleDateString(undefined, { day: "2-digit", month: "short" });
+  const time = d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
+  return `${date} ${time}`;
+}
+
 export function ToolCallsSection({ toolCalls }: { toolCalls: ToolCallEntry[] }) {
   const [expandedIdx, setExpandedIdx] = useState<number | null>(null);
-  const [sectionOpen, setSectionOpen] = useState(true);
-  // Latest tool call shown first
-  const reversed = [...toolCalls].reverse();
+  const [sectionOpen, setSectionOpen] = useState(toolCalls.length <= 5);
+  // Newest first, by the call's date and time (arrival order breaks ties). `i` stays the
+  // call's position in the original list, so a row's expanded state survives new calls
+  // arriving on top.
+  const at = (ts: string | undefined) => {
+    const ms = ts ? Date.parse(ts) : NaN;
+    return Number.isNaN(ms) ? -Infinity : ms;
+  };
+  const newestFirst = toolCalls
+    .map((tc, i) => ({ tc, i }))
+    .sort((a, b) => at(b.tc.timestamp) - at(a.tc.timestamp) || b.i - a.i);
   return (
     <div className="mt-3 bg-surface-card border border-line-border rounded-[11px] overflow-hidden">
       <button
@@ -435,8 +453,9 @@ export function ToolCallsSection({ toolCalls }: { toolCalls: ToolCallEntry[] }) 
         <ChevronDown className={`h-3.5 w-3.5 text-ink-300 transition-transform ${sectionOpen ? "rotate-180" : ""}`} />
       </button>
       {sectionOpen && (
-        <div className="px-3 pb-2.5 space-y-1.5 max-h-[420px] overflow-y-auto">
-          {reversed.map((tc, i) => (
+        // 20 rows visible (38px row + 6px gap, plus bottom padding); the rest scroll inside the card.
+        <div data-testid="tool-calls-list" className="px-3 pb-2.5 space-y-1.5 max-h-[884px] overflow-y-auto overscroll-contain">
+          {newestFirst.map(({ tc, i }) => (
             <div key={i} className="rounded-[9px] border border-line-faint-row overflow-hidden bg-surface-white">
               <button
                 onClick={() => setExpandedIdx(expandedIdx === i ? null : i)}
@@ -462,16 +481,15 @@ export function ToolCallsSection({ toolCalls }: { toolCalls: ToolCallEntry[] }) 
                 <span className="text-[12px] text-ink-300 truncate flex-1 min-w-0">
                   {Object.entries(tc.args || {}).map(([k, v]) => `${k}: ${argPreview(v).slice(0, 24)}`).join(", ") || "no args"}
                 </span>
-                {/* timestamp — full date and time inline */}
-                {tc.timestamp && (() => {
-                  const d = new Date(tc.timestamp);
-                  const full = d.toLocaleString([], { month: "short", day: "numeric", year: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" });
-                  return (
-                    <span className="text-[9px] font-mono text-ink-300 flex-none whitespace-nowrap">
-                      {full}
-                    </span>
-                  );
-                })()}
+                {formatCallTime(tc.timestamp) && (
+                  <time
+                    dateTime={tc.timestamp}
+                    data-testid="tool-call-time"
+                    className="text-[10.5px] font-mono tabular-nums text-ink-300 flex-none"
+                  >
+                    {formatCallTime(tc.timestamp)}
+                  </time>
+                )}
                 <span className={`text-[9px] font-mono px-1.5 py-0.5 rounded-full flex-none ${
                   tc.result == null
                     ? "bg-status-amber-fill text-status-amber animate-pulse"

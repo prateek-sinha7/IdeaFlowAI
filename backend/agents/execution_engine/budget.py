@@ -41,7 +41,7 @@ if TYPE_CHECKING:  # pragma: no cover — typing only
 # ---------------------------------------------------------------------------
 
 DEFAULT_MAX_SUBAGENTS = 8
-DEFAULT_MAX_CONCURRENCY = 5
+DEFAULT_MAX_CONCURRENCY = 6  # raised from 5: declared max_parallel:6 must clear reserve()
 DEFAULT_MAX_DEPTH = 2
 DEFAULT_WALL_CLOCK_SECONDS = 900
 MERGE_AGENT_MAX_ATTEMPTS = 2
@@ -111,8 +111,10 @@ class BudgetManager:
             if limits is not None and limits.max_tokens is not None
             else None
         )
-        # Concurrency is not a Limits field (it is engine-enforced at
-        # min(declared, DEFAULT_MAX_CONCURRENCY)); the manager carries the default cap so run_fanout can read + enforce it uniformly.
+        # Concurrency is not a Limits field. The manager carries the ceiling so
+        # run_fanout can enforce it uniformly. _resolve_concurrency uses
+        # DEFAULT_MAX_CONCURRENCY for undeclared waves and DEFAULT_MAX_SUBAGENTS
+        # for explicitly declared max_parallel values (see fanout._resolve_concurrency).
         self.max_concurrency = DEFAULT_MAX_CONCURRENCY
         # The per-workspace aggregate ceiling (OBS-01). None ⇒ unset (no UI; the
         # WORKSPACE_BUDGET settings seam supplies it). When set, reserve refuses once

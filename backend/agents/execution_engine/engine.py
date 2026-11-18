@@ -96,6 +96,7 @@ from agents.capabilities.assemble_step import AssembleStepFailed  # noqa: E402
 from agents.capabilities.backlog_assemble import (  # noqa: E402
     AssembleBacklogFailed,
 )
+from agents.capabilities.slot_assemble import AssembleSlotsFailed  # noqa: E402
 
 # _ClarifyEngineImpl is bound at IMPORT time on purpose, and does NOT supersede the
 # function-level ``from ... import ClarifyEngine`` inside the clarify drain loop. There
@@ -6895,6 +6896,20 @@ class ExecutionEngine:
                         total=len(ordered_agents),
                         results=results,
                     )
+                elif getattr(step, "mechanical", None) == "assemble_slots":
+                    # goal_v2: parallel-built parts/<ID>.html|.js → the shell's part
+                    # markers in prototype.html, by code. Same adapter shape as
+                    # assemble_backlog.
+                    from agents.capabilities.slot_assemble import (
+                        MechanicalAssembleSlotsStrategy,
+                    )
+
+                    strategy = MechanicalAssembleSlotsStrategy(
+                        spec=spec,
+                        index=cursor,
+                        total=len(ordered_agents),
+                        results=results,
+                    )
                 elif getattr(step, "mechanical", None) == "extract_prototype_ui":
                     # The prototype's look and feel → build/ui/, by code (headless
                     # Chromium). Same adapter shape as assemble_backlog.
@@ -8056,7 +8071,7 @@ class ExecutionEngine:
                 },
             }
             return
-        except (AssembleStepFailed, AssembleBacklogFailed) as _assemble_exc:
+        except (AssembleStepFailed, AssembleBacklogFailed, AssembleSlotsFailed) as _assemble_exc:
             # Prototype v3 / spec 021: the mechanical assemble step found the build below its
             # coverage threshold (or nothing to assemble). prototype.html and
             # build/validation.json (or backlog.md/.csv/.json) are already written for
@@ -15158,6 +15173,7 @@ class ExecutionEngine:
             BudgetExceeded,
             AssembleStepFailed,
             AssembleBacklogFailed,
+            AssembleSlotsFailed,
             FanoutWorkerFailed,
         ):
             raise  # the run-level handlers in _execute_impl own these

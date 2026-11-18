@@ -49,7 +49,7 @@ steps:
   instance_id: size
   name: Size the change
   depends_on: []
-  model: {model: eu.anthropic.claude-sonnet-4-6}
+  model: {model: eu.anthropic.claude-sonnet-5-5}
   produces: ["route_decision"]
   prompt: |
     # Goal — Revision
@@ -105,7 +105,7 @@ steps:
   instance_id: analyst
   name: Revision Analyst
   depends_on: ["custom-agent:size"]
-  model: {model: eu.anthropic.claude-sonnet-4-6}
+  model: {model: eu.anthropic.claude-sonnet-5-5}
   prompt: |
     # Goal — Revision
 
@@ -167,7 +167,7 @@ steps:
   instance_id: tests
   name: Revision tests
   depends_on: ["custom-agent:analyst"]
-  model: {model: eu.anthropic.claude-sonnet-4-6}
+  model: {model: eu.anthropic.claude-sonnet-5-5}
   prompt: |
     # Goal — Revision
 
@@ -278,7 +278,7 @@ steps:
   instance_id: plan
   name: Revision plan
   depends_on: ["custom-agent:tests"]
-  model: {model: eu.anthropic.claude-sonnet-4-6}
+  model: {model: eu.anthropic.claude-sonnet-5-5}
   prompt: |
     # Goal — Revision
 
@@ -323,7 +323,7 @@ steps:
   instance_id: build
   name: Build
   depends_on: ["custom-agent:plan"]
-  model: {model: eu.anthropic.claude-sonnet-4-6}
+  model: {model: eu.anthropic.claude-sonnet-5-5}
   prompt: |
     # Goal — Revision
 
@@ -572,19 +572,36 @@ steps:
     (when present).
 
     You are a Builder. Your CURRENT TASK is one entry of this revision's task list. prototype.html already exists
-    and works: call `page_outline` first, read only the regions you need, and change it with edit_file only —
-    never write_file it, never create another page file. Keep everything that passes now passing.
+    and works. Do not read the whole page and do not explore it: call `page_outline` once at the start (line range of
+    every screen and script, line of every function and data-test), read only the lines your task touches with
+    read_file offset/limit, grep only for a name the outline does not list, and never re-read a region you already
+    read in this task unless you changed it. Change it with edit_file only — never write_file it, never create
+    another page file. Keep everything that passes now passing.
     Follow "UI and UX craft", the Design context, "Goal — Working App Logic" and the Architecture section of
     spec.md (use the shared state and the shared XML writer — never emit your own XML document or declaration).
-    Add every data-test name your task's acceptance files target. Then `run_acceptance("<your task's ids>")` and
-    fix until they pass. Never write .goal/trace.json. Then call report_task_complete.
-  write_paths: ["prototype.html", "build-*.md"]
+    Add every data-test name your task's acceptance files target.
+    Build EVERYTHING your task lists before the first test run: every screen, field, rule and action, wired up. A
+    failing test is acceptable; an unbuilt or half-built part is not.
+    Testing is not your job; the fix step works through failures after the build. When the task is implemented,
+    run `run_acceptance("<your task's ids>")` ONCE — only the ids in your task, never earlier tasks' ids, never
+    "all". Then:
+    - Most of your ids fail or error, or the page does not load: the base is broken (a script error, a missing
+      screen, a broken parser). Fix that cause, run the same ids once more, and move on whatever the result.
+    - Otherwise move on. Do not fix individual failures; the fix step handles them.
+    `run_acceptance` at most TWICE in a task, never a third time — after the second run, call report_task_complete
+    even if tests still fail.
+    Before report_task_complete, write_file `revisions/<run_id>/build-notes-<task id>.md` (run id from
+    `.context/run-id.txt`): what you built, anything not finished and why, and the ids still failing with their failing
+    step (edit_file it when it already exists). The fix step reads it first.
+    Never write .goal/trace.json. Then call report_task_complete.
+  write_paths: ["prototype.html", "build-*.md", "revisions/*"]
   edit_only: ["prototype.html"]
   tools:
     read_files: true
     write_files: true
     exec: false
-    tool_sets: [playwright, prototype_emit_only, ledger, acceptance]
+    # No playwright: the builder does not test by hand; run_acceptance (acceptance set) runs its task's ids once.
+    tool_sets: [prototype_emit_only, ledger, acceptance]
   strategy: task_loop
   task_source:
     kind: parsed
@@ -603,7 +620,7 @@ steps:
   instance_id: change
   name: Change
   depends_on: ["custom-agent:size"]
-  model: {model: eu.anthropic.claude-sonnet-4-6}
+  model: {model: eu.anthropic.claude-sonnet-5-5}
   prompt: |
     # Goal — Revision
 
@@ -860,8 +877,8 @@ steps:
        (or add the row) and edit or write its acceptance file in the exact format of "Goal — Executable
        Acceptance Tests"; `ledger_check` mode `acceptance_schema` must be clean. When it asks to resolve a
        blocked id, apply that item's `how_to_fix` the same way.
-    4. `run_acceptance("<every id you touched>")` until they pass, then `run_acceptance("<use-case prefix>")`
-       for each use case you touched (e.g. "U6-") so nothing that passed now fails.
+    4. `run_acceptance("<every id you touched>")` ONCE. Do not loop on failures and do not run a use-case prefix
+       or "all": the fix step works through what still fails, and verify runs the full suite.
     5. write_file `revisions/<run_id>/change.md`: the request, then one line per change (file, where, what),
        then the ids you ran and their results.
     Reply with one line per change.
@@ -879,12 +896,15 @@ steps:
   instance_id: fix
   name: Fix
   depends_on: ["custom-agent:build", "custom-agent:change"]
-  model: {model: eu.anthropic.claude-sonnet-4-6}
+  model: {model: eu.anthropic.claude-sonnet-5-5}
   prompt: |
     # Goal — Fix
 
     1. Read `.goal/trace.json` (written by `run_acceptance`). Work list: results with status `fail` or `error`.
        No trace or nothing failing → reply exactly "nothing to fix".
+       Read every `revisions/<run_id>/build-notes-*.md` of THIS revision first (run id from `.context/run-id.txt`):
+       they say what the build left unfinished and which ids were failing.
+       An unfinished part named there is part of your work list even when no test covers it.
        Read `.goal/fix-notes.md` and `.goal/blocked.json` when they exist. Never repeat an approach the notes
        record as tried, and never undo a change they record.
     2. A result with `"stuck": true` has already failed the same way after two fix attempts. Do not edit the page
@@ -895,15 +915,18 @@ steps:
        meets the ledger row and the test itself cannot pass (wrong expectation, a check the runner cannot
        evaluate, a contradiction with the spec), do not edit the page to satisfy it: record it in
        `.goal/blocked.json` (step 6).
-    5. Run `run_acceptance("<id>")` at least once for every failing id you worked on, fixed or not — this is how
-       an attempt is counted. Then `run_acceptance("<use-case prefix>")` for each use case you touched
-       (e.g. "U6-") so nothing that passed now fails.
+    5. Work one id at a time: fix it, run `run_acceptance("<id>")` for that id only, then move to the next id.
+       Run it once for every failing id you worked on, fixed or not — this is how an attempt is counted. Never run
+       "all" or a use-case prefix; verify runs the full suite.
     6. `.goal/blocked.json` is `{"items": [...]}`, one item per id you cannot fix in the page (update an existing
        item for the same id instead of adding a second):
        `{"id", "category": "test_defect" | "runner_limitation" | "spec_conflict" | "needs_input" | "product",
        "failing_step", "evidence": what you checked and saw, "how_to_fix": the exact change needed and where
        (for a test: the replacement step as JSON), "revision_request": one or two sentences a person can paste
        into a revision run to resolve it}`.
+    6b. Progress: the total is the number of ids on your work list. After each id (fixed, still failing or
+       blocked) say one line in your message alongside your next tool call:
+       `Progress: <ids handled>/<ids on the work list> failing ids handled`.
     7. Never write or edit `.goal/trace.json`, `.goal/fail-history.json` or `.goal/acceptance/*`. Append what you
        did to `.goal/fix-notes.md`: pass number, id, cause, change (or "blocked: <category>").
 
@@ -1140,8 +1163,8 @@ steps:
     (when present).
 
     You are the Fix step. Follow "Goal — Fix": work only on results with status fail or error in
-    .goal/trace.json; if there is none, reply exactly "nothing to fix". Use page_outline, fix with edit_file,
-    re-run with run_acceptance. Never write .goal/trace.json or the acceptance files. Fix the cause inside
+    .goal/trace.json; if there is none, reply exactly "nothing to fix". One id at a time: use page_outline, fix
+    with edit_file, run_acceptance for that id only, next id. Never write .goal/trace.json or the acceptance files. Fix the cause inside
     prototype.html; never create another page file and never redirect or navigate the page elsewhere.
   write_paths: ["prototype.html", ".goal/fix-notes.md", ".goal/blocked.json", "fix-*.md"]
   edit_only: ["prototype.html"]
@@ -1157,7 +1180,7 @@ steps:
   name: Verify
   depends_on: ["custom-agent:fix"]
   produces: ["route_decision"]
-  model: {model: eu.anthropic.claude-sonnet-4-6}
+  model: {model: eu.anthropic.claude-sonnet-5-5}
   prompt: |
     # Goal — Verify
 
@@ -1174,9 +1197,9 @@ steps:
        `.context/design/template/SKILL.md` (when present). The template's chrome and layout must be there and only the
        design system's colours and fonts used. Name every mismatch in your reply the same way.
     4. Decide from the trace and `.goal/blocked.json` only:
-       final reply is exactly one line, no markdown — `{"decision": "retry"}` when any `fail` or `error` result is
-       not `"stuck": true`, or is stuck but has no item in `.goal/blocked.json`; otherwise `{"decision": "ok"}`
-       (stuck, recorded ids are reported as open issues, not retried).
+       final reply is exactly one line, no markdown — `{"decision": "retry"}` when any `fail` or `error` result
+       has no item in `.goal/blocked.json`; otherwise `{"decision": "ok"}` (ids recorded in blocked.json, stuck
+       or left by the final fix pass, are reported as open issues, not retried).
 
     # Goal — Executable Acceptance Tests
 
@@ -1327,8 +1350,8 @@ steps:
     Look at the page only through run_acceptance and page_outline; never open the app's own web address
     (localhost:3000 needs a login and is not the page).
     Your final reply is exactly one line, no markdown:
-    {"decision": "retry"} when a fail or error result is not stuck, or is stuck without an item in
-    .goal/blocked.json; otherwise {"decision": "ok"}.
+    {"decision": "retry"} when a fail or error result has no item in .goal/blocked.json; otherwise
+    {"decision": "ok"}.
   tools:
     read_files: true
     write_files: false
@@ -1343,16 +1366,20 @@ steps:
         trigger: step
         target: fix
         feedback: >-
-          Verify found failing requirements. Read .goal/trace.json (written by run_acceptance) and fix every
-          result with status fail or error that is not stuck; record every stuck one in .goal/blocked.json.
-          Then hand back to verify.
-    loop_max_iterations: 10
+          Verify found failing requirements. This is the FINAL fix pass. Read .goal/trace.json (written by
+          run_acceptance) and fix every result with status fail or error that has no item in
+          .goal/blocked.json, one id at a time, running only that id after each fix. Every id still failing
+          after your attempt goes into .goal/blocked.json (category "product" unless another fits), with
+          how_to_fix and revision_request, so the report lists it as an open issue. Then hand back to verify.
+    # One extra fix pass, then report. The final fix pass records what it could not fix in blocked.json, so the
+    # second verify says ok; the cap is only a backstop (hitting it marks the run degraded).
+    loop_max_iterations: 1
 
 - agent: custom-agent
   instance_id: report
   name: Report
   depends_on: ["custom-agent:verify"]
-  model: {model: eu.anthropic.claude-sonnet-4-6}
+  model: {model: eu.anthropic.claude-sonnet-5-5}
   prompt: |
     # Goal — Verify
 
@@ -1366,9 +1393,9 @@ steps:
        in your reply with the ledger id it belongs to (the fix step reads your reply as feedback). For failing tests,
        name the id and the trace's failing step only — do not guess at causes or tell the fix step what to change.
     4. Decide from the trace and `.goal/blocked.json` only:
-       final reply is exactly one line, no markdown — `{"decision": "retry"}` when any `fail` or `error` result is
-       not `"stuck": true`, or is stuck but has no item in `.goal/blocked.json`; otherwise `{"decision": "ok"}`
-       (stuck, recorded ids are reported as open issues, not retried).
+       final reply is exactly one line, no markdown — `{"decision": "retry"}` when any `fail` or `error` result
+       has no item in `.goal/blocked.json`; otherwise `{"decision": "ok"}` (ids recorded in blocked.json, stuck
+       or left by the final fix pass, are reported as open issues, not retried).
 
     # Your task
 

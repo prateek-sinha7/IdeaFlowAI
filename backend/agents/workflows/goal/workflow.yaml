@@ -1,20 +1,14 @@
-# goal — "Deliver from documents (Goal)" (P27)
+# goal — "Deliver from documents (Goal)" (P27), parallel build
 #
-# Documents in, a working tested deliverable out, every requirement traced:
-#   - the client's own requirement ids in a ledger; a code-run gap analysis sends the ledger back until every
-#     page and every requirement-like sentence is accounted for; then a person reviews it;
-#   - tests are executable: the run_acceptance tool runs them in Chrome against prototype.html and writes
-#     .goal/trace.json itself (runner-stamped, page hash, pass counter); no agent writes the trace;
-#   - an integrate step runs every use case end to end once and fixes pieces that do not fit;
-#   - the look comes from the design system and template chosen at launch (OpenDesign context).
+# Documents in, a working tested deliverable out, every requirement traced: clarify, a reviewed requirement
+# ledger with the client's own ids, a facts sheet and acceptance tests written in parallel, then the build:
+# one builder writes the shell with a slot per part, the use cases are built IN PARALLEL as separate part
+# files, code pours them into the slots, and a glue step makes the parts work as one product. Then integrate,
+# fix, verify and report. The sequential-build version is parked as goal_backup.
 #
-#   ingest -> ledger -> gaps [conditional] -> review [human] -> acceptance -> ...
-#               ^          |
-#               +----------+  gaps left: retry, max 10; stops early when a pass makes no progress
-#   ... -> spec -> build (task loop) -> integrate -> fix -> verify [conditional]
-#                                                     ^              |
-#                                                     +- retry, max 3+
-#   verify ok (or loop exhausted) -> report
+#   ingest -> ledger -> gaps -> review [human] -> acceptance (facts + plan) -> acceptance-write (parallel)
+#   -> acceptance-check -> spec -> build (shell) -> build-parts (parallel) -> assemble (code) -> glue
+#   -> integrate -> fix -> verify [conditional, 1 retry] -> report
 id: goal
 version: 1
 user_launchable: true
@@ -46,6 +40,7 @@ seed_files:
   from_run: ["", "design.md", ""]
 limits:
   wall_clock_seconds: 14400
+  max_subagents: 20  # acceptance-write (up to 6) + build-parts (up to 7) = up to 13; 20 gives headroom
 resilience:
   retry_window_seconds: 900
   stall_seconds: 600
@@ -56,7 +51,7 @@ steps:
 - agent: custom-agent
   instance_id: ingest
   name: Ingest
-  model: {model: eu.anthropic.claude-sonnet-4-6}
+  model: {model: eu.anthropic.claude-sonnet-5-5}
   prompt: |
     # Goal — Ingest
 
@@ -105,7 +100,7 @@ steps:
   instance_id: ledger
   name: Requirement ledger
   depends_on: ["custom-agent:ingest"]
-  model: {model: eu.anthropic.claude-sonnet-4-6}
+  model: {model: eu.anthropic.claude-sonnet-5-5}
   prompt: |
     # Goal — Requirement Ledger
 
@@ -176,6 +171,9 @@ steps:
     `not_requirements` for its page. Keep every existing row and page entry; never rewrite the ledger from scratch.
     The user's request describes the FINAL product; a later Build step makes it. You do not build anything:
     never write HTML, scripts or app files.
+    Progress: first count the pages of every requirements file (the total). While you read, after every 5 pages and
+    once when you finish, say one line in your message alongside your next tool call:
+    `Progress: <pages read>/<total pages> pages read, <rows> rows`.
     Reply with one line: pages read this pass, pages recorded in total, rows added, rows in total.
   brief_role: reference
   write_paths: [".goal/ledger.json", ".goal/intent.json", ".goal/pages.json", "ledger-*.md"]
@@ -191,7 +189,7 @@ steps:
   name: Gap analysis
   depends_on: ["custom-agent:ledger"]
   produces: ["route_decision"]
-  model: {model: eu.anthropic.claude-sonnet-4-6}
+  model: {model: eu.anthropic.claude-sonnet-5-5}
   prompt: |
     You are the Gap analysis step. Code decides here, not you; you read no documents and change no files.
     1. Call `ledger_check` with mode `gaps_decide` once (never `gaps`). It checks every page of every requirements file against
@@ -223,7 +221,7 @@ steps:
   instance_id: review
   name: Ledger review
   depends_on: ["custom-agent:gaps"]
-  model: {model: eu.anthropic.claude-sonnet-4-6}
+  model: {model: eu.anthropic.claude-sonnet-5-5}
   prompt: |
     You are the Ledger review step. Read .goal/ledger.json, .goal/intent.json, .goal/missing.json and
     .goal/gaps.json. Change no file. Your reply is the review the person approves (no working notes before it):
@@ -243,9 +241,125 @@ steps:
 
 - agent: custom-agent
   instance_id: acceptance
-  name: Acceptance tests
+  name: Acceptance facts and plan
   depends_on: ["custom-agent:review"]
-  model: {model: eu.anthropic.claude-sonnet-4-6}
+  model: {model: eu.anthropic.claude-sonnet-5-5}
+  prompt: |
+    # Goal — Executable Acceptance Tests
+
+    Each testable ledger row gets `.goal/acceptance/<id>.json`. The `run_acceptance` tool executes them in Chrome,
+    from a fresh page load per case, and writes `.goal/trace.json` itself. Tests are written before any code, from the
+    requirement and the sample data. A test that is not in this exact format cannot run — `ledger_check` mode
+    `acceptance_schema` rejects it.
+
+    ## File format
+
+    ```json
+    {"id": "U6-6", "title": "Hold is disabled when the quote demands immediate payment",
+     "fixtures": [".uploads/IB_ORDERRESHOP_flightchange_immediate_payment_2ADT.xml"],
+     "cases": [
+      {"name": "immediate payment disables hold",
+       "steps": [
+         {"verb": "goto_tab", "target": "tab-change-order"},
+         {"verb": "fill", "target": "seller-id", "value": "UNISYS01"},
+         {"verb": "load_file", "target": "change-order-file", "file": ".uploads/IB_ORDERVIEW_paid_cash_2ADT_RT_MAD-FRA.xml"},
+         {"verb": "click", "target": "action-uc6"},
+         {"verb": "load_file", "target": "uc6-reshop-file", "file": ".uploads/IB_ORDERRESHOP_flightchange_immediate_payment_2ADT.xml"},
+         {"verb": "expect_disabled", "target": "uc6-pay-hold"},
+         {"verb": "expect_text", "target": "uc6-pay-hold-reason", "contains": "immediate"}
+       ]},
+      {"name": "normal quote keeps hold available",
+       "steps": [
+         {"verb": "goto_tab", "target": "tab-change-order"},
+         {"verb": "fill", "target": "seller-id", "value": "UNISYS01"},
+         {"verb": "load_file", "target": "change-order-file", "file": ".uploads/IB_ORDERVIEW_paid_cash_2ADT_RT_MAD-FRA.xml"},
+         {"verb": "click", "target": "action-uc6"},
+         {"verb": "load_file", "target": "uc6-reshop-file", "file": ".uploads/IB_ORDERRESHOP_flightchange_addcol_2ADT.xml"},
+         {"verb": "expect_enabled", "target": "uc6-pay-hold"}
+       ]}
+     ]}
+    ```
+
+    ## Step verbs (closed set)
+
+    Each step is an object whose `verb` key names the action: `{"verb": "click", "target": "uc4-generate"}`.
+
+
+    `goto_tab {target}` · `load_file {target, file}` · `paste {target, file|text}` · `click {target}` ·
+    `fill {target, value}` · `select {target, value}` · `check {target}` · `uncheck {target}` ·
+    `expect_visible {target}` · `expect_hidden {target}` · `expect_enabled {target}` · `expect_disabled {target}` ·
+    `expect_text {target, contains|equals}` · `expect_count {target, equals|min|max}` ·
+    `expect_xml {target, well_formed: true, root?, contains?: [...], not_contains?: [...], xpath_text?: {xpath: value}}`
+    · `eval {js}` (returns true; use rarely).
+
+    `target` is a `data-test` name (the builder adds it) unless it starts with `#`, `.` or `[`. Files are sandbox
+    paths: `.uploads/<name>` or `.goal/fixtures/<name>`. `expect_xml` reads the element's value or text; xpaths use
+    local names (`//SelectedPricedOffer/TotalOfferPriceAmount`), namespaces are ignored.
+
+    ## Step 0 — the facts sheet
+
+    Every test needs the same few facts: ids, names, amounts and flags from the samples, the shape of the request
+    the tool must generate, and the `data-test` names of shared elements. Several writers work in parallel after
+    you, so collect them ONCE into `.goal/test-facts.md`; the writers copy every value and name from it.
+
+    1. Each data sample (`.goal/inventory.json` role `data`): read_file it once, end to end. Write its section:
+       file name, message type (root element), the namespace declarations exactly as its root writes them, and
+       every value a test may check or enter — offer/order ids, item ids, passenger ids, names and types, segment
+       ids and routes, every amount with its currency (totals, per-passenger, fees, differentials, amounts due),
+       status and flags (paid/unpaid, mandatory, differential type, time limits). One line per value:
+       `value — element path`.
+    2. Each output message the tool generates (the `SCHEMA_OUTPUT_*` / output schema files): its root element, its
+       namespace declarations, and the required child elements in order, down to the parts the requirements set.
+       Look up only the type names you need in the shared types schema with `grep` (never read it end to end), and
+       write each element path once. This is the only time the schemas are opened.
+    3. `## data-test names`: one line per shared element every use case touches — the tabs, the settings fields
+       (seller id, carrier id, TrxID, CorrelationID), each load input, the step bar and its steps, the output panels,
+       Copy and Download, the theme toggle — `name — what it is`. Writers use these names; builders create them.
+
+    ## Step 1 — split the work
+
+    Group the testable ids by use case into 6–8 groups of at most about 25 ids: the general requirements (G…, in
+    two groups when there are more than 25), then one group per use case with its U<n>-… and UC<n>-A… rows; join
+    two small use cases when a group would have fewer than 5 ids. Every testable id is in exactly one group.
+    write_file `.goal/acceptance-tasks.json`:
+    `{"tasks": [{"id": "A01", "title": "UC1 create order", "ids": ["U1-1", "UC1-A1"],
+      "targets": [".goal/acceptance/U1-1.json", ".goal/acceptance/UC1-A1.json"], "depends_on": [],
+      "body": "Write the acceptance tests for U1-1, UC1-A1."}]}` — `targets` lists exactly the group's test files.
+
+    # Your task
+
+    You are the Acceptance planner. No code exists yet and you write no tests. Read .goal/ledger.json,
+    .goal/intent.json and the approved review in .agents/04-custom-agent_review.md — the reviewer's decisions there
+    are binding, and so are the user's answers to the clarifying questions in PLANNER.md ("Explicit Constraints",
+    when present). Do Step 0 (`.goal/test-facts.md`), then Step 1 (`.goal/acceptance-tasks.json`).
+    Reply with one line: samples in the sheet, testable ids, groups.
+    The user's request describes the FINAL product; a later Build step makes it. You do not build anything:
+    never write HTML, scripts or app files.
+  write_paths: [".goal/test-facts.md", ".goal/acceptance-tasks.json", ".goal/ledger.json", "acceptance-*.md"]
+  tools:
+    read_files: true
+    write_files: true
+    exec: false
+    tool_sets: [ledger]
+  gates: []
+
+# Test files are separate files, one per ledger id, so the writing runs in parallel: one writer per group of
+# acceptance-tasks.json. Writers never touch a shared file; the check step after them guarantees coverage.
+- strategy: wave_scheduler
+  task_source:
+    kind: parsed
+    parser: json_tasks
+    target: .goal/acceptance-tasks.json
+    source_step: custom-agent:acceptance
+  fanout:
+    agent: self
+    mode: parallel
+    max_parallel: 6
+  agent: custom-agent
+  instance_id: acceptance-write
+  name: Acceptance tests
+  depends_on: ["custom-agent:acceptance"]
+  model: {model: eu.anthropic.claude-sonnet-5-5}
   prompt: |
     # Goal — Executable Acceptance Tests
 
@@ -300,9 +414,11 @@ steps:
 
     ## Rules
 
-    1. Name every target in the test; builders must create exactly those `data-test` names. Keep names short and
-       stable: `<area>-<thing>` (`uc4-generate`, `output-change`).
-    2. Values come from the sample files — read them, never guess (`TotalOfferPriceAmount` = 564.45 in IB_TEST03).
+    1. Use the names in "## data-test names" of `.goal/test-facts.md` for every shared element (tabs, settings,
+       load inputs, step bar, output panels). A name your tests need that is not listed: `<area>-<thing>` with your
+       use case as the area (`uc4-generate`, `uc4-refund-total`). Builders create exactly the names the tests use.
+    2. Every value in a test is copied from `.goal/test-facts.md`, which was read from the sample files — never
+       guess and never retype from memory (`TotalOfferPriceAmount` = 564.45 in IB_TEST03).
     3. Every output requirement ends with `expect_xml` on the generated output: `well_formed: true` plus the root and
        the values the request must carry. One well-formed document means exactly one XML declaration and one root.
        When the output is a namespaced message, `contains` also carries every namespace declaration exactly as the
@@ -310,21 +426,117 @@ steps:
        schema version fails.
     4. Every validation / blocking rule gets a negative case.
     5. A case the samples cannot exercise uses a minimal edited copy under `.goal/fixtures/`, named after the row
-       (`U6-5-even-exchange.xml`), with a one-line `README.md` entry.
+       (`U6-5-even-exchange.xml`), so no two writers create the same file.
     6. `testable: false` rows get no file.
-    7. Finish with `ledger_check` mode `acceptance_schema` clean.
 
     # Your task
 
-    You are the Acceptance step. No code exists yet. Read .goal/ledger.json, .goal/intent.json and the approved
-    review in .agents/04-custom-agent_review.md — the reviewer's decisions there are binding. Follow "Goal —
-    Executable Acceptance Tests": one .goal/acceptance/<id>.json per testable row in the exact v2 format, values
-    taken from the uploaded files, derived fixtures under .goal/fixtures/ when no sample covers a case.
-    `ledger_check` mode `acceptance_schema` must be clean before you finish.
-    Reply with one line: tests written, rows not testable, fixtures derived.
-    The user's request describes the FINAL product; a later Build step makes it. You do not build anything:
-    never write HTML, scripts or app files.
-  write_paths: [".goal/acceptance/*.json", ".goal/fixtures/*", ".goal/ledger.json", "acceptance-*.md"]
+    You are an Acceptance writer. Your CURRENT TASK names your group of ledger ids; other writers do the other
+    groups at the same time. read_file `.goal/test-facts.md` once, then read your rows in .goal/ledger.json (and
+    .agents/04-custom-agent_review.md, whose decisions are binding). Write one .goal/acceptance/<id>.json per
+    testable id in your group, in the exact format above, every value and shared name copied from the facts sheet.
+    Do not open the samples or the schemas unless a value is missing from the sheet; then look it up once at its
+    source and use it, but never edit the sheet.
+    Never write or edit a shared file: not .goal/ledger.json, not .goal/test-facts.md, not .goal/fixtures/README.md,
+    and no test file outside your group.
+    Progress: after every 5 tests and once when you finish, say one line in your message alongside your next tool
+    call: `Progress: <tests written>/<ids in your group> tests written (<group title>)`.
+    Then deliver the step file the engine asks for with ONE line — your report. Other writers share that step file:
+    if it already exists, leave it as it is; your reply is enough.
+    Reply with one line: group, tests written, fixtures derived.
+    You do not build anything: never write HTML, scripts or app files.
+  write_paths: [".goal/acceptance/*.json", ".goal/fixtures/*", "acceptance-*.md"]
+  tools:
+    read_files: true
+    write_files: true
+    exec: false
+  gates: []
+
+- agent: custom-agent
+  instance_id: acceptance-check
+  name: Acceptance check
+  depends_on: ["custom-agent:acceptance-write"]
+  model: {model: eu.anthropic.claude-sonnet-5-5}
+  prompt: |
+    # Goal — Executable Acceptance Tests
+
+    Each testable ledger row gets `.goal/acceptance/<id>.json`. The `run_acceptance` tool executes them in Chrome,
+    from a fresh page load per case, and writes `.goal/trace.json` itself. Tests are written before any code, from the
+    requirement and the sample data. A test that is not in this exact format cannot run — `ledger_check` mode
+    `acceptance_schema` rejects it.
+
+    ## File format
+
+    ```json
+    {"id": "U6-6", "title": "Hold is disabled when the quote demands immediate payment",
+     "fixtures": [".uploads/IB_ORDERRESHOP_flightchange_immediate_payment_2ADT.xml"],
+     "cases": [
+      {"name": "immediate payment disables hold",
+       "steps": [
+         {"verb": "goto_tab", "target": "tab-change-order"},
+         {"verb": "fill", "target": "seller-id", "value": "UNISYS01"},
+         {"verb": "load_file", "target": "change-order-file", "file": ".uploads/IB_ORDERVIEW_paid_cash_2ADT_RT_MAD-FRA.xml"},
+         {"verb": "click", "target": "action-uc6"},
+         {"verb": "load_file", "target": "uc6-reshop-file", "file": ".uploads/IB_ORDERRESHOP_flightchange_immediate_payment_2ADT.xml"},
+         {"verb": "expect_disabled", "target": "uc6-pay-hold"},
+         {"verb": "expect_text", "target": "uc6-pay-hold-reason", "contains": "immediate"}
+       ]},
+      {"name": "normal quote keeps hold available",
+       "steps": [
+         {"verb": "goto_tab", "target": "tab-change-order"},
+         {"verb": "fill", "target": "seller-id", "value": "UNISYS01"},
+         {"verb": "load_file", "target": "change-order-file", "file": ".uploads/IB_ORDERVIEW_paid_cash_2ADT_RT_MAD-FRA.xml"},
+         {"verb": "click", "target": "action-uc6"},
+         {"verb": "load_file", "target": "uc6-reshop-file", "file": ".uploads/IB_ORDERRESHOP_flightchange_addcol_2ADT.xml"},
+         {"verb": "expect_enabled", "target": "uc6-pay-hold"}
+       ]}
+     ]}
+    ```
+
+    ## Step verbs (closed set)
+
+    Each step is an object whose `verb` key names the action: `{"verb": "click", "target": "uc4-generate"}`.
+
+
+    `goto_tab {target}` · `load_file {target, file}` · `paste {target, file|text}` · `click {target}` ·
+    `fill {target, value}` · `select {target, value}` · `check {target}` · `uncheck {target}` ·
+    `expect_visible {target}` · `expect_hidden {target}` · `expect_enabled {target}` · `expect_disabled {target}` ·
+    `expect_text {target, contains|equals}` · `expect_count {target, equals|min|max}` ·
+    `expect_xml {target, well_formed: true, root?, contains?: [...], not_contains?: [...], xpath_text?: {xpath: value}}`
+    · `eval {js}` (returns true; use rarely).
+
+    `target` is a `data-test` name (the builder adds it) unless it starts with `#`, `.` or `[`. Files are sandbox
+    paths: `.uploads/<name>` or `.goal/fixtures/<name>`. `expect_xml` reads the element's value or text; xpaths use
+    local names (`//SelectedPricedOffer/TotalOfferPriceAmount`), namespaces are ignored.
+
+    ## Rules
+
+    1. Use the names in "## data-test names" of `.goal/test-facts.md` for every shared element (tabs, settings,
+       load inputs, step bar, output panels). A name your tests need that is not listed: `<area>-<thing>` with your
+       use case as the area (`uc4-generate`, `uc4-refund-total`). Builders create exactly the names the tests use.
+    2. Every value in a test is copied from `.goal/test-facts.md`, which was read from the sample files — never
+       guess and never retype from memory (`TotalOfferPriceAmount` = 564.45 in IB_TEST03).
+    3. Every output requirement ends with `expect_xml` on the generated output: `well_formed: true` plus the root and
+       the values the request must carry. One well-formed document means exactly one XML declaration and one root.
+       When the output is a namespaced message, `contains` also carries every namespace declaration exactly as the
+       sample files of that standard write it (e.g. `xmlns:ns2="…/IATA_OffersAndOrdersMessage"`), so a wrong
+       schema version fails.
+    4. Every validation / blocking rule gets a negative case.
+    5. A case the samples cannot exercise uses a minimal edited copy under `.goal/fixtures/`, named after the row
+       (`U6-5-even-exchange.xml`), so no two writers create the same file.
+    6. `testable: false` rows get no file.
+
+    # Your task
+
+    You are the Acceptance check. Parallel writers have written the tests. Make the set complete and valid:
+    1. Run `ledger_check` mode `acceptance_schema`. For every testable id without a test, write it; for every
+       invalid file, fix it — values and shared names from `.goal/test-facts.md`, in the exact format above.
+    2. Run it again until it is clean. Coverage is the point: every testable ledger row has its test.
+    3. write_file `.goal/fixtures/README.md`: one line per file in `.goal/fixtures/` (name — what it changes and
+       which ids use it).
+    Reply with one line: tests in total, tests added or fixed here, fixtures.
+    You do not build anything: never write HTML, scripts or app files.
+  write_paths: [".goal/acceptance/*.json", ".goal/fixtures/*", "acceptance-*.md"]
   tools:
     read_files: true
     write_files: true
@@ -335,8 +547,8 @@ steps:
 - agent: custom-agent
   instance_id: spec
   name: Spec and plan
-  depends_on: ["custom-agent:acceptance"]
-  model: {model: eu.anthropic.claude-sonnet-4-6}
+  depends_on: ["custom-agent:acceptance-check"]
+  model: {model: eu.anthropic.claude-sonnet-5-5}
   prompt: |
     # Goal — Spec and Plan
 
@@ -372,17 +584,31 @@ steps:
     6. **Output** — formats, file names, element order, namespaces (copy them from the sample messages), indent.
     7. **Not built** — every `constraint` row.
 
-    ## tasks.json — compact
+    ## tasks.json and build/parts-tasks.json — a shell, then parts in parallel
 
+    The build runs as ONE shell builder, then one part builder per use case IN PARALLEL, then code pours the parts
+    into the shell, then a glue step joins them. Plan for that:
+
+    `tasks.json` holds exactly ONE task, the shell:
     ```json
-    {"tasks": [{"id": "T01", "title": "...", "ids": ["G1", "G2"], "acceptance": [".goal/acceptance/G1.json"],
+    {"tasks": [{"id": "T01", "title": "Shell", "ids": ["G1", "G2"], "acceptance": [".goal/acceptance/G1.json"],
                 "depends_on": [], "targets": ["prototype.html"], "body": "..."}]}
     ```
+    The shell is everything the use cases share: chrome, settings, file loading and type detection, the parse
+    module, the shared state, the shared XML writer(s), the output panels with Copy and Download, the step bar,
+    theme, and the shared requirements (G…). Its body lists the parts, so the shell builder leaves one slot each.
 
-    Aim for **10–12 tasks**: (1) shell, settings, loading and the parse module; (2) state + the shared XML writer and
-    output panels; then **one task per use case** (screens, rules and its Request content together); then
-    non-functional (keyboard, theme, responsive). Every ledger id in at least one task; every task lists its
-    acceptance files and the `data-test` names they target; the body names the shared functions to use.
+    `build/parts-tasks.json` holds one task per use case (join two small use cases that share screens; 5–7 parts):
+    ```json
+    {"tasks": [{"id": "P-UC1", "title": "UC1 create order", "ids": ["U1-1", "UC1-A1"],
+                "acceptance": [".goal/acceptance/U1-1.json"], "depends_on": [],
+                "targets": ["parts/P-UC1.html", "parts/P-UC1.js"], "body": "..."}]}
+    ```
+    Part ids use letters, digits and dashes. Every ledger id is in exactly one task (the shell or one part); every
+    task lists its acceptance files and the `data-test` names they target; the body names the shared functions the
+    part uses. The Architecture section of spec.md names the SHARED API every part builds on — state fields, parse
+    functions, writer functions, how a part adds its screens, its steps and its output — and the shell builds
+    exactly that API. Keyboard, theme and responsive rules go into the task whose screens they touch.
 
     # UI and UX craft
 
@@ -477,13 +703,14 @@ steps:
     and read_file every file listed above that exists, each to its end.
 
     You are the Spec and plan step. Follow "Goal — Spec and Plan": write spec.md (with the `## Screens` table
-    and the mandatory Architecture section) and tasks.json (10–12 tasks), traced to every ledger id and acceptance
+    and the mandatory Architecture section, which names the shared API), tasks.json (the one shell task) and
+    build/parts-tasks.json (one part per use case), traced to every ledger id and acceptance
     file; the reviewer's decisions in .agents/04-custom-agent_review.md are binding. `ledger_check` mode
     `coverage` must be clean.
     Your REPLY is exactly the `## Screens` table (heading and rows) followed by one line: tasks, ids covered.
     The user's request describes the FINAL product; a later Build step makes it. You do not build anything:
     never write HTML, scripts or app files.
-  write_paths: ["spec.md", "tasks.json", "spec-*.md"]
+  write_paths: ["spec.md", "tasks.json", "build/parts-tasks.json", "spec-*.md"]
   tools:
     read_files: true
     write_files: true
@@ -493,9 +720,9 @@ steps:
 
 - agent: custom-agent
   instance_id: build
-  name: Build
+  name: Build shell
   depends_on: ["custom-agent:spec"]
-  model: {model: eu.anthropic.claude-sonnet-4-6}
+  model: {model: eu.anthropic.claude-sonnet-5-5}
   prompt: |
     # UI and UX craft
 
@@ -721,35 +948,50 @@ steps:
     - `template/example.html`, `template/assets/template.html` — the template's real markup and CSS, when present
     A file that does not exist was not attached. Use only the design system's colours and fonts, and keep the
     template's structure.
-    On the first task: read_file `.context/selections.json`, then `ls .context/design` and `ls .context/design/template`,
-    and read_file every file listed above that exists, each to its end. On later tasks read only the files you
-    need for what your task changes.
+    Read `.context/selections.json` and every design file listed above that exists, each to its end, in ONE turn
+    (issue the reads together); the paths are fixed, so do not `ls` around.
 
     The user's answers to the clarifying questions are in `PLANNER.md` under "Explicit Constraints" (when present).
     They are the user's decisions: follow them, and where an answer and a document disagree, the answer wins.
 
-    You are a Builder. Your CURRENT TASK is one entry of tasks.json. The deliverable is ONE file, prototype.html;
-    never create another page file (no copies, no "-v2" or "-new" files, no redirects) — the tests only ever load
-    prototype.html. On the first task create prototype.html from the template seed:
+    You are the Shell builder. Your CURRENT TASK is the one task of tasks.json. After you, part builders write the
+    use cases IN PARALLEL as separate files (build/parts-tasks.json lists them), and code pours each part into the
+    slot you leave for it. You build everything the parts share and nothing that belongs to a part.
+    The deliverable is ONE file, prototype.html. Create it from the template seed:
     `.context/design/template/assets/template.html` (else `.context/design/template/example.html`). Keep its chrome,
     layout regions, CSS and component markup; replace only its example content. Take every colour, font, spacing and
     radius from the design system (`tokens.css`, `design-system.md`); never write your own colour or font values.
     With no template, build the chrome from the design system's `components.html`. Follow `## Design` in spec.md.
-    On later tasks do NOT read the whole page: call `page_outline` first and read only the regions you need, and
-    change it with edit_file only. Never rewrite prototype.html with write_file once it exists (the engine refuses
-    it); to replace or remove a big block, pass that block as edit_file's old_string.
-    Follow "UI and UX craft", the Design context, for a web tool "Goal — Working App Logic", and the
-    Architecture section of spec.md (use the shared state and the shared XML writer — never emit your own XML
-    document or declaration).
-    Add every data-test name your task's acceptance files target. Then `run_acceptance("<your task's ids>")` and
-    fix until they pass. Never write .goal/trace.json. Then call report_task_complete.
-  write_paths: ["prototype.html", "build-*.md"]
+    Values, ids, namespaces and request shapes come from `.goal/test-facts.md`; do not open the samples or the
+    schemas. Shared `data-test` names come from its "## data-test names".
+    Build the shared API exactly as spec.md's Architecture section names it: shared state, parse module, the shared
+    XML writer(s), output panels, step bar, settings, theme. Then, for EVERY part in build/parts-tasks.json:
+    - its markup slot: a line `<!-- part:<part id> -->` where that part's screens belong;
+    - its script slot: a line `/* part:<part id> */` inside the app script, AFTER every shared module and BEFORE the
+      code that starts the app;
+    - a part registry before the script slots: `App.registerPart(id, { init(state, api) })`; when the app starts it
+      calls every registered part's `init` after the shared modules are ready.
+    write_file `build/shared-api.md`: one line per shared function, state field, event and CSS class a part may use
+    (name — what it does — how to call it). Part builders read only this and the facts sheet.
+    Follow "UI and UX craft", the Design context and "Goal — Working App Logic".
+    When the shell is built, run `run_acceptance("<your task's ids>")` ONCE; if most fail or the page does not
+    load, fix that cause and run them once more, then move on. At most TWICE. Write `build-notes-T01.md` (built,
+    not finished, ids still failing). Never write .goal/trace.json.
+    Before calling report_task_complete, run this mandatory marker check:
+    1. Read build/parts-tasks.json to get every part id.
+    2. grep prototype.html for each part id to confirm BOTH markers exist:
+       `<!-- part:<id> -->` in the markup section AND `/* part:<id> */` inside the app script.
+    3. If ANY marker is missing — add it now before finishing. The next step is a code-only assembler that
+       will hard-fail the entire run if even one marker is absent. There is no recovery path.
+    Then call report_task_complete.
+  write_paths: ["prototype.html", "build-*.md", "build/shared-api.md"]
   edit_only: ["prototype.html"]
   tools:
     read_files: true
     write_files: true
     exec: false
-    tool_sets: [playwright, prototype_emit_only, ledger, acceptance]
+    # No playwright: the builder does not test by hand; run_acceptance (acceptance set) runs its task's ids once.
+    tool_sets: [prototype_emit_only, ledger, acceptance]
   strategy: task_loop
   task_source:
     kind: parsed
@@ -757,8 +999,8 @@ steps:
     target: tasks.json
     source_step: custom-agent:spec
     spec_step: custom-agent:spec
-  # Full render + click validation every 4th task and on the last one; the quick static check runs every task.
-  fix: {max_attempts: 2, full_every: 4}
+  # One task (the shell): the full render + click validation runs on it.
+  fix: {max_attempts: 2, full_every: 1}
   validators:
   - html_static
   - html_render
@@ -766,11 +1008,560 @@ steps:
   compaction: html_skeleton
   gates: []
 
+# The use cases are separate files, so they are built in parallel: one builder per part of
+# build/parts-tasks.json. They never touch prototype.html; the assemble step below pours them in.
+- strategy: wave_scheduler
+  task_source:
+    kind: parsed
+    parser: json_tasks
+    target: build/parts-tasks.json
+    source_step: custom-agent:spec
+  fanout:
+    agent: self
+    mode: parallel
+    max_parallel: 6
+  agent: custom-agent
+  instance_id: build-parts
+  name: Build parts
+  depends_on: ["custom-agent:build"]
+  model: {model: eu.anthropic.claude-sonnet-5-5}
+  prompt: |
+    # UI and UX craft
+
+    The look (colour, type, radius, spacing scale) comes from the selected design; the structure comes from
+    the template. This section decides how a screen is ORGANISED and how it BEHAVES. A screen is finished when
+    a user who has never seen it can do the job without asking.
+
+    ## 1. Hierarchy: one job per screen
+
+    - The screen title says the job ("Change flights", not "Details"). One primary action per view, visually
+      first; secondary actions are quieter; destructive actions are separated and confirm.
+    - Order content in the order the user works: what they load → what they check → what they decide → what
+      they get. A step bar (`nav` `data-variant="steps"`) shows where they are when the documents describe a
+      sequence; a step that cannot be opened yet looks disabled and says why on focus/hover.
+    - Group with sections and cards, not with lines and colour. Every group has a heading.
+
+    ## 2. Layout and alignment
+
+    - Use the template's regions and grid; never invent widths. Fill the screen: panels stretch to the
+      container, tables span their panel, no floating islands in empty space.
+    - Align labels and values on a shared edge. Numbers (amounts, counts, times) are right-aligned in tables
+      and use the same decimals in a column; currency code once in the header or beside each amount, never
+      mixed.
+    - Read-only records use label-above-value facts, never disabled inputs.
+    - Side-by-side comparison (before/after, old/new) uses two aligned columns with identical row order; the
+      rows that differ are marked (badge or `data-state`), not only coloured.
+
+    ## 3. Operational density
+
+    Operational tools (airline, finance, ops) favour density: compact tables, small badges, short labels,
+    monospace for codes and generated text. Show identifiers exactly (order ids, offer ids, codes). Long
+    values wrap or truncate with the full value available (title/tooltip or a detail view) — never overflow.
+
+    ## 4. Forms and validation
+
+    - Every input has a visible label; required fields are marked; formats are shown as hint text
+      (`MMYY`, `+34`, `4–14 digits`), never only as placeholder.
+    - Validate on blur and on submit; the error sits next to the field, says what is wrong and how to fix it
+      ("Expiry must be MMYY, e.g. 0828"), and moves focus to the first error on submit.
+    - Read-only computed values (fixed amounts, generated ids) look read-only and say where they come from.
+    - Defaults from the requirements are pre-filled; "fill test data" style helpers are clearly secondary.
+
+    ## 5. Warnings vs blocks
+
+    - **Warning**: the user may continue. Amber callout near the affected area, one line, names the fact
+      ("Offer expired on 6 Nov 2026 22:59 UTC"). Several warnings → a list, each its own line.
+    - **Block**: the user cannot continue. The action is disabled AND the reason is visible next to it (not
+      only in a tooltip). A blocked state always says what would unblock it.
+    - **Error** (bad input file, parse failure): an error callout with the parser's message and the file name,
+      plus a way to try again. Never a silent failure, never a console-only error.
+
+    ## 6. Every state exists
+
+    Each screen and list has: empty (what to do first, with the action), loading (spinner/skeleton for >
+    300 ms work), populated, warning, blocked, error, success (toast or inline confirmation). A list that is
+    empty because of a filter says so and offers to clear the filter; it never shows "no items" under items.
+
+    ## 7. Keyboard and accessibility
+
+    Every control reachable by Tab in reading order, visible focus (the design provides it — never remove
+    outlines), Enter/Space activate, Escape closes dialogs, focus returns to the opener. Icons that act have
+    an `aria-label`. Status changes use `role="status"`. Contrast comes from the design tokens — never put
+    text on a colour the design did not pair with it.
+
+    ## 8. Responsive, light and dark
+
+    Desktop first for tools, but nothing breaks at 1024 px: columns stack, tables scroll inside their panel
+    (never the page sideways). Never write colours: both themes come from the design's tokens, and the header
+    theme toggle stays.
+
+    ## 9. Copy
+
+    Plain, specific, sentence case. Buttons are verbs ("Generate request", "Load OrderViewRS"). Use the
+    domain's own terms from the documents (OrderViewRS, AddCol, PTC) exactly; explain a code once in plain
+    words where the documents ask for it.
+
+    # Goal — Executable Acceptance Tests
+
+    Each testable ledger row gets `.goal/acceptance/<id>.json`. The `run_acceptance` tool executes them in Chrome,
+    from a fresh page load per case, and writes `.goal/trace.json` itself. Tests are written before any code, from the
+    requirement and the sample data. A test that is not in this exact format cannot run — `ledger_check` mode
+    `acceptance_schema` rejects it.
+
+    ## File format
+
+    ```json
+    {"id": "U6-6", "title": "Hold is disabled when the quote demands immediate payment",
+     "fixtures": [".uploads/IB_ORDERRESHOP_flightchange_immediate_payment_2ADT.xml"],
+     "cases": [
+      {"name": "immediate payment disables hold",
+       "steps": [
+         {"verb": "goto_tab", "target": "tab-change-order"},
+         {"verb": "fill", "target": "seller-id", "value": "UNISYS01"},
+         {"verb": "load_file", "target": "change-order-file", "file": ".uploads/IB_ORDERVIEW_paid_cash_2ADT_RT_MAD-FRA.xml"},
+         {"verb": "click", "target": "action-uc6"},
+         {"verb": "load_file", "target": "uc6-reshop-file", "file": ".uploads/IB_ORDERRESHOP_flightchange_immediate_payment_2ADT.xml"},
+         {"verb": "expect_disabled", "target": "uc6-pay-hold"},
+         {"verb": "expect_text", "target": "uc6-pay-hold-reason", "contains": "immediate"}
+       ]},
+      {"name": "normal quote keeps hold available",
+       "steps": [
+         {"verb": "goto_tab", "target": "tab-change-order"},
+         {"verb": "fill", "target": "seller-id", "value": "UNISYS01"},
+         {"verb": "load_file", "target": "change-order-file", "file": ".uploads/IB_ORDERVIEW_paid_cash_2ADT_RT_MAD-FRA.xml"},
+         {"verb": "click", "target": "action-uc6"},
+         {"verb": "load_file", "target": "uc6-reshop-file", "file": ".uploads/IB_ORDERRESHOP_flightchange_addcol_2ADT.xml"},
+         {"verb": "expect_enabled", "target": "uc6-pay-hold"}
+       ]}
+     ]}
+    ```
+
+    ## Step verbs (closed set)
+
+    Each step is an object whose `verb` key names the action: `{"verb": "click", "target": "uc4-generate"}`.
+
+
+    `goto_tab {target}` · `load_file {target, file}` · `paste {target, file|text}` · `click {target}` ·
+    `fill {target, value}` · `select {target, value}` · `check {target}` · `uncheck {target}` ·
+    `expect_visible {target}` · `expect_hidden {target}` · `expect_enabled {target}` · `expect_disabled {target}` ·
+    `expect_text {target, contains|equals}` · `expect_count {target, equals|min|max}` ·
+    `expect_xml {target, well_formed: true, root?, contains?: [...], not_contains?: [...], xpath_text?: {xpath: value}}`
+    · `eval {js}` (returns true; use rarely).
+
+    `target` is a `data-test` name (the builder adds it) unless it starts with `#`, `.` or `[`. Files are sandbox
+    paths: `.uploads/<name>` or `.goal/fixtures/<name>`. `expect_xml` reads the element's value or text; xpaths use
+    local names (`//SelectedPricedOffer/TotalOfferPriceAmount`), namespaces are ignored.
+
+    ## Rules
+
+    1. Name every target in the test; builders must create exactly those `data-test` names. Keep names short and
+       stable: `<area>-<thing>` (`uc4-generate`, `output-change`).
+    2. Values come from the sample files — read them, never guess (`TotalOfferPriceAmount` = 564.45 in IB_TEST03).
+    3. Every output requirement ends with `expect_xml` on the generated output: `well_formed: true` plus the root and
+       the values the request must carry. One well-formed document means exactly one XML declaration and one root.
+       When the output is a namespaced message, `contains` also carries every namespace declaration exactly as the
+       sample files of that standard write it (e.g. `xmlns:ns2="…/IATA_OffersAndOrdersMessage"`), so a wrong
+       schema version fails.
+    4. Every validation / blocking rule gets a negative case.
+    5. A case the samples cannot exercise uses a minimal edited copy under `.goal/fixtures/`, named after the row
+       (`U6-5-even-exchange.xml`), with a one-line `README.md` entry.
+    6. `testable: false` rows get no file.
+    7. Finish with `ledger_check` mode `acceptance_schema` clean.
+
+    # Goal — Working App Logic
+
+    Apply this section only when `.goal/intent.json` has `"profile": "web_tool"`.
+
+    A web tool is still ONE self-contained page, `prototype.html`, styled by the active design system and
+    template. All behaviour lives in ONE `<script id="app">` at the end of `<body>`. The markup shows the
+    screens; the app script turns user input into state and output.
+
+    ## What the app script may do
+
+    - Plain browser JavaScript, no libraries, no network: never `fetch`, `XMLHttpRequest`, `eval`, CDN
+      scripts or web fonts.
+    - Browser APIs: `DOMParser`, `XMLSerializer`, `FileReader`, `File`, `Blob`, `URL.createObjectURL`,
+      `navigator.clipboard`, `crypto.randomUUID`, `Intl`, `Date`.
+    - Change the page with `textContent`, attributes, `hidden`, `disabled`, `value` and class toggles that
+      the design already defines. Build repeated rows from a `<template>` element with `cloneNode`, never
+      from strings with `innerHTML`.
+    - Never add inline `style=` or colour literals; colours and spacing come from the design tokens.
+
+    ## Storing nothing
+
+    When the requirements say the tool keeps nothing between sessions, do not use `localStorage`,
+    `sessionStorage` or cookies; everything starts empty on each load.
+
+    ## Structure the script
+
+    1. `const S = {}` — the whole in-memory state (loaded raw text, parsed records, settings).
+    2. Pure functions, no DOM: `parseX(text) → {records…, errors, warnings}`, `rules(S) → {blocks,
+       warnings}`, `generate(S) → string`. Keep them pure so tests can call them.
+    3. Handlers: input events → update `S` → call `render()`.
+    4. `render()` — writes computed text, `disabled`, `hidden` and states from `S`. One place, called after
+       every change.
+    5. `window.__app = { state: () => structuredClone(S), parse…, generate… }` — read-only hooks for the
+       acceptance tests.
+
+    ## Loading input (file picker, drag-and-drop, paste)
+
+    One function `loadText(text, sourceName)` used by all three. File input: `FileReader.readAsText`. Drop
+    zone: `dragover` (preventDefault) + `drop` (`e.dataTransfer.files[0]`). Paste: a textarea plus a "Load"
+    button. Errors show next to the loader, with the parser's own message.
+
+    ## XML
+
+    - Parse: `new DOMParser().parseFromString(text, 'application/xml')`; a `parsererror` element means not
+      well-formed — show its text.
+    - Match by local name so any namespace prefix works: `el.localName`, and a helper
+      `kids(el, name) = [...el.children].filter(c => c.localName === name)`; never `querySelector` with
+      prefixes.
+    - Namespaces of generated messages are copied from the sample files (the version the samples use),
+      never from memory of another schema version.
+    - Generate with string building, not DOM: ONE small writer `w.open(name, attrs)`, `w.text(name,
+      value)`, `w.close()` that tracks depth and indents (the requirements' indent, e.g. three spaces),
+      escapes `& < > " '`, and emits elements in the order the schema/requirements list them. Only the
+      writer emits `<?xml version="1.0" encoding="UTF-8"?>` and the root.
+    - Check your own output: parse the generated string with DOMParser and show "well-formed" or the error.
+
+    ## Copy and download
+
+    Copy: `navigator.clipboard.writeText(text)` and a short confirmation (with a fallback when the
+    clipboard is unavailable). Download: `URL.createObjectURL(new Blob([text], {type: 'application/xml'}))`
+    on a temporary `<a download="…">` created with `document.createElement` and never inserted into the
+    page. File names follow the requirements exactly.
+
+    ## Determinism
+
+    Generated ids (TrxID, CorrelationID) come from one function so tests can stub them
+    (`window.__app.seed(…)`). Dates use the input's own time zone rules; amounts keep the input's decimals.
+
+    # Your task
+
+    # Design context
+
+    The design context is on disk, never in your prompt; nothing pastes it for you. `.context/selections.json` names
+    this run's `ds_id` and `template_id` (`"no_template": true` means no template was chosen). The material is in
+    `.context/design/`:
+    - `design-system.md` — the design system: colours, type, spacing, radii, components, voice
+    - `tokens.css`, `components.html` — the design system's own tokens and component markup, when present
+    - `craft.md` — quality rules the template requires (states, accessibility, forms), when present
+    - `template/SKILL.md` — the template: its chrome, screen patterns, components, hard rules
+    - `template/example.html`, `template/assets/template.html` — the template's real markup and CSS, when present
+    A file that does not exist was not attached. Use only the design system's colours and fonts, and keep the
+    template's structure.
+    Read `.context/selections.json` and every design file listed above that exists, each to its end, in ONE turn
+    (issue the reads together); the paths are fixed, so do not `ls` around.
+
+    The user's answers to the clarifying questions are in `PLANNER.md` under "Explicit Constraints" (when present).
+    They are the user's decisions: follow them, and where an answer and a document disagree, the answer wins.
+
+    You are a Part builder. Your CURRENT TASK names one part of build/parts-tasks.json: its id, use case, ledger ids
+    and acceptance files. Other part builders work on the other parts AT THE SAME TIME. prototype.html (the shell)
+    already exists with the shared code and a slot for your part; after all parts finish, code pours your files into
+    that slot. You never edit prototype.html.
+    Read in ONE turn (issue the reads together): `build/shared-api.md`, `.goal/test-facts.md`, your acceptance
+    files, and spec.md's section for your use case. Read the shell only where shared-api.md is not enough, and only
+    those lines.
+    Write exactly two files:
+    - `parts/<part id>.html` — your screens' markup only (no `<html>`, `<head>`, `<body>` or `<script>`), with
+      `data-part="<part id>"` on your root element. A `<style>` block for your own styles is allowed, scoped under
+      your root; reuse the shared classes and the design system's tokens, never redefine a shared class.
+    - `parts/<part id>.js` — plain JavaScript, no `<script>` tags: `App.registerPart("<part id>", { init(state, api)
+      { … } })`. Prefix every function, id and CSS class you add with your part id in lower case so parts cannot
+      collide.
+    Use the shared state, parser and XML writer exactly as build/shared-api.md describes; never redefine them. When
+    you need something shared that does not exist, do not build your own copy: list it in your notes under
+    "Needs from the shell" — the glue step adds it once for everyone.
+    Use exactly the `data-test` names your acceptance files target (shared ones from the facts sheet). Values come
+    from `.goal/test-facts.md`. Build EVERYTHING your task lists — every screen, field, rule and action, wired up.
+    You cannot run tests: the page is assembled only after every part finishes.
+    write_file `build-notes-<part id>.md`: what you built, anything not finished and why, and "Needs from the
+    shell". Then deliver the step file the engine asks for with ONE line — your report. Other part builders share
+    that step file: if it already exists, leave it as it is; your reply is enough.
+    Progress: after each screen of your part, say one line alongside your next tool call:
+    `Progress: <screens done>/<screens in your part> screens (<part id>)`.
+  write_paths: ["parts/*", "build-*.md"]
+  tools:
+    read_files: true
+    write_files: true
+    exec: false
+  gates: []
+
+- agent: custom-agent
+  instance_id: assemble
+  name: Assemble
+  depends_on: ["custom-agent:build-parts"]
+  mechanical: assemble_slots
+  gates: []
+
+- agent: custom-agent
+  instance_id: glue
+  name: Glue
+  depends_on: ["custom-agent:assemble"]
+  model: {model: eu.anthropic.claude-sonnet-5-5}
+  prompt: |
+    # UI and UX craft
+
+    The look (colour, type, radius, spacing scale) comes from the selected design; the structure comes from
+    the template. This section decides how a screen is ORGANISED and how it BEHAVES. A screen is finished when
+    a user who has never seen it can do the job without asking.
+
+    ## 1. Hierarchy: one job per screen
+
+    - The screen title says the job ("Change flights", not "Details"). One primary action per view, visually
+      first; secondary actions are quieter; destructive actions are separated and confirm.
+    - Order content in the order the user works: what they load → what they check → what they decide → what
+      they get. A step bar (`nav` `data-variant="steps"`) shows where they are when the documents describe a
+      sequence; a step that cannot be opened yet looks disabled and says why on focus/hover.
+    - Group with sections and cards, not with lines and colour. Every group has a heading.
+
+    ## 2. Layout and alignment
+
+    - Use the template's regions and grid; never invent widths. Fill the screen: panels stretch to the
+      container, tables span their panel, no floating islands in empty space.
+    - Align labels and values on a shared edge. Numbers (amounts, counts, times) are right-aligned in tables
+      and use the same decimals in a column; currency code once in the header or beside each amount, never
+      mixed.
+    - Read-only records use label-above-value facts, never disabled inputs.
+    - Side-by-side comparison (before/after, old/new) uses two aligned columns with identical row order; the
+      rows that differ are marked (badge or `data-state`), not only coloured.
+
+    ## 3. Operational density
+
+    Operational tools (airline, finance, ops) favour density: compact tables, small badges, short labels,
+    monospace for codes and generated text. Show identifiers exactly (order ids, offer ids, codes). Long
+    values wrap or truncate with the full value available (title/tooltip or a detail view) — never overflow.
+
+    ## 4. Forms and validation
+
+    - Every input has a visible label; required fields are marked; formats are shown as hint text
+      (`MMYY`, `+34`, `4–14 digits`), never only as placeholder.
+    - Validate on blur and on submit; the error sits next to the field, says what is wrong and how to fix it
+      ("Expiry must be MMYY, e.g. 0828"), and moves focus to the first error on submit.
+    - Read-only computed values (fixed amounts, generated ids) look read-only and say where they come from.
+    - Defaults from the requirements are pre-filled; "fill test data" style helpers are clearly secondary.
+
+    ## 5. Warnings vs blocks
+
+    - **Warning**: the user may continue. Amber callout near the affected area, one line, names the fact
+      ("Offer expired on 6 Nov 2026 22:59 UTC"). Several warnings → a list, each its own line.
+    - **Block**: the user cannot continue. The action is disabled AND the reason is visible next to it (not
+      only in a tooltip). A blocked state always says what would unblock it.
+    - **Error** (bad input file, parse failure): an error callout with the parser's message and the file name,
+      plus a way to try again. Never a silent failure, never a console-only error.
+
+    ## 6. Every state exists
+
+    Each screen and list has: empty (what to do first, with the action), loading (spinner/skeleton for >
+    300 ms work), populated, warning, blocked, error, success (toast or inline confirmation). A list that is
+    empty because of a filter says so and offers to clear the filter; it never shows "no items" under items.
+
+    ## 7. Keyboard and accessibility
+
+    Every control reachable by Tab in reading order, visible focus (the design provides it — never remove
+    outlines), Enter/Space activate, Escape closes dialogs, focus returns to the opener. Icons that act have
+    an `aria-label`. Status changes use `role="status"`. Contrast comes from the design tokens — never put
+    text on a colour the design did not pair with it.
+
+    ## 8. Responsive, light and dark
+
+    Desktop first for tools, but nothing breaks at 1024 px: columns stack, tables scroll inside their panel
+    (never the page sideways). Never write colours: both themes come from the design's tokens, and the header
+    theme toggle stays.
+
+    ## 9. Copy
+
+    Plain, specific, sentence case. Buttons are verbs ("Generate request", "Load OrderViewRS"). Use the
+    domain's own terms from the documents (OrderViewRS, AddCol, PTC) exactly; explain a code once in plain
+    words where the documents ask for it.
+
+    # Goal — Executable Acceptance Tests
+
+    Each testable ledger row gets `.goal/acceptance/<id>.json`. The `run_acceptance` tool executes them in Chrome,
+    from a fresh page load per case, and writes `.goal/trace.json` itself. Tests are written before any code, from the
+    requirement and the sample data. A test that is not in this exact format cannot run — `ledger_check` mode
+    `acceptance_schema` rejects it.
+
+    ## File format
+
+    ```json
+    {"id": "U6-6", "title": "Hold is disabled when the quote demands immediate payment",
+     "fixtures": [".uploads/IB_ORDERRESHOP_flightchange_immediate_payment_2ADT.xml"],
+     "cases": [
+      {"name": "immediate payment disables hold",
+       "steps": [
+         {"verb": "goto_tab", "target": "tab-change-order"},
+         {"verb": "fill", "target": "seller-id", "value": "UNISYS01"},
+         {"verb": "load_file", "target": "change-order-file", "file": ".uploads/IB_ORDERVIEW_paid_cash_2ADT_RT_MAD-FRA.xml"},
+         {"verb": "click", "target": "action-uc6"},
+         {"verb": "load_file", "target": "uc6-reshop-file", "file": ".uploads/IB_ORDERRESHOP_flightchange_immediate_payment_2ADT.xml"},
+         {"verb": "expect_disabled", "target": "uc6-pay-hold"},
+         {"verb": "expect_text", "target": "uc6-pay-hold-reason", "contains": "immediate"}
+       ]},
+      {"name": "normal quote keeps hold available",
+       "steps": [
+         {"verb": "goto_tab", "target": "tab-change-order"},
+         {"verb": "fill", "target": "seller-id", "value": "UNISYS01"},
+         {"verb": "load_file", "target": "change-order-file", "file": ".uploads/IB_ORDERVIEW_paid_cash_2ADT_RT_MAD-FRA.xml"},
+         {"verb": "click", "target": "action-uc6"},
+         {"verb": "load_file", "target": "uc6-reshop-file", "file": ".uploads/IB_ORDERRESHOP_flightchange_addcol_2ADT.xml"},
+         {"verb": "expect_enabled", "target": "uc6-pay-hold"}
+       ]}
+     ]}
+    ```
+
+    ## Step verbs (closed set)
+
+    Each step is an object whose `verb` key names the action: `{"verb": "click", "target": "uc4-generate"}`.
+
+
+    `goto_tab {target}` · `load_file {target, file}` · `paste {target, file|text}` · `click {target}` ·
+    `fill {target, value}` · `select {target, value}` · `check {target}` · `uncheck {target}` ·
+    `expect_visible {target}` · `expect_hidden {target}` · `expect_enabled {target}` · `expect_disabled {target}` ·
+    `expect_text {target, contains|equals}` · `expect_count {target, equals|min|max}` ·
+    `expect_xml {target, well_formed: true, root?, contains?: [...], not_contains?: [...], xpath_text?: {xpath: value}}`
+    · `eval {js}` (returns true; use rarely).
+
+    `target` is a `data-test` name (the builder adds it) unless it starts with `#`, `.` or `[`. Files are sandbox
+    paths: `.uploads/<name>` or `.goal/fixtures/<name>`. `expect_xml` reads the element's value or text; xpaths use
+    local names (`//SelectedPricedOffer/TotalOfferPriceAmount`), namespaces are ignored.
+
+    ## Rules
+
+    1. Name every target in the test; builders must create exactly those `data-test` names. Keep names short and
+       stable: `<area>-<thing>` (`uc4-generate`, `output-change`).
+    2. Values come from the sample files — read them, never guess (`TotalOfferPriceAmount` = 564.45 in IB_TEST03).
+    3. Every output requirement ends with `expect_xml` on the generated output: `well_formed: true` plus the root and
+       the values the request must carry. One well-formed document means exactly one XML declaration and one root.
+       When the output is a namespaced message, `contains` also carries every namespace declaration exactly as the
+       sample files of that standard write it (e.g. `xmlns:ns2="…/IATA_OffersAndOrdersMessage"`), so a wrong
+       schema version fails.
+    4. Every validation / blocking rule gets a negative case.
+    5. A case the samples cannot exercise uses a minimal edited copy under `.goal/fixtures/`, named after the row
+       (`U6-5-even-exchange.xml`), with a one-line `README.md` entry.
+    6. `testable: false` rows get no file.
+    7. Finish with `ledger_check` mode `acceptance_schema` clean.
+
+    # Goal — Working App Logic
+
+    Apply this section only when `.goal/intent.json` has `"profile": "web_tool"`.
+
+    A web tool is still ONE self-contained page, `prototype.html`, styled by the active design system and
+    template. All behaviour lives in ONE `<script id="app">` at the end of `<body>`. The markup shows the
+    screens; the app script turns user input into state and output.
+
+    ## What the app script may do
+
+    - Plain browser JavaScript, no libraries, no network: never `fetch`, `XMLHttpRequest`, `eval`, CDN
+      scripts or web fonts.
+    - Browser APIs: `DOMParser`, `XMLSerializer`, `FileReader`, `File`, `Blob`, `URL.createObjectURL`,
+      `navigator.clipboard`, `crypto.randomUUID`, `Intl`, `Date`.
+    - Change the page with `textContent`, attributes, `hidden`, `disabled`, `value` and class toggles that
+      the design already defines. Build repeated rows from a `<template>` element with `cloneNode`, never
+      from strings with `innerHTML`.
+    - Never add inline `style=` or colour literals; colours and spacing come from the design tokens.
+
+    ## Storing nothing
+
+    When the requirements say the tool keeps nothing between sessions, do not use `localStorage`,
+    `sessionStorage` or cookies; everything starts empty on each load.
+
+    ## Structure the script
+
+    1. `const S = {}` — the whole in-memory state (loaded raw text, parsed records, settings).
+    2. Pure functions, no DOM: `parseX(text) → {records…, errors, warnings}`, `rules(S) → {blocks,
+       warnings}`, `generate(S) → string`. Keep them pure so tests can call them.
+    3. Handlers: input events → update `S` → call `render()`.
+    4. `render()` — writes computed text, `disabled`, `hidden` and states from `S`. One place, called after
+       every change.
+    5. `window.__app = { state: () => structuredClone(S), parse…, generate… }` — read-only hooks for the
+       acceptance tests.
+
+    ## Loading input (file picker, drag-and-drop, paste)
+
+    One function `loadText(text, sourceName)` used by all three. File input: `FileReader.readAsText`. Drop
+    zone: `dragover` (preventDefault) + `drop` (`e.dataTransfer.files[0]`). Paste: a textarea plus a "Load"
+    button. Errors show next to the loader, with the parser's own message.
+
+    ## XML
+
+    - Parse: `new DOMParser().parseFromString(text, 'application/xml')`; a `parsererror` element means not
+      well-formed — show its text.
+    - Match by local name so any namespace prefix works: `el.localName`, and a helper
+      `kids(el, name) = [...el.children].filter(c => c.localName === name)`; never `querySelector` with
+      prefixes.
+    - Namespaces of generated messages are copied from the sample files (the version the samples use),
+      never from memory of another schema version.
+    - Generate with string building, not DOM: ONE small writer `w.open(name, attrs)`, `w.text(name,
+      value)`, `w.close()` that tracks depth and indents (the requirements' indent, e.g. three spaces),
+      escapes `& < > " '`, and emits elements in the order the schema/requirements list them. Only the
+      writer emits `<?xml version="1.0" encoding="UTF-8"?>` and the root.
+    - Check your own output: parse the generated string with DOMParser and show "well-formed" or the error.
+
+    ## Copy and download
+
+    Copy: `navigator.clipboard.writeText(text)` and a short confirmation (with a fallback when the
+    clipboard is unavailable). Download: `URL.createObjectURL(new Blob([text], {type: 'application/xml'}))`
+    on a temporary `<a download="…">` created with `document.createElement` and never inserted into the
+    page. File names follow the requirements exactly.
+
+    ## Determinism
+
+    Generated ids (TrxID, CorrelationID) come from one function so tests can stub them
+    (`window.__app.seed(…)`). Dates use the input's own time zone rules; amounts keep the input's decimals.
+
+    # Your task
+
+    # Design context
+
+    The design context is on disk, never in your prompt; nothing pastes it for you. `.context/selections.json` names
+    this run's `ds_id` and `template_id` (`"no_template": true` means no template was chosen). The material is in
+    `.context/design/`:
+    - `design-system.md` — the design system: colours, type, spacing, radii, components, voice
+    - `tokens.css`, `components.html` — the design system's own tokens and component markup, when present
+    - `craft.md` — quality rules the template requires (states, accessibility, forms), when present
+    - `template/SKILL.md` — the template: its chrome, screen patterns, components, hard rules
+    - `template/example.html`, `template/assets/template.html` — the template's real markup and CSS, when present
+    A file that does not exist was not attached. Use only the design system's colours and fonts, and keep the
+    template's structure.
+    Read `.context/selections.json` and every design file listed above that exists, each to its end, in ONE turn
+    (issue the reads together); the paths are fixed, so do not `ls` around.
+
+    The user's answers to the clarifying questions are in `PLANNER.md` under "Explicit Constraints" (when present).
+    They are the user's decisions: follow them, and where an answer and a document disagree, the answer wins.
+
+    You are the Glue step. prototype.html was assembled by CODE from the shell and parts that were built IN
+    PARALLEL by different builders (`build/assembly.json` lists what was filled, missing and unused). Each part was
+    built alone; you make them work as ONE product. Change the page with edit_file only.
+    Read in ONE turn: `build/assembly.json`, `build/shared-api.md`, every `build-notes-*.md`, then call
+    `page_outline` once and read only the regions you change.
+    1. Missing parts: a part listed missing in assembly.json — build it in its slot from its task in
+       build/parts-tasks.json, following the same rules as the parts.
+    2. Needs from the shell: add each item every part listed, ONCE, to the shared code, and switch the parts that
+       worked around it to the shared version.
+    3. Seams between parts: navigation reaches every part (tabs, step bar, use-case choice, "Load another"); the
+       loaded message and settings are shared, not reloaded per part; every registered part's init runs; no
+       duplicated ids, function names or data-test names (grep the page); one output panel per workspace; parts
+       use the shared classes and tokens and look like one product in light and dark; focus order and keyboard
+       work across parts.
+    4. Do not redesign a part and do not fix individual acceptance failures — integrate and fix do that.
+    Do not call run_acceptance; the integrate step runs the full suite next.
+    Reply with one line per seam fixed, then one line: parts present, needs added.
+  write_paths: ["prototype.html", "glue-*.md"]
+  edit_only: ["prototype.html"]
+  tools:
+    read_files: true
+    write_files: true
+    exec: false
+    tool_sets: [prototype_emit_only, acceptance]
+  gates: []
+
 - agent: custom-agent
   instance_id: integrate
   name: Integration check
-  depends_on: ["custom-agent:build"]
-  model: {model: eu.anthropic.claude-sonnet-4-6}
+  depends_on: ["custom-agent:glue"]
+  model: {model: eu.anthropic.claude-sonnet-5-5}
   prompt: |
     # Goal — Integration Check
 
@@ -783,14 +1574,14 @@ steps:
     2. Architecture check against `spec.md` "Architecture": exactly one XML writer per output request type; no
        use-case code that emits its own `<?xml` declaration or root; one shared state; one output panel per
        workspace; no duplicate function names. `grep` for `<?xml` and for duplicate `function <name>(`.
-    3. `run_acceptance("all")` — read the summary.
-    4. Walk every use case end to end once in the browser with the real sample files (`.uploads/`): load, choose,
+    3. Walk every use case end to end once in the browser with the real sample files (`.uploads/`): load, choose,
        fill, generate. For every generated output check it is ONE well-formed document (one declaration, one root)
        and carries the ids and amounts of the sample.
-    5. Fix integration faults with `edit_file` (never rewrite the page): duplicated envelopes, a use case not using
+    4. Fix integration faults with `edit_file` (never rewrite the page): duplicated envelopes, a use case not using
        the shared writer, state not shared, a broken step between tasks. Do not redesign; do not touch passing
-       behaviour.
-    6. `run_acceptance("all")` again. Reply: integration faults found and fixed, then the runner summary line.
+       behaviour. Do not fix individual acceptance failures; the fix step works through them.
+    5. `run_acceptance("all")` ONCE, last — its trace is the fix step's work list. Reply: integration faults found
+       and fixed, then the runner summary line.
 
     Never write `.goal/trace.json` yourself — only `run_acceptance` writes it.
 
@@ -947,8 +1738,8 @@ steps:
     (when present).
 
     You are the Integration check. Follow "Goal — Integration Check": page_outline, the architecture check
-    against spec.md, run_acceptance("all"), one end-to-end pass per use case with the real sample files, then fix
-    integration faults with edit_file and run_acceptance("all") again. Never write .goal/trace.json.
+    against spec.md, one end-to-end pass per use case with the real sample files, fix integration faults with
+    edit_file, then run_acceptance("all") once, last. Never write .goal/trace.json.
     Work only in prototype.html; never create another page file.
   write_paths: ["prototype.html", "integrate-*.md"]
   edit_only: ["prototype.html"]
@@ -963,12 +1754,14 @@ steps:
   instance_id: fix
   name: Fix
   depends_on: ["custom-agent:integrate"]
-  model: {model: eu.anthropic.claude-sonnet-4-6}
+  model: {model: eu.anthropic.claude-sonnet-5-5}
   prompt: |
     # Goal — Fix
 
     1. Read `.goal/trace.json` (written by `run_acceptance`). Work list: results with status `fail` or `error`.
        No trace or nothing failing → reply exactly "nothing to fix".
+       Read every `build-notes-*.md` first: they say what the build left unfinished and which ids were failing.
+       An unfinished part named there is part of your work list even when no test covers it.
        Read `.goal/fix-notes.md` and `.goal/blocked.json` when they exist. Never repeat an approach the notes
        record as tried, and never undo a change they record.
     2. A result with `"stuck": true` has already failed the same way after two fix attempts. Do not edit the page
@@ -979,15 +1772,18 @@ steps:
        meets the ledger row and the test itself cannot pass (wrong expectation, a check the runner cannot
        evaluate, a contradiction with the spec), do not edit the page to satisfy it: record it in
        `.goal/blocked.json` (step 6).
-    5. Run `run_acceptance("<id>")` at least once for every failing id you worked on, fixed or not — this is how
-       an attempt is counted. Then `run_acceptance("<use-case prefix>")` for each use case you touched
-       (e.g. "U6-") so nothing that passed now fails.
+    5. Work one id at a time: fix it, run `run_acceptance("<id>")` for that id only, then move to the next id.
+       Run it once for every failing id you worked on, fixed or not — this is how an attempt is counted. Never run
+       "all" or a use-case prefix; verify runs the full suite.
     6. `.goal/blocked.json` is `{"items": [...]}`, one item per id you cannot fix in the page (update an existing
        item for the same id instead of adding a second):
        `{"id", "category": "test_defect" | "runner_limitation" | "spec_conflict" | "needs_input" | "product",
        "failing_step", "evidence": what you checked and saw, "how_to_fix": the exact change needed and where
        (for a test: the replacement step as JSON), "revision_request": one or two sentences a person can paste
        into a revision run to resolve it}`.
+    6b. Progress: the total is the number of ids on your work list. After each id (fixed, still failing or
+       blocked) say one line in your message alongside your next tool call:
+       `Progress: <ids handled>/<ids on the work list> failing ids handled`.
     7. Never write or edit `.goal/trace.json`, `.goal/fail-history.json` or `.goal/acceptance/*`. Append what you
        did to `.goal/fix-notes.md`: pass number, id, cause, change (or "blocked: <category>").
 
@@ -1224,8 +2020,8 @@ steps:
     (when present).
 
     You are the Fix step. Follow "Goal — Fix": work only on results with status fail or error in
-    .goal/trace.json; if there is none, reply exactly "nothing to fix". Use page_outline, fix with edit_file,
-    re-run with run_acceptance. Never write .goal/trace.json or the acceptance files. Fix the cause inside
+    .goal/trace.json; if there is none, reply exactly "nothing to fix". One id at a time: use page_outline, fix
+    with edit_file, run_acceptance for that id only, next id. Never write .goal/trace.json or the acceptance files. Fix the cause inside
     prototype.html; never create another page file and never redirect or navigate the page elsewhere.
   write_paths: ["prototype.html", ".goal/fix-notes.md", ".goal/blocked.json", "fix-*.md"]
   edit_only: ["prototype.html"]
@@ -1241,7 +2037,7 @@ steps:
   name: Verify
   depends_on: ["custom-agent:fix"]
   produces: ["route_decision"]
-  model: {model: eu.anthropic.claude-sonnet-4-6}
+  model: {model: eu.anthropic.claude-sonnet-5-5}
   prompt: |
     # Goal — Verify
 
@@ -1258,9 +2054,9 @@ steps:
        `.context/design/template/SKILL.md` (when present). The template's chrome and layout must be there and only the
        design system's colours and fonts used. Name every mismatch in your reply the same way.
     4. Decide from the trace and `.goal/blocked.json` only:
-       final reply is exactly one line, no markdown — `{"decision": "retry"}` when any `fail` or `error` result is
-       not `"stuck": true`, or is stuck but has no item in `.goal/blocked.json`; otherwise `{"decision": "ok"}`
-       (stuck, recorded ids are reported as open issues, not retried).
+       final reply is exactly one line, no markdown — `{"decision": "retry"}` when any `fail` or `error` result
+       has no item in `.goal/blocked.json`; otherwise `{"decision": "ok"}` (ids recorded in blocked.json, stuck
+       or left by the final fix pass, are reported as open issues, not retried).
 
     # Goal — Executable Acceptance Tests
 
@@ -1411,8 +2207,8 @@ steps:
     Look at the page only through run_acceptance and page_outline; never open the app's own web address
     (localhost:3000 needs a login and is not the page).
     Your final reply is exactly one line, no markdown:
-    {"decision": "retry"} when a fail or error result is not stuck, or is stuck without an item in
-    .goal/blocked.json; otherwise {"decision": "ok"}.
+    {"decision": "retry"} when a fail or error result has no item in .goal/blocked.json; otherwise
+    {"decision": "ok"}.
   tools:
     read_files: true
     write_files: false
@@ -1427,16 +2223,20 @@ steps:
         trigger: step
         target: fix
         feedback: >-
-          Verify found failing requirements. Read .goal/trace.json (written by run_acceptance) and fix every
-          result with status fail or error that is not stuck; record every stuck one in .goal/blocked.json.
-          Then hand back to verify.
-    loop_max_iterations: 10
+          Verify found failing requirements. This is the FINAL fix pass. Read .goal/trace.json (written by
+          run_acceptance) and fix every result with status fail or error that has no item in
+          .goal/blocked.json, one id at a time, running only that id after each fix. Every id still failing
+          after your attempt goes into .goal/blocked.json (category "product" unless another fits), with
+          how_to_fix and revision_request, so the report lists it as an open issue. Then hand back to verify.
+    # One extra fix pass, then report. The final fix pass records what it could not fix in blocked.json, so the
+    # second verify says ok; the cap is only a backstop (hitting it marks the run degraded).
+    loop_max_iterations: 1
 
 - agent: custom-agent
   instance_id: report
   name: Report
   depends_on: ["custom-agent:verify"]
-  model: {model: eu.anthropic.claude-sonnet-4-6}
+  model: {model: eu.anthropic.claude-sonnet-5-5}
   prompt: |
     # Goal — Verify
 
@@ -1450,9 +2250,9 @@ steps:
        in your reply with the ledger id it belongs to (the fix step reads your reply as feedback). For failing tests,
        name the id and the trace's failing step only — do not guess at causes or tell the fix step what to change.
     4. Decide from the trace and `.goal/blocked.json` only:
-       final reply is exactly one line, no markdown — `{"decision": "retry"}` when any `fail` or `error` result is
-       not `"stuck": true`, or is stuck but has no item in `.goal/blocked.json`; otherwise `{"decision": "ok"}`
-       (stuck, recorded ids are reported as open issues, not retried).
+       final reply is exactly one line, no markdown — `{"decision": "retry"}` when any `fail` or `error` result
+       has no item in `.goal/blocked.json`; otherwise `{"decision": "ok"}` (ids recorded in blocked.json, stuck
+       or left by the final fix pass, are reported as open issues, not retried).
 
     # Your task
 

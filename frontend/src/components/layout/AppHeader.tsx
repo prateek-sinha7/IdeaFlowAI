@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect } from "react";
 import Image from "next/image";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "motion/react";
 import {
@@ -30,6 +31,7 @@ import { TIER_LABELS } from "@/lib/entitlements";
 import type { SettingsSection } from "@/components/settings/AccountSettings";
 import { UpgradePlanModal } from "@/components/settings/UpgradePlanModal";
 import type { WorkflowRun } from "@/types/index";
+import { routes } from "@/lib/routes";
 
 // Status label + dot colour map for live runs — mirrors HomeLaunchGrid's
 // STATUS_TONE so the running dropdown shows the same labels as Jump Back In.
@@ -288,8 +290,13 @@ export function AppHeader({
   return (
     <header className="flex items-center justify-between px-3 sm:px-6 py-2.5 sm:py-3 bg-surface-near-black border-b border-white/10 z-40 relative">
       {/* Left — HEXAWARE | VelocityAI. The wordmark is the square logo's white
-          lettering cropped out (hexaware-wordmark.png, 371×50, transparent). */}
-      <div className="flex items-center gap-2.5 sm:gap-3.5">
+          lettering cropped out (hexaware-wordmark.png, 371×50, transparent).
+          A real link to home, so Cmd/Ctrl/middle-click opens a new tab. */}
+      <Link
+        href={routes.home()}
+        aria-label="VelocityAI home"
+        className="flex items-center gap-2.5 sm:gap-3.5 rounded-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-white/60"
+      >
         <Image
           src="/hexaware-wordmark.png"
           alt="Hexaware"
@@ -302,7 +309,7 @@ export function AppHeader({
         <span className="text-base sm:text-lg font-semibold text-white tracking-tight font-sans">
           VelocityAI
         </span>
-      </div>
+      </Link>
 
       {/* Center — Navigation (purple-underline active, no pill fill) */}
       <nav className="flex items-center gap-3 sm:gap-6">

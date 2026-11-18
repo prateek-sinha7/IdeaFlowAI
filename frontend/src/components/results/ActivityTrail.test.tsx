@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+﻿import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { ActivityTrail } from "./ActivityTrail";
 import type { ActivityRun } from "@/lib/runChain";
@@ -11,17 +11,20 @@ const runs: ActivityRun[] = [
 ];
 
 describe("ActivityTrail", () => {
-  it("a live step renders one labelled pill per run with its count", () => {
+  it("a live step renders one labelled pill per run with its count, newest first", () => {
     render(<ActivityTrail runs={runs} status="running" />);
     const boxes = screen.getAllByTestId("activity-box");
-    expect(boxes.map((b) => b.getAttribute("data-kind"))).toEqual(["reason", "read", "write", "output"]);
-    expect(boxes[1]).toHaveTextContent("read×4");
-    expect(screen.getByTestId("activity-trail")).toHaveAttribute("aria-label", "Activity: reason, then read 4 times, then write, then output");
+    expect(boxes.map((b) => b.getAttribute("data-kind"))).toEqual(["output", "write", "read", "reason"]);
+    expect(boxes[2]).toHaveTextContent("read×4");
+    expect(screen.getByTestId("activity-trail")).toHaveAttribute(
+      "aria-label",
+      "Activity, latest first: output, before that write, before that read 4 times, before that reason",
+    );
   });
 
   it("the tooltip names the tool and the files it touched", () => {
     render(<ActivityTrail runs={runs} status="running" />);
-    const read = screen.getAllByTestId("activity-box")[1];
+    const read = screen.getAllByTestId("activity-box")[2];
     expect(read).toHaveAttribute("title", "read ×4 · read_file\nspec.md\n…/screens.json\n+2 more");
   });
 
@@ -33,14 +36,14 @@ describe("ActivityTrail", () => {
     expect(box.getAttribute("title")).toContain("a call returned an error");
   });
 
-  it("the last pill pulses only while the step runs", () => {
+  it("the newest (first) pill pulses only while the step runs", () => {
     const { rerender } = render(<ActivityTrail runs={runs} status="running" />);
     let boxes = screen.getAllByTestId("activity-box");
-    expect(boxes[3].className).toContain("animate-pulse");
-    expect(boxes[0].className).not.toContain("animate-pulse");
+    expect(boxes[0].className).toContain("animate-pulse");
+    expect(boxes[3].className).not.toContain("animate-pulse");
     rerender(<ActivityTrail runs={runs} status="done" />);
     boxes = screen.getAllByTestId("activity-box");
-    expect(boxes[3].className).not.toContain("animate-pulse");
+    expect(boxes[0].className).not.toContain("animate-pulse");
   });
 
   it("folds a long trail by hiding the lightest pills, keeping the ends and the heavy ones", () => {
@@ -52,8 +55,7 @@ describe("ActivityTrail", () => {
     render(<ActivityTrail runs={long} maxPills={8} status="done" />);
     const shown = screen.getAllByTestId("activity-box");
     expect(shown.length).toBeLessThanOrEqual(8);
-    // Settled mode reverses the display order (latest first), so the original
-    // last run ("output") appears first and the original first run ("reason") last.
+    // newest first: the last run (output) leads, the first run (reason) closes the row
     expect(shown[0]).toHaveAttribute("data-kind", "output");
     expect(shown[shown.length - 1]).toHaveAttribute("data-kind", "reason");
     expect(shown.some((b) => b.textContent?.includes("×66"))).toBe(true);
@@ -62,13 +64,12 @@ describe("ActivityTrail", () => {
     expect(screen.getByTestId("activity-trail").className).toContain("whitespace-nowrap");
   });
 
-  it("live shows labels and may wrap; done summarises to icons on one line", () => {
+  it("live shows labels, done summarises to icons; both stay on one line", () => {
     const { rerender } = render(<ActivityTrail runs={runs} status="running" />);
-    expect(screen.getAllByTestId("activity-box")[1]).toHaveTextContent("read×4");
-    expect(screen.getByTestId("activity-trail").className).toContain("flex-wrap");
+    expect(screen.getAllByTestId("activity-box")[2]).toHaveTextContent("read×4");
+    expect(screen.getByTestId("activity-trail").className).toContain("whitespace-nowrap");
+    expect(screen.getByTestId("activity-trail").className).not.toContain("flex-wrap");
     rerender(<ActivityTrail runs={runs} status="done" />);
-    // Settled mode reverses display order: [output, write, read×4, reason]
-    // so boxes[2] is the read pill (originally index 1).
     const box = screen.getAllByTestId("activity-box")[2];
     expect(box).toHaveTextContent("×4");
     expect(box).not.toHaveTextContent("read");
@@ -81,15 +82,16 @@ describe("ActivityTrail", () => {
     expect(container).toBeEmptyDOMElement();
   });
 
-  it("a settled step with a very long trail shows all pills in a scrollable row (no React update-depth error)", () => {
-    // Previously the shrink-budget loop reduced pills one-by-one and hit React #185
-    // (~50 nested updates). The shrink loop is now removed — settled mode scrolls
-    // horizontally instead, so all pills are shown and no nested updates occur.
+  it("a very long trail keeps every pill on one row that scrolls sideways", () => {
     const long: ActivityRun[] = Array.from({ length: 200 }, (_, i) => ({
       kind: i % 2 ? "read" : "write",
       count: 1,
     }));
-    expect(() => render(<ActivityTrail runs={long} status="done" />)).not.toThrow();
-    expect(screen.getAllByTestId("activity-box").length).toBe(200);
+    render(<ActivityTrail runs={long} status="done" />);
+    expect(screen.getAllByTestId("activity-box")).toHaveLength(200);
+    expect(screen.queryByTestId("activity-more")).toBeNull();
+    const trail = screen.getByTestId("activity-trail");
+    expect(trail.className).toContain("overflow-x-auto");
+    expect(trail.className).toContain("whitespace-nowrap");
   });
 });

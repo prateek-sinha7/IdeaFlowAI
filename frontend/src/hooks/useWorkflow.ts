@@ -687,11 +687,50 @@ function settleWaveWorkers(agent: AgentRunState): AgentRunState {
  * Process an incoming pipeline WebSocket message and update state.
  * Call this from the parent component's onMessage handler.
  */
+// ─── Tool-call time from created_at ────────────────────────────────────────────
+// A replayed event carries its row's `created_at` (run_stream.py). The server writes that
+// column in its LOCAL time but labels it UTC, so on a server east of UTC every replayed
+// time reads that many hours late. Events that carry the engine's own UTC `timestamp`
+// as well reveal the offset (created_at − timestamp, rounded to 15 min); it is learned
+// per run and taken off every tool call's created_at. A server already on UTC (AWS dev)
+// has offset 0, so nothing moves. A live event has no created_at; it is happening now,
+// so the browser clock is its time.
+const SKEW_STEP_MS = 15 * 60 * 1000;
+const serverClockSkewMs = new Map<string, number>();
+let lastServerClockSkewMs = 0;
+
+export function learnServerClockSkew(msg: { [key: string]: unknown }): void {
+  const created = msg.created_at;
+  const stamped = msg.timestamp;
+  if (typeof created !== "string" || typeof stamped !== "string") return;
+  const c = Date.parse(created);
+  const t = Date.parse(stamped);
+  if (Number.isNaN(c) || Number.isNaN(t)) return;
+  const skew = Math.round((c - t) / SKEW_STEP_MS) * SKEW_STEP_MS;
+  const run = msg.pipeline_run_id;
+  if (typeof run === "string" && !serverClockSkewMs.has(run)) serverClockSkewMs.set(run, skew);
+  lastServerClockSkewMs = skew;
+}
+
+export function toolCallTime(msg: { [key: string]: unknown }): string {
+  const created = msg.created_at;
+  if (typeof created === "string") {
+    const ms = Date.parse(created);
+    if (!Number.isNaN(ms)) {
+      const run = msg.pipeline_run_id;
+      const skew = (typeof run === "string" ? serverClockSkewMs.get(run) : undefined) ?? lastServerClockSkewMs;
+      return new Date(ms - skew).toISOString();
+    }
+  }
+  return new Date().toISOString();
+}
+
 export function handlePipelineMessage(
   msg: { type: string; [key: string]: unknown },
   setPipelineStateRaw: React.Dispatch<React.SetStateAction<PipelineRunState>>,
   agentStartTimesRef: React.MutableRefObject<Record<string, number>>
 ): boolean {
+  learnServerClockSkew(msg);
   // ISS-082 — the reducer's OWN identity gate, installed ONCE for every accumulating case
   // rather than open-coded per field. Wrapping the dispatcher (instead of the handlers)
   // is what makes a future accumulating case protected by adding its type to the set
@@ -1705,7 +1744,9 @@ export function handlePipelineMessage(
         tool: (msg.tool as string) || "",
         args: (msg.args as Record<string, unknown>) || {},
         result: null,
-        timestamp: new Date().toISOString(),
+        // created_at with the server's clock offset taken off (see toolCallTime), so a
+        // reload shows when the call really happened; a live call uses the browser clock.
+        timestamp: toolCallTime(msg),
       };
       // A wave member's events carry task_id (stamped in fanout.py at push time).
       // Without this branch all N members' calls land on the parent step and the

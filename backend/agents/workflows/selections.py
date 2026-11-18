@@ -127,6 +127,15 @@ def _synthesize_step(agent_id: str, sel: dict | None) -> dict:
     validators = list(sel.get("validators") or [])
     gates = list(sel.get("gates") or [])
 
+    # R-03 guard: "conditional" requires a companion route: block that is authored
+    # in the BASE manifest, not user-configurable.  A persisted selection that
+    # captured this gate from a step that already carries it (e.g. a model-change
+    # save on the goal/gaps step) would otherwise fail the trust=user R-03 check
+    # during launch revalidation because the synthetic manifest has the gate but no
+    # route.  Strip it here — the base manifest's conditional gate is preserved
+    # intact at overlay time (the engine merges, not replaces, gates).
+    gates = [g for g in gates if g != "conditional"]
+
     # EMP-04 (D-07): a validator selection requires the validation gate to run it.
     if validators and "validation" not in gates:
         gates = [*gates, "validation"]

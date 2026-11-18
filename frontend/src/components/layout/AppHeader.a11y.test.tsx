@@ -157,3 +157,11 @@ describe("AppHeader — profile menu a11y", () => {
     expect(trigger).toHaveFocus();
   });
 });
+
+describe("AppHeader — logo links home", () => {
+  it("renders the logo as a real link to the dashboard, so Cmd/Ctrl/middle-click opens a new tab", () => {
+    setup();
+    const link = screen.getByRole("link", { name: "VelocityAI home" });
+    expect(link).toHaveAttribute("href", "/dashboard");
+  });
+});

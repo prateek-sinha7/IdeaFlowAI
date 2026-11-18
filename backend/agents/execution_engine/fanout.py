@@ -58,6 +58,7 @@ from typing import Any, AsyncIterator
 
 from agents.execution_engine.budget import (
     DEFAULT_MAX_CONCURRENCY,
+    DEFAULT_MAX_SUBAGENTS,
     MERGE_AGENT_MAX_ATTEMPTS,
 )
 
@@ -239,16 +240,24 @@ def _apply_declared_fanout(requests: list[dict], step: Any) -> list[dict]:
 
 
 def _resolve_concurrency(step: Any) -> int:
-    """The effective parallel cap = ``min(declared_max_parallel, DEFAULT_MAX_CONCURRENCY)``.
+    """The effective parallel cap for a fan-out step.
 
-    The engine ENFORCES the cap regardless of the manifest (T-11-01-02 DoS mitigation):
-    a manifest asking for 100 parallel workers still runs at most ``DEFAULT_MAX_CONCURRENCY``.
+    Two-tier rule (T-11-01-02 DoS mitigation):
+
+    * **No declaration** — use ``DEFAULT_MAX_CONCURRENCY`` as the safe default.
+      Protects waves that do not explicitly request concurrency from unbounded
+      parallelism.
+    * **Explicit declaration** — honour ``max_parallel`` up to
+      ``DEFAULT_MAX_SUBAGENTS`` (the per-run subagent ceiling).  An author who
+      writes ``max_parallel: 6`` knows they need 6 workers; capping them silently
+      at ``DEFAULT_MAX_CONCURRENCY`` defeats the declared intent.  The subagent
+      ceiling (8) is still the outer safety bound.
     """
     fanout = getattr(step, "fanout", None)
     declared = getattr(fanout, "max_parallel", None) if fanout is not None else None
     if declared is None or declared <= 0:
         return DEFAULT_MAX_CONCURRENCY
-    return min(declared, DEFAULT_MAX_CONCURRENCY)
+    return min(declared, DEFAULT_MAX_SUBAGENTS)
 
 
 def _is_sequential(step: Any) -> bool:

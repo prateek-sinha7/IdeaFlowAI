@@ -236,10 +236,11 @@ _ALLOWED_ON_CONFLICT: frozenset[str] = frozenset(
 # "assemble_backlog" merges stories/*.json into backlog.md/.csv/.json and a
 # coverage report (agents/capabilities/backlog_assemble.py); "extract_prototype_ui"
 # reads a prototype's look and feel into build/ui/ (agents/capabilities/
-# prototype_ui_extract.py). No model is involved in any. Closed set, same fail-loud
+# prototype_ui_extract.py); "assemble_slots" pours parts/<ID>.html|.js into the shell's
+# part markers (agents/capabilities/slot_assemble.py, goal_v2). No model is involved in any. Closed set, same fail-loud
 # precedent as ``_ALLOWED_ON_CONFLICT``.
 _ALLOWED_MECHANICAL_KINDS: frozenset[str] = frozenset(
-    {"publish", "assemble_prototype", "assemble_backlog", "extract_prototype_ui"}
+    {"publish", "assemble_prototype", "assemble_backlog", "extract_prototype_ui", "assemble_slots"}
 )
 
 # EXACTLY the keys a step ``tools:`` grant block may declare (D-08 at the nested

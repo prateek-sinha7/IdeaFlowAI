@@ -377,6 +377,7 @@ def discover() -> None:
         "agents.capabilities.publish_step",  # A10 — mechanical: publish capability
         "agents.capabilities.assemble_step",  # prototype v3 — mechanical: assemble_prototype
         "agents.capabilities.backlog_assemble",  # spec 021 — mechanical: assemble_backlog
+        "agents.capabilities.slot_assemble",  # goal_v2 — mechanical: assemble_slots
         "agents.capabilities.prototype_ui_extract",  # mechanical: extract_prototype_ui
         "agents.capabilities.context_providers.opendesign",
         "agents.capabilities.context_providers.previous_run",

@@ -77,14 +77,14 @@ def test_exactly_18_keys() -> None:
 
     Went 41 -> 42 with goal (P27).
 
-    Went 42 -> 43 with goal_revision.
+    Went 42 -> 43 with goal_revision; 43 -> 44 with goal_backup (the sequential-build goal, parked).
 
     Includes the ``sample_*`` fixture manifests: ``SUPPORTED_PIPELINE_TYPES``
     is derived from disk (ADR-0005), so every directory with a
     ``workflow.yaml`` is in scope — "zero exemptions among pipelines that
     actually have a workflow.yaml" is the rule.
     """
-    assert len(_MANIFEST_BACKED_IDS) == 43, (
+    assert len(_MANIFEST_BACKED_IDS) == 44, (
         f"manifest-backed pipeline count changed to {len(_MANIFEST_BACKED_IDS)} "
         f"— a workflow.yaml was added or removed. Confirm it is intentional, then "
         f"update this pin: {_MANIFEST_BACKED_IDS}"

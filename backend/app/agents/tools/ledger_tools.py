@@ -4,7 +4,8 @@ One read-only, deterministic, model-free tool, `ledger_check(mode)`, that compar
 goal-workflow artefacts in the run sandbox against `.goal/ledger.json`:
 
   harvest   IDs found in the extracted source text vs ledger rows
-  coverage  every ledger ID in spec.md, tasks.json and (if testable) .goal/acceptance/
+  coverage  every ledger ID in spec.md, tasks.json (+ build/parts-tasks.json, goal_v2) and (if testable)
+            .goal/acceptance/
   trace     every ledger ID has exactly one valid result in .goal/trace.json
   report    every non-pass ID is named in .goal/report.md
   acceptance_schema  every acceptance file is valid v2 format; every testable ID has one (goal)
@@ -49,6 +50,8 @@ _MAX_GAPS = 200
 _LEDGER = ".goal/ledger.json"
 _SPEC = "spec.md"
 _TASKS = "tasks.json"
+# goal_v2: the shell task is in tasks.json, the parallel parts in this file; coverage counts both.
+_PARTS_TASKS = "build/parts-tasks.json"
 _TRACE = ".goal/trace.json"
 _REPORT = ".goal/report.md"
 _ACCEPTANCE_DIR = ".goal/acceptance"
@@ -287,6 +290,21 @@ def _coverage(sandbox: Any, ledger: dict[str, Any]) -> tuple[list[dict], dict]:
                                 "task id not in ledger",
                             )
                         )
+    parts_data, parts_problem = _read_json(sandbox, _PARTS_TASKS)
+    if not parts_problem and isinstance(parts_data, dict):
+        for t in parts_data.get("tasks") or []:
+            if not isinstance(t, dict):
+                continue
+            for tid in t.get("ids") or []:
+                task_ids.add(str(tid))
+                if str(tid) not in testable:
+                    gaps.append(
+                        _gap(
+                            str(tid),
+                            f"{_PARTS_TASKS} task {t.get('id', '?')}",
+                            "task id not in ledger",
+                        )
+                    )
 
     for rid in ids:
         if spec is not None and not _word_re(rid).search(spec):
