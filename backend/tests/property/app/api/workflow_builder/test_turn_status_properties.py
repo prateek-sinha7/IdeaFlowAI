@@ -32,6 +32,7 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
+import pytest
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
@@ -63,6 +64,16 @@ from tests.property.budget import examples
 
 USER = "user-a"
 _SKILLS_ROOT = SKILLS_ROOT
+
+
+@pytest.fixture(autouse=True, scope="module")
+def _old_builder_path() -> Iterator[None]:
+    """The scripts here drive the builder call alone: run with the intake off."""
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(app_settings, "BUILDER_INTAKE_V2_ENABLED", False)
+        yield
+
+
 _MANIFEST: dict[str, Any] = {"id": "wf-one", "steps": [{"agent": "custom-agent"}]}
 _PATH = "/workflows/a.workflow.json"
 _WRITE = ScriptedToolCall(

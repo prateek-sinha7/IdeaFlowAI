@@ -4,8 +4,8 @@
  * BuilderInput: the message box of the Builder panel (Req 4.2 to 4.7, 5.5, 5.6).
  *
  * Styled like the run chat's composer: one white bar with the text area on top
- * and, below it, the `toolbar` slot (the Model and Thinking picker), Stop while
- * a turn runs, and the Send button. The text area grows with its content up to
+ * and, below it, the `toolbar` slot (the Model and Thinking picker) and one
+ * action button: Stop while a turn runs, otherwise Send. The text area grows with its content up to
  * `MAX_BOX_HEIGHT_PX`, then scrolls.
  *
  * Controlled: the parent owns the text. Enter sends and Shift+Enter inserts a
@@ -142,17 +142,18 @@ export function BuilderInput({
             >
               <Square className="h-3 w-3 fill-current" strokeWidth={2} aria-hidden="true" />
             </button>
-          ) : null}
-          <button
-            type="button"
-            onClick={onSend}
-            disabled={!sendable}
-            aria-label="Send"
-            title="Send"
-            className={`${ICON_BUTTON_BASE} bg-brand text-white hover:bg-brand-pressed disabled:opacity-40 disabled:hover:bg-brand`}
-          >
-            <ArrowRight className="h-4 w-4" strokeWidth={1.8} aria-hidden="true" />
-          </button>
+          ) : (
+            <button
+              type="button"
+              onClick={onSend}
+              disabled={!sendable}
+              aria-label="Send"
+              title="Send"
+              className={`${ICON_BUTTON_BASE} bg-brand text-white hover:bg-brand-pressed disabled:opacity-40 disabled:hover:bg-brand`}
+            >
+              <ArrowRight className="h-4 w-4" strokeWidth={1.8} aria-hidden="true" />
+            </button>
+          )}
         </div>
       </div>
       <div className="flex min-h-[15px] items-center px-1">

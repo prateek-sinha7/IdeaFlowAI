@@ -4340,6 +4340,15 @@ export default function DashboardPage() {
           return;
         }
 
+        // A row that opens in the Composer lives on its edit route, the same URL
+        // handleLaunchSaved now pushes for Run. Replace (not push) so Back skips
+        // the `/run` URL; the `/workflows/{id}/edit` cold mount loads the row and
+        // brings the AI Workflow Builder and the ISS-923 save guard with it.
+        if (isComposerWorkflow(saved)) {
+          router.replace(routes.workflowEdit(workflowId));
+          return;
+        }
+
         // Mirrors handleLaunchSaved's non-wizard branch
         // (DashboardLayout.tsx:1410-1439) exactly — same SavedComposition
         // shape T8's /workflows/{id}/edit cold mount already populates, plus
@@ -4369,10 +4378,8 @@ export default function DashboardPage() {
             ? { overridesPipelineType: saved.overrides_pipeline_type }
             : {}),
         });
-        // Same rule as DashboardLayout's click path: a composed manifest is
-        // proof this came from the Composer, even when `base_pipeline_type` was
-        // stamped wrong (it is immutable, so it cannot be repaired in place).
-        setWorkflowRunMainView(isComposerWorkflow(saved) ? "composer" : "input");
+        // Composer rows returned above, so this one opens the brief/input view.
+        setWorkflowRunMainView("input");
       })
       .catch((err) => {
         if (cancelled) return;

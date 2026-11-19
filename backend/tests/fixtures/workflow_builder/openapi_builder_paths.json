@@ -1379,7 +1379,7 @@
     },
     "/api/workflow-builder/sessions": {
       "get": {
-        "description": "The caller's sessions, newest activity first (keyset pagination).",
+        "description": "The caller's sessions, newest activity first (keyset pagination).\n\n``workflow_id`` narrows the list to sessions linked to that saved workflow.\nThe filter is applied on top of the owner scope, so it never widens it.",
         "operationId": "list_sessions_api_workflow_builder_sessions_get",
         "parameters": [
           {
@@ -1414,6 +1414,24 @@
                 }
               ],
               "title": "Limit"
+            }
+          },
+          {
+            "in": "query",
+            "name": "workflow_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Workflow Id"
             }
           }
         ],

@@ -526,6 +526,36 @@ def test_list_sessions_returns_422_when_cursor_is_invalid(env: _Env) -> None:
     assert _code(response) == "invalid_cursor"
 
 
+def test_list_sessions_returns_only_linked_sessions_when_workflow_id_given(
+    env: _Env,
+) -> None:
+    linked = env.new_session(workflow_id="wf-1")
+    env.new_session(workflow_id="wf-2")
+    env.new_session()
+    env.new_session(OTHER_USER_ID, workflow_id="wf-1")
+
+    response = env.client().get(f"{BASE}/sessions", params={"workflow_id": "wf-1"})
+
+    assert response.status_code == 200
+    assert [item["id"] for item in response.json()["items"]] == [linked]
+
+
+def test_list_sessions_returns_all_own_sessions_when_workflow_id_omitted(
+    env: _Env,
+) -> None:
+    ids = {env.new_session(workflow_id="wf-1"), env.new_session()}
+
+    response = env.client().get(f"{BASE}/sessions")
+
+    assert {item["id"] for item in response.json()["items"]} == ids
+
+
+def test_list_sessions_returns_422_when_workflow_id_is_empty(env: _Env) -> None:
+    response = env.client().get(f"{BASE}/sessions", params={"workflow_id": ""})
+
+    assert response.status_code == 422
+
+
 def test_link_session_stores_hash_of_owned_workflow(env: _Env) -> None:
     session_id = env.new_session()
     env.db = _FakeDb(_workflow_row())

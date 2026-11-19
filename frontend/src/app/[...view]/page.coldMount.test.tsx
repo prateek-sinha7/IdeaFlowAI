@@ -585,18 +585,27 @@ describe("DashboardPage saved-workflow run route", () => {
     expect(container).toBeEmptyDOMElement();
   });
 
-  it("opens the composer for a custom workflow with its brief and gates prefilled", async () => {
+  it("redirects a custom workflow to its edit route instead of opening the composer here", async () => {
+    h.userWorkflowsGet.mockResolvedValue(savedWorkflow());
+
+    const { container } = mount("/workflows/w1/run");
+
+    await waitFor(() => expect(h.router.replace).toHaveBeenCalledWith("/workflows/w1/edit"));
+    expect(h.router.push).not.toHaveBeenCalled();
+    expect(container).toBeEmptyDOMElement();
+  });
+
+  it("redirects a row with composed agents to its edit route even when its base is stale", async () => {
     h.userWorkflowsGet.mockResolvedValue(
-      savedWorkflow({ selections: { _wizard: { brief: "Prefilled brief", gateAgentIds: ["g1"] } } }),
+      savedWorkflow({
+        base_pipeline_type: "user_stories",
+        manifest: { steps: [{ agent: "custom-agent", instance_id: "emoji", name: "Emoji" }] },
+      }),
     );
 
     mount("/workflows/w1/run");
-    await untilDashboard();
 
-    expect(props().initialMainView).toBe("composer");
-    expect(props().initialSavedComposition).toEqual(
-      expect.objectContaining({ id: "w1", brief: "Prefilled brief", gateAgentIds: ["g1"], agentIds: ["a1", "a2"] }),
-    );
+    await waitFor(() => expect(h.router.replace).toHaveBeenCalledWith("/workflows/w1/edit"));
   });
 
   it("opens the plain launch panel for any other catalog base type", async () => {

@@ -398,3 +398,13 @@ class TestConnectorSettings:
         assert built.CONNECTOR_REFRESH_SKEW_SECONDS == 300
         assert built.CONNECTOR_HTTP_TIMEOUT_SECONDS == 10
         assert built.OAUTH_REDIRECT_PATH == "/api/connectors/oauth/callback"
+
+
+def test_builder_intake_flag_defaults_to_on_when_field_declared():
+    # Act
+    fields = Settings.model_fields
+
+    # Assert: on by default; False is the rollback switch. The other two keep their defaults.
+    assert fields["BUILDER_INTAKE_V2_ENABLED"].default is True
+    assert fields["BUILDER_INTAKE_MAX_ROUNDS"].default == 2
+    assert fields["BUILDER_INTAKE_EFFORT"].default == "default"

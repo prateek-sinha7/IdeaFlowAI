@@ -33,13 +33,14 @@ from typing import TYPE_CHECKING, Any, Final, Protocol
 
 from fastapi import HTTPException, status
 
-from app.agents.workflow_builder import builder_rules
+from app.agents.workflow_builder import builder_rules, fact_checks, irreversible_gate
+from app.agents.workflow_builder.fact_checks import IntakeFacts
 from app.agents.workflow_builder.ports import GateIssue, GateResult
 from app.api.run_engine import _model_entitlement_error
 from app.api.user_workflows import _validated_manifest
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Callable, Sequence
     from pathlib import Path
 
     from agents.capabilities.model_catalog import ModelEntry
@@ -90,6 +91,8 @@ class ServerGate:
         step_models: Sequence[ModelEntry],
         label: str,
         validate: ManifestValidator = _validated_manifest,
+        check_irreversible: bool = False,
+        intake_facts: Callable[[], IntakeFacts] | None = None,
     ) -> None:
         """Create the gate for one turn.
 
@@ -102,12 +105,23 @@ class ServerGate:
             label: The source label the save check puts in its messages.
             validate: The save check. Injected for tests; production uses
                 ``_validated_manifest``.
+            check_irreversible: Also refuse a draft with a step that posts or
+                writes outside the run and has no gate directly before it
+                (``irreversible_gate.check``). On only with the intake flag;
+                ``False`` keeps the check exactly as before.
+            intake_facts: Returns the settled intake brief's facts at check time
+                (intake flag on). Each concrete identifier must appear in the
+                draft (``fact_checks.check_facts``) and no prompt may insert a
+                placeholder for a missing fact (``fact_checks.check_placeholders``).
+                ``None`` skips both.
         """
         self._tier = tier
         self._max_trust: TargetTrust = max_trust
         self._step_models = tuple(step_models)
         self._label = label
         self._validate = validate
+        self._check_irreversible = check_irreversible
+        self._intake_facts = intake_facts
 
     async def check(
         self, manifest: dict[str, Any], *, requested_trust: TargetTrust
@@ -168,6 +182,12 @@ class ServerGate:
         entitlement = _model_entitlement_error(self._tier, manifest=manifest)
         if entitlement is not None:
             issues.append(GateIssue("model_entitlement", "", _clip(entitlement[1])))
+        if self._check_irreversible:
+            issues.extend(irreversible_gate.check(manifest))
+        if self._intake_facts is not None:
+            facts = self._intake_facts()
+            issues.extend(fact_checks.check_facts(manifest, facts.required))
+            issues.extend(fact_checks.check_placeholders(manifest, facts.missing))
         if issues:
             return _rejected(*issues)
         return self._trust_check(manifest, requested_trust)

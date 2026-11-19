@@ -45,8 +45,10 @@ it takes seconds and prevents most bad breakdowns.
 - **NOT IN SCOPE**: what the user implied but did not ask for.
 
 If GOAL, OUTPUTS or DONE-WHEN cannot be filled from the request and available context, you
-have a FUNCTIONAL gap: go to section 6 and ask. Never guess the outcome. Everything else
-you may assume.
+have a FUNCTIONAL gap. The intake closes these gaps before you run: take them from the intake
+brief, whose readiness rule (`scripts/intake_readiness.py`, `docs/intake-slots.md`) decides
+when nothing more is asked. Ask (section 6) only when no brief arrived. Never guess the
+outcome. Everything else you may assume.
 
 These answers go into the Workflow Brief (SKILL.md step 1: Goal, Trigger, Inputs,
 Deliverable, Done when, Not in scope).
@@ -314,8 +316,9 @@ reviewed with the breakdown; that is far cheaper than an interruption.
 - Never ask the user to classify complexity or choose a decomposition pattern. That is your job.
 - Never ask something already answered in the request, the project context or an existing
   predefined workflow.
-- One round of questions is normal. Two is acceptable. Needing a third means your Step 0
-  understanding was wrong: redo Step 0 instead of asking again.
+- The number of question rounds is set by the intake readiness rule
+  (`scripts/intake_readiness.py`, at most `BUILDER_INTAKE_MAX_ROUNDS`); reaching the limit
+  means "use the defaults". When an intake brief arrived, ask no further functional questions.
 - If the user says "just do it" or "you decide", proceed on assumptions and list the
   unanswered functional questions prominently as risks (the response's Open questions line).
 

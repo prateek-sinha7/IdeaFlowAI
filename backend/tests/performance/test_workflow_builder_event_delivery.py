@@ -57,6 +57,7 @@ from app.api.workflow_builder.turns import (
     run_turn,
     set_event_bus,
 )
+from app.core.config import settings
 from tests.factories.builder_session_factory import BuilderSessionFactory
 from tests.fakes.builder_gate import FakeGate
 from tests.fakes.builder_store import InMemoryBuilderStore
@@ -66,6 +67,16 @@ from tests.fakes.scripted_chat_model import FakeChatModel, ModelTurn, ScriptedTo
 USER: Final = "user-a"
 #: Requirement 43.3: the delivery budget for one event, in seconds.
 DELIVERY_BUDGET_SECONDS: Final = 1.0
+
+
+@pytest.fixture(autouse=True, scope="module")
+def _old_builder_path() -> Iterator[None]:
+    """The script here drives the builder call alone: run with the intake off."""
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(settings, "BUILDER_INTAKE_V2_ENABLED", False)
+        yield
+
+
 CLIENT_COUNT: Final = 5
 
 _SKILLS_ROOT: Final = SKILLS_ROOT

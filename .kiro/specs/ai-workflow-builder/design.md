@@ -1374,7 +1374,7 @@ flowchart TD
   HOST --> CP["workflow/composer/ComposerPage (builder + builderPanel props)"]
   HOST -.->|"element placed by ComposerPage under its header"| PANEL["BuilderPanel (left, 360 px, collapsible)"]
   PANEL --> HDR["BuilderPanelHeader: title, Conversations menu, New conversation, collapse"]
-  PANEL --> EMPTY["BuilderEmptyState: intro, example prompts, recent conversations"]
+  PANEL --> EMPTY["BuilderEmptyState: intro, one example prompt"]
   PANEL --> TX["BuilderTranscript"]
   TX --> MSG["BuilderMessage: Markdown, report fold, thinking fold, Undo, Retry, Continue"]
   TX --> PROG["BuilderProgress: stage, elapsed, activity list, checks, limit notices"]
@@ -2099,7 +2099,7 @@ Confirmed on 2026-11-06 as implemented, except #34 (Q-18) and #35 (Q-59), which 
 | 20 | The skill path is fixed in code with no setting; a missing mandatory file disables only the builder; a bad catalog stops the process (revised 2026-11-10) | G-21 | a `BUILDER_SKILLS_ROOT` setting; stop the process for both |
 | 21 | Replay tokens counted with `count_tokens_approximately`; the summary counts inside the budget; the current message is not one of the four; selection reruns per turn | G-22 | other counting or ordering |
 | 22 | Code-point counts on both sides; whitespace-only is empty; 512 KB = 524,288 bytes; rolling 60 s window; retried failed turns do not count toward 100 | G-23 | other definitions |
-| 23 | Sort by last activity, page size 20 (max 50), popup shows 5 (amended 2026-11-10: the empty panel shows 5); titles without a model call; row change by canonical hash | G-24 | sort by creation; a model-written title |
+| 23 | Sort by last activity, page size 20 (max 50), popup shows 5 (amended 2026-11-10: the empty panel shows 5; amended 2026-11-17: the empty panel shows none, and the header menu lists only the open workflow's sessions via `GET /sessions?workflow_id=`); titles without a model call; row change by canonical hash | G-24 | sort by creation; a model-written title |
 | 24 | Example prompts fill the box; popup errors keep the text (amended 2026-11-10: the popup is gone; the empty panel's examples fill its box, and a failed create puts the text back in it) | G-25 | send on click |
 | 25 | New conversation creates the session on the first message; disabled during a turn; model carries over | G-26 | create on click |
 | 26 | `default_efforts` in the models response; `null` effort for models without levels; fallbacks for unavailable models | G-27 | add `default_effort` to `ModelCatalogEntry` |

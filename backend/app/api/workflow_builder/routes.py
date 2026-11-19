@@ -64,6 +64,7 @@ from app.api.workflow_builder.admission import (
     require_builder_access,
 )
 from app.api.workflow_builder.schemas import (
+    MAX_ID_CHARS,
     ActivitySummary,
     BuilderModelsResponse,
     ChangeSummary,
@@ -491,12 +492,21 @@ def create_session(
 def list_sessions(
     cursor: str | None = Query(default=None, max_length=512),
     limit: int | None = Query(default=None, ge=1),
+    workflow_id: str | None = Query(
+        default=None, min_length=1, max_length=MAX_ID_CHARS
+    ),
     access: BuilderAccess = Depends(require_builder_access),
     store: BuilderStore = Depends(get_builder_store),
 ) -> SessionPage:
-    """The caller's sessions, newest activity first (keyset pagination)."""
+    """The caller's sessions, newest activity first (keyset pagination).
+
+    ``workflow_id`` narrows the list to sessions linked to that saved workflow.
+    The filter is applied on top of the owner scope, so it never widens it.
+    """
     try:
-        page = store.list_sessions(str(access.user.id), limit=limit, cursor=cursor)
+        page = store.list_sessions(
+            str(access.user.id), limit=limit, cursor=cursor, workflow_id=workflow_id
+        )
     except InvalidCursorError as exc:
         raise _bad_cursor() from exc
     return SessionPage(

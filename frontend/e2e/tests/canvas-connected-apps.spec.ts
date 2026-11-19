@@ -183,7 +183,8 @@ test.describe("TS-CA — connected apps on the Canvas", () => {
     await expect(page.getByRole("heading", { name: "My Workflows" })).toBeVisible();
     await expect(page.locator("p", { hasText: /^Jira round trip$/ })).toBeVisible();
     await page.getByRole("button", { name: /Run workflow/ }).click();
-    await page.waitForURL(/\/workflows\/[^/]+\/run$/);
+    // A Composer row has one URL, its edit route, whether opened through Run or Edit.
+    await page.waitForURL(/\/workflows\/[^/]+\/edit$/);
     await selectNodeToolsTab(page);
     let reopened = await expandApp(page, "Jira");
     await expect(reopened.getByRole("switch", { name: "Search issues" })).toHaveAttribute("aria-checked", "true");

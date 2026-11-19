@@ -81,6 +81,12 @@ describe("workflowBuilderApi", () => {
 
     await listSessions(TOKEN);
     expect(lastCall().url).toMatch(/\/sessions$/);
+
+    await listSessions(TOKEN, { limit: 5, workflowId: "w 1" });
+    expect(lastCall().url).toMatch(/\/sessions\?limit=5&workflow_id=w\+1$/);
+
+    await listSessions(TOKEN, { workflowId: null });
+    expect(lastCall().url).toMatch(/\/sessions$/);
   });
 
   it("encodes ids into the path of every session route", async () => {

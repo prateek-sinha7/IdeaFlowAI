@@ -1,4 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { act } from "react";
+import { hydrateRoot, type Root } from "react-dom/client";
+import { renderToString } from "react-dom/server";
 import { render, screen } from "@testing-library/react";
 
 import { OAuthCompleteClient } from "./OAuthCompleteClient";
@@ -166,6 +169,36 @@ describe("OAuthCompleteClient", () => {
       expect(replace).not.toHaveBeenCalled();
       expect(screen.getByRole("heading", { name: "This link is not valid" })).toBeInTheDocument();
       expect(screen.getByRole("link", { name: "Back to Connectors" })).toBeInTheDocument();
+    });
+  });
+
+  describe("hydrating server HTML inside a popup", () => {
+    it("reports no hydration mismatch and then shows the popup text when the server could not know the window name", async () => {
+      nav.search = new URLSearchParams("connector=github&result=connected");
+      // The server has no window.name, so its HTML always carries the normal-tab text.
+      const serverHtml = renderToString(<OAuthCompleteClient />);
+      expect(serverHtml).toContain("Taking you back to Connectors.");
+
+      window.name = "flowin-connect-github";
+      const container = document.createElement("div");
+      container.innerHTML = serverHtml;
+      document.body.appendChild(container);
+      const recoverableErrors: unknown[] = [];
+      const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+
+      let root!: Root;
+      await act(async () => {
+        root = hydrateRoot(container, <OAuthCompleteClient />, {
+          onRecoverableError: (error) => recoverableErrors.push(error),
+        });
+      });
+
+      expect(recoverableErrors).toEqual([]);
+      expect(consoleError).not.toHaveBeenCalled();
+      expect(container).toHaveTextContent("You can close this window and return to Connectors.");
+
+      await act(async () => root.unmount());
+      container.remove();
     });
   });
 

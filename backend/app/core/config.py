@@ -26,6 +26,7 @@ import logging
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Literal
 from urllib.parse import urlsplit, urlunsplit
 
 from pydantic import Field, field_validator, model_validator
@@ -506,6 +507,21 @@ class Settings(BaseSettings):
     # Completed turns without a Draft after which the next turn produces a Draft
     # from defaults (Req 47.7, Q-22).
     BUILDER_CLARIFY_TURNS_BEFORE_DRAFT: int = Field(default=2, ge=0)
+    # Builder intake, "ask before assume" (default OFF). When True, a create-mode
+    # session without an accepted draft first makes ONE intake model call
+    # (app/agents/workflow_builder/intake.py, no tools): it fills the Brief as slots
+    # and either replies with numbered questions (the Turn ends there) or hands the
+    # settled slots to the builder. On by default; False is the instant rollback
+    # to the old path (the builder asks its own questions, as before the intake).
+    # Intake turns do not count toward BUILDER_CLARIFY_TURNS_BEFORE_DRAFT.
+    BUILDER_INTAKE_V2_ENABLED: bool = True
+    # Question rounds the intake may send before it proceeds; reaching the limit
+    # is treated like the user replying "defaults".
+    BUILDER_INTAKE_MAX_ROUNDS: int = Field(default=2, ge=1)
+    # Reasoning effort of the intake call. "default" uses the Turn's own effort;
+    # "highest" uses the highest level the Turn's model offers (from the model
+    # catalog, never a hard-coded model or level).
+    BUILDER_INTAKE_EFFORT: Literal["highest", "default"] = "default"
     # Script_Runner (Req 36.5, 36.6, 47.14, 47.15): per-call timeout, cap on the
     # whole tool result in characters, and concurrent script processes per host.
     BUILDER_SCRIPT_TIMEOUT_SECONDS: int = Field(default=30, gt=0)

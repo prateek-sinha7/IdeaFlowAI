@@ -573,10 +573,106 @@ def docs_checks(catalog_path: Path) -> list[tuple[str, list[str]]]:
                 for n, line in enumerate(p.read_text(encoding="utf-8").splitlines(), 1)
                 if re.search(r"\bpython3\b", line) and "9009" not in line]
     results.append(("docs launch Python as python or py -3", problems))
+
+    # 7. step 3 defers to the intake: the old round-limit and skip-the-wait text is gone and
+    #    step 4 loads the question bank the intake used
+    skill_text = " ".join((SKILL_DIR / "SKILL.md").read_text(encoding="utf-8").split())
+    problems = [f"SKILL.md still says {phrase!r}" for phrase in REMOVED_SKILL_PHRASES
+                if phrase.lower() in skill_text.lower()]
+    step4 = skill_text.split("### 4.", 1)[-1].split("### 5.", 1)[0]
+    if "docs/requirements-analysis.md` §3-5" not in step4:
+        problems.append("SKILL.md step 4 does not load docs/requirements-analysis.md §3-5")
+    results.append(("SKILL.md step 3 defers to the intake and step 4 loads the question bank", problems))
+    return results
+
+
+def _intake_slots(**overrides: dict) -> dict:
+    """Every intake slot filled from the request, with ``overrides`` by slot name."""
+    import intake_readiness as ir
+
+    slots = {name: {"value": f"{name} value", "source": "request", "criticality": "blocking"}
+             for name in ir.BLOCKING_SLOTS}
+    slots.update({name: {"value": None, "source": "unknown", "criticality": "important"}
+                  for name in ir.IMPORTANT_SLOTS})
+    slots.update(overrides)
+    return slots
+
+
+def intake_checks() -> list[tuple[str, list[str]]]:
+    """The intake readiness rule (scripts/intake_readiness.py) and its schema and docs."""
+    import re
+
+    import intake_readiness as ir
+
+    results: list[tuple[str, list[str]]] = []
+    assumed = {"value": "uploads", "source": "assumed", "criticality": "blocking"}
+    na_no_reason = {"value": None, "source": "not_applicable", "criticality": "blocking"}
+    na_goal = {"value": None, "source": "not_applicable", "criticality": "blocking", "reason": "x"}
+    cases = (
+        ("every blocking slot filled -> ready", _intake_slots(), {}, True, "filled"),
+        ("an assumed blocking slot -> not ready", _intake_slots(input_source=assumed), {}, False, "gaps"),
+        ("explicit defaults -> ready", _intake_slots(input_source=assumed), {"explicit_defaults": True},
+         True, "explicit_defaults"),
+        ("round limit reached -> ready", _intake_slots(input_source=assumed),
+         {"rounds_asked": 2, "max_rounds": 2}, True, "max_rounds"),
+        ("not_applicable without a reason -> not ready", _intake_slots(external_systems=na_no_reason), {},
+         False, "gaps"),
+        ("not_applicable on a slot that forbids it -> not ready", _intake_slots(goal=na_goal), {}, False, "gaps"),
+    )
+    for name, slots, kwargs, ready, reason in cases:
+        got = ir.evaluate(slots, **kwargs)
+        problems = [] if (got["ready"], got["reason"]) == (ready, reason) else [
+            f"expected {(ready, reason)}, got {(got['ready'], got['reason'])}"]
+        results.append((f"intake readiness: {name}", problems))
+
+    problems = []
+    slots = _intake_slots(volume_scale={"value": "8 files", "source": "assumed", "criticality": "important"})
+    if ir.evaluate(slots)["assumptions"] != ["Assumption: volume_scale = 8 files - correct me if wrong"]:
+        problems.append("an assumed important slot is not echoed in the fixed wording")
+    question = {"slot": "input_source", "options": [{"label": "Upload", "recommended": True},
+                                                    {"label": "Paste"}, {"label": ir.FALLBACK_LABEL, "fallback": True}]}
+    if ir.parse_answer_codes("1b", [question]) != {0: 1} or ir.parse_answer_codes("2 apples", [question]):
+        problems.append("answer codes are read wrongly")
+    if not ir.is_explicit_defaults("defaults") or ir.is_explicit_defaults("1a 2b"):
+        problems.append("the explicit-defaults reply is not recognised")
+    results.append(("intake readiness: assumptions, answer codes and defaults", problems))
+
+    problems = []
+    schema_path = SKILL_DIR / "schema" / "intake-brief.schema.json"
+    try:
+        schema = json.loads(schema_path.read_text(encoding="utf-8"))
+        names = set(schema["properties"]["slots"]["required"])
+        if names != set(ir.ALL_SLOTS):
+            problems.append(f"schema slots differ from the readiness rule: {sorted(names ^ set(ir.ALL_SLOTS))}")
+    except (OSError, ValueError, KeyError) as exc:
+        problems.append(f"schema/intake-brief.schema.json unreadable: {exc}")
+    slots_doc = (SKILL_DIR / "docs" / "intake-slots.md").read_text(encoding="utf-8")
+    missing = [name for name in ir.ALL_SLOTS if f"`{name}`" not in slots_doc]
+    if missing:
+        problems.append(f"docs/intake-slots.md does not define: {missing}")
+    if ir.REPLY_FOOTER.split(",")[0].replace('"', "") not in slots_doc.replace('"', ""):
+        problems.append("docs/intake-slots.md does not show the reply footer")
+    dialogue = (SKILL_DIR / "docs" / "examples" / "intake-dialogue.md").read_text(encoding="utf-8")
+    block = re.search(r"```json\n(.*?)\n```", dialogue, re.DOTALL)
+    try:
+        questions = json.loads(block.group(1)) if block else []
+    except ValueError:
+        questions = []
+    if not 3 <= len(questions) <= 5:
+        problems.append("the worked dialogue's questions block is missing or not 3-5 questions")
+    for q in questions:
+        options = q.get("options") or []
+        real = [o for o in options if not o.get("fallback")]
+        if sum(1 for o in real if o.get("recommended")) != 1 or not options or not options[-1].get("fallback"):
+            problems.append(f"dialogue question on {q.get('slot')} breaks the option rules")
+    results.append(("intake schema, slot docs and worked dialogue agree with the rule", problems))
     return results
 
 
 ONE_READ_LIMIT = 24000
+# SKILL.md step 3 text replaced by the intake handoff (whitespace-normalised, case-insensitive)
+REMOVED_SKILL_PHRASES = ("two is the limit", "one round is normal", "skip the wait",
+                         "a third means step 0 was wrong")
 # placeholder -> a real value, so a documented command can be run as written
 PLACEHOLDERS = (("<user|db|file>", "user"), ("<trust>", "user"), ("<level>", "db"), ("<words>", "route"),
                 ("WORDS...", "route"), ("<path>", "step"), ("step.<name>", "step.tools"), ("<id>", "prototype_v2"),
@@ -682,7 +778,16 @@ def main(argv: list[str] | None = None) -> int:
         for problem in problems:
             print(f"       {problem}")
 
-    total = len(CASES) + len(CLEAN_CASES) + len(EXAMPLE_TRUST) + len(sync_results) + len(doc_results)
+    print("Intake readiness")
+    intake_results = intake_checks()
+    for name, problems in intake_results:
+        failures += bool(problems)
+        print(f"  {'ok' if not problems else 'FAIL':4} {name}")
+        for problem in problems:
+            print(f"       {problem}")
+
+    total = (len(CASES) + len(CLEAN_CASES) + len(EXAMPLE_TRUST) + len(sync_results) + len(doc_results)
+             + len(intake_results))
     print(f"\n{total - failures}/{total} checks passed")
     return 0 if failures == 0 else 1
 

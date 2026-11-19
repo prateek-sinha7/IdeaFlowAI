@@ -1,0 +1,387 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://velocity.local/schema/intake-brief.schema.json",
+  "title": "Intake brief",
+  "description": "What the builder's intake step returns: the Workflow Brief as slots, the minor decisions it took, and the questions for the user. It never contains a workflow or a manifest. Slots and rules: docs/intake-slots.md. Readiness: scripts/intake_readiness.py.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "message_kind",
+    "slots",
+    "questions",
+    "ready"
+  ],
+  "properties": {
+    "message_kind": {
+      "description": "new_request: the message is a new or changed request (the first message is always one). answer: it answers the previous questions.",
+      "enum": [
+        "new_request",
+        "answer"
+      ]
+    },
+    "slots": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "goal",
+        "deliverable",
+        "done_when",
+        "input_source",
+        "input_variability",
+        "output_structure",
+        "external_systems",
+        "write_destinations",
+        "irreversible_actions",
+        "human_approval_points",
+        "volume_scale",
+        "quality_bar",
+        "constraints",
+        "trigger",
+        "runtime_trust",
+        "depth"
+      ],
+      "properties": {
+        "goal": {
+          "$ref": "#/$defs/blocking_slot"
+        },
+        "deliverable": {
+          "$ref": "#/$defs/blocking_slot"
+        },
+        "done_when": {
+          "$ref": "#/$defs/blocking_slot"
+        },
+        "input_source": {
+          "$ref": "#/$defs/blocking_slot"
+        },
+        "input_variability": {
+          "$ref": "#/$defs/blocking_slot_na"
+        },
+        "output_structure": {
+          "$ref": "#/$defs/blocking_slot"
+        },
+        "external_systems": {
+          "$ref": "#/$defs/blocking_slot_na"
+        },
+        "write_destinations": {
+          "$ref": "#/$defs/blocking_slot_na"
+        },
+        "irreversible_actions": {
+          "$ref": "#/$defs/blocking_slot_na"
+        },
+        "human_approval_points": {
+          "$ref": "#/$defs/blocking_slot_na"
+        },
+        "volume_scale": {
+          "$ref": "#/$defs/important_slot"
+        },
+        "quality_bar": {
+          "$ref": "#/$defs/important_slot"
+        },
+        "constraints": {
+          "$ref": "#/$defs/important_slot"
+        },
+        "trigger": {
+          "$ref": "#/$defs/important_slot"
+        },
+        "runtime_trust": {
+          "$ref": "#/$defs/important_slot"
+        },
+        "depth": {
+          "$ref": "#/$defs/important_slot"
+        }
+      }
+    },
+    "minor_decisions": {
+      "description": "Internal matters decided silently (docs/intake-slots.md section 3, Minor). Logged, never asked.",
+      "type": "array",
+      "maxItems": 20,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "value"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          },
+          "value": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300
+          }
+        }
+      }
+    },
+    "feasibility_notes": {
+      "description": "One line per system, connector or capability the request names that the platform does not provide (for example a CRM). Shown above the questions. Never substitute silently.",
+      "type": "array",
+      "maxItems": 3,
+      "items": {
+        "type": "string",
+        "minLength": 5,
+        "maxLength": 250
+      }
+    },
+    "missing_facts": {
+      "description": "Facts the deliverable needs that neither the request nor the user gave and no slot holds (e.g. the URL an email must link to). Never asked; the builder must not fill them with placeholders.",
+      "type": "array",
+      "maxItems": 8,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "fact"
+        ],
+        "properties": {
+          "fact": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 150
+          },
+          "if_missing": {
+            "enum": [
+              "omit",
+              "ask_at_run_time"
+            ]
+          }
+        }
+      }
+    },
+    "questions": {
+      "description": "Empty when ready. Otherwise 1-5 (3-5 in the first round), each on a different blocking or important slot.",
+      "type": "array",
+      "maxItems": 5,
+      "items": {
+        "$ref": "#/$defs/question"
+      }
+    },
+    "ready": {
+      "description": "The model's own view. The readiness rule in code decides.",
+      "type": "boolean"
+    }
+  },
+  "$defs": {
+    "value": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "maxLength": 1000
+    },
+    "reason": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 300
+    },
+    "blocking_slot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "value",
+        "source",
+        "criticality"
+      ],
+      "properties": {
+        "value": {
+          "$ref": "#/$defs/value"
+        },
+        "source": {
+          "enum": [
+            "request",
+            "user",
+            "upload",
+            "assumed",
+            "unknown"
+          ]
+        },
+        "criticality": {
+          "const": "blocking"
+        },
+        "reason": {
+          "$ref": "#/$defs/reason"
+        }
+      }
+    },
+    "blocking_slot_na": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "value",
+        "source",
+        "criticality"
+      ],
+      "properties": {
+        "value": {
+          "$ref": "#/$defs/value"
+        },
+        "source": {
+          "enum": [
+            "request",
+            "user",
+            "upload",
+            "assumed",
+            "not_applicable",
+            "unknown"
+          ]
+        },
+        "criticality": {
+          "const": "blocking"
+        },
+        "reason": {
+          "$ref": "#/$defs/reason"
+        }
+      },
+      "if": {
+        "properties": {
+          "source": {
+            "const": "not_applicable"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "reason"
+        ]
+      }
+    },
+    "important_slot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "value",
+        "source",
+        "criticality"
+      ],
+      "properties": {
+        "value": {
+          "$ref": "#/$defs/value"
+        },
+        "source": {
+          "enum": [
+            "request",
+            "user",
+            "upload",
+            "assumed",
+            "unknown"
+          ]
+        },
+        "criticality": {
+          "const": "important"
+        },
+        "reason": {
+          "$ref": "#/$defs/reason"
+        }
+      }
+    },
+    "question": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "slot",
+        "text",
+        "litmus",
+        "options"
+      ],
+      "properties": {
+        "slot": {
+          "$ref": "#/$defs/slot_name"
+        },
+        "text": {
+          "type": "string",
+          "minLength": 5,
+          "maxLength": 300
+        },
+        "litmus": {
+          "description": "Internal, never shown: 'If the user answers differently, the workflow changes because ___', completed.",
+          "type": "string",
+          "minLength": 10,
+          "maxLength": 300
+        },
+        "options": {
+          "description": "2-4 real options, exactly one recommended, then the 'Not sure - use default' option last (fallback: true). Letters a, b, c ... follow the order.",
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 5,
+          "items": {
+            "$ref": "#/$defs/option"
+          },
+          "contains": {
+            "type": "object",
+            "required": [
+              "recommended"
+            ],
+            "properties": {
+              "recommended": {
+                "const": true
+              }
+            }
+          },
+          "minContains": 1,
+          "maxContains": 1
+        }
+      }
+    },
+    "option": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "label"
+      ],
+      "properties": {
+        "label": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "recommended": {
+          "type": "boolean"
+        },
+        "fallback": {
+          "type": "boolean"
+        },
+        "followup_text": {
+          "description": "One more fact the user gives with this option, shown after its label (e.g. 'name the channel in your reply').",
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 120
+        },
+        "followup_slot": {
+          "description": "The slot the text after this option's code fills.",
+          "$ref": "#/$defs/slot_name"
+        }
+      },
+      "dependentRequired": {
+        "followup_text": [
+          "followup_slot"
+        ],
+        "followup_slot": [
+          "followup_text"
+        ]
+      }
+    },
+    "slot_name": {
+      "enum": [
+        "goal",
+        "deliverable",
+        "done_when",
+        "input_source",
+        "input_variability",
+        "output_structure",
+        "external_systems",
+        "write_destinations",
+        "irreversible_actions",
+        "human_approval_points",
+        "volume_scale",
+        "quality_bar",
+        "constraints",
+        "trigger",
+        "runtime_trust",
+        "depth"
+      ]
+    }
+  }
+}

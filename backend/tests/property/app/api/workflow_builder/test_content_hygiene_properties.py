@@ -85,6 +85,7 @@ from app.api.workflow_builder.turns import (
     run_turn,
     set_event_bus,
 )
+from app.core.config import settings as app_settings
 from tests.factories.builder_session_factory import BuilderSessionFactory
 from tests.fakes.builder_gate import FakeGate
 from tests.fakes.builder_store import InMemoryBuilderStore
@@ -96,9 +97,19 @@ from tests.property.budget import examples
 USER: Final = "user-a"
 MODEL: Final = "eu.anthropic.claude-sonnet-5-5"
 EFFORT: Final = "medium"
+
+
+@pytest.fixture(autouse=True, scope="module")
+def _old_builder_path() -> Iterator[None]:
+    """The scripts here drive the builder call alone: run with the intake off."""
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(app_settings, "BUILDER_INTAKE_V2_ENABLED", False)
+        yield
+
+
 _SKILLS_ROOT: Final = SKILLS_ROOT
 _PROMPT_FILE: Final = (
-    Path(agent_module.__file__).resolve().parent / "prompts" / "system_prompt.v1.md"
+    Path(agent_module.__file__).resolve().parent / "prompts" / "system_prompt.v2.md"
 )
 _SCRIPTS: Final = f"/skills/{BUILDER_SKILL_ID}/scripts"
 _VALIDATE: Final = f"python {_SCRIPTS}/validate_manifest.py /workflows/a.workflow.json"

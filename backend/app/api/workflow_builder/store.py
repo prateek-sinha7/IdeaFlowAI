@@ -425,18 +425,26 @@ class BuilderStore:
         ).scalar_one_or_none()
 
     def list_sessions(
-        self, user_id: str, *, limit: int | None = None, cursor: str | None = None
+        self,
+        user_id: str,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        workflow_id: str | None = None,
     ) -> SessionPage:
         """Keyset page of the caller's sessions, newest first.
 
         Order is ``(updated_at DESC, id ASC)``, matching
         ``ix_wb_sessions_user_updated``. The page size is clamped to
-        ``1..50`` (default 20) [pending G-24].
+        ``1..50`` (default 20) [pending G-24]. When ``workflow_id`` is given,
+        only sessions linked to that saved workflow are listed.
         """
         page_size = clamp_page_size(limit)
         stmt = select(WorkflowBuilderSession).where(
             WorkflowBuilderSession.user_id == user_id
         )
+        if workflow_id is not None:
+            stmt = stmt.where(WorkflowBuilderSession.workflow_id == workflow_id)
         if cursor is not None:
             after_updated_at, after_id = decode_cursor(cursor)
             stmt = stmt.where(

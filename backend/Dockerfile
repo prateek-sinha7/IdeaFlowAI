@@ -296,7 +296,7 @@ RUN for f in SKILL.md docs/problem-decomposition.md docs/quick-reference.md \
         test -f "/app/app/agents/workflow_builder/skills/velocity-workflow-creator/$f" \
             || exit 1; \
     done \
-    && test -f /app/app/agents/workflow_builder/prompts/system_prompt.v1.md
+    && test -f /app/app/agents/workflow_builder/prompts/system_prompt.v2.md
 # Fail the BUILD, not a user's run, if any tree the runtime reads is missing.
 RUN test -n "$(find "$GLOBAL_SKILLS_ROOT" -mindepth 2 -maxdepth 2 -name SKILL.md -print -quit)" \
     && test -n "$(find /app/hooks/global -mindepth 2 -maxdepth 2 -name HOOK.md -print -quit)" \

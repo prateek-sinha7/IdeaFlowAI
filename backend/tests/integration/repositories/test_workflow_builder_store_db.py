@@ -1181,6 +1181,29 @@ class TestPaginationWalk:
         assert page.items == ()
         assert page.next_cursor is None
 
+    def test_list_sessions_returns_only_linked_own_sessions_when_workflow_id_given(
+        self, harness: Harness
+    ) -> None:
+        store = harness.store
+        user, other = harness.new_user(), harness.new_user()
+        target, unrelated = harness.add_workflow(user), harness.add_workflow(user)
+        linked = [
+            str(_new_session(store, user, workflow_id=target).id) for _ in range(3)
+        ]
+        _new_session(store, user, workflow_id=unrelated)
+        _new_session(store, user)
+        _new_session(store, other, workflow_id=harness.add_workflow(other))
+
+        first = harness.fresh().list_sessions(user, limit=2, workflow_id=target)
+        second = harness.fresh().list_sessions(
+            user, limit=2, cursor=first.next_cursor, workflow_id=target
+        )
+        foreign = harness.fresh().list_sessions(other, workflow_id=target)
+
+        assert sorted(str(s.id) for s in first.items + second.items) == sorted(linked)
+        assert second.next_cursor is None
+        assert foreign.items == ()
+
 
 # --- Account deletion (Req 31.7) -----------------------------------------------------------
 

@@ -91,6 +91,7 @@ from app.models.workflow_builder import (
     MESSAGE_STATUS_TOOL_OK,
 )
 from tests.factories.builder_session_factory import BuilderSessionFactory
+from tests.factories.intake_brief_factory import IntakeBriefFactory
 from tests.fakes.builder_gate import FakeGate
 from tests.fakes.builder_store import InMemoryBuilderStore
 from tests.fakes.scripted_chat_model import (
@@ -1035,7 +1036,7 @@ async def test_run_turn_completes_and_stores_row_when_agent_replies(
     assert row.thinking == "hmm"
     assert row.usage["input"] == 10
     assert row.usage["output"] == 5
-    assert row.prompt_version.startswith("v1:")
+    assert row.prompt_version.startswith("v2:")
     assert row.adherence["manifest_turn"] is False
     assert get_live_turn(live.session_id) is None
 
@@ -1361,7 +1362,7 @@ async def test_finalize_turn_stores_summary_tokens_and_skill_hash_when_turn_ends
     row = _assistant_row(store, live)
     assert row.usage["summary"]["input"] == 7
     assert row.skill_hash == "skill-now"
-    assert row.prompt_version.startswith("v1:")
+    assert row.prompt_version.startswith("v2:")
 
 
 def test_unproposed_candidate_returns_none_when_no_workflow_was_written(
@@ -1701,4 +1702,637 @@ def test_unproposed_candidate_returns_newest_file_when_several_were_written(
     assert turns._unproposed_candidate(live, sandbox) == (
         "/workflows/n.workflow.json",
         {"id": "new"},
+    )
+
+
+@pytest.fixture(autouse=True, scope="module")
+def _old_builder_path() -> Iterator[None]:
+    """Most tests here script the builder call alone: run them with the intake off.
+
+    The intake tests below turn it on with ``intake_on``.
+    """
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(settings, "BUILDER_INTAKE_V2_ENABLED", False)
+        yield
+
+
+# --- Builder intake, flag BUILDER_INTAKE_V2_ENABLED on (scripted model) ---------------
+
+_FOOTER = 'Reply e.g. "1a 2c 3b", or "defaults" to accept all recommended options.'
+
+
+@pytest.fixture
+def intake_on(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(settings, "BUILDER_INTAKE_V2_ENABLED", True)
+    monkeypatch.setattr(settings, "BUILDER_INTAKE_MAX_ROUNDS", 2)
+
+
+def _intake_model(
+    *replies: dict[str, Any] | str, builder_text: str | None = None
+) -> FakeChatModel:
+    """Intake replies (briefs or raw text), then optionally one builder reply."""
+    script = [
+        ModelTurn(
+            text=(r if isinstance(r, str) else IntakeBriefFactory.as_text(r),),
+            usage=ScriptedUsage(input_tokens=7, output_tokens=3),
+        )
+        for r in replies
+    ]
+    if builder_text is not None:
+        script.append(ModelTurn(text=(builder_text,)))
+    return FakeChatModel(turns=tuple(script))
+
+
+def _next_turn(store: InMemoryBuilderStore, session_id: str, content: str) -> LiveTurn:
+    begun = store.begin_turn(
+        USER,
+        session_id,
+        content=content,
+        canvas_state=None,
+        client_message_id=f"client-{content[:12]}",
+        model_id="model-x",
+        effort=None,
+        skill_hash="hash",
+    )
+    return LiveTurn(
+        session_id=session_id,
+        turn_id=str(begun.assistant_message.id),
+        user_message_id=str(begun.user_message.id),
+        user_id=USER,
+        model_id="model-x",
+        effort=None,
+    )
+
+
+async def _turn(
+    live: LiveTurn,
+    content: str,
+    store: InMemoryBuilderStore,
+    bus: SessionEventBus,
+    tmp_path: Path,
+    model: FakeChatModel,
+) -> Any:
+    register_live_turn(live)
+    await run_turn(
+        live,
+        TurnRequest(content=content, canvas_state={"steps": []}),
+        _deps(store, bus, tmp_path, model),
+    )
+    return _assistant_row(store, live)
+
+
+def _builder_message(model: FakeChatModel) -> str:
+    """The pinned human message of the builder's (last) model call."""
+    return str(model.calls[-1][-1].content)
+
+
+async def test_run_turn_replies_with_questions_and_skips_builder_when_intake_has_gaps(
+    intake_on: None, store: InMemoryBuilderStore, bus: SessionEventBus, tmp_path: Path
+) -> None:
+    live = _begin(store)
+    register_live_turn(live)
+    queue = _watch(bus, live)
+    model = _intake_model(IntakeBriefFactory.vague_pdf())
+
+    row = await _turn(
+        live,
+        "create workflow for converting pdf to md content",
+        store,
+        bus,
+        tmp_path,
+        model,
+    )
+
+    assert model.call_count == 1
+    assert model.bound_tool_names == []
+    assert (row.status, row.outcome) == ("completed", "reply")
+    assert row.content.splitlines()[-1] == _FOOTER
+    assert row.content.count("(recommended)") == 5
+    assert row.prompt_version.startswith("intake.v5:")
+    assert row.adherence is None
+    assert row.usage["input"] == 7
+    assert store.get_clarify_count(USER, live.session_id) == 0
+    assert row.revision is None
+    events = _drain(queue)
+    assert any(isinstance(e, Text) and e.text == row.content for e in events)
+    assert _completed(events).outcome == "reply"
+
+
+async def test_run_turn_runs_builder_with_overlay_and_no_gate_line_when_request_is_complete(
+    intake_on: None, store: InMemoryBuilderStore, bus: SessionEventBus, tmp_path: Path
+) -> None:
+    live = _begin(store)
+    model = _intake_model(IntakeBriefFactory.filled_email(), builder_text="Built it.")
+
+    row = await _turn(live, "Write a launch email ...", store, bus, tmp_path, model)
+
+    assert model.call_count == 2
+    message = _builder_message(model)
+    assert "<intake_brief>" in message
+    assert "Do not add an intake step or human gate; the brief is complete." in message
+    assert (
+        message.index("</turn_context>")
+        < message.index("<intake_brief>")
+        < message.index("<user_message>")
+    )
+    assert row.content.startswith("Built it.")
+    assert row.prompt_version.startswith("v2:") and "+intake.v5:" in row.prompt_version
+
+
+async def test_run_turn_forces_ready_with_assumptions_when_user_replies_defaults(
+    intake_on: None, store: InMemoryBuilderStore, bus: SessionEventBus, tmp_path: Path
+) -> None:
+    first = _begin(store)
+    vague = IntakeBriefFactory.vague_pdf()
+    await _turn(first, "pdf to md", store, bus, tmp_path, _intake_model(vague))
+    second = _next_turn(store, first.session_id, "defaults")
+    model = _intake_model(
+        IntakeBriefFactory.answer(vague), builder_text="Built from defaults."
+    )
+
+    row = await _turn(second, "defaults", store, bus, tmp_path, model)
+
+    assert model.call_count == 2
+    message = _builder_message(model)
+    assert (
+        "Assumption: input_source = Uploaded at launch - correct me if wrong" in message
+    )
+    assert (
+        "Assumption: human_approval_points = No review - correct me if wrong" in message
+    )
+    assert row.content.startswith("Built from defaults.")
+
+
+async def test_run_turn_forces_ready_when_intake_rounds_reach_the_limit(
+    intake_on: None,
+    monkeypatch: pytest.MonkeyPatch,
+    store: InMemoryBuilderStore,
+    bus: SessionEventBus,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(settings, "BUILDER_INTAKE_MAX_ROUNDS", 1)
+    first = _begin(store)
+    vague = IntakeBriefFactory.vague_pdf()
+    await _turn(first, "pdf to md", store, bus, tmp_path, _intake_model(vague))
+    still_asking = IntakeBriefFactory.answer(vague)
+    still_asking["questions"] = vague["questions"][:2]
+    second = _next_turn(store, first.session_id, "they are invoices")
+    model = _intake_model(still_asking, builder_text="Built anyway.")
+
+    row = await _turn(second, "they are invoices", store, bus, tmp_path, model)
+
+    assert model.call_count == 2
+    assert "<intake_brief>" in _builder_message(model)
+    assert row.content.startswith("Built anyway.")
+
+
+async def test_run_turn_falls_back_to_builder_without_overlay_when_intake_json_fails_twice(
+    intake_on: None, store: InMemoryBuilderStore, bus: SessionEventBus, tmp_path: Path
+) -> None:
+    live = _begin(store)
+    model = _intake_model(
+        "not json", "still not json", builder_text="Builder as before."
+    )
+
+    row = await _turn(live, "pdf to md", store, bus, tmp_path, model)
+
+    assert model.call_count == 3
+    assert "<intake_brief>" not in _builder_message(model)
+    assert row.content == "Builder as before."
+    assert row.prompt_version.startswith("v2:") and "intake" not in row.prompt_version
+    assert row.usage["input"] == 14
+
+
+async def test_run_turn_resets_intake_round_when_second_message_is_a_new_request(
+    intake_on: None, store: InMemoryBuilderStore, bus: SessionEventBus, tmp_path: Path
+) -> None:
+    first = _begin(store)
+    await _turn(
+        first,
+        "pdf to md",
+        store,
+        bus,
+        tmp_path,
+        _intake_model(IntakeBriefFactory.vague_pdf()),
+    )
+    second = _next_turn(store, first.session_id, "summarise Word files instead")
+    model = _intake_model(IntakeBriefFactory.vague_pdf())
+
+    row = await _turn(
+        second, "summarise Word files instead", store, bus, tmp_path, model
+    )
+
+    assert model.call_count == 1
+    assert row.content.startswith("Before I design this workflow")
+    assert store.get_clarify_count(USER, first.session_id) == 0
+
+
+async def test_run_turn_skips_intake_when_session_is_in_edit_mode(
+    intake_on: None, store: InMemoryBuilderStore, bus: SessionEventBus, tmp_path: Path
+) -> None:
+    session = store.create_session(
+        USER, **BuilderSessionFactory.create_kwargs(mode="edit")
+    )
+    live = _next_turn(store, str(session.id), "add a review step")
+    model = _intake_model(builder_text="Edited.")
+
+    row = await _turn(live, "add a review step", store, bus, tmp_path, model)
+
+    assert model.call_count == 1
+    assert "<intake_brief>" not in _builder_message(model)
+    assert row.content == "Edited."
+
+
+async def test_run_turn_runs_no_intake_when_flag_is_off(
+    monkeypatch: pytest.MonkeyPatch,
+    store: InMemoryBuilderStore,
+    bus: SessionEventBus,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(
+        settings, "BUILDER_INTAKE_V2_ENABLED", False
+    )  # the rollback switch
+    live = _begin(store)
+    model = _intake_model(builder_text="Hello")
+
+    row = await _turn(live, "pdf to md", store, bus, tmp_path, model)
+
+    assert model.call_count == 1
+    assert "<intake_brief>" not in _builder_message(model)
+    assert list((tmp_path / "builder").rglob("state.json")) == []
+    assert row.content == "Hello"
+    assert store.get_clarify_count(USER, live.session_id) == 1
+
+
+_DRAFT = {
+    "agent": "custom-agent",
+    "instance_id": "draft",
+    "name": "Draft",
+    "prompt": "Write.",
+}
+_POST = {
+    "agent": "custom-agent",
+    "instance_id": "post",
+    "name": "Post",
+    "prompt": "Post.",
+    "depends_on": ["custom-agent:draft"],
+    "tools": {"mcp": ["slack.post_message"]},
+}
+_UNGATED = {"id": "notes_to_slack", "steps": [_DRAFT, _POST]}
+_GATED = {
+    "id": "notes_to_slack",
+    "steps": [{**_DRAFT, "gates": ["human"], "redoable": True}, _POST],
+}
+
+
+class _Save:
+    def __call__(self, manifest: Any, source_label: str, *, trust: str) -> None:
+        return None
+
+
+def _real_gate_deps(
+    store: InMemoryBuilderStore,
+    bus: SessionEventBus,
+    tmp_path: Path,
+    model: FakeChatModel,
+) -> TurnDeps:
+    from app.api.workflow_builder.gate import ServerGate
+
+    deps = _deps(store, bus, tmp_path, model)
+    gate = ServerGate(
+        tier="enterprise",
+        max_trust="user",
+        step_models=(),
+        label="unit",
+        validate=_Save(),
+        check_irreversible=True,
+    )
+    return TurnDeps(
+        bus=deps.bus,
+        store_scope=deps.store_scope,
+        sandbox_factory=deps.sandbox_factory,
+        gate=gate,
+        chat_model=model,
+        skills_root=deps.skills_root,
+    )
+
+
+def _write_and_propose(
+    manifest: dict[str, Any], name: str = "notes"
+) -> tuple[ModelTurn, ModelTurn]:
+    path = f"/workflows/{name}.workflow.json"
+    return (
+        ModelTurn(
+            tool_calls=(
+                ScriptedToolCall(
+                    "write_file", {"file_path": path, "content": json.dumps(manifest)}
+                ),
+            )
+        ),
+        ModelTurn(tool_calls=(ScriptedToolCall("propose_draft", {"path": path}),)),
+    )
+
+
+async def test_run_turn_rejects_ungated_post_then_accepts_redo_when_gate_is_added(
+    intake_on: None, store: InMemoryBuilderStore, bus: SessionEventBus, tmp_path: Path
+) -> None:
+    live = _begin(store)
+    register_live_turn(live)
+    model = FakeChatModel(
+        turns=(
+            ModelTurn(
+                text=(IntakeBriefFactory.as_text(IntakeBriefFactory.filled_slack()),)
+            ),
+            *_write_and_propose(_UNGATED),
+            *_write_and_propose(_GATED, "notes-v2"),
+            ModelTurn(text=("Built with the gate.",)),
+        )
+    )
+
+    await run_turn(
+        live,
+        TurnRequest(content="post release notes to slack", canvas_state={"steps": []}),
+        _real_gate_deps(store, bus, tmp_path, model),
+    )
+
+    row = _assistant_row(store, live)
+    assert [[i.rule for i in issues] for issues in live.gate_rejection_issues] == [
+        ["irreversible_gate"]
+    ]
+    assert "step 'post' posts or writes outside the run" in str(
+        model.calls[3][-1].content
+    )
+    assert (row.outcome, row.revision) == ("draft", 1)
+    assert row.content.startswith("Built with the gate.")
+
+
+async def test_run_turn_withholds_draft_and_says_why_when_redo_still_has_no_gate(
+    intake_on: None, store: InMemoryBuilderStore, bus: SessionEventBus, tmp_path: Path
+) -> None:
+    live = _begin(store)
+    register_live_turn(live)
+    model = FakeChatModel(
+        turns=(
+            ModelTurn(
+                text=(IntakeBriefFactory.as_text(IntakeBriefFactory.filled_slack()),)
+            ),
+            *_write_and_propose(_UNGATED),
+            *_write_and_propose(_UNGATED, "notes-v2"),
+            ModelTurn(text=("unreached",)),
+        )
+    )
+
+    await run_turn(
+        live,
+        TurnRequest(content="post release notes to slack", canvas_state={"steps": []}),
+        _real_gate_deps(store, bus, tmp_path, model),
+    )
+
+    row = _assistant_row(store, live)
+    assert row.revision is None
+    assert row.outcome == "unfinished"
+    assert store.get_latest_revisions(USER, live.session_id).accepted is None
+    assert (
+        "The draft was withheld and is not on the canvas: step 'post' posts or writes outside"
+        in row.content
+    )
+    assert (
+        "requires a person to approve before every post or write outside the run"
+        in row.content
+    )
+
+
+async def test_run_turn_explains_gate_and_appends_assumptions_when_user_writes_post_automatically(
+    intake_on: None, store: InMemoryBuilderStore, bus: SessionEventBus, tmp_path: Path
+) -> None:
+    first = _begin(store)
+    slack = IntakeBriefFactory.vague_slack()
+    await _turn(
+        first,
+        "workflow to post release notes to slack",
+        store,
+        bus,
+        tmp_path,
+        _intake_model(slack),
+    )
+    second = _next_turn(store, first.session_id, "paste, #releases, post automatically")
+    answered = IntakeBriefFactory.filled_slack(approval="No, post automatically")
+    model = _intake_model(answered, builder_text="Built with a gate.")
+
+    row = await _turn(
+        second, "paste, #releases, post automatically", store, bus, tmp_path, model
+    )
+
+    message = _builder_message(model)
+    assert (
+        "human_approval_points (blocking): gate-before-post (platform requirement) (from user)"
+        in message
+    )
+    assert "Do not add an intake step; the brief is complete." in message
+    assert '"gates": ["before-human"]' in message
+    tail = row.content.split("Built with a gate.", 1)[1]
+    assert tail.lstrip().startswith("The approval step before the irreversible action")
+    assert "**Assumptions**" in tail
+    assert "- volume_scale = one release per run - correct me if wrong" in tail
+
+
+@pytest.mark.parametrize(
+    ("model_id", "turn_effort", "setting", "expected"),
+    [
+        ("eu.anthropic.claude-sonnet-5-5", "high", "default", "high"),
+        ("eu.anthropic.claude-sonnet-5-5", None, "default", None),
+        ("eu.anthropic.claude-sonnet-5-5", "high", "highest", "max"),
+        ("eu.anthropic.claude-sonnet-4-6", None, "highest", "on"),
+        ("model-not-in-catalog", "low", "highest", "low"),
+    ],
+)
+def test_intake_effort_resolves_against_the_models_own_levels(
+    model_id: str, turn_effort: str | None, setting: str, expected: str | None
+) -> None:
+    from app.api.workflow_builder.turns import intake_effort
+
+    assert intake_effort(model_id, turn_effort, setting) == expected
+
+
+async def test_run_turn_records_intake_effort_when_flag_is_on(
+    intake_on: None,
+    monkeypatch: pytest.MonkeyPatch,
+    store: InMemoryBuilderStore,
+    bus: SessionEventBus,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(settings, "BUILDER_INTAKE_EFFORT", "highest")
+    live = _begin(store)
+
+    await _turn(
+        live,
+        "pdf to md",
+        store,
+        bus,
+        tmp_path,
+        _intake_model(IntakeBriefFactory.vague_pdf()),
+    )
+
+    assert (
+        live.intake_effort is None
+    )  # "model-x" is not in the catalog: the Turn's effort
+
+
+def _facts_gate_deps(
+    store: InMemoryBuilderStore,
+    bus: SessionEventBus,
+    tmp_path: Path,
+    model: FakeChatModel,
+    live: LiveTurn,
+) -> TurnDeps:
+    from app.api.workflow_builder.gate import ServerGate
+
+    deps = _deps(store, bus, tmp_path, model)
+    gate = ServerGate(
+        tier="enterprise",
+        max_trust="user",
+        step_models=(),
+        label="unit",
+        validate=_Save(),
+        check_irreversible=True,
+        intake_facts=lambda: live.intake_facts,
+    )
+    return TurnDeps(
+        bus=deps.bus,
+        store_scope=deps.store_scope,
+        sandbox_factory=deps.sandbox_factory,
+        gate=gate,
+        chat_model=model,
+        skills_root=deps.skills_root,
+    )
+
+
+_NO_CHANNEL = {
+    "id": "notes_to_slack",
+    "steps": [
+        {**_DRAFT, "gates": ["human"], "redoable": True},
+        {**_POST, "prompt": "Post it."},
+    ],
+}
+_WITH_CHANNEL = {
+    "id": "notes_to_slack",
+    "steps": [
+        {**_DRAFT, "gates": ["human"], "redoable": True},
+        {**_POST, "prompt": "Post it to #releases."},
+    ],
+}
+
+
+async def test_run_turn_rejects_draft_without_the_users_channel_then_accepts_redo(
+    intake_on: None, store: InMemoryBuilderStore, bus: SessionEventBus, tmp_path: Path
+) -> None:
+    live = _begin(store)
+    register_live_turn(live)
+    model = FakeChatModel(
+        turns=(
+            ModelTurn(
+                text=(IntakeBriefFactory.as_text(IntakeBriefFactory.filled_slack()),)
+            ),
+            *_write_and_propose(_NO_CHANNEL),
+            *_write_and_propose(_WITH_CHANNEL, "notes-v2"),
+            ModelTurn(text=("Built with the channel.",)),
+        )
+    )
+
+    await run_turn(
+        live,
+        TurnRequest(content="post release notes to slack", canvas_state={"steps": []}),
+        _facts_gate_deps(store, bus, tmp_path, model, live),
+    )
+
+    row = _assistant_row(store, live)
+    assert "Facts that must appear in the steps that use them" in str(
+        model.calls[1][-1].content
+    )
+    assert [[i.rule for i in issues] for issues in live.gate_rejection_issues] == [
+        ["fact_propagation"]
+    ]
+    assert (row.outcome, row.revision) == ("draft", 1)
+
+
+async def test_run_turn_withholds_draft_and_explains_when_redo_still_lacks_the_channel(
+    intake_on: None, store: InMemoryBuilderStore, bus: SessionEventBus, tmp_path: Path
+) -> None:
+    live = _begin(store)
+    register_live_turn(live)
+    model = FakeChatModel(
+        turns=(
+            ModelTurn(
+                text=(IntakeBriefFactory.as_text(IntakeBriefFactory.filled_slack()),)
+            ),
+            *_write_and_propose(_NO_CHANNEL),
+            *_write_and_propose(_NO_CHANNEL, "notes-v2"),
+            ModelTurn(text=("unreached",)),
+        )
+    )
+
+    await run_turn(
+        live,
+        TurnRequest(content="post release notes to slack", canvas_state={"steps": []}),
+        _facts_gate_deps(store, bus, tmp_path, model, live),
+    )
+
+    row = _assistant_row(store, live)
+    assert row.revision is None
+    assert (
+        "The draft was withheld and is not on the canvas: the write_destinations value '#releases'"
+        in row.content
+    )
+    assert "A value you gave must reach the step that uses it" in row.content
+
+
+async def test_run_turn_rejects_placeholder_for_missing_link_then_accepts_redo(
+    intake_on: None, store: InMemoryBuilderStore, bus: SessionEventBus, tmp_path: Path
+) -> None:
+    live = _begin(store)
+    register_live_turn(live)
+    brief = IntakeBriefFactory.filled_email()
+    brief["missing_facts"] = [{"fact": "the release-notes link", "if_missing": "omit"}]
+    writer = {"agent": "custom-agent", "instance_id": "writer", "name": "Writer"}
+    placeholder = {
+        "id": "email",
+        "steps": [
+            {
+                **writer,
+                "prompt": "Write the email. Put [release-notes link] at the end.",
+            }
+        ],
+    }
+    omitted = {
+        "id": "email",
+        "steps": [
+            {
+                **writer,
+                "prompt": "Write the email. The link was not given: leave it out and say so.",
+            }
+        ],
+    }
+    model = FakeChatModel(
+        turns=(
+            ModelTurn(text=(IntakeBriefFactory.as_text(brief),)),
+            *_write_and_propose(placeholder),
+            *_write_and_propose(omitted, "email-v2"),
+            ModelTurn(text=("Built without a placeholder.",)),
+        )
+    )
+
+    await run_turn(
+        live,
+        TurnRequest(content="Write a launch email ...", canvas_state={"steps": []}),
+        _facts_gate_deps(store, bus, tmp_path, model, live),
+    )
+
+    row = _assistant_row(store, live)
+    assert [[i.rule for i in issues] for issues in live.gate_rejection_issues] == [
+        ["placeholder"]
+    ]
+    assert (row.outcome, row.revision) == ("draft", 1)
+    assert (
+        "- Not provided: the release-notes link - the workflow will omit it"
+        in row.content
     )

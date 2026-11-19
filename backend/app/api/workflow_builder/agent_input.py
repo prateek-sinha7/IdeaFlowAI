@@ -165,6 +165,8 @@ class InputRequest:
         tier: The caller's effective tier.
         content: The user's text.
         canvas_state: The Canvas state the message was sent with.
+        intake_brief: The settled intake overlay, or ``None`` (always ``None``
+            with the intake flag off).
     """
 
     user_id: str
@@ -175,6 +177,7 @@ class InputRequest:
     tier: str
     content: str
     canvas_state: dict[str, Any] | None
+    intake_brief: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -432,6 +435,7 @@ async def build_agent_input(
             step_models=step_models,
             has_accepted_draft=facts.has_accepted_draft,
             clarify_count=facts.clarify_count,
+            intake_brief=request.intake_brief,
         )
     )
     return AgentInput(

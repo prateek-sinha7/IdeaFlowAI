@@ -73,6 +73,14 @@ _BEDROCK_CODE_MAP: dict[str, tuple[str, bool]] = {
 }
 
 
+# Bedrock's event-stream error frames carry a lower-camel code
+# (``internalServerException``), while a ClientError carries PascalCase, so the
+# lookup ignores case (same rule as ``model_policy._is_transient_throttle``, FIX-564).
+_BEDROCK_CODE_MAP_CF: dict[str, tuple[str, bool]] = {
+    key.casefold(): value for key, value in _BEDROCK_CODE_MAP.items()
+}
+
+
 def map_exception(exc: BaseException) -> LLMErrorPayload:
     """Map any LLM-call exception to the triple shown to the user.
 
@@ -86,7 +94,7 @@ def map_exception(exc: BaseException) -> LLMErrorPayload:
         if isinstance(exc, botocore_exc.ClientError):
             error = getattr(exc, "response", {}).get("Error", {}) or {}
             aws_code = error.get("Code") or "Unknown"
-            mapped = _BEDROCK_CODE_MAP.get(aws_code)
+            mapped = _BEDROCK_CODE_MAP_CF.get(str(aws_code).casefold())
             if mapped:
                 code, recoverable = mapped
                 return LLMErrorPayload(_message_for(code), code, recoverable)
