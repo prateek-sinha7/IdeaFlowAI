@@ -240,7 +240,13 @@ _ALLOWED_ON_CONFLICT: frozenset[str] = frozenset(
 # part markers (agents/capabilities/slot_assemble.py, goal_v2). No model is involved in any. Closed set, same fail-loud
 # precedent as ``_ALLOWED_ON_CONFLICT``.
 _ALLOWED_MECHANICAL_KINDS: frozenset[str] = frozenset(
-    {"publish", "assemble_prototype", "assemble_backlog", "extract_prototype_ui", "assemble_slots"}
+    {
+        "publish",
+        "assemble_prototype",
+        "assemble_backlog",
+        "extract_prototype_ui",
+        "assemble_slots",
+    }
 )
 
 # EXACTLY the keys a step ``tools:`` grant block may declare (D-08 at the nested

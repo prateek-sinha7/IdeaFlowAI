@@ -8071,7 +8071,11 @@ class ExecutionEngine:
                 },
             }
             return
-        except (AssembleStepFailed, AssembleBacklogFailed, AssembleSlotsFailed) as _assemble_exc:
+        except (
+            AssembleStepFailed,
+            AssembleBacklogFailed,
+            AssembleSlotsFailed,
+        ) as _assemble_exc:
             # Prototype v3 / spec 021: the mechanical assemble step found the build below its
             # coverage threshold (or nothing to assemble). prototype.html and
             # build/validation.json (or backlog.md/.csv/.json) are already written for

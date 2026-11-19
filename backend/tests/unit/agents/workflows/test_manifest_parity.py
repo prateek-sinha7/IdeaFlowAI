@@ -321,7 +321,13 @@ _ENGINE_PIPELINE_DEFAULTS: dict[str, list[str]] = {
     "prototype_v2": [],
     # goal: the engine's built-in clarify stage (planner: run, clarify: auto) asks about the brief first.
     "goal": ["scope", "priority", "target_audience", "user_journeys", "business_rules"],
-    "goal_backup": ["scope", "priority", "target_audience", "user_journeys", "business_rules"],
+    "goal_backup": [
+        "scope",
+        "priority",
+        "target_audience",
+        "user_journeys",
+        "business_rules",
+    ],
     "goal_revision": [],
     "backlog": [],
     # clarify.mode: skip — spec 023 (prototype_from_template). The base pipeline

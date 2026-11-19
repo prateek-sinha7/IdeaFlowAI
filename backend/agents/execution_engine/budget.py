@@ -41,7 +41,9 @@ if TYPE_CHECKING:  # pragma: no cover — typing only
 # ---------------------------------------------------------------------------
 
 DEFAULT_MAX_SUBAGENTS = 8
-DEFAULT_MAX_CONCURRENCY = 6  # raised from 5: declared max_parallel:6 must clear reserve()
+DEFAULT_MAX_CONCURRENCY = (
+    6  # raised from 5: declared max_parallel:6 must clear reserve()
+)
 DEFAULT_MAX_DEPTH = 2
 DEFAULT_WALL_CLOCK_SECONDS = 900
 MERGE_AGENT_MAX_ATTEMPTS = 2

@@ -83,7 +83,10 @@ _EXPECTED_NAMES: list[tuple[str, str]] = [
     ("mechanical", "assemble_prototype"),  # prototype v3
     ("mechanical", "assemble_backlog"),  # spec 021 — backlog
     ("mechanical", "extract_prototype_ui"),  # backlog UI/UX — prototype look and feel
-    ("mechanical", "assemble_slots"),  # goal — parallel parts poured into the shell's slots
+    (
+        "mechanical",
+        "assemble_slots",
+    ),  # goal — parallel parts poured into the shell's slots
     ("tool", "ask_user"),  # mid-run clarification tool (HITL)
     ("gate", "human"),
     ("gate", "before-human"),  # spec 014 — PRE-step HITL half of the human-gate split
